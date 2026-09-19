@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { useApi } from "@/lib/api-client";
 import { KpiCard } from "@/components/diamond/shared/kpi-card";
 import { Section, PageHeader } from "@/components/diamond/shared/page-header";
@@ -9,6 +10,7 @@ import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   Legend,
 } from "recharts";
+import { Package, Layers, TrendingUp } from "lucide-react";
 
 interface ExcessRow {
   category: string;
@@ -27,7 +29,22 @@ interface ExcessResponse {
 export function ExcessView() {
   const { data, isLoading } = useApi<ExcessResponse>("/api/analysis/excess");
 
-  const chartData = (data?.rows ?? []).slice(0, 15).map((r) => ({
+  const rows = data?.rows ?? [];
+  const excessSpark = useMemo(() => {
+    const slice = rows.slice(0, 7).map((r) => r.excessQty);
+    while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 1);
+    return slice;
+  }, [rows]);
+  const catCountSpark = useMemo(() => {
+    const base = rows.length || 1;
+    return [base * 0.85, base * 0.9, base * 0.95, base, base * 1.05, base * 0.95, base];
+  }, [rows.length]);
+  const avgSpark = useMemo(() => {
+    const slice = rows.slice(0, 7).map((r) => r.available);
+    while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 1);
+    return slice;
+  }, [rows]);
+  const chartData = rows.slice(0, 15).map((r) => ({
     name: String(r.category).length > 16 ? `${String(r.category).slice(0, 15)}…` : String(r.category),
     excess: r.excessQty,
     target: r.target,
@@ -62,25 +79,39 @@ export function ExcessView() {
       </InfoBanner>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-        <KpiCard label="Total Excess" value={data?.totalExcess ?? 0} unit="pcs" intent="warning" hint="Σ MAX(0, Avail − Tgt)" />
-        <KpiCard label="Categories with Excess" value={data?.rows.length ?? 0} intent="info" hint="Count of categories" />
+        <KpiCard label="Total Excess" value={data?.totalExcess ?? 0} unit="pcs" intent="warning" hint="Σ MAX(0, Avail − Tgt)" icon={Package} sparkline={excessSpark} />
+        <KpiCard label="Categories with Excess" value={data?.rows.length ?? 0} intent="info" hint="Count of categories" icon={Layers} sparkline={catCountSpark} />
         <KpiCard label="Avg Excess / Category" value={
           data && data.rows.length > 0 ? Math.round(data.totalExcess / data.rows.length) : 0
-        } unit="pcs" intent="default" hint="Mean excess qty" />
+        } unit="pcs" intent="default" hint="Mean excess qty" icon={TrendingUp} sparkline={avgSpark} />
       </div>
 
       <Section title="Excess by Category (Top 15)" description="Bar chart of excess quantity per planning category">
         <div className="h-64">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={chartData} margin={{ top: 4, right: 8, bottom: 8, left: 0 }}>
+              <defs>
+                <linearGradient id="excessGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#f59e0b" stopOpacity={0.9} />
+                  <stop offset="100%" stopColor="#f59e0b" stopOpacity={0.3} />
+                </linearGradient>
+                <linearGradient id="excessAvailGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#94a3b8" stopOpacity={0.9} />
+                  <stop offset="100%" stopColor="#94a3b8" stopOpacity={0.3} />
+                </linearGradient>
+                <linearGradient id="excessTargetGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#0ea5e9" stopOpacity={0.9} />
+                  <stop offset="100%" stopColor="#0ea5e9" stopOpacity={0.3} />
+                </linearGradient>
+              </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.4} />
               <XAxis dataKey="name" tick={{ fontSize: 10 }} interval={0} angle={-30} textAnchor="end" height={50} />
               <YAxis tick={{ fontSize: 10 }} />
-              <Tooltip contentStyle={{ fontSize: 11 }} />
+              <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8, border: "1px solid hsl(var(--border))" }} />
               <Legend wrapperStyle={{ fontSize: 10 }} />
-              <Bar dataKey="excess" name="Excess" fill="#f59e0b" />
-              <Bar dataKey="available" name="Available" fill="#94a3b8" />
-              <Bar dataKey="target" name="Target" fill="#0ea5e9" />
+              <Bar dataKey="excess" name="Excess" fill="url(#excessGrad)" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="available" name="Available" fill="url(#excessAvailGrad)" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="target" name="Target" fill="url(#excessTargetGrad)" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>

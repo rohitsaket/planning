@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useApi } from "@/lib/api-client";
 import { KpiCard } from "@/components/diamond/shared/kpi-card";
 import { Section, PageHeader } from "@/components/diamond/shared/page-header";
@@ -10,7 +10,7 @@ import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   Legend,
 } from "recharts";
-import { Package, Gem } from "lucide-react";
+import { Package, Gem, Diamond, Layers } from "lucide-react";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -58,6 +58,22 @@ export function PolishedView() {
         { name: "365+", pieces: data.aging["365+"] },
       ])
     : [];
+  const rows = data?.rows ?? [];
+  const piecesSpark = useMemo(() => {
+    const slice = rows.slice(0, 7).map((r) => r.pieces);
+    while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 1);
+    return slice;
+  }, [rows]);
+  const caratsSpark = useMemo(() => {
+    const slice = rows.slice(0, 7).map((r) => r.carats);
+    while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 1);
+    return slice;
+  }, [rows]);
+  const valueSpark = useMemo(() => {
+    const slice = rows.slice(0, 7).map((r) => r.value);
+    while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 1);
+    return slice;
+  }, [rows]);
 
   const columns: Column<PolishedRow>[] = [
     {
@@ -93,21 +109,27 @@ export function PolishedView() {
       />
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-        <KpiCard label="Total Pieces" value={data?.totalPieces ?? 0} unit="pcs" intent="default" hint="Polished lots (all dimensions)" />
-        <KpiCard label="Total Carats" value={(data?.totalCarats ?? 0).toFixed(2)} unit="ct" intent="info" hint="Σ weight" />
-        <KpiCard label="Dimensions Distinct" value={(data?.rows.length ?? 0)} intent="success" hint={`By ${DIMENSIONS.find((d) => d.value === dimension)?.label}`} />
+        <KpiCard label="Total Pieces" value={data?.totalPieces ?? 0} unit="pcs" intent="info" hint="Polished lots (all dimensions)" icon={Gem} sparkline={piecesSpark} />
+        <KpiCard label="Total Carats" value={(data?.totalCarats ?? 0).toFixed(2)} unit="ct" intent="default" hint="Σ weight" icon={Diamond} sparkline={caratsSpark} />
+        <KpiCard label="Dimensions Distinct" value={(data?.rows.length ?? 0)} intent="success" hint={`By ${DIMENSIONS.find((d) => d.value === dimension)?.label}`} icon={Layers} sparkline={valueSpark} />
       </div>
 
       <Section title="Aging Buckets" description="Polished lot count by days since last update">
         <div className="h-56">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={agingData} margin={{ top: 4, right: 8, bottom: 8, left: 0 }}>
+              <defs>
+                <linearGradient id="polishedAgingGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#0ea5e9" stopOpacity={0.9} />
+                  <stop offset="100%" stopColor="#0ea5e9" stopOpacity={0.3} />
+                </linearGradient>
+              </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.4} />
               <XAxis dataKey="name" tick={{ fontSize: 10 }} />
               <YAxis tick={{ fontSize: 10 }} />
-              <Tooltip contentStyle={{ fontSize: 11 }} />
+              <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8, border: "1px solid hsl(var(--border))" }} />
               <Legend wrapperStyle={{ fontSize: 10 }} />
-              <Bar dataKey="pieces" name="Pieces" fill="#0ea5e9" />
+              <Bar dataKey="pieces" name="Pieces" fill="url(#polishedAgingGrad)" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>

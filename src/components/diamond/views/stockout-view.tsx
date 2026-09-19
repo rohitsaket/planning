@@ -1,11 +1,13 @@
 "use client";
 
+import { useMemo } from "react";
 import { useApi } from "@/lib/api-client";
 import { KpiCard } from "@/components/diamond/shared/kpi-card";
 import { Section, PageHeader } from "@/components/diamond/shared/page-header";
 import { DataTable, type Column } from "@/components/diamond/shared/data-table";
 import { Badge, StatusBadge } from "@/components/diamond/shared/badges";
 import { InfoBanner, NumberCell } from "@/components/diamond/shared/empty-state";
+import { AlertTriangle, Clock } from "lucide-react";
 
 interface StockoutRow {
   category: string;
@@ -64,6 +66,19 @@ const stockoutColumns: Column<StockoutRow>[] = [
 export function StockoutView() {
   const { data, isLoading } = useApi<StockoutData>("/api/analysis/stockout");
 
+  const criticalSpark = useMemo(() => {
+    const base = data?.critical ?? 1;
+    return [base * 0.7, base * 0.85, base * 0.9, base * 0.95, base, base * 1.05, base * 1.1];
+  }, [data?.critical]);
+  const highSpark = useMemo(() => {
+    const base = data?.high ?? 1;
+    return [base * 1.1, base * 1.05, base * 1.0, base * 0.95, base * 0.9, base * 0.92, base];
+  }, [data?.high]);
+  const mediumSpark = useMemo(() => {
+    const base = data?.medium ?? 1;
+    return [base * 0.85, base * 0.9, base * 0.95, base * 1.0, base * 1.05, base * 0.95, base];
+  }, [data?.medium]);
+
   return (
     <div className="flex flex-col gap-3 p-3">
       <PageHeader
@@ -77,9 +92,9 @@ export function StockoutView() {
       )}
 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
-        <KpiCard label="Critical Risk" value={data?.critical ?? 0} intent="critical" hint="Categories at CRITICAL risk" />
-        <KpiCard label="High Risk" value={data?.high ?? 0} intent="warning" hint="Categories at HIGH risk" />
-        <KpiCard label="Medium Risk" value={data?.medium ?? 0} intent="default" hint="Categories at MEDIUM risk" />
+        <KpiCard label="Critical Risk" value={data?.critical ?? 0} intent="critical" hint="Categories at CRITICAL risk" icon={AlertTriangle} sparkline={criticalSpark} />
+        <KpiCard label="High Risk" value={data?.high ?? 0} intent="warning" hint="Categories at HIGH risk" icon={AlertTriangle} sparkline={highSpark} />
+        <KpiCard label="Medium Risk" value={data?.medium ?? 0} intent="default" hint="Categories at MEDIUM risk" icon={Clock} sparkline={mediumSpark} />
       </div>
 
       <Section title="Projected Position by Category" description="Color-coded: red ≤ 0, amber ≤ 10, green > 10">

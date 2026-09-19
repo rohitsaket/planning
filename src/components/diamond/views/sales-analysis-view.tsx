@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useApi } from "@/lib/api-client";
 import { KpiCard } from "@/components/diamond/shared/kpi-card";
 import { Section, PageHeader } from "@/components/diamond/shared/page-header";
@@ -61,7 +61,23 @@ export function SalesAnalysisView() {
   const { data, isLoading } = useApi<SalesAnalysisResponse>(url);
 
   const totalCarats = (data?.rows ?? []).reduce((s, r) => s + r.carats, 0);
-  const chartData = (data?.rows ?? []).slice(0, 12).map((r) => ({
+  const rows = data?.rows ?? [];
+  const piecesSpark = useMemo(() => {
+    const slice = rows.slice(0, 7).map((r) => r.pieces);
+    while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 1);
+    return slice;
+  }, [rows]);
+  const caratsSpark = useMemo(() => {
+    const slice = rows.slice(0, 7).map((r) => r.carats);
+    while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 1);
+    return slice;
+  }, [rows]);
+  const valueSpark = useMemo(() => {
+    const slice = rows.slice(0, 7).map((r) => r.value);
+    while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 1);
+    return slice;
+  }, [rows]);
+  const chartData = rows.slice(0, 12).map((r) => ({
     name: String(r.dimension).length > 12 ? `${String(r.dimension).slice(0, 11)}…` : String(r.dimension),
     full: r.dimension,
     pieces: r.pieces,
@@ -119,21 +135,27 @@ export function SalesAnalysisView() {
       />
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-        <KpiCard label="Total Pieces" value={data?.totalPieces ?? 0} unit="pcs" intent="default" hint="Invoice lots in window" />
-        <KpiCard label="Total Carats" value={totalCarats.toFixed(2)} unit="ct" intent="info" hint="Sum of weights" />
-        <KpiCard label="Total Value" value={`$${((data?.totalValue ?? 0) / 1000).toFixed(1)}K`} intent="success" hint="Sum of sale totals" />
+        <KpiCard label="Total Pieces" value={data?.totalPieces ?? 0} unit="pcs" intent="info" hint="Invoice lots in window" icon={Package} sparkline={piecesSpark} />
+        <KpiCard label="Total Carats" value={totalCarats.toFixed(2)} unit="ct" intent="default" hint="Sum of weights" icon={Gem} sparkline={caratsSpark} />
+        <KpiCard label="Total Value" value={`$${((data?.totalValue ?? 0) / 1000).toFixed(1)}K`} intent="success" hint="Sum of sale totals" icon={DollarSign} sparkline={valueSpark} />
       </div>
 
       <Section title={`By ${DIMENSIONS.find((d) => d.value === dimension)?.label} (Top 12)`} description="Bar chart of pieces by dimension value">
         <div className="h-64">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={chartData} margin={{ top: 4, right: 8, bottom: 8, left: 0 }}>
+              <defs>
+                <linearGradient id="salesPiecesGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#0ea5e9" stopOpacity={0.9} />
+                  <stop offset="100%" stopColor="#0ea5e9" stopOpacity={0.3} />
+                </linearGradient>
+              </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.4} />
               <XAxis dataKey="name" tick={{ fontSize: 10 }} interval={0} angle={-30} textAnchor="end" height={50} />
               <YAxis tick={{ fontSize: 10 }} />
-              <Tooltip contentStyle={{ fontSize: 11 }} />
+              <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8, border: "1px solid hsl(var(--border))" }} />
               <Legend wrapperStyle={{ fontSize: 10 }} />
-              <Bar dataKey="pieces" name="Pieces" fill="#0ea5e9" />
+              <Bar dataKey="pieces" name="Pieces" fill="url(#salesPiecesGrad)" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>

@@ -1,11 +1,13 @@
 "use client";
 
+import { useMemo } from "react";
 import { useApi } from "@/lib/api-client";
 import { KpiCard } from "@/components/diamond/shared/kpi-card";
 import { Section, PageHeader } from "@/components/diamond/shared/page-header";
 import { DataTable, type Column } from "@/components/diamond/shared/data-table";
 import { Badge, StatusBadge } from "@/components/diamond/shared/badges";
 import { InfoBanner, NumberCell } from "@/components/diamond/shared/empty-state";
+import { Boxes } from "lucide-react";
 
 interface WipRow {
   dimension: string;
@@ -40,6 +42,12 @@ const eligibilityColumns: Column<EligibilityFlag>[] = [
 export function WipView() {
   const { data, isLoading } = useApi<WipData>("/api/analysis/wip");
 
+  const piecesSpark = useMemo(() => {
+    const slice = (data?.byStatus ?? []).slice(0, 7).map((r) => r.pieces);
+    while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 1);
+    return slice;
+  }, [data?.byStatus]);
+
   return (
     <div className="flex flex-col gap-3 p-3">
       <PageHeader
@@ -53,7 +61,7 @@ export function WipView() {
       )}
 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
-        <KpiCard label="Total WIP Pieces" value={data?.totalWipPieces ?? 0} unit="pcs" intent="info" hint="Approved plan pieces in manufacturing" />
+        <KpiCard label="Total WIP Pieces" value={data?.totalWipPieces ?? 0} unit="pcs" intent="info" hint="Approved plan pieces in manufacturing" icon={Boxes} sparkline={piecesSpark} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">

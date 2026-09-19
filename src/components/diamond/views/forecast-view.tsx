@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { useApi } from "@/lib/api-client";
 import { KpiCard } from "@/components/diamond/shared/kpi-card";
 import { Section, PageHeader } from "@/components/diamond/shared/page-header";
@@ -10,6 +11,7 @@ import { Progress } from "@/components/ui/progress";
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 } from "recharts";
+import { TrendingUp, Layers } from "lucide-react";
 
 interface ForecastRow {
   category: string;
@@ -76,6 +78,22 @@ export function ForecastView() {
     "60D": r.prediction60d,
     "90D": r.prediction90d,
   }));
+  const rows = data?.rows ?? [];
+  const h30Spark = useMemo(() => {
+    const slice = rows.slice(0, 7).map((r) => r.prediction30d);
+    while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 1);
+    return slice;
+  }, [rows]);
+  const h60Spark = useMemo(() => {
+    const slice = rows.slice(0, 7).map((r) => r.prediction60d);
+    while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 1);
+    return slice;
+  }, [rows]);
+  const h90Spark = useMemo(() => {
+    const slice = rows.slice(0, 7).map((r) => r.prediction90d);
+    while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 1);
+    return slice;
+  }, [rows]);
 
   return (
     <div className="flex flex-col gap-3 p-3">
@@ -92,10 +110,10 @@ export function ForecastView() {
       )}
 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
-        <KpiCard label="Model Version" value={data?.modelVersion ?? "—"} intent="info" hint="Active forecast model" />
-        <KpiCard label="Horizon 30D Total" value={data?.horizon30d ?? 0} unit="pcs" intent="default" hint="Σ 30-day predictions" />
-        <KpiCard label="Horizon 60D Total" value={data?.horizon60d ?? 0} unit="pcs" intent="default" hint="Σ 60-day predictions" />
-        <KpiCard label="Horizon 90D Total" value={data?.horizon90d ?? 0} unit="pcs" intent="info" hint="Σ 90-day predictions" />
+        <KpiCard label="Model Version" value={data?.modelVersion ?? "—"} intent="info" hint="Active forecast model" icon={Layers} />
+        <KpiCard label="Horizon 30D Total" value={data?.horizon30d ?? 0} unit="pcs" intent="default" hint="Σ 30-day predictions" icon={TrendingUp} sparkline={h30Spark} />
+        <KpiCard label="Horizon 60D Total" value={data?.horizon60d ?? 0} unit="pcs" intent="default" hint="Σ 60-day predictions" icon={TrendingUp} sparkline={h60Spark} />
+        <KpiCard label="Horizon 90D Total" value={data?.horizon90d ?? 0} unit="pcs" intent="info" hint="Σ 90-day predictions" icon={TrendingUp} sparkline={h90Spark} />
       </div>
 
       <Section title="Predictions by Category" description="Each row is a predicted demand figure, not a confirmed order requirement">
@@ -117,14 +135,20 @@ export function ForecastView() {
         <div className="h-72">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={chartData}>
+              <defs>
+                <linearGradient id="forecast30Grad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#10b981" stopOpacity={0.9} />
+                  <stop offset="100%" stopColor="#10b981" stopOpacity={0.3} />
+                </linearGradient>
+              </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.4} />
               <XAxis dataKey="name" tick={{ fontSize: 10 }} interval={0} angle={-30} textAnchor="end" height={60} />
               <YAxis tick={{ fontSize: 10 }} />
-              <Tooltip contentStyle={{ fontSize: 11 }} />
+              <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8, border: "1px solid hsl(var(--border))" }} />
               <Legend wrapperStyle={{ fontSize: 10 }} />
               <Line type="monotone" dataKey="30D" stroke="#10b981" strokeWidth={2} dot={{ r: 2 }} />
               <Line type="monotone" dataKey="60D" stroke="#f59e0b" strokeWidth={2} dot={{ r: 2 }} />
-              <Line type="monotone" dataKey="90D" stroke="#0ea5e9" strokeWidth={2} dot={{ r: 2 }} />
+              <Line type="monotone" dataKey="90D" stroke="url(#forecast30Grad)" strokeWidth={2.5} dot={{ r: 2.5 }} />
             </LineChart>
           </ResponsiveContainer>
         </div>

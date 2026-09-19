@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { useApi } from "@/lib/api-client";
 import { KpiCard } from "@/components/diamond/shared/kpi-card";
 import { Section, PageHeader } from "@/components/diamond/shared/page-header";
@@ -9,7 +10,7 @@ import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   Legend,
 } from "recharts";
-import { Globe, Layers, Boxes, AlertTriangle } from "lucide-react";
+import { Globe, Layers, Boxes, AlertTriangle, Package } from "lucide-react";
 
 interface CountryRow {
   country: string;
@@ -37,7 +38,39 @@ interface CountryResponse {
 export function CountryView() {
   const { data, isLoading } = useApi<CountryResponse>("/api/analysis/countries");
 
-  const chartData = (data?.rows ?? []).map((r) => ({
+  const rows = data?.rows ?? [];
+  const targetSpark = useMemo(() => {
+    const slice = rows.slice(0, 7).map((r) => r.target);
+    while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 1);
+    return slice;
+  }, [rows]);
+  const availSpark = useMemo(() => {
+    const slice = rows.slice(0, 7).map((r) => r.available);
+    while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 1);
+    return slice;
+  }, [rows]);
+  const shortageSpark = useMemo(() => {
+    const slice = rows.slice(0, 7).map((r) => r.physicalShortage);
+    while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 1);
+    return slice;
+  }, [rows]);
+  const excessSpark = useMemo(() => {
+    const slice = rows.slice(0, 7).map((r) => r.excess);
+    while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 1);
+    return slice;
+  }, [rows]);
+  const wipSpark = useMemo(() => {
+    const slice = rows.slice(0, 7).map((r) => r.wip);
+    while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 1);
+    return slice;
+  }, [rows]);
+  const planCovSpark = useMemo(() => {
+    const slice = rows.slice(0, 7).map((r) => r.planCov);
+    while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 1);
+    return slice;
+  }, [rows]);
+
+  const chartData = rows.map((r) => ({
     name: r.country,
     shortage: r.physicalShortage,
     wip: r.wip,
@@ -81,26 +114,40 @@ export function CountryView() {
 
       {/* Global aggregates */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
-        <KpiCard label="Global Target" value={g?.target ?? 0} unit="pcs" intent="default" hint="Σ Rounded Target" />
-        <KpiCard label="Global Available" value={g?.available ?? 0} unit="pcs" intent="success" hint="Polished stock" />
-        <KpiCard label="Global Shortage" value={g?.shortage ?? 0} unit="pcs" intent="critical" hint="MAX(0, Tgt − Avail)" />
-        <KpiCard label="Global Excess" value={g?.excess ?? 0} unit="pcs" intent="warning" hint="MAX(0, Avail − Tgt)" />
-        <KpiCard label="Global WIP" value={g?.wip ?? 0} unit="pcs" intent="info" hint="Approved plan pieces" />
-        <KpiCard label="Global Plan Cov" value={g?.planCov ?? 0} unit="pcs" intent="success" hint="Approved coverage" />
+        <KpiCard label="Global Target" value={g?.target ?? 0} unit="pcs" intent="default" hint="Σ Rounded Target" icon={Globe} sparkline={targetSpark} />
+        <KpiCard label="Global Available" value={g?.available ?? 0} unit="pcs" intent="success" hint="Polished stock" icon={Package} sparkline={availSpark} />
+        <KpiCard label="Global Shortage" value={g?.shortage ?? 0} unit="pcs" intent="critical" hint="MAX(0, Tgt − Avail)" icon={AlertTriangle} sparkline={shortageSpark} />
+        <KpiCard label="Global Excess" value={g?.excess ?? 0} unit="pcs" intent="warning" hint="MAX(0, Avail − Tgt)" icon={Layers} sparkline={excessSpark} />
+        <KpiCard label="Global WIP" value={g?.wip ?? 0} unit="pcs" intent="info" hint="Approved plan pieces" icon={Boxes} sparkline={wipSpark} />
+        <KpiCard label="Global Plan Cov" value={g?.planCov ?? 0} unit="pcs" intent="success" hint="Approved coverage" icon={Package} sparkline={planCovSpark} />
       </div>
 
       <Section title="Shortage by Country" description="Horizontal breakdown — shortage (red), WIP (amber), plan coverage (green)">
         <div className="h-72">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={chartData} layout="vertical" margin={{ top: 4, right: 16, bottom: 4, left: 0 }}>
+              <defs>
+                <linearGradient id="countryShortageGrad" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0%" stopColor="#ef4444" stopOpacity={0.9} />
+                  <stop offset="100%" stopColor="#ef4444" stopOpacity={0.3} />
+                </linearGradient>
+                <linearGradient id="countryWipGrad" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0%" stopColor="#f59e0b" stopOpacity={0.9} />
+                  <stop offset="100%" stopColor="#f59e0b" stopOpacity={0.3} />
+                </linearGradient>
+                <linearGradient id="countryPlanCovGrad" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0%" stopColor="#10b981" stopOpacity={0.9} />
+                  <stop offset="100%" stopColor="#10b981" stopOpacity={0.3} />
+                </linearGradient>
+              </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.4} />
               <XAxis type="number" tick={{ fontSize: 10 }} />
               <YAxis dataKey="name" type="category" tick={{ fontSize: 10 }} width={70} />
-              <Tooltip contentStyle={{ fontSize: 11 }} />
+              <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8, border: "1px solid hsl(var(--border))" }} />
               <Legend wrapperStyle={{ fontSize: 10 }} />
-              <Bar dataKey="shortage" name="Shortage" stackId="a" fill="#ef4444" />
-              <Bar dataKey="wip" name="WIP" stackId="a" fill="#f59e0b" />
-              <Bar dataKey="planCov" name="Plan Cov" stackId="a" fill="#10b981" />
+              <Bar dataKey="shortage" name="Shortage" stackId="a" fill="url(#countryShortageGrad)" radius={[0, 4, 4, 0]} />
+              <Bar dataKey="wip" name="WIP" stackId="a" fill="url(#countryWipGrad)" radius={[0, 4, 4, 0]} />
+              <Bar dataKey="planCov" name="Plan Cov" stackId="a" fill="url(#countryPlanCovGrad)" radius={[0, 4, 4, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>

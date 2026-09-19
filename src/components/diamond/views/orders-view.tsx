@@ -1,10 +1,13 @@
 "use client";
 
+import { useMemo } from "react";
 import { useApi } from "@/lib/api-client";
+import { KpiCard } from "@/components/diamond/shared/kpi-card";
 import { Section, PageHeader } from "@/components/diamond/shared/page-header";
 import { DataTable, Column } from "@/components/diamond/shared/data-table";
 import { NumberCell } from "@/components/diamond/shared/empty-state";
 import { StatusBadge, Badge } from "@/components/diamond/shared/badges";
+import { FileText, AlertTriangle, Clock, Boxes } from "lucide-react";
 
 interface OrderRow {
   id: string;
@@ -94,6 +97,16 @@ export function OrdersView() {
   const totalOutstanding = (data?.rows ?? []).reduce((s, r) => s + r.qtyOutstanding, 0);
   const totalBackorder = (data?.rows ?? []).reduce((s, r) => s + r.backorderQty, 0);
   const overdueCount = (data?.rows ?? []).filter(isOverdue).length;
+  const outstandingSpark = useMemo(() => {
+    const slice = (data?.rows ?? []).slice(0, 7).map((r) => r.qtyOutstanding);
+    while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 1);
+    return slice;
+  }, [data?.rows]);
+  const backorderSpark = useMemo(() => {
+    const slice = (data?.rows ?? []).slice(0, 7).map((r) => r.backorderQty);
+    while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 1);
+    return slice;
+  }, [data?.rows]);
 
   return (
     <div className="flex flex-col gap-3 p-3">
@@ -106,6 +119,13 @@ export function OrdersView() {
           </span>
         }
       />
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+        <KpiCard label="Open Orders" value={totalOrders} intent="info" hint="Active sales orders" icon={FileText} />
+        <KpiCard label="Overdue Orders" value={overdueCount} intent="critical" hint="Required date past + outstanding > 0" icon={AlertTriangle} />
+        <KpiCard label="Outstanding Qty" value={totalOutstanding} unit="pcs" intent="warning" hint="Σ qtyOutstanding" icon={Boxes} sparkline={outstandingSpark} />
+        <KpiCard label="Backorder Qty" value={totalBackorder} unit="pcs" intent="default" hint="Σ backorderQty" icon={Clock} sparkline={backorderSpark} />
+      </div>
 
       <Section title="Orders" description="Rows are tinted rose when required date is past and outstanding > 0">
         <DataTable<OrderRow>

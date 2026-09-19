@@ -18,6 +18,7 @@ export type ViewId =
   | "analysis-excess"
   | "analysis-aging"
   | "analysis-reorder-signals"
+  | "demand-history"
   | "requirements-matrix"
   | "requirements-priority-queue"
   | "requirements-orders"

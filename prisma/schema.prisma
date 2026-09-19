@@ -494,6 +494,7 @@ model PlanOption {
 
   pieces           PlanOptionPiece[]
   allocations      RequirementAllocation[]
+  reconciliations PlanActualReconciliation[]
 }
 
 model PlanOptionPiece {
@@ -536,6 +537,7 @@ model ActualPolishedLink {
 model PlanActualReconciliation {
   id                 String   @id @default(cuid())
   planOptionId       String
+  planOption         PlanOption? @relation(fields: [planOptionId], references: [id])
   expectedPieces     Int
   actualPieces       Int      @default(0)
   expectedTotalWeight Decimal

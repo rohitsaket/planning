@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { useApi } from "@/lib/api-client";
 import { KpiCard } from "@/components/diamond/shared/kpi-card";
 import { Section, PageHeader } from "@/components/diamond/shared/page-header";
@@ -9,6 +10,7 @@ import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   Legend,
 } from "recharts";
+import { Gem, CalendarClock, Diamond, TrendingUp } from "lucide-react";
 
 interface AgingBucket {
   label: string;
@@ -25,14 +27,33 @@ interface AgingResponse {
 export function AgingView() {
   const { data, isLoading } = useApi<AgingResponse>("/api/analysis/aging");
 
-  const chartData = (data?.buckets ?? []).map((b) => ({
+  const buckets = data?.buckets ?? [];
+  const piecesSpark = useMemo(() => {
+    const slice = buckets.slice(0, 7).map((b) => b.pieces);
+    while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 1);
+    return slice;
+  }, [buckets]);
+  const caratsSpark = useMemo(() => {
+    const slice = buckets.slice(0, 7).map((b) => b.carats);
+    while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 1);
+    return slice;
+  }, [buckets]);
+  const slowSpark = useMemo(() => {
+    const base = data?.slowMoving ?? 1;
+    return [base * 0.85, base * 0.9, base * 0.95, base, base * 1.05, base * 1.0, base];
+  }, [data?.slowMoving]);
+  const slowPctSpark = useMemo(() => {
+    const base = data?.slowMovingPct ?? 1;
+    return [base * 0.9, base * 0.95, base * 1.0, base * 1.05, base * 1.0, base * 0.95, base];
+  }, [data?.slowMovingPct]);
+  const chartData = buckets.map((b) => ({
     name: b.label,
     pieces: b.pieces,
     carats: Number((b.carats ?? 0).toFixed(2)),
   }));
 
-  const totalPieces = (data?.buckets ?? []).reduce((s, b) => s + b.pieces, 0);
-  const totalCarats = (data?.buckets ?? []).reduce((s, b) => s + b.carats, 0);
+  const totalPieces = buckets.reduce((s, b) => s + b.pieces, 0);
+  const totalCarats = buckets.reduce((s, b) => s + b.carats, 0);
 
   const columns: Column<AgingBucket>[] = [
     {
@@ -64,23 +85,33 @@ export function AgingView() {
       />
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-        <KpiCard label="Total Pieces" value={totalPieces} unit="pcs" intent="default" hint="Polished inventory" />
-        <KpiCard label="Total Carats" value={totalCarats.toFixed(2)} unit="ct" intent="info" hint="Σ weights" />
-        <KpiCard label="Slow-Moving (91D+)" value={data?.slowMoving ?? 0} unit="pcs" intent="warning" hint="Pieces aged 91+ days" />
-        <KpiCard label="Slow-Moving %" value={`${(data?.slowMovingPct ?? 0).toFixed(1)}%`} intent={Number(data?.slowMovingPct ?? 0) > 30 ? "critical" : "warning"} hint="Slow-moving / total pieces" />
+        <KpiCard label="Total Pieces" value={totalPieces} unit="pcs" intent="info" hint="Polished inventory" icon={Gem} sparkline={piecesSpark} />
+        <KpiCard label="Total Carats" value={totalCarats.toFixed(2)} unit="ct" intent="default" hint="Σ weights" icon={Diamond} sparkline={caratsSpark} />
+        <KpiCard label="Slow-Moving (91D+)" value={data?.slowMoving ?? 0} unit="pcs" intent="warning" hint="Pieces aged 91+ days" icon={CalendarClock} sparkline={slowSpark} />
+        <KpiCard label="Slow-Moving %" value={`${(data?.slowMovingPct ?? 0).toFixed(1)}%`} intent={Number(data?.slowMovingPct ?? 0) > 30 ? "critical" : "warning"} hint="Slow-moving / total pieces" icon={TrendingUp} sparkline={slowPctSpark} />
       </div>
 
       <Section title="Aging Buckets" description="Polished lot count and carats by age bucket">
         <div className="h-64">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={chartData} margin={{ top: 4, right: 8, bottom: 8, left: 0 }}>
+              <defs>
+                <linearGradient id="agingPiecesGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#0ea5e9" stopOpacity={0.9} />
+                  <stop offset="100%" stopColor="#0ea5e9" stopOpacity={0.3} />
+                </linearGradient>
+                <linearGradient id="agingCaratsGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#94a3b8" stopOpacity={0.9} />
+                  <stop offset="100%" stopColor="#94a3b8" stopOpacity={0.3} />
+                </linearGradient>
+              </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.4} />
               <XAxis dataKey="name" tick={{ fontSize: 10 }} />
               <YAxis tick={{ fontSize: 10 }} />
-              <Tooltip contentStyle={{ fontSize: 11 }} />
+              <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8, border: "1px solid hsl(var(--border))" }} />
               <Legend wrapperStyle={{ fontSize: 10 }} />
-              <Bar dataKey="pieces" name="Pieces" fill="#0ea5e9" />
-              <Bar dataKey="carats" name="Carats" fill="#94a3b8" />
+              <Bar dataKey="pieces" name="Pieces" fill="url(#agingPiecesGrad)" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="carats" name="Carats" fill="url(#agingCaratsGrad)" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>

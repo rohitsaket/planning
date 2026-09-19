@@ -18,6 +18,7 @@ import { StockoutView } from "@/components/diamond/views/stockout-view";
 import { ExcessView } from "@/components/diamond/views/excess-view";
 import { AgingView } from "@/components/diamond/views/aging-view";
 import { ReorderSignalsView } from "@/components/diamond/views/reorder-signals-view";
+import { DemandHistoryView } from "@/components/diamond/views/demand-history-view";
 import { RequirementsMatrixView } from "@/components/diamond/views/requirements-matrix-view";
 import { PriorityQueueView } from "@/components/diamond/views/priority-queue-view";
 import { RoughAvailabilityView } from "@/components/diamond/views/rough-availability-view";
@@ -60,6 +61,7 @@ const VIEW_REGISTRY: Record<string, React.ComponentType> = {
   "analysis-excess": ExcessView,
   "analysis-aging": AgingView,
   "analysis-reorder-signals": ReorderSignalsView,
+  "demand-history": DemandHistoryView,
   "analysis-executive": DashboardView,
   "requirements-matrix": RequirementsMatrixView,
   "requirements-priority-queue": PriorityQueueView,

@@ -9,7 +9,7 @@ import {
   FlaskConical, FileBarChart, Settings, ChevronDown, ChevronRight, Search,
   Bell, User, Database, Activity, Scale, Layers, Map, FileWarning,
   Workflow, ClipboardCheck, CalendarClock, Hash, RefreshCw, BookCheck, ClipboardList, Diamond,
-  Moon, Sun, Monitor, Command as CommandIcon
+  Moon, Sun, Monitor, Command as CommandIcon, History
 } from "lucide-react";
 import { ReactNode, useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
@@ -59,6 +59,7 @@ const NAV: NavGroup[] = [
       { id: "analysis-excess", label: "Excess Stock", icon: <Package className="h-3.5 w-3.5" /> },
       { id: "analysis-aging", label: "Stock Aging", icon: <CalendarClock className="h-3.5 w-3.5" /> },
       { id: "analysis-reorder-signals", label: "Reorder Signals", icon: <Star className="h-3.5 w-3.5" /> },
+      { id: "demand-history", label: "Demand Run History", icon: <History className="h-3.5 w-3.5" /> },
     ],
   },
   {

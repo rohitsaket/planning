@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useApi } from "@/lib/api-client";
+import { KpiCard } from "@/components/diamond/shared/kpi-card";
 import { Section, PageHeader } from "@/components/diamond/shared/page-header";
 import { DataTable, Column } from "@/components/diamond/shared/data-table";
 import { NumberCell } from "@/components/diamond/shared/empty-state";
@@ -10,6 +11,7 @@ import {
   ResponsiveContainer, ComposedChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   Legend,
 } from "recharts";
+import { TrendingUp, TrendingDown, Activity } from "lucide-react";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -71,6 +73,21 @@ export function SalesTrendsView() {
     latest30: r.latest30,
   }));
 
+  const totalLatest30 = (data?.rows ?? []).reduce((s, r) => s + r.latest30, 0);
+  const total90 = (data?.rows ?? []).reduce((s, r) => s + r.total90, 0);
+  const growthGroups = (data?.rows ?? []).filter((r) => ["Strong Growth", "Growth", "New Demand"].includes(r.trend)).length;
+  const declineGroups = (data?.rows ?? []).filter((r) => ["Strong Decline", "Declining", "Volatile"].includes(r.trend)).length;
+  const latest30Spark = useMemo(() => {
+    const slice = (data?.rows ?? []).slice(0, 7).map((r) => r.latest30);
+    while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 1);
+    return slice;
+  }, [data?.rows]);
+  const total90Spark = useMemo(() => {
+    const slice = (data?.rows ?? []).slice(0, 7).map((r) => r.total90);
+    while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 1);
+    return slice;
+  }, [data?.rows]);
+
   const columns: Column<TrendRow>[] = [
     {
       key: "key", header: "Group", sortable: true, sortValue: (r) => r.key, sticky: "left",
@@ -122,18 +139,31 @@ export function SalesTrendsView() {
         meta={<span className="text-[10px] text-muted-foreground">Group: {GROUPS.find((g) => g.value === groupBy)?.label}</span>}
       />
 
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+        <KpiCard label="Latest 30D Total" value={totalLatest30} unit="pcs" intent="info" hint="Σ pieces in latest window" icon={Activity} sparkline={latest30Spark} />
+        <KpiCard label="90D Total" value={total90} unit="pcs" intent="default" hint="Σ 90-day pieces" icon={TrendingUp} sparkline={total90Spark} />
+        <KpiCard label="Growth Groups" value={growthGroups} intent="success" hint="Strong Growth / Growth / New Demand" icon={TrendingUp} />
+        <KpiCard label="Declining Groups" value={declineGroups} intent="critical" hint="Strong Decline / Declining / Volatile" icon={TrendingDown} />
+      </div>
+
       <Section title="Trend Chart (Top 15)" description="Prev 30D vs Mid 30D vs Latest 30D — pieces per group">
         <div className="h-64">
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart data={chartData} margin={{ top: 4, right: 8, bottom: 8, left: 0 }}>
+              <defs>
+                <linearGradient id="trendLatestGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#0ea5e9" stopOpacity={0.9} />
+                  <stop offset="100%" stopColor="#0ea5e9" stopOpacity={0.3} />
+                </linearGradient>
+              </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.4} />
               <XAxis dataKey="name" tick={{ fontSize: 10 }} interval={0} angle={-30} textAnchor="end" height={50} />
               <YAxis tick={{ fontSize: 10 }} />
-              <Tooltip contentStyle={{ fontSize: 11 }} />
+              <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8, border: "1px solid hsl(var(--border))" }} />
               <Legend wrapperStyle={{ fontSize: 10 }} />
-              <Bar dataKey="prev30" name="Prev 30D" fill="#94a3b8" />
-              <Bar dataKey="mid30" name="Mid 30D" fill="#60a5fa" />
-              <Bar dataKey="latest30" name="Latest 30D" fill="#0ea5e9" />
+              <Bar dataKey="prev30" name="Prev 30D" fill="#94a3b8" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="mid30" name="Mid 30D" fill="#60a5fa" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="latest30" name="Latest 30D" fill="url(#trendLatestGrad)" radius={[4, 4, 0, 0]} />
             </ComposedChart>
           </ResponsiveContainer>
         </div>

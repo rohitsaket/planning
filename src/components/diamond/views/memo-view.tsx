@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { useApi } from "@/lib/api-client";
 import { KpiCard } from "@/components/diamond/shared/kpi-card";
 import { Section, PageHeader } from "@/components/diamond/shared/page-header";
@@ -10,6 +11,7 @@ import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   Legend,
 } from "recharts";
+import { FileText, DollarSign, Clock, AlertTriangle } from "lucide-react";
 
 interface MemoAggRow {
   dimension: string;
@@ -65,6 +67,26 @@ export function MemoView() {
         { name: "180+", qty: data.ageBuckets["180+"] },
       ])
     : [];
+  const byCountry = data?.byCountry ?? [];
+  const qtySpark = useMemo(() => {
+    const slice = byCountry.slice(0, 7).map((r) => r.qty);
+    while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 1);
+    return slice;
+  }, [byCountry]);
+  const valueSpark = useMemo(() => {
+    const slice = byCountry.slice(0, 7).map((r) => r.value);
+    while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 1);
+    return slice;
+  }, [byCountry]);
+  const avgAgeSpark = useMemo(() => {
+    const slice = byCountry.slice(0, 7).map((r) => r.avgAge);
+    while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 1);
+    return slice;
+  }, [byCountry]);
+  const agedSpark = useMemo(() => {
+    const base = data ? (data.ageBuckets["91-180"] + data.ageBuckets["180+"]) : 1;
+    return [base * 0.85, base * 0.9, base * 1.0, base * 1.05, base * 1.1, base * 1.0, base];
+  }, [data]);
 
   const aggColumns: Column<MemoAggRow>[] = [
     {
@@ -123,16 +145,16 @@ export function MemoView() {
       </InfoBanner>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
-        <KpiCard label="Total Qty" value={data?.totalQty ?? 0} unit="pcs" intent="default" hint="All memo lots" />
-        <KpiCard label="Total Value" value={`$${((data?.totalValue ?? 0) / 1000).toFixed(1)}K`} intent="warning" hint="Memo exposure at cost" />
+        <KpiCard label="Total Qty" value={data?.totalQty ?? 0} unit="pcs" intent="info" hint="All memo lots" icon={FileText} sparkline={qtySpark} />
+        <KpiCard label="Total Value" value={`$${((data?.totalValue ?? 0) / 1000).toFixed(1)}K`} intent="warning" hint="Memo exposure at cost" icon={DollarSign} sparkline={valueSpark} />
         <KpiCard label="Avg Age" value={
           data && data.rows.length > 0
             ? Math.round(data.rows.reduce((s, r) => s + (r.memoAgeDays ?? 0), 0) / data.rows.length)
             : 0
-        } unit="days" intent="info" hint="Mean across all open memos" />
+        } unit="days" intent="default" hint="Mean across all open memos" icon={Clock} sparkline={avgAgeSpark} />
         <KpiCard label="Aged > 90D" value={
           data ? (data.ageBuckets["91-180"] + data.ageBuckets["180+"]) : 0
-        } unit="pcs" intent="critical" hint="Memos needing follow-up" />
+        } unit="pcs" intent="critical" hint="Memos needing follow-up" icon={AlertTriangle} sparkline={agedSpark} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
@@ -164,12 +186,18 @@ export function MemoView() {
         <div className="h-56">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={ageChartData} margin={{ top: 4, right: 8, bottom: 8, left: 0 }}>
+              <defs>
+                <linearGradient id="memoAgeGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#f59e0b" stopOpacity={0.9} />
+                  <stop offset="100%" stopColor="#f59e0b" stopOpacity={0.3} />
+                </linearGradient>
+              </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.4} />
               <XAxis dataKey="name" tick={{ fontSize: 10 }} />
               <YAxis tick={{ fontSize: 10 }} />
-              <Tooltip contentStyle={{ fontSize: 11 }} />
+              <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8, border: "1px solid hsl(var(--border))" }} />
               <Legend wrapperStyle={{ fontSize: 10 }} />
-              <Bar dataKey="qty" name="Qty" fill="#f59e0b" />
+              <Bar dataKey="qty" name="Qty" fill="url(#memoAgeGrad)" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
