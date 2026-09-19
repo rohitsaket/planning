@@ -1,0 +1,957 @@
+     1→"use client";
+     2→
+     3→import { useMemo } from "react";
+     4→import { useApi } from "@/lib/api-client";
+     5→import { KpiCard } from "@/components/diamond/shared/kpi-card";
+     6→import { Section, PageHeader } from "@/components/diamond/shared/page-header";
+     7→import { DataTable, type Column } from "@/components/diamond/shared/data-table";
+     8→import { Badge } from "@/components/diamond/shared/badges";
+     9→import { NumberCell, InfoBanner, EmptyState } from "@/components/diamond/shared/empty-state";
+    10→import {
+    11→  ResponsiveContainer,
+    12→  ComposedChart,
+    13→  BarChart,
+    14→  Bar,
+    15→  Line,
+    16→  XAxis,
+    17→  YAxis,
+    18→  CartesianGrid,
+    19→  Tooltip,
+    20→  Legend,
+    21→  ReferenceLine,
+    22→  Cell,
+    23→  ErrorBar,
+    24→} from "recharts";
+    25→import {
+    26→  AlertTriangle,
+    27→  TrendingUp,
+    28→  Activity,
+    29→  Layers,
+    30→  AlertOctagon,
+    31→} from "lucide-react";
+    32→import { Progress } from "@/components/ui/progress";
+    33→import { cn } from "@/lib/utils";
+    34→import { KpiGridSkeleton, ChartSkeleton, TableSkeleton } from "@/components/diamond/shared/skeleton";
+    35→
+    36→// ---------------------------------------------------------------------------
+    37→// Types
+    38→// ---------------------------------------------------------------------------
+    39→type RiskLevel = "HIGH" | "MEDIUM" | "LOW";
+    40→
+    41→interface PredictionRow {
+    42→  caseId: string;
+    43→  caseCode: string;
+    44→  stoneName: string;
+    45→  stoneType: string;
+    46→  roughWeight: number;
+    47→  plannedYieldPct: number;
+    48→  predictedActualYield: number;
+    49→  predictionLower: number;
+    50→  predictionUpper: number;
+    51→  variance: number;
+    52→  confidence: number;
+    53→  riskLevel: RiskLevel;
+    54→  selectedOptionCode: string;
+    55→  status: string;
+    56→}
+    57→
+    58→interface HistoricalRow {
+    59→  id: string;
+    60→  planOptionId: string;
+    61→  planOptionCode: string;
+    62→  plannedYield: number;
+    63→  actualYield: number;
+    64→  variance: number;
+    65→  status: string;
+    66→  reconciledAt: string | null;
+    67→}
+    68→
+    69→interface YieldSummary {
+    70→  historicalReconciliations: number;
+    71→  mae: number;
+    72→  bias: number;
+    73→  movingAverageYield: number;
+    74→  naiveLastPeriodYield: number;
+    75→  exponentialSmoothedYield: number;
+    76→  stdDev: number;
+    77→  predictionInterval: { lower: number; upper: number };
+    78→  confidence: number;
+    79→  predictionCount: number;
+    80→}
+    81→
+    82→interface YieldPredictionResponse {
+    83→  summary: YieldSummary;
+    84→  predictions: PredictionRow[];
+    85→  historical: HistoricalRow[];
+    86→  methodology: string;
+    87→  advisoryNotice: string;
+    88→}
+    89→
+    90→// ---------------------------------------------------------------------------
+    91→// Helpers
+    92→// ---------------------------------------------------------------------------
+    93→const RISK_COLORS: Record<RiskLevel, string> = {
+    94→  HIGH: "#f43f5e", // rose-500
+    95→  MEDIUM: "#f59e0b", // amber-500
+    96→  LOW: "#10b981", // emerald-500
+    97→};
+    98→
+    99→function fmtSigned(v: number): string {
+   100→  if (!Number.isFinite(v)) return "—";
+   101→  const s = v > 0 ? "+" : "";
+   102→  return `${s}${v.toFixed(2)}`;
+   103→}
+   104→
+   105→// ---------------------------------------------------------------------------
+   106→// Main view
+   107→// ---------------------------------------------------------------------------
+   108→export function YieldPredictionView() {
+   109→  const { data, isLoading } = useApi<YieldPredictionResponse>(
+   110→    "/api/analysis/yield-prediction"
+   111→  );
+   112→  const summary = data?.summary;
+   113→  const predictions = data?.predictions ?? [];
+   114→  const historical = data?.historical ?? [];
+   115→
+   116→  // Sparklines (need >=2 points to render)
+   117→  const histSpark = useMemo(() => {
+   118→    const slice = historical.map((h) => h.actualYield);
+   119→    while (slice.length < 2) slice.push(summary?.movingAverageYield ?? 0);
+   120→    return slice;
+   121→  }, [historical, summary]);
+   122→  const maSpark = useMemo(() => {
+   123→    // MA5 trailing window — visualise the actual series the MA was built on
+   124→    const slice = historical.slice(-5).map((h) => h.actualYield);
+   125→    while (slice.length < 2) slice.push(summary?.movingAverageYield ?? 0);
+   126→    return slice;
+   127→  }, [historical, summary]);
+   128→  const naiveSpark = useMemo(() => {
+   129→    const slice = historical.slice(-3).map((h) => h.actualYield);
+   130→    while (slice.length < 2) slice.push(summary?.naiveLastPeriodYield ?? 0);
+   131→    return slice;
+   132→  }, [historical, summary]);
+   133→  const expSpark = useMemo(() => {
+   134→    if (historical.length < 2) {
+   135→      return [summary?.exponentialSmoothedYield ?? 0, summary?.exponentialSmoothedYield ?? 0];
+   136→    }
+   137→    // Recursive ES trail α=0.3
+   138→    const trail: number[] = [historical[0].actualYield];
+   139→    let s = historical[0].actualYield;
+   140→    for (let i = 1; i < historical.length; i++) {
+   141→      s = 0.3 * historical[i].actualYield + 0.7 * s;
+   142→      trail.push(s);
+   143→    }
+   144→    return trail;
+   145→  }, [historical]);
+   146→  const stdSpark = useMemo(() => {
+   147→    if (historical.length < 2) {
+   148→      return [summary?.stdDev ?? 0, summary?.stdDev ?? 0];
+   149→    }
+   150→    // Rolling std-dev trail (population)
+   151→    const trail: number[] = [];
+   152→    for (let i = 0; i < historical.length; i++) {
+   153→      const slice = historical.slice(0, i + 1).map((h) => h.actualYield);
+   154→      const m = slice.reduce((a, b) => a + b, 0) / slice.length;
+   155→      const v = slice.reduce((a, b) => a + (b - m) ** 2, 0) / slice.length;
+   156→      trail.push(Math.sqrt(v));
+   157→    }
+   158→    return trail;
+   159→  }, [historical]);
+   160→  const maeSpark = useMemo(() => {
+   161→    const slice = historical.map((h) => Math.abs(h.variance));
+   162→    while (slice.length < 2) slice.push(summary?.mae ?? 0);
+   163→    return slice;
+   164→  }, [historical, summary]);
+   165→
+   166→  // Historical accuracy chart data
+   167→  const histChartData = useMemo(
+   168→    () =>
+   169→      historical.map((h, i) => ({
+   170→        name: h.planOptionCode ?? `REC-${i + 1}`,
+   171→        Planned: Number(h.plannedYield.toFixed(2)),
+   172→        Actual: Number(h.actualYield.toFixed(2)),
+   173→        Variance: Number(h.variance.toFixed(2)),
+   174→      })),
+   175→    [historical]
+   176→  );
+   177→
+   178→  // Prediction interval chart data
+   179→  const predChartData = useMemo(
+   180→    () =>
+   181→      predictions.map((p) => ({
+   182→        name: p.caseCode,
+   183→        Predicted: Number(p.predictedActualYield.toFixed(2)),
+   184→        // recharts ErrorBar expects an array of [lower, upper] deviations or
+   185→        // a `value` + error arrays. We use the explicit low/high fields.
+   186→        Lower: Number(p.predictionLower.toFixed(2)),
+   187→        Upper: Number(p.predictionUpper.toFixed(2)),
+   188→        // ErrorBar reads `error` as the half-range on each side
+   189→        error: [
+   190→          Number((p.predictedActualYield - p.predictionLower).toFixed(2)),
+   191→          Number((p.predictionUpper - p.predictedActualYield).toFixed(2)),
+   192→        ],
+   193→        Planned: Number(p.plannedYieldPct.toFixed(2)),
+   194→        risk: p.riskLevel,
+   195→        variance: p.variance,
+   196→        fullLower: p.predictionLower,
+   197→        fullUpper: p.predictionUpper,
+   198→      })),
+   199→    [predictions]
+   200→  );
+   201→
+   202→  // Predictions table columns
+   203→  const predColumns: Column<PredictionRow>[] = [
+   204→    {
+   205→      key: "caseCode",
+   206→      header: "Case Code",
+   207→      sticky: "left",
+   208→      sortable: true,
+   209→      sortValue: (r) => r.caseCode,
+   210→      cell: (r) => (
+   211→        <span className="font-mono text-[11px] font-medium">{r.caseCode}</span>
+   212→      ),
+   213→    },
+   214→    {
+   215→      key: "stoneName",
+   216→      header: "Stone Name",
+   217→      sortable: true,
+   218→      sortValue: (r) => r.stoneName,
+   219→      cell: (r) => (
+   220→        <span className="text-[11px] text-foreground/90 truncate block max-w-[180px]">
+   221→          {r.stoneName}
+   222→        </span>
+   223→      ),
+   224→    },
+   225→    {
+   226→      key: "stoneType",
+   227→      header: "Stone Type",
+   228→      align: "center",
+   229→      sortable: true,
+   230→      sortValue: (r) => r.stoneType,
+   231→      cell: (r) => (
+   232→        <Badge
+   233→          variant={
+   234→            r.stoneType === "BLUE" ? "info" : "neutral"
+   235→          }
+   236→        >
+   237→          {r.stoneType}
+   238→        </Badge>
+   239→      ),
+   240→    },
+   241→    {
+   242→      key: "roughWeight",
+   243→      header: "Rough Wt",
+   244→      align: "right",
+   245→      sortable: true,
+   246→      sortValue: (r) => r.roughWeight,
+   247→      cell: (r) => (
+   248→        <NumberCell value={r.roughWeight} decimals={2} />
+   249→      ),
+   250→    },
+   251→    {
+   252→      key: "plannedYieldPct",
+   253→      header: "Plan Yield",
+   254→      align: "right",
+   255→      sortable: true,
+   256→      sortValue: (r) => r.plannedYieldPct,
+   257→      cell: (r) => <NumberCell value={r.plannedYieldPct} decimals={2} />,
+   258→    },
+   259→    {
+   260→      key: "predictedActualYield",
+   261→      header: "Predicted Yield",
+   262→      align: "right",
+   263→      sortable: true,
+   264→      sortValue: (r) => r.predictedActualYield,
+   265→      cell: (r) => (
+   266→        <NumberCell value={r.predictedActualYield} decimals={2} intent="info" />
+   267→      ),
+   268→    },
+   269→    {
+   270→      key: "variance",
+   271→      header: "Variance",
+   272→      align: "right",
+   273→      sortable: true,
+   274→      sortValue: (r) => r.variance,
+   275→      cell: (r) => (
+   276→        <span
+   277→          className={cn(
+   278→            "tabular-nums font-medium",
+   279→            r.variance < 0
+   280→              ? "text-rose-600 dark:text-rose-400"
+   281→              : r.variance > 0
+   282→                ? "text-emerald-600 dark:text-emerald-400"
+   283→                : "text-muted-foreground"
+   284→          )}
+   285→        >
+   286→          {fmtSigned(r.variance)}
+   287→        </span>
+   288→      ),
+   289→    },
+   290→    {
+   291→      key: "predictionLower",
+   292→      header: "Pred Lower",
+   293→      align: "right",
+   294→      sortable: true,
+   295→      sortValue: (r) => r.predictionLower,
+   296→      cell: (r) => (
+   297→        <NumberCell value={r.predictionLower} decimals={2} />
+   298→      ),
+   299→    },
+   300→    {
+   301→      key: "predictionUpper",
+   302→      header: "Pred Upper",
+   303→      align: "right",
+   304→      sortable: true,
+   305→      sortValue: (r) => r.predictionUpper,
+   306→      cell: (r) => (
+   307→        <NumberCell value={r.predictionUpper} decimals={2} />
+   308→      ),
+   309→    },
+   310→    {
+   311→      key: "confidence",
+   312→      header: "Confidence",
+   313→      align: "center",
+   314→      sortable: true,
+   315→      sortValue: (r) => r.confidence,
+   316→      cell: (r) => (
+   317→        <div className="flex items-center gap-1.5 min-w-[80px]">
+   318→          <Progress
+   319→            value={Math.round(r.confidence * 100)}
+   320→            className="h-1.5 w-12"
+   321→          />
+   322→          <span
+   323→            className={cn(
+   324→              "tabular-nums text-[10px] font-medium",
+   325→              r.confidence >= 0.7
+   326→                ? "text-emerald-600 dark:text-emerald-400"
+   327→                : r.confidence >= 0.4
+   328→                  ? "text-amber-600 dark:text-amber-400"
+   329→                  : "text-rose-600 dark:text-rose-400"
+   330→            )}
+   331→          >
+   332→            {Math.round(r.confidence * 100)}%
+   333→          </span>
+   334→        </div>
+   335→      ),
+   336→    },
+   337→    {
+   338→      key: "riskLevel",
+   339→      header: "Risk",
+   340→      align: "center",
+   341→      sortable: true,
+   342→      sortValue: (r) => r.riskLevel,
+   343→      cell: (r) => (
+   344→        <span
+   345→          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium border"
+   346→          style={{
+   347→            color: RISK_COLORS[r.riskLevel],
+   348→            borderColor: RISK_COLORS[r.riskLevel] + "55",
+   349→            backgroundColor: RISK_COLORS[r.riskLevel] + "15",
+   350→          }}
+   351→        >
+   352→          <AlertTriangle className="h-2.5 w-2.5" />
+   353→          {r.riskLevel}
+   354→        </span>
+   355→      ),
+   356→    },
+   357→  ];
+   358→
+   359→  // Historical reconciliations table columns
+   360→  const histColumns: Column<HistoricalRow>[] = [
+   361→    {
+   362→      key: "planOptionCode",
+   363→      header: "Plan Option",
+   364→      sticky: "left",
+   365→      sortable: true,
+   366→      sortValue: (r) => r.planOptionCode,
+   367→      cell: (r) => (
+   368→        <span className="font-mono text-[11px] font-medium">{r.planOptionCode}</span>
+   369→      ),
+   370→    },
+   371→    {
+   372→      key: "plannedYield",
+   373→      header: "Planned Yield",
+   374→      align: "right",
+   375→      sortable: true,
+   376→      sortValue: (r) => r.plannedYield,
+   377→      cell: (r) => <NumberCell value={r.plannedYield} decimals={2} />,
+   378→    },
+   379→    {
+   380→      key: "actualYield",
+   381→      header: "Actual Yield",
+   382→      align: "right",
+   383→      sortable: true,
+   384→      sortValue: (r) => r.actualYield,
+   385→      cell: (r) => (
+   386→        <NumberCell value={r.actualYield} decimals={2} intent="info" />
+   387→      ),
+   388→    },
+   389→    {
+   390→      key: "variance",
+   391→      header: "Variance",
+   392→      align: "right",
+   393→      sortable: true,
+   394→      sortValue: (r) => r.variance,
+   395→      cell: (r) => (
+   396→        <span
+   397→          className={cn(
+   398→            "tabular-nums font-medium",
+   399→            r.variance < 0
+   400→              ? "text-rose-600 dark:text-rose-400"
+   401→              : r.variance > 0
+   402→                ? "text-emerald-600 dark:text-emerald-400"
+   403→                : "text-muted-foreground"
+   404→          )}
+   405→        >
+   406→          {fmtSigned(r.variance)}
+   407→        </span>
+   408→      ),
+   409→    },
+   410→    {
+   411→      key: "status",
+   412→      header: "Status",
+   413→      align: "center",
+   414→      sortable: true,
+   415→      sortValue: (r) => r.status,
+   416→      cell: (r) => (
+   417→        <Badge
+   418→          variant={r.status === "RECONCILED" ? "success" : "warning"}
+   419→          className="font-mono"
+   420→        >
+   421→          {r.status}
+   422→        </Badge>
+   423→      ),
+   424→    },
+   425→  ];
+   426→
+   427→  return (
+   428→    <div className="flex flex-col gap-3 p-3">
+   429→      <PageHeader
+   430→        title="Yield Prediction"
+   431→        subtitle="Predicted actual yield from historical reconciliation baselines"
+   432→        meta={
+   433→          summary ? (
+   434→            <span className="text-[10px] text-muted-foreground">
+   435→              {summary.historicalReconciliations} reconciliations ·{" "}
+   436→              {summary.predictionCount} active predictions
+   437→            </span>
+   438→          ) : null
+   439→        }
+   440→      />
+   441→
+   442→      <InfoBanner variant="warning">
+   443→        <div className="flex items-start gap-2">
+   444→          <AlertOctagon className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
+   445→          <div>
+   446→            <strong>PREDICTION — </strong>
+   447→            Yield prediction is advisory. Never auto-approve or auto-reject a
+   448→            plan based on predicted yield alone.{" "}
+   449→            <strong>OPEN rule:</strong> model selection logic is unconfirmed.
+   450→          </div>
+   451→        </div>
+   452→      </InfoBanner>
+   453→
+   454→      {isLoading && !data ? (
+   455→        <div className="flex flex-col gap-3">
+   456→          <KpiGridSkeleton count={6} />
+   457→          <ChartSkeleton />
+   458→          <TableSkeleton rows={5} cols={8} />
+   459→        </div>
+   460→      ) : (
+   461→        <>
+   462→      {/* Summary KPI grid */}
+   463→      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
+   464→        <KpiCard
+   465→          label="Reconciliations"
+   466→          value={summary?.historicalReconciliations ?? 0}
+   467→          unit="recs"
+   468→          intent="default"
+   469→          icon={Layers}
+   470→          hint="Historical plan-actual"
+   471→          sparkline={histSpark}
+   472→        />
+   473→        <KpiCard
+   474→          label="Moving Avg Yield"
+   475→          value={summary ? summary.movingAverageYield.toFixed(2) : "—"}
+   476→          unit="%"
+   477→          intent="info"
+   478→          icon={TrendingUp}
+   479→          hint="Last 5 reconciliations — PRIMARY baseline"
+   480→          sparkline={maSpark}
+   481→        />
+   482→        <KpiCard
+   483→          label="Naive Last Period"
+   484→          value={summary ? summary.naiveLastPeriodYield.toFixed(2) : "—"}
+   485→          unit="%"
+   486→          intent="default"
+   487→          icon={Activity}
+   488→          hint="Most recent actual yield"
+   489→          sparkline={naiveSpark}
+   490→        />
+   491→        <KpiCard
+   492→          label="Exp. Smoothed"
+   493→          value={summary ? summary.exponentialSmoothedYield.toFixed(2) : "—"}
+   494→          unit="%"
+   495→          intent="info"
+   496→          icon={TrendingUp}
+   497→          hint="α = 0.3 (recent-weighted)"
+   498→          sparkline={expSpark}
+   499→        />
+   500→        <KpiCard
+   501→          label="Std Dev"
+   502→          value={summary ? summary.stdDev.toFixed(2) : "—"}
+   503→          unit="σ"
+   504→          intent="warning"
+   505→          icon={AlertTriangle}
+   506→          hint="Prediction uncertainty (±1σ)"
+   507→          sparkline={stdSpark}
+   508→        />
+   509→        <KpiCard
+   510→          label="MAE"
+   511→          value={summary ? summary.mae.toFixed(2) : "—"}
+   512→          unit="pp"
+   513→          intent="warning"
+   514→          icon={AlertTriangle}
+   515→          hint="Mean abs error of plan→actual"
+   516→          sparkline={maeSpark}
+   517→        />
+   518→      </div>
+   519→
+   520→      {/* Methodology */}
+   521→      <Section
+   522→        title="Methodology — Baseline Forecasting"
+   523→        description="Naive Last Period · Moving Average · Exponential Smoothing (spec §61)"
+   524→      >
+   525→        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+   526→          <div className="rounded-md border border-border bg-muted/30 p-3">
+   527→            <div className="flex items-center gap-1.5 mb-1">
+   528→              <Activity className="h-3.5 w-3.5 text-muted-foreground" />
+   529→              <span className="text-[11px] font-semibold text-foreground">
+   530→                Naive Last Period
+   531→              </span>
+   532→            </div>
+   533→            <p className="text-[10px] text-muted-foreground leading-relaxed">
+   534→              <span className="font-mono text-foreground">
+   535→                ŷ<sub>t+1</sub> = y<sub>t</sub>
+   536→              </span>{" "}
+   537→              — the most recent actual yield. Fastest, but sensitive to noise.
+   538→            </p>
+   539→            <p className="mt-1.5 text-[10px] tabular-nums text-foreground font-medium">
+   540→              {summary ? summary.naiveLastPeriodYield.toFixed(2) : "—"}%
+   541→            </p>
+   542→          </div>
+   543→          <div className="rounded-md border border-sky-200/60 bg-sky-50/60 dark:border-sky-900/60 dark:bg-sky-950/20 p-3">
+   544→            <div className="flex items-center gap-1.5 mb-1">
+   545→              <TrendingUp className="h-3.5 w-3.5 text-sky-600 dark:text-sky-400" />
+   546→              <span className="text-[11px] font-semibold text-foreground">
+   547→                Moving Average (5) — PRIMARY
+   548→              </span>
+   549→            </div>
+   550→            <p className="text-[10px] text-muted-foreground leading-relaxed">
+   551→              <span className="font-mono text-foreground">
+   552→                ŷ<sub>t+1</sub> = (1/5) · Σ<sub>i=t-4..t</sub> y<sub>i</sub>
+   553→              </span>{" "}
+   554→              — mean of the last 5 actual yields. Smoother than naive.
+   555→            </p>
+   556→            <p className="mt-1.5 text-[10px] tabular-nums text-sky-700 dark:text-sky-300 font-medium">
+   557→              {summary ? summary.movingAverageYield.toFixed(2) : "—"}%
+   558→            </p>
+   559→          </div>
+   560→          <div className="rounded-md border border-border bg-muted/30 p-3">
+   561→            <div className="flex items-center gap-1.5 mb-1">
+   562→              <TrendingUp className="h-3.5 w-3.5 text-muted-foreground" />
+   563→              <span className="text-[11px] font-semibold text-foreground">
+   564→                Exponential Smoothing (α=0.3)
+   565→              </span>
+   566→            </div>
+   567→            <p className="text-[10px] text-muted-foreground leading-relaxed">
+   568→              <span className="font-mono text-foreground">
+   569→                S<sub>t</sub> = α·y<sub>t</sub> + (1−α)·S<sub>t-1</sub>
+   570→              </span>{" "}
+   571→              — recursive; recent observations weighted higher.
+   572→            </p>
+   573→            <p className="mt-1.5 text-[10px] tabular-nums text-foreground font-medium">
+   574→              {summary ? summary.exponentialSmoothedYield.toFixed(2) : "—"}%
+   575→            </p>
+   576→          </div>
+   577→        </div>
+   578→
+   579→        <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-2 text-[10px]">
+   580→          <div className="rounded-md border border-border bg-muted/30 px-2 py-1.5">
+   581→            <p className="text-muted-foreground uppercase tracking-wide">
+   582→              Bias (signed mean residual)
+   583→            </p>
+   584→            <p
+   585→              className={cn(
+   586→                "tabular-nums font-semibold",
+   587→                (summary?.bias ?? 0) < 0
+   588→                  ? "text-rose-600 dark:text-rose-400"
+   589→                  : (summary?.bias ?? 0) > 0
+   590→                    ? "text-emerald-600 dark:text-emerald-400"
+   591→                    : "text-foreground"
+   592→              )}
+   593→            >
+   594→              {summary ? fmtSigned(summary.bias) : "—"}
+   595→            </p>
+   596→          </div>
+   597→          <div className="rounded-md border border-border bg-muted/30 px-2 py-1.5">
+   598→            <p className="text-muted-foreground uppercase tracking-wide">
+   599→              MAE (model accuracy)
+   600→            </p>
+   601→            <p className="tabular-nums font-semibold text-amber-600 dark:text-amber-400">
+   602→              {summary ? summary.mae.toFixed(2) : "—"}
+   603→            </p>
+   604→          </div>
+   605→          <div className="rounded-md border border-border bg-muted/30 px-2 py-1.5">
+   606→            <p className="text-muted-foreground uppercase tracking-wide">
+   607→              Prediction Interval ±1σ
+   608→            </p>
+   609→            <p className="tabular-nums font-semibold text-foreground">
+   610→              {summary
+   611→                ? `${summary.predictionInterval.lower.toFixed(2)} → ${summary.predictionInterval.upper.toFixed(2)}`
+   612→                : "—"}
+   613→            </p>
+   614→          </div>
+   615→          <div className="rounded-md border border-border bg-muted/30 px-2 py-1.5">
+   616→            <p className="text-muted-foreground uppercase tracking-wide">
+   617→              Confidence (1 − CV)
+   618→            </p>
+   619→            <p className="tabular-nums font-semibold text-sky-600 dark:text-sky-400">
+   620→              {summary ? `${Math.round(summary.confidence * 100)}%` : "—"}
+   621→            </p>
+   622→          </div>
+   623→        </div>
+   624→
+   625→        <div className="mt-3 text-[10px] text-muted-foreground leading-relaxed">
+   626→          <strong className="text-foreground">Risk classification:</strong>{" "}
+   627→          <span style={{ color: RISK_COLORS.HIGH }}>
+   628→            HIGH if |variance| &gt; 2σ
+   629→          </span>{" "}
+   630→          ·{" "}
+   631→          <span style={{ color: RISK_COLORS.MEDIUM }}>
+   632→            MEDIUM if |variance| &gt; 1σ
+   633→          </span>{" "}
+   634→          ·{" "}
+   635→          <span style={{ color: RISK_COLORS.LOW }}>
+   636→            LOW otherwise
+   637→          </span>
+   638→          . Variance = predicted actual − planned yield (signed).
+   639→        </div>
+   640→
+   641→        <div className="mt-2 text-[10px] text-muted-foreground/80 italic leading-relaxed">
+   642→          {data?.methodology}
+   643→        </div>
+   644→
+   645→        <div className="mt-2 rounded-md border border-amber-200/60 bg-amber-50/40 dark:border-amber-900/40 dark:bg-amber-950/10 px-2 py-1.5 text-[10px] text-amber-900 dark:text-amber-200 leading-relaxed">
+   646→          <strong>Advisory:</strong> {data?.advisoryNotice}
+   647→        </div>
+   648→      </Section>
+   649→
+   650→      {/* Historical Accuracy chart */}
+   651→      <Section
+   652→        title="Historical Plan vs Actual Yield"
+   653→        description="Each reconciliation: planned yield (slate) vs actual yield (emerald), with variance line (signed)."
+   654→        actions={
+   655→          historical.length > 0 ? (
+   656→            <Badge variant="info" className="gap-1">
+   657→              <Layers className="h-2.5 w-2.5" /> {historical.length} reconciliations
+   658→            </Badge>
+   659→          ) : null
+   660→        }
+   661→      >
+   662→        <div className="h-80">
+   663→          {histChartData.length === 0 ? (
+   664→            <EmptyState
+   665→              title="No reconciliations yet"
+   666→              message="Plan-actual reconciliation records will appear here once manufacturing completes."
+   667→              icon={<Layers className="h-8 w-8" />}
+   668→            />
+   669→          ) : (
+   670→            <ResponsiveContainer width="100%" height="100%">
+   671→              <ComposedChart
+   672→                data={histChartData}
+   673→                margin={{ top: 12, right: 24, bottom: 24, left: 8 }}
+   674→              >
+   675→                <defs>
+   676→                  <linearGradient id="gPlanned" x1="0" y1="0" x2="0" y2="1">
+   677→                    <stop offset="0%" stopColor="#94a3b8" stopOpacity={0.95} />
+   678→                    <stop offset="100%" stopColor="#94a3b8" stopOpacity={0.55} />
+   679→                  </linearGradient>
+   680→                  <linearGradient id="gActual" x1="0" y1="0" x2="0" y2="1">
+   681→                    <stop offset="0%" stopColor="#10b981" stopOpacity={0.95} />
+   682→                    <stop offset="100%" stopColor="#10b981" stopOpacity={0.55} />
+   683→                  </linearGradient>
+   684→                </defs>
+   685→                <CartesianGrid
+   686→                  strokeDasharray="3 3"
+   687→                  stroke="hsl(var(--border))"
+   688→                  opacity={0.4}
+   689→                />
+   690→                <XAxis
+   691→                  dataKey="name"
+   692→                  tick={{ fontSize: 10 }}
+   693→                  angle={-20}
+   694→                  textAnchor="end"
+   695→                  height={50}
+   696→                  interval={0}
+   697→                />
+   698→                <YAxis
+   699→                  tick={{ fontSize: 10 }}
+   700→                  tickFormatter={(v: number) => `${v.toFixed(1)}`}
+   701→                  label={{
+   702→                    value: "Yield %",
+   703→                    angle: -90,
+   704→                    position: "insideLeft",
+   705→                    fontSize: 10,
+   706→                  }}
+   707→                />
+   708→                <Tooltip
+   709→                  contentStyle={{
+   710→                    fontSize: 11,
+   711→                    borderRadius: 8,
+   712→                    border: "1px solid hsl(var(--border))",
+   713→                  }}
+   714→                  formatter={(v: number, name: string) =>
+   715→                    name === "Variance"
+   716→                      ? fmtSigned(v)
+   717→                      : `${Number(v).toFixed(2)}%`
+   718→                  }
+   719→                />
+   720→                <Legend wrapperStyle={{ fontSize: 10 }} />
+   721→                <Bar
+   722→                  dataKey="Planned"
+   723→                  fill="url(#gPlanned)"
+   724→                  radius={[4, 4, 0, 0]}
+   725→                  barSize={14}
+   726→                />
+   727→                <Bar
+   728→                  dataKey="Actual"
+   729→                  fill="url(#gActual)"
+   730→                  radius={[4, 4, 0, 0]}
+   731→                  barSize={14}
+   732→                />
+   733→                <Line
+   734→                  type="monotone"
+   735→                  dataKey="Variance"
+   736→                  stroke="#f59e0b"
+   737→                  strokeWidth={2}
+   738→                  dot={{ r: 3, fill: "#f59e0b" }}
+   739→                  activeDot={{ r: 4 }}
+   740→                />
+   741→                <ReferenceLine y={0} stroke="#94a3b8" strokeDasharray="4 4" />
+   742→              </ComposedChart>
+   743→            </ResponsiveContainer>
+   744→          )}
+   745→        </div>
+   746→      </Section>
+   747→
+   748→      {/* Prediction Interval chart */}
+   749→      <Section
+   750→        title="Prediction Interval — Un-reconciled Cases"
+   751→        description="Predicted actual yield (baseline MA) with ±1σ error bars, colored by risk level. Dashed line = planned yield."
+   752→        actions={
+   753→          predictions.length > 0 ? (
+   754→            <div className="flex items-center gap-1.5">
+   755→              <Badge variant="critical" className="gap-1">
+   756→                <AlertTriangle className="h-2.5 w-2.5" />
+   757→                {predictions.filter((p) => p.riskLevel === "HIGH").length} HIGH
+   758→              </Badge>
+   759→              <Badge variant="warning" className="gap-1">
+   760→                {predictions.filter((p) => p.riskLevel === "MEDIUM").length} MED
+   761→              </Badge>
+   762→              <Badge variant="success" className="gap-1">
+   763→                {predictions.filter((p) => p.riskLevel === "LOW").length} LOW
+   764→              </Badge>
+   765→            </div>
+   766→          ) : null
+   767→        }
+   768→      >
+   769→        <div className="h-80">
+   770→          {predChartData.length === 0 ? (
+   771→            <EmptyState
+   772→              title="No predictions to display"
+   773→              message="Approved / released planning cases awaiting reconciliation will appear here."
+   774→              icon={<TrendingUp className="h-8 w-8" />}
+   775→            />
+   776→          ) : (
+   777→            <ResponsiveContainer width="100%" height="100%">
+   778→              <BarChart
+   779→                data={predChartData}
+   780→                margin={{ top: 12, right: 24, bottom: 24, left: 8 }}
+   781→              >
+   782→                <defs>
+   783→                  <linearGradient id="gPredLow" x1="0" y1="0" x2="0" y2="1">
+   784→                    <stop offset="0%" stopColor={RISK_COLORS.LOW} stopOpacity={0.95} />
+   785→                    <stop offset="100%" stopColor={RISK_COLORS.LOW} stopOpacity={0.55} />
+   786→                  </linearGradient>
+   787→                  <linearGradient id="gPredMed" x1="0" y1="0" x2="0" y2="1">
+   788→                    <stop offset="0%" stopColor={RISK_COLORS.MEDIUM} stopOpacity={0.95} />
+   789→                    <stop offset="100%" stopColor={RISK_COLORS.MEDIUM} stopOpacity={0.55} />
+   790→                  </linearGradient>
+   791→                  <linearGradient id="gPredHigh" x1="0" y1="0" x2="0" y2="1">
+   792→                    <stop offset="0%" stopColor={RISK_COLORS.HIGH} stopOpacity={0.95} />
+   793→                    <stop offset="100%" stopColor={RISK_COLORS.HIGH} stopOpacity={0.55} />
+   794→                  </linearGradient>
+   795→                </defs>
+   796→                <CartesianGrid
+   797→                  strokeDasharray="3 3"
+   798→                  stroke="hsl(var(--border))"
+   799→                  opacity={0.4}
+   800→                />
+   801→                <XAxis
+   802→                  dataKey="name"
+   803→                  tick={{ fontSize: 10 }}
+   804→                  angle={-20}
+   805→                  textAnchor="end"
+   806→                  height={50}
+   807→                  interval={0}
+   808→                />
+   809→                <YAxis
+   810→                  tick={{ fontSize: 10 }}
+   811→                  tickFormatter={(v: number) => `${v.toFixed(1)}`}
+   812→                  label={{
+   813→                    value: "Yield %",
+   814→                    angle: -90,
+   815→                    position: "insideLeft",
+   816→                    fontSize: 10,
+   817→                  }}
+   818→                />
+   819→                <Tooltip
+   820→                  contentStyle={{
+   821→                    fontSize: 11,
+   822→                    borderRadius: 8,
+   823→                    border: "1px solid hsl(var(--border))",
+   824→                  }}
+   825→                  formatter={(v: number, name: string) => {
+   826→                    if (name === "Predicted" || name === "Planned")
+   827→                      return `${Number(v).toFixed(2)}%`;
+   828→                    return `${Number(v).toFixed(2)}`;
+   829→                  }}
+   830→                  labelFormatter={(_, payload) => {
+   831→                    const p = payload?.[0]?.payload as
+   832→                      | { risk?: RiskLevel; variance?: number; fullLower?: number; fullUpper?: number }
+   833→                      | undefined;
+   834→                    return p
+   835→                      ? `${p.name ?? ""} · risk=${p.risk ?? ""} · variance=${p.variance?.toFixed(2) ?? ""} · interval=[${p.fullLower?.toFixed(2) ?? ""}, ${p.fullUpper?.toFixed(2) ?? ""}]`
+   836→                      : "";
+   837→                  }}
+   838→                />
+   839→                <Legend wrapperStyle={{ fontSize: 10 }} />
+   840→                <Bar
+   841→                  dataKey="Predicted"
+   842→                  radius={[4, 4, 0, 0]}
+   843→                  barSize={28}
+   844→                >
+   845→                  {predChartData.map((p, i) => (
+   846→                    <Cell
+   847→                      key={i}
+   848→                      fill={
+   849→                        p.risk === "HIGH"
+   850→                          ? "url(#gPredHigh)"
+   851→                          : p.risk === "MEDIUM"
+   852→                            ? "url(#gPredMed)"
+   853→                            : "url(#gPredLow)"
+   854→                      }
+   855→                    />
+   856→                  ))}
+   857→                  <ErrorBar
+   858→                    dataKey="error"
+   859→                    width={6}
+   860→                    strokeWidth={1.5}
+   861→                    stroke="#475569"
+   862→                  />
+   863→                </Bar>
+   864→                <ReferenceLine y={0} stroke="#94a3b8" strokeDasharray="4 4" />
+   865→              </BarChart>
+   866→            </ResponsiveContainer>
+   867→          )}
+   868→        </div>
+   869→        <div className="mt-2 flex flex-wrap items-center gap-3 text-[10px] text-muted-foreground">
+   870→          <span className="inline-flex items-center gap-1">
+   871→            <span className="h-2 w-2 rounded-full" style={{ background: RISK_COLORS.HIGH }} />
+   872→            HIGH (|var|&gt;2σ)
+   873→          </span>
+   874→          <span className="inline-flex items-center gap-1">
+   875→            <span className="h-2 w-2 rounded-full" style={{ background: RISK_COLORS.MEDIUM }} />
+   876→            MEDIUM (|var|&gt;1σ)
+   877→          </span>
+   878→          <span className="inline-flex items-center gap-1">
+   879→            <span className="h-2 w-2 rounded-full" style={{ background: RISK_COLORS.LOW }} />
+   880→            LOW (within σ)
+   881→          </span>
+   882→          <span className="inline-flex items-center gap-1">
+   883→            <span className="h-0 w-4 border-t-2 border-slate-500" />
+   884→            Error bar = ±1σ prediction interval
+   885→          </span>
+   886→        </div>
+   887→      </Section>
+   888→
+   889→      {/* Predictions table */}
+   890→      <Section
+   891→        title="Yield Predictions — Active Cases"
+   892→        description="Approved / released planning cases awaiting reconciliation. Predicted from baseline moving average."
+   893→      >
+   894→        <DataTable<PredictionRow>
+   895→          columns={predColumns}
+   896→          rows={predictions}
+   897→          loading={isLoading}
+   898→          emptyMessage="No active cases awaiting reconciliation — all approved plans have been reconciled."
+   899→          initialSortKey="variance"
+   900→          initialSortDir="desc"
+   901→          searchable
+   902→          searchPlaceholder="Search case code, stone name, risk..."
+   903→          searchFn={(r, q) => {
+   904→            const lq = q.toLowerCase();
+   905→            return (
+   906→              r.caseCode.toLowerCase().includes(lq) ||
+   907→              r.stoneName.toLowerCase().includes(lq) ||
+   908→              r.stoneType.toLowerCase().includes(lq) ||
+   909→              r.riskLevel.toLowerCase().includes(lq) ||
+   910→              r.selectedOptionCode.toLowerCase().includes(lq)
+   911→            );
+   912→          }}
+   913→          exportable
+   914→          exportFilename="yield-predictions.csv"
+   915→          rowClassName={(r) => {
+   916→            if (r.riskLevel === "HIGH")
+   917→              return "bg-rose-50/50 dark:bg-rose-950/20";
+   918→            if (r.riskLevel === "MEDIUM")
+   919→              return "bg-amber-50/50 dark:bg-amber-950/20";
+   920→            return "bg-emerald-50/30 dark:bg-emerald-950/10";
+   921→          }}
+   922→          maxHeight="600px"
+   923→        />
+   924→      </Section>
+   925→
+   926→      {/* Historical reconciliations table */}
+   927→      <Section
+   928→        title="Historical Reconciliations"
+   929→        description="Plan-actual reconciliation records — the baseline training data for predictions."
+   930→      >
+   931→        <DataTable<HistoricalRow>
+   932→          columns={histColumns}
+   933→          rows={historical}
+   934→          loading={isLoading}
+   935→          emptyMessage="No reconciliation records found — baseline cannot be computed yet."
+   936→          initialSortKey="planOptionCode"
+   937→          initialSortDir="asc"
+   938→          searchable
+   939→          searchPlaceholder="Search option code, status..."
+   940→          searchFn={(r, q) => {
+   941→            const lq = q.toLowerCase();
+   942→            return (
+   943→              r.planOptionCode.toLowerCase().includes(lq) ||
+   944→              r.status.toLowerCase().includes(lq)
+   945→            );
+   946→          }}
+   947→          exportable
+   948→          exportFilename="yield-historical.csv"
+   949→          maxHeight="500px"
+   950→        />
+   951→      </Section>
+   952→        </>
+   953→      )}
+   954→    </div>
+   955→  );
+   956→}
+   957→

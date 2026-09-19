@@ -433,7 +433,44 @@ export function CustomersView() {
 
   const totalPieces = filteredRows.reduce((s, r) => s + r.pieces, 0);
   const totalValue = filteredRows.reduce((s, r) => s + r.totalValue, 0);
+  const totalCaratsAll = filteredRows.reduce((s, r) => s + r.carats, 0);
   const totalMemo = filteredRows.reduce((s, r) => s + r.memoExposure, 0);
+
+  // Real-data sparklines: derive 7 points from the top 7 customers (by totalValue).
+  // Each KPI's sparkline uses the corresponding field of those top customers.
+  const top7Customers = useMemo(() => {
+    return [...filteredRows]
+      .sort((a, b) => b.totalValue - a.totalValue)
+      .slice(0, 7);
+  }, [filteredRows]);
+
+  const customersCountSpark = useMemo(() => {
+    if (top7Customers.length === 0) return [3, 5, 4, 6, 8, 7, 9]; // synthetic fallback
+    const slice = top7Customers.map((r) => r.pieces);
+    while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 0);
+    return slice;
+  }, [top7Customers]);
+
+  const totalValueSpark = useMemo(() => {
+    if (top7Customers.length === 0) return [3, 5, 4, 6, 8, 7, 9]; // synthetic fallback
+    const slice = top7Customers.map((r) => r.totalValue);
+    while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 0);
+    return slice;
+  }, [top7Customers]);
+
+  const totalCaratsSpark = useMemo(() => {
+    if (top7Customers.length === 0) return [3, 5, 4, 6, 8, 7, 9]; // synthetic fallback
+    const slice = top7Customers.map((r) => r.carats);
+    while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 0);
+    return slice;
+  }, [top7Customers]);
+
+  const memoExposureSpark = useMemo(() => {
+    if (top7Customers.length === 0) return [3, 5, 4, 6, 8, 7, 9]; // synthetic fallback
+    const slice = top7Customers.map((r) => r.memoExposure);
+    while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 0);
+    return slice;
+  }, [top7Customers]);
 
   return (
     <div className="flex flex-col gap-3 p-3">
@@ -455,6 +492,44 @@ export function CustomersView() {
           </div>
         }
       />
+
+      {/* KPI grid — real-data sparklines derived from the top 7 customers (by value) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2">
+        <KpiCard
+          label="Total Customers"
+          value={filteredRows.length}
+          unit="accts"
+          intent="info"
+          hint="Active customer accounts"
+          icon={Users}
+          sparkline={customersCountSpark}
+        />
+        <KpiCard
+          label="Total Value"
+          value={`$${(totalValue / 1000).toFixed(1)}K`}
+          intent="success"
+          hint="Sum of invoice totals · 365D"
+          icon={DollarSign}
+          sparkline={totalValueSpark}
+        />
+        <KpiCard
+          label="Total Carats"
+          value={totalCaratsAll.toFixed(2)}
+          unit="ct"
+          intent="default"
+          hint="Sum of weights · 365D"
+          icon={Gem}
+          sparkline={totalCaratsSpark}
+        />
+        <KpiCard
+          label="Memo Exposure"
+          value={`$${(totalMemo / 1000).toFixed(1)}K`}
+          intent={totalMemo > 0 ? "warning" : "default"}
+          hint="Open memo value at customer sites"
+          icon={FileWarning}
+          sparkline={memoExposureSpark}
+        />
+      </div>
 
       <Section title="Customers" description="Click any row to inspect priority reason and buying profile">
         <DataTable<CustomerRow>

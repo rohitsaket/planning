@@ -45,6 +45,7 @@ import {
   CheckCircle2,
   ChevronRight,
   Boxes,
+  Clock,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TableSkeleton, ChartSkeleton } from "@/components/diamond/shared/skeleton";
@@ -61,6 +62,7 @@ interface CaseListItem {
   currentVersion: number;
   optionCount: number;
   planningDate: string;
+  updatedAt?: string;
 }
 
 interface PieceRow {
@@ -441,8 +443,20 @@ export function PlanComparisonView() {
   );
   const caseList = caseListData?.rows ?? [];
 
-  // Auto-select the most recent case on first load
-  const effectiveCaseId = selectedCaseId ?? caseList[0]?.id ?? null;
+  // Auto-select the most recently updated case on first load.
+  // Sorts client-side by planningDate (or updatedAt if available) descending,
+  // falling back to the first case if no dates are present.
+  const latestCase = useMemo(() => {
+    if (!caseList || caseList.length === 0) return null;
+    const sorted = [...caseList].sort((a, b) => {
+      const dateA = new Date(a.planningDate || a.updatedAt || 0).getTime();
+      const dateB = new Date(b.planningDate || b.updatedAt || 0).getTime();
+      return dateB - dateA;
+    });
+    return sorted[0];
+  }, [caseList]);
+
+  const effectiveCaseId = selectedCaseId ?? latestCase?.id ?? null;
 
   const { data, isLoading } = useApi<CompareResponse | null>(
     effectiveCaseId ? `/api/planning/compare/${effectiveCaseId}` : null
@@ -680,6 +694,12 @@ export function PlanComparisonView() {
                     <span className="ml-1">
                       <StatusBadge status={c.status} />
                     </span>
+                    {latestCase && c.id === latestCase.id && (
+                      <Badge variant="info" className="ml-1 gap-0.5">
+                        <Clock className="h-2.5 w-2.5" />
+                        Latest
+                      </Badge>
+                    )}
                   </SelectItem>
                 ))}
               </SelectContent>

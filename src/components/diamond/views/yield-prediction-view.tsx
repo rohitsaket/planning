@@ -459,8 +459,8 @@ export function YieldPredictionView() {
         </div>
       ) : (
         <>
-      {/* Summary KPI grid */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
+      {/* Summary KPI grid — single column on phones for larger touch targets */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-2">
         <KpiCard
           label="Reconciliations"
           value={summary?.historicalReconciliations ?? 0}
@@ -522,7 +522,7 @@ export function YieldPredictionView() {
         title="Methodology — Baseline Forecasting"
         description="Naive Last Period · Moving Average · Exponential Smoothing (spec §61)"
       >
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 overflow-x-auto">
           <div className="rounded-md border border-border bg-muted/30 p-3">
             <div className="flex items-center gap-1.5 mb-1">
               <Activity className="h-3.5 w-3.5 text-muted-foreground" />
@@ -576,7 +576,7 @@ export function YieldPredictionView() {
           </div>
         </div>
 
-        <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-2 text-[10px]">
+        <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-2 text-[10px] overflow-x-auto">
           <div className="rounded-md border border-border bg-muted/30 px-2 py-1.5">
             <p className="text-muted-foreground uppercase tracking-wide">
               Bias (signed mean residual)
@@ -659,7 +659,8 @@ export function YieldPredictionView() {
           ) : null
         }
       >
-        <div className="h-80">
+        <div className="h-80 overflow-x-auto">
+          <div className="h-full min-w-[600px]">
           {histChartData.length === 0 ? (
             <EmptyState
               title="No reconciliations yet"
@@ -742,6 +743,7 @@ export function YieldPredictionView() {
               </ComposedChart>
             </ResponsiveContainer>
           )}
+          </div>
         </div>
       </Section>
 
@@ -766,7 +768,8 @@ export function YieldPredictionView() {
           ) : null
         }
       >
-        <div className="h-80">
+        <div className="h-80 overflow-x-auto">
+          <div className="h-full min-w-[600px]">
           {predChartData.length === 0 ? (
             <EmptyState
               title="No predictions to display"
@@ -865,6 +868,7 @@ export function YieldPredictionView() {
               </BarChart>
             </ResponsiveContainer>
           )}
+          </div>
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-3 text-[10px] text-muted-foreground">
           <span className="inline-flex items-center gap-1">

@@ -1180,3 +1180,162 @@ Task: QA assessment + fix sidebar resize bug + chart X-axis label density + RBAC
 - ✅ RBAC mobile card layout (accordion per role, grouped permissions)
 - ✅ Dashboard sparklines wired to real data (demand history, forecast, memo)
 - ✅ Memo Exposure KpiCard added to dashboard Inventory group
+
+---
+Task ID: 9-B
+Agent: full-stack-developer (Demand Calc Trace)
+Task: Build Demand Calculation Trace view showing the full 90-day demand calculation breakdown step-by-step
+
+Work Log:
+- Read /home/z/my-project/worklog.md to understand prior multi-agent work (Tasks 0-8 complete; ERP has 50+ views, demand-history view already exists, demand-trace is a new transparency page required by spec section 4 + 104)
+- Inspected existing demand-history-view.tsx + /api/demand/history/route.ts to learn the established PageHeader → KpiGrid → InfoBanner → Section+DataTable pattern and the DemandRun/DemandMetric schema
+- Confirmed schema fields available on DemandMetric: sales90d, monthlyAverage (Decimal), unroundedTarget (Decimal), roundedTarget (Int), availableStock, memoQty, physicalShortage, excessStock, wipCoverage, pipelineNeed, approvedPlanCoverage, remainingUnplanned, forecastSignal
+- Wrote new API route `/home/z/my-project/src/app/api/analysis/demand-trace/route.ts`:
+  - Fetches latest DemandRun with its metrics
+  - Joins latest ForecastRun + ForecastPrediction to populate step 13 source label (with fallback to DemandMetric.forecastSignal when no live prediction exists)
+  - For each DemandMetric, builds the 13-step trace array exactly as specified (step#, label, value, formula, source, tone)
+  - Tone tagging: shortage (steps 6/9/11) → rose, coverage (step 10) → emerald, advisory (steps 7/8/12/13) → amber
+  - Computes summary: totalCategories, totalShortage (Σ physicalShortage), totalExcess (Σ step-12 value), categoriesWithShortage (>0), categoriesWithExcess (>0)
+  - Returns ruleVersion, runDate, windowDays, forecastRunVersion, categories[], summary{}
+  - Verified via curl: HTTP 200 with 178 categories, totalShortage=181, totalExcess=11 (matches seeded data + dashboard)
+  - Initial bug: used `horizonDays` select field which doesn't exist on ForecastRun (model has horizon30d/60d/90d) — fixed by selecting `horizon90d`
+- Wrote new view component `/home/z/my-project/src/components/diamond/views/demand-trace-view.tsx`:
+  - "use client" component wrapped in `<div className="flex flex-col gap-3 p-3">`
+  - PageHeader with title "Demand Calculation Trace" + subtitle, meta shows ruleVersion badge + windowDays badge + runDate
+  - InfoBanner (info variant) carries the verbatim confirmed-rule text (DEMAND-V1, 90d invoice window, Monthly Avg = 90D/3, Target = Monthly Avg × 2 round-half-up, Shortage = MAX(0, Target − Available), Memo excluded BR-MEMO-001, WIP OPEN BR-WIP-001, Forecast advisory only)
+  - 5-card summary KPI grid (Total Categories, Total Shortage, Total Excess, Cats w/ Shortage, Cats w/ Excess) with icons (Layers, AlertTriangle, Package, Boxes, Target)
+  - Category selector Section: Input filter + shadcn Select dropdown showing "Lab | Shape | WeightBand" + shortage ▲ indicator; default selection = first category with physicalShortage > 0
+  - Vertical timeline: StepCard component renders each step as a card with circular step-number badge (tone-colored), label + tone Badge, mono formula, source line, large tabular-nums output value (tone-colored); connecting vertical lines between steps via absolute-positioned span
+  - Four Requirement Numbers Section: 4-card grid (Physical Shortage/rose, Pipeline-Adjusted/amber, Planning-Adjusted/emerald, Forecast Requirement/sky) with icons (AlertTriangle, GitBranch, ShieldCheck, Sparkles) + formula captions
+  - All Categories Section: sortable DataTable with sticky-left Category column (lab|shape|band + raw category in mono), numeric columns (90D Sales, Monthly Avg, Target, Available, Shortage, WIP Cov, Plan Cov, Remaining, Forecast); click row → selects that category in the trace above; selected row highlighted with `bg-primary/10`; shortage>0 rows tinted rose; CSV export + search
+  - Methodology footnote card explaining that values come from the persisted DemandMetric rows (deterministic, reproducible) and that step 13 prefers the live ForecastPrediction table; OPEN rules surfaced but never auto-applied
+  - Loading fallback uses KpiGridSkeleton (5 cards); empty state when no demand run exists
+- Registered the view in three places:
+  1. Added `"demand-trace"` to the ViewId union in `/home/z/my-project/src/stores/nav-store.ts` (after `"demand-history"`)
+  2. Added nav item in Analysis group in `/home/z/my-project/src/components/layout/app-shell.tsx` (icon: Calculator from lucide-react; imported Calculator alongside existing lucide imports)
+  3. Added `"demand-trace": DemandTraceView` to VIEW_REGISTRY in `/home/z/my-project/src/app/page.tsx` + imported the component
+- Lint: ran `bun run lint` — exit 0, zero errors, zero warnings
+- Dev server: recompiled cleanly, GET /api/analysis/demand-trace returns 200 in ~40ms, GET / returns 200 OK with the new view accessible at `#demand-trace`
+
+Stage Summary:
+- 4 files touched:
+  1. NEW: `/home/z/my-project/src/app/api/analysis/demand-trace/route.ts` — 13-step transparency API exposing source, input, calculation, output for every planning category
+  2. NEW: `/home/z/my-project/src/components/diamond/views/demand-trace-view.tsx` — full step-by-step trace UI with vertical timeline, 4-requirement-numbers grid, and all-categories table
+  3. EDITED: `/home/z/my-project/src/stores/nav-store.ts` — added `"demand-trace"` to ViewId union
+  4. EDITED: `/home/z/my-project/src/components/layout/app-shell.tsx` — added Calculator import + "Demand Trace" nav item under Analysis group
+  5. EDITED: `/home/z/my-project/src/app/page.tsx` — imported DemandTraceView + added to VIEW_REGISTRY
+- Satisfies spec section 4 (CONFIRMED DEMAND CALCULATION) + section 104 (DATA TRANSPARENCY: every important calculation page exposes source, input, calculation, output, rule version)
+- All 13 steps exposed with formula + source table, color-coded by tone (shortage=rose, coverage=emerald, advisory=amber)
+- The four requirement numbers (Physical Shortage, Pipeline-Adjusted, Planning-Adjusted, Forecast Requirement) shown as a distinct 4-card grid with formulas, never collapsed
+- OPEN rules (BR-WIP-001, BR-MEMO-001) clearly flagged as advisory in the InfoBanner + methodology footnote
+- Lint clean; dev server compiles without errors; API + page verified returning 200 OK
+
+---
+Task ID: 9-A
+Agent: full-stack-developer (Mobile Fixes + Auto-Select + Sparklines)
+Task: Fix Yield Prediction mobile KPI stacking + Plan Comparison auto-select latest case + wire analysis view sparklines to real data
+
+Work Log:
+- Read worklog.md (1182 lines) to understand prior multi-agent build context and patterns
+- Inspected yield-prediction-view.tsx (957 lines) — found KPI grid at L463 using `grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2` which forces 2 columns on phones, making cards too cramped at 375px per VLM assessment
+- Task 1 edits to yield-prediction-view.tsx:
+  - L463: KPI grid → `grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-2` (single column on phones, 2 on small tablets, 3 on tablets, 6 on desktop)
+  - L525: Methodology 3-card grid → added `overflow-x-auto` class so content scrolls horizontally if it overflows on narrow viewports
+  - L579: Methodology 4-card grid (Bias/MAE/etc.) → added `overflow-x-auto` class
+  - L662: Historical Plan vs Actual chart (`ComposedChart` with bars + line) → wrapped inner `ResponsiveContainer` with `<div className="h-full min-w-[600px]">` and added `overflow-x-auto` to outer `<div className="h-80">` so chart scrolls horizontally when many reconciliations squeeze bars
+  - L769: Prediction Interval chart (`BarChart` with `ErrorBar`) → same overflow-x-auto + min-w-[600px] wrapper treatment so ±1σ error bars and angled X-axis labels remain readable on mobile
+  - Verified DataTable already handles horizontal scroll via `overflow-auto h-full` (no edit needed for predictions/historical tables)
+- Task 2 edits to plan-comparison-view.tsx:
+  - Added `updatedAt?: string` to `CaseListItem` interface (forward-compat — server currently returns only `planningDate`)
+  - Added `Clock` to lucide-react imports
+  - Replaced `const effectiveCaseId = selectedCaseId ?? caseList[0]?.id ?? null;` with `latestCase` useMemo that sorts `[...caseList]` by `new Date(a.planningDate || a.updatedAt || 0).getTime()` descending and picks the first. Falls back to null when list is empty.
+  - In the dropdown `SelectItem` rendering: added `<Badge variant="info" className="ml-1 gap-0.5"><Clock className="h-2.5 w-2.5"/>Latest</Badge>` next to the case whose `id === latestCase?.id` — making the auto-selected entry visible at a glance
+  - Verified the `/api/planning/cases` route already sorts server-side by `planningDate desc`, so client sort is a defense-in-depth (idempotent with server ordering but guarantees correctness)
+- Task 3a — sales-analysis-view.tsx: VERIFIED, no edits needed. KPI sparklines already derive from real data via `rows.slice(0, 7).map(r => r.pieces|carats|value)` (lines 67-81).
+- Task 3b edits to customers-view.tsx:
+  - The main `CustomersView` previously had NO top-level KPI cards (only the `CustomerDetailDialog` had KPIs, and those already use real timeline data for Pieces + Value). Added a 4-card KPI grid above the customers table:
+    - **Total Customers** (filteredRows.length, unit="accts", intent="info", icon=Users) — sparkline = top 7 customers' `pieces`
+    - **Total Value** (`$${(totalValue/1000).toFixed(1)}K`, intent="success", icon=DollarSign) — sparkline = top 7 customers' `totalValue`
+    - **Total Carats** (`totalCaratsAll.toFixed(2)`, unit="ct", intent="default", icon=Gem) — sparkline = top 7 customers' `carats`
+    - **Memo Exposure** (`$${(totalMemo/1000).toFixed(1)}K`, intent="warning" if >0, icon=FileWarning) — sparkline = top 7 customers' `memoExposure`
+  - Added `top7Customers` useMemo that sorts `filteredRows` by `totalValue` desc and slices 7
+  - Added 4 sparkline useMemos — each maps the relevant field of top 7 customers, pads with last value if fewer than 7, falls back to `[3,5,4,6,8,7,9]` synthetic when no rows
+  - Added `totalCaratsAll` aggregator (totalPieces/totalValue/totalMemo already existed)
+  - KPI grid uses `grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2` (same mobile-first pattern as yield-prediction fix)
+- Task 3c edits to orders-view.tsx:
+  - Previously only **Outstanding Qty** and **Backorder Qty** had sparklines (already real-data: top 7 orders' qtyOutstanding/backorderQty)
+  - Added **Open Orders** sparkline: groups `filteredRows` by `status` into a count map, takes top 7 status counts (sorted desc). Synthetic fallback `[3,5,4,6,8,7,9]` when no rows.
+  - Added **Overdue Orders** sparkline: filters `filteredRows` by `isOverdue()`, takes top 7 overdue orders' `qtyOutstanding` (overdue-volume proxy). Synthetic fallback `[2,3,4,2,5,3,4]` when no rows.
+  - Updated KPI grid from `grid-cols-2 md:grid-cols-4` → `grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2` for consistent mobile-first layout with other views
+- Ran `bun run lint` — clean, 0 errors, 0 warnings
+- Verified dev server log shows successful compilations and 200 responses on `/` and `/api/analysis/demand-trace`
+
+Stage Summary:
+- 4 files edited (yield-prediction-view, plan-comparison-view, customers-view, orders-view) + 1 verified (sales-analysis-view, no edit needed)
+- Yield Prediction KPI grid now stacks single-column on phones with proper touch targets
+- All yield-prediction charts/grids have overflow-x-auto wrappers for safe horizontal scroll on narrow viewports
+- Plan Comparison auto-selects the most recently updated case (by planningDate desc) on first load, with a visible "Latest" badge in the dropdown
+- CustomersView gained a 4-card top-level KPI grid with real-data sparklines derived from top 7 customers (by value)
+- OrdersView Open Orders + Overdue Orders KPI cards now have sparklines derived from real per-status counts and per-order overdue volumes, respectively
+- All KPI grids across the 4 edited views now use the mobile-first pattern `grid-cols-1 sm:grid-cols-2 md:grid-cols-N gap-2`
+- `bun run lint` passes cleanly; dev server compiles successfully
+- Wrote `/home/z/my-project/agent-ctx/9-A-full-stack-developer.md` work record
+
+---
+Task ID: 9-FINAL
+Agent: main (cron-triggered webDevReview round 8)
+Task: QA assessment + yield prediction mobile fix + plan comparison auto-select + demand calculation trace view + analysis sparklines
+
+## Current Project Status Assessment
+- Project was in stable state from Round 7 (sidebar resize fix, chart label density, RBAC mobile, sparkline real data)
+- Lint was clean, dev server compiled successfully
+- QA via agent-browser confirmed no regressions; VLM identified Yield Prediction mobile as "cramped" (8/10)
+- Remaining items: yield prediction mobile, plan comparison auto-select, more sparklines, new features
+
+## Goals / Completed Modifications / Verification Results
+
+### Fix: Yield Prediction Mobile KPI Stacking
+- **Updated** `yield-prediction-view.tsx` — changed KPI grid from `grid-cols-2` to `grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6` (single column on phones). Added `overflow-x-auto` wrappers + `min-w-[600px]` to charts for horizontal scroll on mobile. VLM: **9/10 mobile usability** ("KPIs now single-column and fully readable, significantly improved, clean, highly usable").
+
+### Feature: Plan Comparison Auto-Select Latest Case
+- **Updated** `plan-comparison-view.tsx` — replaced `selectedCaseId ?? caseList[0]?.id` with a `latestCase` useMemo that sorts by `planningDate`/`updatedAt` descending. Added "Latest" badge with Clock icon next to the auto-selected case in the dropdown. Verified: auto-selects PC-00003 (most recent) with "Latest" badge.
+
+### Feature: Demand Calculation Trace View (spec §4 + §104)
+- **New API** `/api/analysis/demand-trace/route.ts` — returns the full 13-step demand calculation breakdown for every planning category, with each step exposing: step number, label, value, formula, source, tone (shortage/coverage/advisory). Fetches latest DemandRun + DemandMetrics + ForecastPredictions. Returns ruleVersion, runDate, windowDays, categories[] (each with steps[] + fourNumbers{}), and summary{}.
+- **New view** `demand-trace-view.tsx` — PageHeader + InfoBanner (CONFIRMED rule text) + 5-card summary KPI grid + category selector + vertical timeline of 13 StepCards (tone-colored badges, mono formula, source, large value) + Four Requirement Numbers 4-card grid + All Categories sortable DataTable (clickable rows select category for trace). 
+- Registered in nav store, sidebar (Analysis group, Calculator icon), page.tsx VIEW_REGISTRY
+- VLM: **9/10 polish**, "highly effective, transparent logic, professional, data-dense yet readable, high-quality enterprise tool"
+
+### Feature: Analysis View Sparklines Wired to Real Data
+- **customers-view.tsx** — added 4-card KPI grid (was missing) with sparklines derived from top 7 customers' pieces/value/carats/memoExposure. Mobile-first `grid-cols-1 sm:grid-cols-2 md:grid-cols-4`.
+- **orders-view.tsx** — added sparklines for Open Orders (status counts) and Overdue (qtyOutstanding of top 7 overdue). KPI grid upgraded to `grid-cols-1 sm:grid-cols-2 md:grid-cols-4`.
+- **sales-analysis-view.tsx** — verified already using real data (rows.slice(0,7).map(r => r.pieces/carats/value)).
+
+### Verification Results
+- `bun run lint` → exit 0, zero errors/warnings
+- Dev server compiles cleanly, HTTP 200
+- agent-browser end-to-end testing confirmed:
+  - Demand Trace view: 5 KPIs, category selector, 13-step timeline, Four Requirement Numbers, All Categories table — VLM 9/10
+  - Yield Prediction mobile: KPIs single-column, charts scroll horizontally — VLM 9/10
+  - Plan Comparison: auto-selects latest case (PC-00003) with "Latest" badge
+  - No console errors, no runtime errors, no page errors
+
+## Unresolved Issues / Risks / Priority Recommendations for Next Phase
+
+### Remaining items (lower priority)
+1. **Authentication + RBAC enforcement** — login/sessions still not implemented; NextAuth.js v4 available
+2. **Real Fantasy ERP adapter** — currently using local synced read model; needs real credentials/API
+3. **Background job workers** — Fantasy sync, demand runs, forecast runs should be queued
+4. **WebSocket service persistence** — background bun processes exit in this environment
+5. **More views with sparklines** — apply real-data sparkline pattern to remaining views (polished, memo, wip, etc.)
+6. **Demand Trace mobile responsive** — the 13-step timeline + table may need mobile optimization
+7. **Export to PDF/Excel** — currently only CSV export; spec mentions PDF/Excel exports
+
+### Confirmed working features (regression-tested this round)
+- ✅ All Round 0-7 features still working
+- ✅ Yield Prediction mobile KPI stacking (single column on phones)
+- ✅ Plan Comparison auto-select latest case (with "Latest" badge)
+- ✅ Demand Calculation Trace view (13-step breakdown, vertical timeline, four requirement numbers)
+- ✅ Demand Trace API (13 steps per category, formula + source + tone)
+- ✅ Customers view KPI grid added (4 cards with real-data sparklines)
+- ✅ Orders view sparklines wired to real data (Open Orders, Overdue)

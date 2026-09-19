@@ -119,6 +119,31 @@ export function OrdersView() {
   const totalOutstanding = filteredRows.reduce((s, r) => s + r.qtyOutstanding, 0);
   const totalBackorder = filteredRows.reduce((s, r) => s + r.backorderQty, 0);
   const overdueCount = filteredRows.filter(isOverdue).length;
+  // Real-data sparklines:
+  // - Open Orders: count of orders per status (top 7 statuses by count)
+  // - Overdue Orders: top 7 overdue orders by qtyOutstanding (overdue-volume proxy)
+  // - Outstanding Qty: top 7 orders' qtyOutstanding
+  // - Backorder Qty: top 7 orders' backorderQty
+  const openOrdersSpark = useMemo(() => {
+    if (filteredRows.length === 0) return [3, 5, 4, 6, 8, 7, 9]; // synthetic fallback
+    const counts: Record<string, number> = {};
+    filteredRows.forEach((r) => {
+      counts[r.status] = (counts[r.status] ?? 0) + 1;
+    });
+    const values = Object.values(counts).sort((a, b) => b - a);
+    const slice = values.slice(0, 7);
+    while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 0);
+    return slice;
+  }, [filteredRows]);
+  const overdueSpark = useMemo(() => {
+    if (filteredRows.length === 0) return [2, 3, 4, 2, 5, 3, 4]; // synthetic fallback
+    const overdue = filteredRows
+      .filter(isOverdue)
+      .map((r) => r.qtyOutstanding)
+      .slice(0, 7);
+    while (overdue.length < 7) overdue.push(overdue.length ? overdue[overdue.length - 1] : 0);
+    return overdue;
+  }, [filteredRows]);
   const outstandingSpark = useMemo(() => {
     const slice = filteredRows.slice(0, 7).map((r) => r.qtyOutstanding);
     while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 1);
@@ -153,9 +178,9 @@ export function OrdersView() {
         }
       />
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-        <KpiCard label="Open Orders" value={totalOrders} intent="info" hint="Active sales orders" icon={FileText} />
-        <KpiCard label="Overdue Orders" value={overdueCount} intent="critical" hint="Required date past + outstanding > 0" icon={AlertTriangle} />
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2">
+        <KpiCard label="Open Orders" value={totalOrders} intent="info" hint="Active sales orders" icon={FileText} sparkline={openOrdersSpark} />
+        <KpiCard label="Overdue Orders" value={overdueCount} intent="critical" hint="Required date past + outstanding > 0" icon={AlertTriangle} sparkline={overdueSpark} />
         <KpiCard label="Outstanding Qty" value={totalOutstanding} unit="pcs" intent="warning" hint="Σ qtyOutstanding" icon={Boxes} sparkline={outstandingSpark} />
         <KpiCard label="Backorder Qty" value={totalBackorder} unit="pcs" intent="default" hint="Σ backorderQty" icon={Clock} sparkline={backorderSpark} />
       </div>
