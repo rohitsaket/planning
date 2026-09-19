@@ -1,23 +1,29 @@
 import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
+import { withApi, qStr, paging, paged } from "@/lib/api/with-api";
 
 // Fantasy Rough Stock — read from authoritative Fantasy source (synced locally)
-export async function GET(req: Request) {
+export const GET = withApi({ permission: "rough.read" }, async (req: Request) => {
   const url = new URL(req.url);
-  const planningStatus = url.searchParams.get("planningStatus");
-  const stoneType = url.searchParams.get("stoneType");
-  const country = url.searchParams.get("country");
+  const p = paging(url);
+  const planningStatus = qStr(url, "planningStatus");
+  const stoneType = qStr(url, "stoneType");
+  const country = qStr(url, "country");
 
   const where: Record<string, unknown> = {};
   if (planningStatus) where.planningStatus = planningStatus;
   if (stoneType) where.stoneType = stoneType;
   if (country) where.country = country;
 
-  const roughs = await db.roughStone.findMany({ where, orderBy: { lastUpdated: "desc" } });
+  const roughs = await db.roughStone.findMany({ skip: p.skip, take: p.take, where, orderBy: { lastUpdated: "desc" } });
 
+  const pg = paged(roughs, p);
   return ok({
-    total: roughs.length,
-    rows: roughs.map((r) => ({
+    total: pg.rows.length,
+    page: pg.page,
+    pageSize: pg.pageSize,
+    hasMore: pg.hasMore,
+    rows: pg.rows.map((r) => ({
       id: r.id,
       fantasyRoughId: r.fantasyRoughId,
       kapan: r.kapan,
@@ -38,4 +44,4 @@ export async function GET(req: Request) {
       lastUpdated: r.lastUpdated.toISOString(),
     })),
   });
-}
+});

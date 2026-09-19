@@ -1,14 +1,28 @@
 import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
-import { NextResponse } from "next/server";
+import { z } from "zod";
+import { withApi, SCAN_MAX, scanned } from "@/lib/api/with-api";
+import { conflict } from "@/lib/api/errors";
+import { LIMITS } from "@/lib/api/rate-limit";
 import { classifyWeightBand, normalizeLab, roundHalfUpInt } from "@/lib/domain/diamond-rules";
 
 // Trigger a new demand calculation run.
 // Recomputes 90-day sales aggregates per planning category (Lab + Shape + Weight Band),
 // applies the confirmed demand formula, and updates demand metrics + requirement quantities.
-export async function POST(req: Request) {
-  const body = await req.json().catch(() => ({}));
-  const actor = body?.actor || "system";
+let running = false;
+
+// Single-flight guard + the calculation itself. The demand formula is unchanged.
+export const POST = withApi({ permission: "demand.run", body: z.object({}), rateLimit: LIMITS.batch }, async (_req, _ctx, api) => {
+  if (running) throw conflict("DEMAND_RUN_IN_PROGRESS", "A demand run is already in progress.");
+  running = true;
+  try {
+    return await runDemand(api);
+  } finally {
+    running = false;
+  }
+});
+
+async function runDemand(api: { audit: (client: typeof db, input: { action: string; entity: string; entityId: string; reason: string }) => Promise<void> }) {
   const windowDays = 90;
   const now = new Date();
   const since = new Date(now);
@@ -18,7 +32,8 @@ export async function POST(req: Request) {
   const records = await db.salesRecord.findMany({
     where: { lotStatusDb: "Invoice", docDate: { gte: since } },
     include: { weightBand: true },
-  });
+    take: SCAN_MAX,
+  }).then(scanned);
 
   // Aggregate by planning category = lab | shape | weightBand.label
   const agg = new Map<string, { count: number }>();
@@ -96,15 +111,11 @@ export async function POST(req: Request) {
     data: { totalShortage, totalExcess },
   });
 
-  await db.auditLog.create({
-    data: {
-      actor,
-      action: "DEMAND_RUN",
-      entity: "DemandRun",
-      entityId: run.id,
-      reason: `Recalculated 90-day demand: ${agg.size} categories, ${records.length} invoice records, shortage=${totalShortage}, excess=${totalExcess}`,
-      timestamp: now,
-    },
+  await api.audit(db, {
+    action: "DEMAND_RUN",
+    entity: "DemandRun",
+    entityId: run.id,
+    reason: `Recalculated 90-day demand: ${agg.size} categories, ${records.length} invoice records, shortage=${totalShortage}, excess=${totalExcess}`,
   });
 
   return ok({

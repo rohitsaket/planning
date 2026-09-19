@@ -1,9 +1,11 @@
 import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
 import { NextResponse } from "next/server";
+import { notFound } from "@/lib/api/errors";
+import { withApi, idSchema } from "@/lib/api/with-api";
 
-export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
+export const GET = withApi({ permission: "plan.read" }, async (req: Request, { params }: { params: Promise<{ id: string }> }) => {
+  const id = idSchema.parse((await params).id);
   const c = await db.planningCase.findUnique({
     where: { id },
     include: {
@@ -18,7 +20,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       },
     },
   });
-  if (!c) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (!c) throw notFound("Planning case");
 
   const versions = c.versions.map((v) => ({
     id: v.id,
@@ -106,4 +108,4 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     })),
     versions,
   });
-}
+});

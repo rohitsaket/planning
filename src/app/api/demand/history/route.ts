@@ -1,9 +1,10 @@
 import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
+import { withApi, SCAN_MAX, scanned } from "@/lib/api/with-api";
 
 // Demand Run History — list all past demand runs (most recent first).
 // Joins AuditLog to surface the actor who triggered each run.
-export async function GET() {
+export const GET = withApi({ permission: "analysis.read" }, async () => {
   const runs = await db.demandRun.findMany({
     orderBy: { runDate: "desc" },
     take: 200,
@@ -12,10 +13,10 @@ export async function GET() {
   // Resolve actor per run via the AuditLog join (entity=DemandRun, entityId=run.id)
   const runIds = runs.map((r) => r.id);
   const auditLogs = runIds.length
-    ? await db.auditLog.findMany({
+    ? await db.auditLog.findMany({ take: SCAN_MAX,
         where: { entity: "DemandRun", entityId: { in: runIds } },
         orderBy: { timestamp: "desc" },
-      })
+      }).then(scanned)
     : [];
 
   // Map runId -> first actor found (audit is ordered desc, so the first match
@@ -81,4 +82,4 @@ export async function GET() {
       lastMetricCount,
     },
   });
-}
+});

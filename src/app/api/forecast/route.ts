@@ -1,14 +1,15 @@
 import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
+import { withApi, SCAN_MAX, scanned } from "@/lib/api/with-api";
 
 // Forecast runs + model versions
-export async function GET() {
+export const GET = withApi({ permission: "analysis.read" }, async () => {
   const runs = await db.forecastRun.findMany({
     include: { predictions: true },
     orderBy: { runDate: "desc" },
     take: 10,
   });
-  const models = await db.modelVersion.findMany({ orderBy: { createdAt: "desc" } });
+  const models = await db.modelVersion.findMany({ take: SCAN_MAX, orderBy: { createdAt: "desc" } }).then(scanned);
 
   return ok({
     runs: runs.map((r) => ({
@@ -36,4 +37,4 @@ export async function GET() {
     })),
     advisoryNotice: "Forecast is advisory and remains separate from confirmed manufacturing requirement.",
   });
-}
+});

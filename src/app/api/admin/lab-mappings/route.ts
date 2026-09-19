@@ -1,8 +1,9 @@
 import { db } from "@/lib/db";
 import { ok } from "@/lib/api-utils";
+import { withApi, SCAN_MAX, scanned } from "@/lib/api/with-api";
 
-export async function GET() {
-  const labs = await db.labMapping.findMany({ orderBy: { rawLab: "asc" } });
+export const GET = withApi({ permission: "config.read" }, async () => {
+  const labs = await db.labMapping.findMany({ take: SCAN_MAX, orderBy: { rawLab: "asc" } }).then(scanned);
   return ok({
     rows: labs.map((l) => ({
       id: l.id,
@@ -11,4 +12,4 @@ export async function GET() {
       active: l.active,
     })),
   });
-}
+});

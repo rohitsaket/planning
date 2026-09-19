@@ -832,7 +832,7 @@ export function YieldPredictionView() {
                   }}
                   labelFormatter={(_, payload) => {
                     const p = payload?.[0]?.payload as
-                      | { risk?: RiskLevel; variance?: number; fullLower?: number; fullUpper?: number }
+                      | { name?: string; risk?: RiskLevel; variance?: number; fullLower?: number; fullUpper?: number }
                       | undefined;
                     return p
                       ? `${p.name ?? ""} · risk=${p.risk ?? ""} · variance=${p.variance?.toFixed(2) ?? ""} · interval=[${p.fullLower?.toFixed(2) ?? ""}, ${p.fullUpper?.toFixed(2) ?? ""}]`

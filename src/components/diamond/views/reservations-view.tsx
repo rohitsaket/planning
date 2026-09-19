@@ -1,5 +1,6 @@
 "use client";
 
+import { useAuthStore } from "@/stores/auth-store";
 import { useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useApi, apiPost } from "@/lib/api-client";
@@ -66,7 +67,8 @@ const fmtDate = (iso: string | null): string => {
   }
 };
 
-const RESERVER = "current.user";
+// Display only — the server records the authenticated user as the reserver.
+const RESERVER = () => useAuthStore.getState().user?.username ?? "signed-in user";
 
 export function ReservationsView() {
   const qc = useQueryClient();
@@ -93,7 +95,7 @@ export function ReservationsView() {
     .reduce((s, r) => s + r.roughWeight, 0);
 
   const mutation = useMutation({
-    mutationFn: async (body: { roughId: string; reservedBy: string }) =>
+    mutationFn: async (body: { roughId: string }) =>
       apiPost<{ status: string; reservationId: string }>("/api/planning/reservations", body),
     onSuccess: (resp) => {
       toast({
@@ -129,7 +131,7 @@ export function ReservationsView() {
       toast({ title: "Pick a rough first", variant: "destructive" });
       return;
     }
-    mutation.mutate({ roughId: selectedRoughId, reservedBy: RESERVER });
+    mutation.mutate({ roughId: selectedRoughId });
   };
 
   const columns: Column<ReservationRow>[] = [
@@ -228,7 +230,7 @@ export function ReservationsView() {
         }
         meta={
           <span className="text-[10px] text-muted-foreground">
-            reserver: <code className="font-mono">{RESERVER}</code>
+            reserver: <code className="font-mono">{RESERVER()}</code>
           </span>
         }
       />
@@ -363,7 +365,7 @@ export function ReservationsView() {
 
             <Input
               type="hidden"
-              value={RESERVER}
+              value={RESERVER()}
               readOnly
             />
           </div>

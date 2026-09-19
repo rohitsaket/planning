@@ -16,6 +16,7 @@ import {
   parseStoneName, normalizeShape, resolveEmerald5Step, calculatePlanYield,
   formatEstWeight, type ParsedStoneName,
 } from "@/lib/domain/diamond-rules";
+import { WORKBOOK_LIMITS } from "@/lib/domain/workbook-guard";
 
 export interface WorkbookRow {
   rowIndex: number; // 1-based source order
@@ -91,9 +92,23 @@ export function parseWorkbook(buffer: ArrayBuffer): WorkbookParseResult {
 
   let workbook: XLSX.WorkBook;
   try {
-    workbook = XLSX.read(buffer, { type: "array" });
-  } catch (e) {
-    result.parseErrors.push(`Failed to read XLSX: ${(e as Error).message}`);
+    // Bounded, data-only read: no formulas, HTML, macros or styles; rows capped.
+    workbook = XLSX.read(buffer, {
+      type: "array",
+      sheetRows: WORKBOOK_LIMITS.maxRows + 1,
+      cellFormula: false,
+      cellHTML: false,
+      cellStyles: false,
+      bookVBA: false,
+      bookFiles: false,
+    });
+  } catch {
+    result.parseErrors.push("Failed to read XLSX: the file is corrupt or not a supported workbook");
+    return result;
+  }
+
+  if (workbook.SheetNames.length > WORKBOOK_LIMITS.maxSheets) {
+    result.parseErrors.push(`Workbook has more than ${WORKBOOK_LIMITS.maxSheets} sheets`);
     return result;
   }
 
@@ -103,6 +118,18 @@ export function parseWorkbook(buffer: ArrayBuffer): WorkbookParseResult {
   }
 
   const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const fullRef = (sheet["!fullref"] as string | undefined) ?? sheet["!ref"];
+  if (fullRef) {
+    const range = XLSX.utils.decode_range(fullRef);
+    if (range.e.r + 1 > WORKBOOK_LIMITS.maxRows) {
+      result.parseErrors.push(`First sheet has more than ${WORKBOOK_LIMITS.maxRows} rows`);
+      return result;
+    }
+    if (range.e.c + 1 > WORKBOOK_LIMITS.maxColumns) {
+      result.parseErrors.push(`First sheet has more than ${WORKBOOK_LIMITS.maxColumns} columns`);
+      return result;
+    }
+  }
   const rows: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, blankrows: false, defval: null });
 
   if (rows.length === 0) {

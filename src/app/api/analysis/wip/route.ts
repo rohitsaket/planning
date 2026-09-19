@@ -1,16 +1,17 @@
 import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
+import { withApi, SCAN_MAX, scanned } from "@/lib/api/with-api";
 
 // WIP Analysis — counts of planned pieces in approved plans, eligible WIP coverage
 // OPEN rule: exact WIP contribution to shortage is OPEN; we display counts and configuration flags.
-export async function GET() {
+export const GET = withApi({ permission: "analysis.read" }, async () => {
   // Pieces in approved plans (released to manufacturing)
-  const pieces = await db.planOptionPiece.findMany({
+  const pieces = await db.planOptionPiece.findMany({ take: SCAN_MAX,
     where: {
       planOption: { approvalStatus: { in: ["APPROVED", "RELEASED"] } },
     },
     include: { planOption: { include: { version: { include: { planningCase: true } } } } },
-  });
+  }).then(scanned);
 
   const byStatus = new Map<string, number>();
   const byDept = new Map<string, number>();
@@ -44,4 +45,4 @@ export async function GET() {
     eligibilityFlags,
     openRuleNote: "OPEN rule BR-WIP-001 — exact WIP contribution logic not confirmed. Counts displayed but not auto-applied to shortage.",
   });
-}
+});

@@ -14,6 +14,9 @@ interface KpiCardProps {
   hint?: string;
   icon?: LucideIcon;
   sparkline?: number[];
+  // Describes what the sparkline plots. When given it replaces the rising/declining guess,
+  // which is only meaningful for chronological data.
+  sparklineTitle?: string;
   onClick?: () => void;
   subtitle?: string;
 }
@@ -50,7 +53,7 @@ const intentSparkColor: Record<string, string> = {
   info: "#0ea5e9",
 };
 
-function Sparkline({ data, color }: { data: number[]; color: string }) {
+function Sparkline({ data, color, title }: { data: number[]; color: string; title?: string }) {
   if (data.length < 2) return null;
   const max = Math.max(...data);
   const min = Math.min(...data);
@@ -63,7 +66,7 @@ function Sparkline({ data, color }: { data: number[]; color: string }) {
   const firstVal = data[0];
   const rising = lastVal >= firstVal;
   return (
-    <svg width={w} height={h} className="opacity-80">
+    <svg width={w} height={h} className="opacity-80" role={title ? "img" : undefined} aria-label={title}>
       <polyline
         points={points}
         fill="none"
@@ -88,14 +91,12 @@ function Sparkline({ data, color }: { data: number[]; color: string }) {
         points={`0,${h} ${points} ${w},${h}`}
         fill={`url(#spark-${color.replace("#", "")})`}
       />
-      {!rising && (
-        <title>Declining trend</title>
-      )}
+      {title ? <title>{title}</title> : !rising && <title>Declining trend</title>}
     </svg>
   );
 }
 
-export function KpiCard({ label, value, unit, trend, trendLabel, intent = "default", hint, icon: Icon, sparkline, onClick, subtitle }: KpiCardProps) {
+export function KpiCard({ label, value, unit, trend, trendLabel, intent = "default", hint, icon: Icon, sparkline, sparklineTitle, onClick, subtitle }: KpiCardProps) {
   return (
     <button
       type="button"
@@ -143,7 +144,7 @@ export function KpiCard({ label, value, unit, trend, trendLabel, intent = "defau
           {unit && <span className="text-[10px] text-muted-foreground font-medium">{unit}</span>}
         </div>
         {sparkline && sparkline.length >= 2 && (
-          <Sparkline data={sparkline} color={intentSparkColor[intent]} />
+          <Sparkline data={sparkline} color={intentSparkColor[intent]} title={sparklineTitle} />
         )}
       </div>
       {(trendLabel || hint) && (

@@ -272,7 +272,6 @@ export function RequirementsMatrixView() {
       }>(`/api/requirements/${vars.id}/priority`, {
         priority: vars.priority,
         reason: vars.reason,
-        actor: "planner.user",
       }),
     onSuccess: (_data, vars) => {
       toast.success("Priority overridden — audit logged");

@@ -1,10 +1,11 @@
 import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
+import { withApi, SCAN_MAX, scanned } from "@/lib/api/with-api";
 
 // Stockout Risk — projected position: Available + Eligible WIP - Predicted Demand
 // Eligible WIP is OPEN rule; display counts separately, do not auto-apply.
-export async function GET() {
-  const predictions = await db.forecastPrediction.findMany();
+export const GET = withApi({ permission: "analysis.read" }, async () => {
+  const predictions = await db.forecastPrediction.findMany({ take: SCAN_MAX }).then(scanned);
   const latestRun = await db.demandRun.findFirst({
     orderBy: { runDate: "desc" },
     include: { metrics: true },
@@ -42,4 +43,4 @@ export async function GET() {
   const medium = rows.filter((r) => r.stockoutRisk === "MEDIUM").length;
 
   return ok({ rows, critical, high, medium, advisoryNotice: "Predicted stockout is advisory, not a confirmed order trigger." });
-}
+});

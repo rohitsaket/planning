@@ -1,12 +1,14 @@
 import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
 import { NextResponse } from "next/server";
+import { notFound } from "@/lib/api/errors";
+import { withApi, idSchema } from "@/lib/api/with-api";
 
 // Plan Comparison — flatten all options (across all versions) of a planning case
 // into a single options array for side-by-side comparison.
 // Spec §47 — do not make the planner inspect Excel manually to compare.
-export async function GET(_req: Request, { params }: { params: Promise<{ caseId: string }> }) {
-  const { caseId } = await params;
+export const GET = withApi({ permission: "plan.read" }, async (_req: Request, { params }: { params: Promise<{ caseId: string }> }) => {
+  const caseId = idSchema.parse((await params).caseId);
 
   const c = await db.planningCase.findUnique({
     where: { id: caseId },
@@ -25,7 +27,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ caseId:
   });
 
   if (!c) {
-    return NextResponse.json({ error: "Planning case not found" }, { status: 404 });
+    throw notFound("Planning case");
   }
 
   // Flatten options across all versions. Each option retains a back-reference to
@@ -125,4 +127,4 @@ export async function GET(_req: Request, { params }: { params: Promise<{ caseId:
       selectedOptionCode: selectedOption?.optionCode ?? null,
     },
   });
-}
+});

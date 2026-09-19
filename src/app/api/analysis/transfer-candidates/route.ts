@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
+import { withApi, SCAN_MAX, scanned } from "@/lib/api/with-api";
 
 // Transfer Candidate Analyzer — OPEN rule BR-TRANSFER-001
 //
@@ -48,9 +49,9 @@ function catKey(c: CategoryKey): string {
   return `${c.lab}|${c.shape}|${c.weightBand}`;
 }
 
-export async function GET() {
+export const GET = withApi({ permission: "analysis.read" }, async () => {
   // 1. Shortage side — requirements with remainingUnplanned > 0
-  const shortageReqs = await db.requirement.findMany({
+  const shortageReqs = await db.requirement.findMany({ take: SCAN_MAX,
     where: { remainingUnplanned: { gt: 0 } },
     select: {
       country: true,
@@ -61,10 +62,10 @@ export async function GET() {
       physicalStockQty: true,
       remainingUnplanned: true,
     },
-  });
+  }).then(scanned);
 
   // 2. Excess side — polished stones (physical or planning-available stock)
-  const polished = await db.polishedStone.findMany({
+  const polished = await db.polishedStone.findMany({ take: SCAN_MAX,
     where: { planningClass: { in: ["PHYSICAL", "PLANNING_AVAILABLE"] } },
     select: {
       country: true,
@@ -73,14 +74,14 @@ export async function GET() {
       shape: true,
       weightBandId: true,
     },
-  });
+  }).then(scanned);
 
   // Resolve weight band labels (id → label)
   const bandIds = new Set<string>();
   for (const r of shortageReqs) if (r.weightBandId) bandIds.add(r.weightBandId);
   for (const p of polished) if (p.weightBandId) bandIds.add(p.weightBandId);
   const bands = bandIds.size
-    ? await db.weightBand.findMany({ where: { id: { in: Array.from(bandIds) } } })
+    ? await db.weightBand.findMany({ take: SCAN_MAX, where: { id: { in: Array.from(bandIds) } } }).then(scanned)
     : [];
   const bandLabelById = new Map(bands.map((b) => [b.id, b.label]));
 
@@ -272,4 +273,4 @@ export async function GET() {
     advisoryNotice:
       "POTENTIAL transfer candidates only — OPEN rule BR-TRANSFER-001. Cross-country transfer eligibility is not confirmed. Do NOT auto-execute transfers without business approval.",
   });
-}
+});

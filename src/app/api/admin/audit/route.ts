@@ -1,11 +1,12 @@
 import { db } from "@/lib/db";
 import { ok } from "@/lib/api-utils";
+import { withApi, qStr } from "@/lib/api/with-api";
 
-export async function GET(req: Request) {
+export const GET = withApi({ permission: "audit.read" }, async (req: Request) => {
   const url = new URL(req.url);
-  const entity = url.searchParams.get("entity");
-  const action = url.searchParams.get("action");
-  const actor = url.searchParams.get("actor");
+  const entity = qStr(url, "entity");
+  const action = qStr(url, "action");
+  const actor = qStr(url, "actor");
 
   const where: Record<string, unknown> = {};
   if (entity) where.entity = entity;
@@ -26,4 +27,4 @@ export async function GET(req: Request) {
       correlationId: l.correlationId,
     })),
   });
-}
+});

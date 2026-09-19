@@ -1,11 +1,12 @@
 import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
 import { CONFIRMED_WEIGHT_BANDS } from "@/lib/domain/diamond-rules";
+import { withApi, qStr, SCAN_MAX, scanned } from "@/lib/api/with-api";
 
 // Reports — multiple pre-built report bundles
-export async function GET(req: Request) {
+export const GET = withApi({ permission: "analysis.read" }, async (req: Request) => {
   const url = new URL(req.url);
-  const type = url.searchParams.get("type") || "summary";
+  const type = qStr(url, "type") || "summary";
 
   if (type === "summary") {
     const totalSales = await db.salesRecord.count({ where: { lotStatusDb: "Invoice" } });
@@ -29,7 +30,7 @@ export async function GET(req: Request) {
   }
 
   if (type === "sales-by-category") {
-    const records = await db.salesRecord.findMany({ where: { lotStatusDb: "Invoice" }, include: { weightBand: true } });
+    const records = await db.salesRecord.findMany({ take: SCAN_MAX, where: { lotStatusDb: "Invoice" }, include: { weightBand: true } }).then(scanned);
     const agg = new Map<string, { pieces: number; value: number }>();
     for (const r of records) {
       const cat = `${r.labNormalized ?? "Non-Cert"}|${r.shape}|${r.weightBand?.label ?? "Unmapped"}`;
@@ -44,11 +45,11 @@ export async function GET(req: Request) {
   }
 
   if (type === "critical-requirements") {
-    const reqs = await db.requirement.findMany({
+    const reqs = await db.requirement.findMany({ take: SCAN_MAX,
       where: { requirementPriority: "CRITICAL", remainingUnplanned: { gt: 0 } },
       include: { weightBand: true },
       orderBy: { remainingUnplanned: "desc" },
-    });
+    }).then(scanned);
     return ok({
       type,
       rows: reqs.map((r) => ({
@@ -66,7 +67,7 @@ export async function GET(req: Request) {
   }
 
   if (type === "yield-variance") {
-    const recs = await db.planActualReconciliation.findMany({ include: { planOption: true } });
+    const recs = await db.planActualReconciliation.findMany({ take: SCAN_MAX, include: { planOption: true } }).then(scanned);
     return ok({
       type,
       rows: recs.map((r) => ({
@@ -88,4 +89,4 @@ export async function GET(req: Request) {
   }
 
   return ok({ type: "unknown", message: "Use ?type=summary|sales-by-category|critical-requirements|yield-variance|weight-bands-config" });
-}
+});

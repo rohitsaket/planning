@@ -63,11 +63,11 @@ function StatusChangeForm({ row }: { row: RuleRow }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [status, setStatus] = useState(row.status);
-  const [approver, setApprover] = useState(row.approvedBy ?? "");
+  const [approver] = useState(row.approvedBy ?? "");
   const [notes, setNotes] = useState(row.notes ?? "");
 
   const mutation = useMutation({
-    mutationFn: () => apiPost("/api/admin/business-rules", { id: row.id, status, approver, notes }),
+    mutationFn: () => apiPost("/api/admin/business-rules", { id: row.id, status, notes }),
     onSuccess: () => {
       toast.success(`Rule ${row.ruleId} status updated to ${status}`);
       qc.invalidateQueries({ queryKey: ["/api/admin/business-rules"] });
@@ -98,7 +98,7 @@ function StatusChangeForm({ row }: { row: RuleRow }) {
           </SelectContent>
         </Select>
       </div>
-      <Input value={approver} onChange={(e) => setApprover(e.target.value)} placeholder="Approver" className="h-7 text-xs" />
+      <Input value={approver} readOnly disabled title="Recorded by the server from your sign-in" placeholder="Approver (you)" className="h-7 text-xs" />
       <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Notes" className="h-7 text-xs" />
       <div className="flex items-center gap-1">
         <Button size="sm" className="h-7 text-xs" disabled={mutation.isPending} onClick={() => mutation.mutate()}>

@@ -1,14 +1,16 @@
 import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
 import { NextResponse } from "next/server";
+import { notFound } from "@/lib/api/errors";
+import { withApi, idSchema } from "@/lib/api/with-api";
 
-export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
+export const GET = withApi({ permission: "requirement.read" }, async (req: Request, { params }: { params: Promise<{ id: string }> }) => {
+  const id = idSchema.parse((await params).id);
   const r = await db.requirement.findUnique({
     where: { id },
     include: { weightBand: true, allocations: { include: { planOption: true } } },
   });
-  if (!r) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (!r) throw notFound("Requirement");
 
   return ok({
     id: r.id,
@@ -63,4 +65,4 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       forecastRequirement: r.forecastQty,
     },
   });
-}
+});

@@ -1,13 +1,14 @@
 import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
+import { withApi, qStr } from "@/lib/api/with-api";
 
 // Fantasy Polished Stock — read from authoritative Fantasy source (synced locally)
-export async function GET(req: Request) {
+export const GET = withApi({ permission: "fantasy.read" }, async (req: Request) => {
   const url = new URL(req.url);
-  const planningClass = url.searchParams.get("planningClass");
-  const lab = url.searchParams.get("lab");
-  const shape = url.searchParams.get("shape");
-  const country = url.searchParams.get("country");
+  const planningClass = qStr(url, "planningClass");
+  const lab = qStr(url, "lab");
+  const shape = qStr(url, "shape");
+  const country = qStr(url, "country");
 
   const where: Record<string, unknown> = {};
   if (planningClass) where.planningClass = planningClass;
@@ -46,4 +47,4 @@ export async function GET(req: Request) {
       lastUpdated: s.lastUpdated.toISOString(),
     })),
   });
-}
+});

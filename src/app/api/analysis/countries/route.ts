@@ -1,22 +1,23 @@
 import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
+import { withApi, SCAN_MAX, scanned } from "@/lib/api/with-api";
 
 // Country/Branch Analysis — local vs global shortage, transfer candidates
-export async function GET() {
+export const GET = withApi({ permission: "analysis.read" }, async () => {
   const latestRun = await db.demandRun.findFirst({
     orderBy: { runDate: "desc" },
   });
   if (!latestRun) return ok({ rows: [] });
 
-  const metrics = await db.demandMetric.findMany({
+  const metrics = await db.demandMetric.findMany({ take: SCAN_MAX,
     where: { runId: latestRun.id },
-  });
+  }).then(scanned);
 
   // Group by country extracted from category (we use planningCategory which is lab|shape|band)
   // Country-specific demand comes from Requirements instead
-  const requirements = await db.requirement.findMany({
+  const requirements = await db.requirement.findMany({ take: SCAN_MAX,
     where: { remainingUnplanned: { gt: 0 } },
-  });
+  }).then(scanned);
 
   const byCountry = new Map<string, { shortage: number; target: number; available: number; excess: number; wip: number; planCov: number; transfer: number }>();
   for (const r of requirements) {
@@ -61,4 +62,4 @@ export async function GET() {
       planCov: globalAgg.planCov,
     },
   });
-}
+});

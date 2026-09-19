@@ -1,13 +1,15 @@
 import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
+import { withApi, qStr, paging, paged } from "@/lib/api/with-api";
 
 // Rough Availability — Fantasy rough stock filtered to planning-eligible
-export async function GET(req: Request) {
+export const GET = withApi({ permission: "rough.read" }, async (req: Request) => {
   const url = new URL(req.url);
-  const planningStatus = url.searchParams.get("planningStatus");
-  const stoneType = url.searchParams.get("stoneType");
-  const country = url.searchParams.get("country");
-  const eligibleOnly = url.searchParams.get("eligibleOnly") === "true";
+  const p = paging(url);
+  const planningStatus = qStr(url, "planningStatus");
+  const stoneType = qStr(url, "stoneType");
+  const country = qStr(url, "country");
+  const eligibleOnly = qStr(url, "eligibleOnly") === "true";
 
   const where: Record<string, unknown> = {};
   if (planningStatus) where.planningStatus = planningStatus;
@@ -15,13 +17,17 @@ export async function GET(req: Request) {
   if (country) where.country = country;
   if (eligibleOnly) where.planningEligible = true;
 
-  const roughs = await db.roughStone.findMany({
+  const roughs = await db.roughStone.findMany({ skip: p.skip, take: p.take,
     where,
     orderBy: { lastUpdated: "desc" },
   });
 
+  const pg = paged(roughs, p);
   return ok({
-    rows: roughs.map((r) => ({
+    page: pg.page,
+    pageSize: pg.pageSize,
+    hasMore: pg.hasMore,
+    rows: pg.rows.map((r) => ({
       id: r.id,
       fantasyRoughId: r.fantasyRoughId,
       kapan: r.kapan,
@@ -41,4 +47,4 @@ export async function GET(req: Request) {
       lastUpdated: r.lastUpdated.toISOString(),
     })),
   });
-}
+});

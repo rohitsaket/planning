@@ -13,6 +13,9 @@ import {
   AccordionContent,
 } from "@/components/ui/accordion";
 import { cn } from "@/lib/utils";
+import { PERMISSIONS as SERVER_PERMISSIONS, ROLE_PERMISSIONS as SERVER_ROLE_PERMISSIONS } from "@/lib/auth/permissions";
+import { useApi } from "@/lib/api-client";
+import { useAuthStore } from "@/stores/auth-store";
 
 // ---------------------------------------------------------------------------
 // RBAC reference model — 15 roles × 13 permissions
@@ -59,25 +62,18 @@ const PERMISSIONS: PermissionDef[] = [
   { code: "audit.read", name: "Read Audit Log", description: "Read the audit log — every privileged action is recorded for compliance review.", category: "Audit" },
 ];
 
-// Role → permission mapping. Use a Set lookup for clarity.
-const ALL_PERMS = PERMISSIONS.map((p) => p.code);
-const ROLE_PERMISSIONS: Record<string, string[]> = {
-  SUPER_ADMIN: ALL_PERMS,
-  ADMIN: ALL_PERMS.filter((p) => p !== "business_rule.manage"),
-  ANALYSIS_MANAGER: ["requirement.read", "requirement.create", "requirement.override", "audit.read"],
-  DATA_ANALYST: ["requirement.read", "audit.read"],
-  DATA_SCIENTIST: ["requirement.read", "forecast.run", "forecast.publish", "audit.read"],
-  PLANNING_MANAGER: ["requirement.read", "plan.create", "plan.select", "plan.approve", "plan.replan", "rough.reserve", "audit.read"],
-  PLANNER: ["requirement.read", "plan.create", "plan.select", "plan.replan", "rough.reserve"],
-  PLANNING_VIEWER: ["requirement.read"],
-  MFG_MANAGER: ["requirement.read", "audit.read"],
-  MFG_VIEWER: [],
-  SALES_MANAGER: ["requirement.read", "audit.read"],
-  SALES_VIEWER: [],
-  FANTASY_INTEGRATION: ["fantasy.sync", "audit.read"],
-  AUDITOR: ["audit.read"],
-  VIEWER: [],
+// The matrix below renders the SAME role → permission map the server enforces
+// (src/lib/auth/permissions.ts), so this screen cannot drift from real access control.
+const CATEGORY_BY_PREFIX: Record<string, PermissionDef["category"]> = {
+  requirement: "Requirements", plan: "Planning", rough: "Rough", forecast: "Forecast", demand: "Forecast",
+  fantasy: "Fantasy", audit: "Audit",
 };
+for (const code of SERVER_PERMISSIONS) {
+  if (!PERMISSIONS.some((p) => p.code === code)) {
+    PERMISSIONS.push({ code, name: code, description: `Server-enforced permission ${code}.`, category: CATEGORY_BY_PREFIX[code.split(".")[0]] ?? "Admin" });
+  }
+}
+const ROLE_PERMISSIONS: Record<string, string[]> = SERVER_ROLE_PERMISSIONS;
 
 const roleHas = (roleCode: string, permCode: string): boolean => {
   const perms = ROLE_PERMISSIONS[roleCode] ?? [];
@@ -157,7 +153,6 @@ interface StubUserRow {
   status: string;
 }
 
-const stubUsers: StubUserRow[] = [];
 
 const roleVariant = (code: string): "critical" | "warning" | "info" | "success" | "neutral" | "default" => {
   if (code.includes("ADMIN")) return "critical";
@@ -223,6 +218,9 @@ const PERM_CATEGORIES: PermissionDef["category"][] = [
 ];
 
 export function UsersView() {
+  const canManage = useAuthStore((st) => !!st.user?.permissions.includes("user.manage"));
+  const usersQuery = useApi<{ rows: StubUserRow[] }>(canManage ? "/api/admin/users" : null);
+  const stubUsers = usersQuery.data?.rows ?? [];
   return (
     <div className="flex flex-col gap-3 p-3">
       <PageHeader
@@ -441,7 +439,7 @@ export function UsersView() {
         {stubUsers.length === 0 ? (
           <EmptyState
             title="No users seeded"
-            message="Integrate with your IdP (NextAuth.js v4) to populate the user directory. The RBAC matrix above defines the target permission model."
+            message="No users visible. The directory is shown to accounts with the user.manage permission. The matrix above is the permission model the server enforces."
             icon={<Users className="h-8 w-8" />}
           />
         ) : (

@@ -1,19 +1,21 @@
 import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
+import { withApi, qStr, paging, paged } from "@/lib/api/with-api";
 
 // Planning Cases — list with aggregates
-export async function GET(req: Request) {
+export const GET = withApi({ permission: "plan.read" }, async (req: Request) => {
   const url = new URL(req.url);
-  const status = url.searchParams.get("status");
-  const planner = url.searchParams.get("planner");
-  const stoneType = url.searchParams.get("stoneType");
+  const p = paging(url);
+  const status = qStr(url, "status");
+  const planner = qStr(url, "planner");
+  const stoneType = qStr(url, "stoneType");
 
   const where: Record<string, unknown> = {};
   if (status) where.status = status;
   if (planner) where.planner = planner;
   if (stoneType) where.stoneType = stoneType;
 
-  const cases = await db.planningCase.findMany({
+  const cases = await db.planningCase.findMany({ skip: p.skip, take: p.take,
     where,
     include: {
       rough: true,
@@ -22,7 +24,8 @@ export async function GET(req: Request) {
     orderBy: { planningDate: "desc" },
   });
 
-  const rows = cases.map((c) => {
+  const pg = paged(cases, p);
+  const rows = pg.rows.map((c) => {
     const opts = c.versions[0]?.options ?? [];
     const selectedOpt = opts.find((o) => o.id === c.selectedOptionId) ?? opts.find((o) => o.selected) ?? null;
     const expectedPieces = selectedOpt ? selectedOpt.expectedPieces : opts.reduce((s, o) => s + o.expectedPieces, 0);
@@ -54,5 +57,5 @@ export async function GET(req: Request) {
     };
   });
 
-  return ok({ rows });
-}
+  return ok({ rows, page: pg.page, pageSize: pg.pageSize, hasMore: pg.hasMore });
+});

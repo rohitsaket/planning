@@ -1,11 +1,12 @@
 import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
+import { withApi, qStr } from "@/lib/api/with-api";
 
 // Planned Pieces — searchable list of all planned pieces
-export async function GET(req: Request) {
+export const GET = withApi({ permission: "plan.read" }, async (req: Request) => {
   const url = new URL(req.url);
-  const fulfilledOnly = url.searchParams.get("fulfilled") === "true";
-  const shape = url.searchParams.get("shape");
+  const fulfilledOnly = qStr(url, "fulfilled") === "true";
+  const shape = qStr(url, "shape");
 
   const where: Record<string, unknown> = {};
   if (fulfilledOnly) where.fulfilled = true;
@@ -40,4 +41,4 @@ export async function GET(req: Request) {
       fulfilled: p.fulfilled,
     })),
   });
-}
+});

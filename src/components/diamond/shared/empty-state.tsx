@@ -1,5 +1,6 @@
 "use client";
 
+import { formatCompactCurrency } from "@/lib/format";
 import { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
@@ -62,7 +63,5 @@ export function NumberCell({ value, intent, zeroAsDash = false, decimals }: { va
 
 export function Money({ value }: { value: number | null | undefined }) {
   if (value === null || value === undefined) return <span className="text-muted-foreground">—</span>;
-  if (Math.abs(value) >= 1_000_000) return <span className="tabular-nums">${(value / 1_000_000).toFixed(2)}M</span>;
-  if (Math.abs(value) >= 1_000) return <span className="tabular-nums">${(value / 1_000).toFixed(1)}K</span>;
-  return <span className="tabular-nums">${value.toFixed(0)}</span>;
+  return <span className="tabular-nums">{formatCompactCurrency(value)}</span>;
 }

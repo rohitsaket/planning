@@ -1,5 +1,6 @@
 "use client";
 
+import { useAuthStore } from "@/stores/auth-store";
 import { useApi } from "@/lib/api-client";
 import { KpiCard } from "@/components/diamond/shared/kpi-card";
 import { Section, PageHeader } from "@/components/diamond/shared/page-header";
@@ -41,6 +42,7 @@ interface DashboardKpi {
   plannedYield: number;
   actualYield: number;
   yieldVariance: number;
+  demandRunDate?: string | null;
 }
 
 interface AuditEvent {
@@ -109,9 +111,14 @@ export function DashboardView() {
   const [runningDemand, setRunningDemand] = useState(false);
 
   const { data: kpi, isLoading } = useApi<DashboardKpi>("/api/dashboard");
+  // Widgets are fetched only when the role may read them (UX only — the API enforces it anyway).
+  const perms = useAuthStore((s) => s.user?.permissions ?? []);
+  const canSales = perms.includes("sales.read");
+  const canAudit = perms.includes("audit.read");
+  const canRunDemand = perms.includes("demand.run");
 
   const demandMutation = useMutation({
-    mutationFn: () => apiPost<{ runId: string; categoriesProcessed: number; totalShortage: number }>("/api/demand/run", { actor: "dashboard.user" }),
+    mutationFn: () => apiPost<{ runId: string; categoriesProcessed: number; totalShortage: number }>("/api/demand/run", {}),
     onMutate: () => setRunningDemand(true),
     onSuccess: (r) => {
       toast.success(`Demand recalculated — ${r.categoriesProcessed} categories, shortage ${r.totalShortage} pcs`);
@@ -125,6 +132,7 @@ export function DashboardView() {
   // Sales trend (sparkline data)
   const { data: trendData } = useQuery({
     queryKey: ["dashboard-trend"],
+    enabled: canSales,
     queryFn: async () => {
       const tr = await apiFetch<{ rows: Array<{ key: string; prev30: number; mid30: number; latest30: number; total90: number; trend: string }> }>(`/api/analysis/sales/trend?groupBy=shape`);
       return tr.rows.slice(0, 8).map((r) => ({ name: r.key, prev30: r.prev30, mid30: r.mid30, latest30: r.latest30, total90: r.total90 }));
@@ -162,6 +170,7 @@ export function DashboardView() {
   // Live activity feed (recent audit events)
   const { data: auditData } = useQuery({
     queryKey: ["/api/audit/recent"],
+    enabled: canAudit,
     queryFn: () => apiFetch<{ rows: AuditEvent[] }>("/api/audit/recent?limit=12"),
     refetchInterval: 30_000, // auto-refresh every 30s
   });
@@ -191,6 +200,7 @@ export function DashboardView() {
   // Memo analysis — for memo exposure sparkline (top customers' values)
   const { data: memoData } = useQuery({
     queryKey: ["memo-spark"],
+    enabled: canSales,
     queryFn: async () => {
       const r = await apiFetch<{
         byCustomer: Array<{ value: number }>;
@@ -286,7 +296,8 @@ export function DashboardView() {
               variant="outline"
               className="h-7 text-[11px] gap-1.5"
               onClick={() => demandMutation.mutate()}
-              disabled={runningDemand}
+              disabled={runningDemand || !canRunDemand}
+              title={canRunDemand ? undefined : "Your role cannot run the demand calculation"}
             >
               {runningDemand ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Zap className="h-3 w-3" />}
               {runningDemand ? "Recalculating..." : "Run Demand Calc"}

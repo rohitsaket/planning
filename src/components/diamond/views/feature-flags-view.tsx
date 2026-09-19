@@ -23,7 +23,7 @@ interface FlagsData {
 function ToggleCell({ row }: { row: FlagRow }) {
   const qc = useQueryClient();
   const mutation = useMutation({
-    mutationFn: () => apiPost("/api/admin/feature-flags", { id: row.id, enabled: !row.enabled, actor: "current.user" }),
+    mutationFn: () => apiPost("/api/admin/feature-flags", { id: row.id, enabled: !row.enabled }),
     onSuccess: () => {
       toast.success(`${row.code} ${!row.enabled ? "enabled" : "disabled"}`);
       qc.invalidateQueries({ queryKey: ["/api/admin/feature-flags"] });

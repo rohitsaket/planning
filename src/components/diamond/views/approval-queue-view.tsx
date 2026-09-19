@@ -1,5 +1,6 @@
 "use client";
 
+import { useAuthStore } from "@/stores/auth-store";
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useApi, apiPost } from "@/lib/api-client";
@@ -20,7 +21,7 @@ import {
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { toast } from "sonner";
+import { toast as sonnerToast } from "sonner";
 import { Check, X, MessageSquare, AlertTriangle, RefreshCw } from "lucide-react";
 
 interface ApprovalRow {
@@ -79,8 +80,9 @@ function WarningsCell({ value }: { value: string | null }) {
   );
 }
 
-const APPROVER = "current.user";
-const REPLAN_ACTOR = "planner.user";
+// Display only — the server records the authenticated user as approver / actor.
+const APPROVER = () => useAuthStore.getState().user?.username ?? "signed-in user";
+const REPLAN_ACTOR = APPROVER;
 const REPLAN_REASON_MIN = 5;
 
 export function ApprovalQueueView() {
@@ -100,7 +102,7 @@ export function ApprovalQueueView() {
   const totalWarnings = rows.filter((r) => r.validationWarnings).length;
 
   const mutation = useMutation({
-    mutationFn: async (body: { caseId: string; action: "approve" | "reject"; approver: string; comment: string }) =>
+    mutationFn: async (body: { caseId: string; action: "approve" | "reject"; comment: string }) =>
       apiPost<{ status: string; caseId: string }>("/api/planning/approvals", body),
     onSuccess: (data, vars) => {
       toast({
@@ -122,7 +124,7 @@ export function ApprovalQueueView() {
   });
 
   const replanMutation = useMutation({
-    mutationFn: async (vars: { caseId: string; reason: string; actor: string }) =>
+    mutationFn: async (vars: { caseId: string; reason: string }) =>
       apiPost<{
         id: string;
         caseCode: string;
@@ -131,10 +133,9 @@ export function ApprovalQueueView() {
         auditLogged: boolean;
       }>(`/api/planning/cases/${vars.caseId}/replan`, {
         reason: vars.reason,
-        actor: vars.actor,
       }),
     onSuccess: (data) => {
-      toast.success("Marked for replan — new version created, audit logged");
+      sonnerToast.success("Marked for replan — new version created, audit logged");
       qc.invalidateQueries({ queryKey: ["/api/planning/approvals"] });
       qc.invalidateQueries({ queryKey: ["/api/planning/cases"] });
       qc.invalidateQueries({ queryKey: [`/api/planning/cases/${data.id}`] });
@@ -142,7 +143,7 @@ export function ApprovalQueueView() {
       setReplanReason("");
     },
     onError: (e: unknown) => {
-      toast.error(`Replan failed: ${(e as Error).message}`);
+      sonnerToast.error(`Replan failed: ${(e as Error).message}`);
     },
   });
 
@@ -163,7 +164,6 @@ export function ApprovalQueueView() {
     replanMutation.mutate({
       caseId: replanTarget.id,
       reason,
-      actor: REPLAN_ACTOR,
     });
   };
 
@@ -177,7 +177,7 @@ export function ApprovalQueueView() {
     if (comment === null && action === "approve") return;
     if (comment === null) return;
     setActingId(row.id);
-    mutation.mutate({ caseId: row.id, action, approver: APPROVER, comment });
+    mutation.mutate({ caseId: row.id, action, comment });
   };
 
   const columns: Column<ApprovalRow>[] = [
@@ -378,7 +378,7 @@ export function ApprovalQueueView() {
         subtitle="Plans awaiting review · approve or reject with a comment · action is logged to the audit trail"
         meta={
           <span className="text-[10px] text-muted-foreground">
-            approver: <code className="font-mono">{APPROVER}</code>
+            approver: <code className="font-mono">{APPROVER()}</code>
           </span>
         }
       />
@@ -441,7 +441,7 @@ export function ApprovalQueueView() {
             Click <span className="font-medium text-foreground">Approve</span> or <span className="font-medium text-foreground">Reject</span> on a row. A prompt will ask for an optional comment.
           </li>
           <li>Click <span className="font-medium text-foreground">Replan</span> to open a dialog requesting a reason (min 5 chars). Use this when the actual output missed the target category or yield fell below threshold.</li>
-          <li>Approve/Reject POSTs <code className="font-mono">{`{ caseId, action, approver: "current.user", comment }`}</code> to <code className="font-mono">/api/planning/approvals</code>. Replan POSTs <code className="font-mono">{`{ reason, actor: "planner.user" }`}</code> to <code className="font-mono">/api/planning/cases/{`{id}`}/replan</code>.</li>
+          <li>Approve/Reject POSTs <code className="font-mono">{`{ caseId, action, comment }`}</code> to <code className="font-mono">/api/planning/approvals</code>. Replan POSTs <code className="font-mono">{`{ reason }`}</code> to <code className="font-mono">/api/planning/cases/{`{id}`}/replan</code>.</li>
           <li>On success, the queue, planning cases, and case detail queries are invalidated (TanStack Query) and a toast confirms the action.</li>
           <li>Approved cases move to status <Badge variant="success">APPROVED</Badge>; rejected cases move to <Badge variant="critical">REJECTED</Badge>; replanned cases move to <Badge variant="warning">REPLAN_REQUIRED</Badge> with a new DRAFT version. All three actions write an audit log row.</li>
         </ul>
@@ -489,7 +489,7 @@ export function ApprovalQueueView() {
             />
             <div className="flex items-center justify-between text-[10px] text-muted-foreground">
               <span>
-                actor: <code className="font-mono">{REPLAN_ACTOR}</code>
+                actor: <code className="font-mono">{REPLAN_ACTOR()}</code>
               </span>
               <span
                 className={

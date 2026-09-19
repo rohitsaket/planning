@@ -1,8 +1,9 @@
 import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
+import { withApi } from "@/lib/api/with-api";
 
 // Fantasy Sync Dashboard — last sync runs + reconciliation summary
-export async function GET() {
+export const GET = withApi({ permission: "fantasy.read" }, async () => {
   const runs = await db.integrationSyncRun.findMany({
     orderBy: { startedAt: "desc" },
     take: 30,
@@ -54,4 +55,4 @@ export async function GET() {
       nextRunAt: r.nextRunAt?.toISOString() ?? null,
     })),
   });
-}
+});

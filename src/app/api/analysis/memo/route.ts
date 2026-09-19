@@ -1,20 +1,21 @@
 import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
+import { withApi, qStr, SCAN_MAX, scanned } from "@/lib/api/with-api";
 
 // Memo Analysis — separate decision context; does NOT reduce shortage
 // Honors global filter params: country, branch (no lab — MemoRecord has no
 // lab filter relevant for the memo exposure aggregate; the lab field is
 // informational only)
-export async function GET(req: Request) {
+export const GET = withApi({ permission: "sales.read" }, async (req: Request) => {
   const url = new URL(req.url);
-  const country = url.searchParams.get("country");
-  const branch = url.searchParams.get("branch");
+  const country = qStr(url, "country");
+  const branch = qStr(url, "branch");
 
   const where: Record<string, unknown> = {};
   if (country) where.country = country;
   if (branch) where.branch = branch;
 
-  const memos = await db.memoRecord.findMany({ where, include: { customer: true } });
+  const memos = await db.memoRecord.findMany({ take: SCAN_MAX, where, include: { customer: true } }).then(scanned);
   const now = new Date();
 
   // By country
@@ -73,4 +74,4 @@ export async function GET(req: Request) {
       memoAgeDays: m.memoAgeDays,
     })),
   });
-}
+});

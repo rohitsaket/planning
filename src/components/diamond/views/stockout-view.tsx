@@ -147,12 +147,12 @@ export function StockoutView() {
     // Each category occupies 3 consecutive bar groups. We'll use indexed x-axis ticks.
     const series: Array<{ x: string; [k: string]: number | string }> = [];
     const days = ["Day 0", "Day 30", "Day 60", "Day 90"];
-    // Build wide form: { day: 'Day 0', 'CAT-A': val, 'CAT-B': val, ... }
-    const byDay: Record<string, Record<string, number | string>> = {
-      "Day 0": { day: "Day 0" },
-      "Day 30": { day: "Day 30" },
-      "Day 60": { day: "Day 60" },
-      "Day 90": { day: "Day 90" },
+    // Build wide form: { x: 'Day 0', day: 'Day 0', 'CAT-A': val, 'CAT-B': val, ... }
+    const byDay: Record<string, { x: string; [k: string]: number | string }> = {
+      "Day 0": { x: "Day 0", day: "Day 0" },
+      "Day 30": { x: "Day 30", day: "Day 30" },
+      "Day 60": { x: "Day 60", day: "Day 60" },
+      "Day 90": { x: "Day 90", day: "Day 90" },
     };
     for (const c of projectionRows) {
       byDay["Day 0"][c.category] = Number(c.available.toFixed(1));

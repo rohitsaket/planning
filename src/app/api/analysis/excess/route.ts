@@ -1,8 +1,9 @@
 import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
+import { withApi } from "@/lib/api/with-api";
 
 // Excess Stock Analysis — MAX(0, Available - Target)
-export async function GET() {
+export const GET = withApi({ permission: "analysis.read" }, async () => {
   const latestRun = await db.demandRun.findFirst({
     orderBy: { runDate: "desc" },
     include: { metrics: true },
@@ -27,4 +28,4 @@ export async function GET() {
     totalExcess,
     warning: "Excess analytics do NOT change the confirmed shortage formula. Shortage = MAX(0, Target - Available); Excess = MAX(0, Available - Target).",
   });
-}
+});

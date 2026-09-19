@@ -1,22 +1,27 @@
 import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
 import { NextResponse } from "next/server";
+import { notFound, badRequest } from "@/lib/api/errors";
+import { withApi } from "@/lib/api/with-api";
 
 // Traceability — search by any of: Fantasy Rough ID, Kapan, Packet, Stone Name, Planning Case, Plan, Planned Piece, Fantasy Child, Fantasy Polished Lot, Requirement, Order, Customer, Certificate
-export async function GET(req: Request, { params }: { params: Promise<{ query: string }> }) {
+export const GET = withApi({ permission: "plan.read" }, async (req: Request, { params }: { params: Promise<{ query: string }> }) => {
   const { query: raw } = await params;
-  const query = decodeURIComponent(raw);
-  const q = query.trim();
+  // Next.js has already URL-decoded the segment; decoding again would throw on a literal "%".
+  const q = raw.trim();
+  if (q.length === 0 || q.length > 100) throw badRequest("Search text must be 1 to 100 characters.");
+  // LIKE treats % and _ as wildcards and Prisma does not escape them: make them literals.
+  const like = q.replace(/[\\%_]/g, "\\$&");
 
   // Build tree from any match
   // 1. Try rough by Fantasy Rough ID, Kapan, Packet, Stone Name
   const rough = await db.roughStone.findFirst({
     where: {
       OR: [
-        { fantasyRoughId: { contains: q } },
-        { kapan: { contains: q } },
-        { packet: { contains: q } },
-        { stoneName: { contains: q } },
+        { fantasyRoughId: { contains: like } },
+        { kapan: { contains: like } },
+        { packet: { contains: like } },
+        { stoneName: { contains: like } },
       ],
     },
     include: {
@@ -98,8 +103,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ query: s
     const polished = await db.polishedStone.findFirst({
       where: {
         OR: [
-          { fantasyLotId: { contains: q } },
-          { certificate: { contains: q } },
+          { fantasyLotId: { contains: like } },
+          { certificate: { contains: like } },
         ],
       },
     });
@@ -129,9 +134,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ query: s
     const req = await db.requirement.findFirst({
       where: {
         OR: [
-          { requirementCode: { contains: q } },
-          { orderNumber: { contains: q } },
-          { customerName: { contains: q } },
+          { requirementCode: { contains: like } },
+          { orderNumber: { contains: like } },
+          { customerName: { contains: like } },
         ],
       },
       include: { weightBand: true },
@@ -161,8 +166,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ query: s
   }
 
   if (!tree) {
-    return NextResponse.json({ error: "No matching entity found", query: q }, { status: 404 });
+    throw notFound("Matching entity");
   }
 
   return ok({ query: q, tree });
-}
+});

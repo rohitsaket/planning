@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
+import { withApi, SCAN_MAX, scanned } from "@/lib/api/with-api";
 
 // Inventory Aging Dashboard — enriched stock aging analysis.
 // Buckets: 0-30, 31-60, 61-90, 91-180, 181-365, 365+ days.
@@ -49,8 +50,8 @@ interface SlowAlert {
   weight: number;
 }
 
-export async function GET() {
-  const stones = await db.polishedStone.findMany();
+export const GET = withApi({ permission: "analysis.read" }, async () => {
+  const stones = await db.polishedStone.findMany({ take: SCAN_MAX }).then(scanned);
   const now = Date.now();
   const DAY_MS = 1000 * 60 * 60 * 24;
 
@@ -183,4 +184,4 @@ export async function GET() {
       weight: num(a.weight),
     })),
   });
-}
+});

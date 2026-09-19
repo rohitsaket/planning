@@ -1,12 +1,13 @@
 import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
+import { withApi, qStr, SCAN_MAX, scanned } from "@/lib/api/with-api";
 
 // Polished Stock Analysis — by planning class, lab, shape, weight band, age
-export async function GET(req: Request) {
+export const GET = withApi({ permission: "analysis.read" }, async (req: Request) => {
   const url = new URL(req.url);
-  const dimension = url.searchParams.get("dimension") || "planningClass";
+  const dimension = qStr(url, "dimension") || "planningClass";
 
-  const stones = await db.polishedStone.findMany({ include: { weightBand: true } });
+  const stones = await db.polishedStone.findMany({ take: SCAN_MAX, include: { weightBand: true } }).then(scanned);
   const now = new Date();
 
   const agg = new Map<string, { pieces: number; carats: number; value: number }>();
@@ -56,4 +57,4 @@ export async function GET(req: Request) {
     rows,
     aging,
   });
-}
+});

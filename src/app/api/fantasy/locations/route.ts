@@ -1,9 +1,10 @@
 import { db } from "@/lib/db";
 import { ok } from "@/lib/api-utils";
+import { withApi, SCAN_MAX, scanned } from "@/lib/api/with-api";
 
 // Fantasy Locations
-export async function GET() {
-  const locs = await db.fantasyLocation.findMany({ include: { department: true }, orderBy: { name: "asc" } });
+export const GET = withApi({ permission: "fantasy.read" }, async () => {
+  const locs = await db.fantasyLocation.findMany({ take: SCAN_MAX, include: { department: true }, orderBy: { name: "asc" } }).then(scanned);
   return ok({
     rows: locs.map((l) => ({
       id: l.id,
@@ -14,4 +15,4 @@ export async function GET() {
       branch: l.branch,
     })),
   });
-}
+});

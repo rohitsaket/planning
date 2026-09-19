@@ -1,10 +1,11 @@
 import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
+import { withApi, qStr, SCAN_MAX, scanned } from "@/lib/api/with-api";
 
 // Sales Trend Analysis — Previous 30D / Middle 30D / Latest 30D / 90D total / 180D / 365D context
-export async function GET(req: Request) {
+export const GET = withApi({ permission: "sales.read" }, async (req: Request) => {
   const url = new URL(req.url);
-  const groupBy = url.searchParams.get("groupBy") || "shape";
+  const groupBy = qStr(url, "groupBy") || "shape";
   const now = new Date();
 
   const since30 = new Date(now); since30.setDate(since30.getDate() - 30);
@@ -13,10 +14,10 @@ export async function GET(req: Request) {
   const since180 = new Date(now); since180.setDate(since180.getDate() - 180);
   const since365 = new Date(now); since365.setDate(since365.getDate() - 365);
 
-  const records365 = await db.salesRecord.findMany({
+  const records365 = await db.salesRecord.findMany({ take: SCAN_MAX,
     where: { lotStatusDb: "Invoice", docDate: { gte: since365 } },
     include: { weightBand: true },
-  });
+  }).then(scanned);
 
   const keyOf = (r: typeof records365[number]) => {
     if (groupBy === "shape") return r.shape;
@@ -69,4 +70,4 @@ export async function GET(req: Request) {
   }).sort((a, b) => b.total90 - a.total90);
 
   return ok({ groupBy, rows });
-}
+});

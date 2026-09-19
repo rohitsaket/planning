@@ -89,8 +89,7 @@ async function main() {
     "Office", "Branch", "Country", "Company", "Group",
   ];
   for (const t of tables) {
-    // @ts-expect-error dynamic model access
-    await prisma[t].deleteMany();
+    await (prisma as any)[t]?.deleteMany();
   }
 
   // =========================================================================

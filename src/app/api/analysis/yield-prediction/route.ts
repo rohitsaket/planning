@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
+import { withApi, SCAN_MAX, scanned } from "@/lib/api/with-api";
 
 // Yield Prediction — predicts expected actual yield % for rough stones based
 // on historical plan-actual reconciliation data. Spec §61 — data science
@@ -51,14 +52,14 @@ function stdDevPop(xs: number[]): number {
   return Math.sqrt(variance);
 }
 
-export async function GET() {
+export const GET = withApi({ permission: "analysis.read" }, async () => {
   // -------------------------------------------------------------------------
   // 1. Historical reconciliations
   // -------------------------------------------------------------------------
-  const reconciliations = await db.planActualReconciliation.findMany({
+  const reconciliations = await db.planActualReconciliation.findMany({ take: SCAN_MAX,
     include: { planOption: true },
     orderBy: { createdAt: "asc" },
-  });
+  }).then(scanned);
 
   const actuals: number[] = reconciliations.map((r) => num(r.actualYieldPct));
   const planned: number[] = reconciliations.map((r) => num(r.plannedYieldPct));
@@ -113,14 +114,14 @@ export async function GET() {
   // -------------------------------------------------------------------------
   const reconciledOptionIds = new Set(reconciliations.map((r) => r.planOptionId));
 
-  const activeCases = await db.planningCase.findMany({
+  const activeCases = await db.planningCase.findMany({ take: SCAN_MAX,
     where: { status: { in: ["APPROVED", "RELEASED_TO_MANUFACTURING"] } },
     include: {
       rough: true,
       versions: { include: { options: true } },
     },
     orderBy: { caseCode: "asc" },
-  });
+  }).then(scanned);
 
   const predictions = activeCases
     .map((pc) => {
@@ -189,4 +190,4 @@ export async function GET() {
     "OPEN rule: model selection logic is unconfirmed.";
 
   return ok({ summary, predictions, historical, methodology, advisoryNotice });
-}
+});

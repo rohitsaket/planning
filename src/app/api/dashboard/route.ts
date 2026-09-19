@@ -1,8 +1,9 @@
 import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
+import { withApi, SCAN_MAX, scanned } from "@/lib/api/with-api";
 
 // Executive Dashboard KPIs - all values drilldown to evidence
-export async function GET() {
+export const GET = withApi({ permission: "analysis.read" }, async () => {
   // Aggregate from DemandMetric (latest run)
   const latestRun = await db.demandRun.findFirst({
     orderBy: { runDate: "desc" },
@@ -68,7 +69,7 @@ export async function GET() {
   const fantasySyncHealth = hasFailed ? "FAILED" : hasPartial ? "PARTIAL" : "HEALTHY";
 
   // Yield variance
-  const reconciliations = await db.planActualReconciliation.findMany();
+  const reconciliations = await db.planActualReconciliation.findMany({ take: SCAN_MAX }).then(scanned);
   let plannedYield = 0;
   let actualYield = 0;
   let yieldVariance = 0;
@@ -102,4 +103,4 @@ export async function GET() {
     demandRunDate: latestRun?.runDate?.toISOString() ?? null,
     ruleVersion: latestRun?.ruleVersion ?? null,
   });
-}
+});

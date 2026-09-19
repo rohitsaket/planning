@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
+import { withApi, SCAN_MAX, scanned } from "@/lib/api/with-api";
 
 // Customer Reorder Signal — data science advisory feature (spec section 64).
 // Analyzes each customer's historical repeat purchase intervals per category and predicts:
@@ -7,15 +8,15 @@ import { ok, num } from "@/lib/api-utils";
 // - likely reorder window (next N days)
 // - likely quantity range
 // Clearly labeled as PREDICTION — never converts prediction into confirmed order.
-export async function GET() {
-  const customers = await db.customer.findMany({
+export const GET = withApi({ permission: "analysis.read" }, async () => {
+  const customers = await db.customer.findMany({ take: SCAN_MAX,
     include: {
       salesRecords: {
         where: { lotStatusDb: "Invoice" },
         orderBy: { docDate: "asc" },
       },
     },
-  });
+  }).then(scanned);
 
   const now = new Date();
   const signals: Array<{
@@ -152,4 +153,4 @@ export async function GET() {
     rows: signals,
     advisoryNotice: "PREDICTION — Customer reorder signals are advisory only. Never convert a prediction into a confirmed order without business approval.",
   });
-}
+});

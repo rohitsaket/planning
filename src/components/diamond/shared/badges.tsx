@@ -70,7 +70,6 @@ export function StatusBadge({ status, className }: { status: string; className?:
     SOFT_RESERVED: "warning",
     UNDER_PLANNING: "info",
     PLAN_APPROVED: "success",
-    RELEASED_TO_MANUFACTURING: "success",
   };
   const variant = map[status] ?? "default";
   return <Badge variant={variant} className={className}>{status.replace(/_/g, " ")}</Badge>;

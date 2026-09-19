@@ -1,5 +1,6 @@
 "use client";
 
+import { toCsv } from "@/lib/csv-export";
 import { cn } from "@/lib/utils";
 import { ReactNode, useState } from "react";
 import { ChevronDown, ChevronRight, Download, FileSpreadsheet, FileText, Search, SlidersHorizontal } from "lucide-react";
@@ -14,6 +15,8 @@ export interface Column<T> {
   cell: (row: T) => ReactNode;
   sortable?: boolean;
   sortValue?: (row: T) => number | string;
+  // Plain value written to CSV. Defaults to the primitive cell output, then row[key], then sortValue.
+  exportValue?: (row: T) => string | number | boolean | null | undefined;
   width?: string;
   sticky?: "left" | "right";
   align?: "left" | "right" | "center";
@@ -104,17 +107,8 @@ export function DataTable<T>({
   };
 
   const exportCsv = () => {
-    const headers = columns.map((c) => c.header);
-    const lines = [headers.join(",")];
-    for (const r of processed) {
-      const line = columns.map((c) => {
-        const val = c.cell(r);
-        const s = typeof val === "string" || typeof val === "number" ? String(val) : "";
-        return `"${s.replace(/"/g, '""')}"`;
-      });
-      lines.push(line.join(","));
-    }
-    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
+    const csv = toCsv(columns, processed);
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;

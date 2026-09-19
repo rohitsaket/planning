@@ -1,13 +1,14 @@
 import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
+import { withApi, qStr, SCAN_MAX, scanned } from "@/lib/api/with-api";
 
 // Customer 360 — list customers with sales aggregates
 // Honors global filter params: country, branch, lab
-export async function GET(req: Request) {
+export const GET = withApi({ permission: "customers.read" }, async (req: Request) => {
   const url = new URL(req.url);
-  const country = url.searchParams.get("country");
-  const branch = url.searchParams.get("branch");
-  const lab = url.searchParams.get("lab");
+  const country = qStr(url, "country");
+  const branch = qStr(url, "branch");
+  const lab = qStr(url, "lab");
 
   const since = new Date();
   since.setDate(since.getDate() - 365);
@@ -37,14 +38,14 @@ export async function GET(req: Request) {
   if (country) orderWhere.country = country;
   if (branch) orderWhere.branch = branch;
 
-  const customers = await db.customer.findMany({
+  const customers = await db.customer.findMany({ take: SCAN_MAX,
     where: customerWhere,
     include: {
       salesRecords: { where: salesWhere },
       memoRecords: { where: memoWhere },
       salesOrders: { where: orderWhere },
     },
-  });
+  }).then(scanned);
 
   const rows = customers.map((c) => {
     const pieces = c.salesRecords.length;
@@ -74,4 +75,4 @@ export async function GET(req: Request) {
   }).sort((a, b) => b.totalValue - a.totalValue);
 
   return ok({ rows });
-}
+});

@@ -1,7 +1,9 @@
+import { z } from "zod";
 import { db } from "@/lib/db";
 import { ok } from "@/lib/api-utils";
+import { withApi, idSchema } from "@/lib/api/with-api";
 
-export async function GET() {
+export const GET = withApi({ permission: "notification.read" }, async () => {
   const notifs = await db.notification.findMany({ orderBy: { createdAt: "desc" }, take: 50 });
   return ok({
     rows: notifs.map((n) => ({
@@ -14,12 +16,11 @@ export async function GET() {
       createdAt: n.createdAt.toISOString(),
     })),
   });
-}
+});
 
-export async function POST(req: Request) {
-  const body = await req.json();
-  const { id, read } = body;
-  if (!id) return Response.json({ error: "id required" }, { status: 400 });
-  const n = await db.notification.update({ where: { id }, data: { read: !!read } });
+const bodySchema = z.object({ id: idSchema, read: z.boolean().optional() });
+
+export const POST = withApi({ permission: "notification.read", body: bodySchema }, async (_req, _ctx, api) => {
+  const n = await db.notification.update({ where: { id: api.body.id }, data: { read: !!api.body.read } });
   return ok({ id: n.id, read: n.read });
-}
+});

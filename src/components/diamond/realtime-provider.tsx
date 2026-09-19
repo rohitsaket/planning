@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { io, type Socket } from "socket.io-client";
 import { useRealtimeStore, type RealtimeEvent } from "@/stores/realtime-store";
 import { toast } from "sonner";
+import { useAuthStore } from "@/stores/auth-store";
 
 let socket: Socket | null = null;
 
@@ -12,16 +13,23 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
   const setConnected = useRealtimeStore((s) => s.setConnected);
   const setEventLog = useRealtimeStore((s) => s.setEventLog);
 
-  useEffect(() => {
-    if (socket) return; // singleton — only connect once
+  const signedIn = useAuthStore((st) => st.status === "signed-in");
 
-    // In dev (localhost:3000) connect directly to the notifications service.
-    // In production (via gateway), use XTransformPort query param.
+  useEffect(() => {
+    // The service only accepts sockets that carry a valid session cookie.
+    if (!signedIn) {
+      socket?.disconnect();
+      socket = null;
+      setConnected(false);
+      return;
+    }
+    if (socket) return; // singleton — only connect once per session
+
+    // Dev (localhost:3000, no proxy): talk to the service directly. Everywhere else the reverse
+    // proxy maps the fixed path /socket.io/* to the service — the client never names a port.
     const isDev = typeof window !== "undefined" && window.location.hostname === "localhost" && window.location.port === "3000";
     const socketUrl = isDev ? "http://localhost:3001" : "/";
-    const socketOpts = isDev
-      ? { path: "/socket.io/", transports: ["websocket", "polling"], reconnection: true, reconnectionDelay: 2000 }
-      : { path: "/socket.io/", query: { XTransformPort: "3001" }, transports: ["websocket", "polling"], reconnection: true, reconnectionDelay: 2000 };
+    const socketOpts = { path: "/socket.io/", withCredentials: true, transports: ["websocket", "polling"], reconnection: true, reconnectionDelay: 5000, reconnectionAttempts: 20 };
 
     socket = io(socketUrl, socketOpts);
 
@@ -58,7 +66,7 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
     return () => {
       // Don't disconnect on unmount — keep the singleton alive across navigations
     };
-  }, [addEvent, setConnected, setEventLog]);
+  }, [addEvent, setConnected, setEventLog, signedIn]);
 
   return <>{children}</>;
 }

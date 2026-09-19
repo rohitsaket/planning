@@ -1,5 +1,6 @@
 "use client";
 
+import { useAuthStore } from "@/stores/auth-store";
 import { useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useApi, apiPost } from "@/lib/api-client";
@@ -170,7 +171,8 @@ const PLANNERS = [
   "planner.frank",
   "system.import",
 ];
-const REPLAN_ACTOR = "planner.user";
+// Display only — the server records the authenticated user as the actor.
+const REPLAN_ACTOR = () => useAuthStore.getState().user?.username ?? "signed-in user";
 const REPLAN_REASON_MIN = 5;
 
 const fmtDate = (iso: string | null): string => {
@@ -232,7 +234,7 @@ export function PlanningCasesView() {
   );
 
   const replanMutation = useMutation({
-    mutationFn: async (vars: { caseId: string; reason: string; actor: string }) =>
+    mutationFn: async (vars: { caseId: string; reason: string }) =>
       apiPost<{
         id: string;
         caseCode: string;
@@ -241,7 +243,6 @@ export function PlanningCasesView() {
         auditLogged: boolean;
       }>(`/api/planning/cases/${vars.caseId}/replan`, {
         reason: vars.reason,
-        actor: vars.actor,
       }),
     onSuccess: (data) => {
       toast.success("Marked for replan — new version created, audit logged");
@@ -274,7 +275,6 @@ export function PlanningCasesView() {
     replanMutation.mutate({
       caseId: detail.id,
       reason,
-      actor: REPLAN_ACTOR,
     });
   };
 
@@ -778,7 +778,7 @@ export function PlanningCasesView() {
             />
             <div className="flex items-center justify-between text-[10px] text-muted-foreground">
               <span>
-                actor: <code className="font-mono">{REPLAN_ACTOR}</code>
+                actor: <code className="font-mono">{REPLAN_ACTOR()}</code>
               </span>
               <span
                 className={

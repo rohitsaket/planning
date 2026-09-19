@@ -1,5 +1,8 @@
 "use client";
 
+import { UserMenu } from "@/components/auth/auth-gate";
+import { useAuthStore } from "@/stores/auth-store";
+import { viewPermission } from "@/lib/auth/view-permissions";
 import { useNavStore, ViewId } from "@/stores/nav-store";
 import { cn } from "@/lib/utils";
 import { usePathname } from "next/navigation";
@@ -175,7 +178,10 @@ function Star({ className }: { className?: string }) {
   return <span className={cn("inline-block", className)}>★</span>;
 }
 
-function NavGroupItem({ group }: { group: NavGroup }) {
+function NavGroupItem({ group: fullGroup }: { group: NavGroup }) {
+  // Hide screens the signed-in role cannot use (UX only — the API enforces permissions).
+  const perms = useAuthStore((s) => s.user?.permissions);
+  const group = { ...fullGroup, items: fullGroup.items.filter((i) => !!perms?.includes(viewPermission(i.id))) };
   const collapsed = useNavStore((s) => s.collapsedGroups[group.id]);
   const toggleGroup = useNavStore((s) => s.toggleGroup);
   const view = useNavStore((s) => s.view);
@@ -438,6 +444,7 @@ function NotificationsBell() {
 }
 
 export function AppShell({ children }: { children: ReactNode }) {
+  const userPerms = useAuthStore((s) => s.user?.permissions);
   const sidebarOpen = useNavStore((s) => s.sidebarOpen);
   const setSidebarOpen = useNavStore((s) => s.setSidebarOpen);
   const view = useNavStore((s) => s.view);
@@ -535,6 +542,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div className="h-7 w-7 sm:h-8 sm:w-8 rounded-full bg-muted border border-border flex items-center justify-center">
             <User className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-muted-foreground" />
           </div>
+          <UserMenu />
         </div>
       </header>
 
@@ -561,7 +569,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             )}
           >
             <nav className="py-1">
-              {NAV.map((g) => <NavGroupItem key={g.id} group={g} />)}
+              {NAV.filter((g) => g.items.some((i) => userPerms?.includes(viewPermission(i.id)))).map((g) => <NavGroupItem key={g.id} group={g} />)}
             </nav>
             <div className="px-3 py-2 text-[9px] text-muted-foreground/60 border-t border-sidebar-border/40">
               <p>v1.0 · Demand rule v1 · {new Date().getFullYear()}</p>

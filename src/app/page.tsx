@@ -3,6 +3,9 @@
 import { useEffect } from "react";
 import { AppShell } from "@/components/layout/app-shell";
 import { QueryProvider } from "@/components/providers/query-provider";
+import { AuthGate } from "@/components/auth/auth-gate";
+import { useAuthStore } from "@/stores/auth-store";
+import { viewPermission } from "@/lib/auth/view-permissions";
 import { useNavStore } from "@/stores/nav-store";
 import { DashboardView } from "@/components/diamond/views/dashboard-view";
 import { SalesAnalysisView } from "@/components/diamond/views/sales-analysis-view";
@@ -128,13 +131,18 @@ export default function Home() {
   }, []);
 
   const view = useNavStore((s) => s.view);
-  const View = VIEW_REGISTRY[view] ?? DashboardView;
+  const perms = useAuthStore((s) => s.user?.permissions);
+  // A view the role cannot use (e.g. from a pasted #hash) falls back to the dashboard.
+  const effectiveView = !perms || perms.includes(viewPermission(view)) ? view : "dashboard";
+  const View = VIEW_REGISTRY[effectiveView] ?? DashboardView;
 
   return (
     <QueryProvider>
-      <AppShell>
-        <View />
-      </AppShell>
+      <AuthGate>
+        <AppShell>
+          <View />
+        </AppShell>
+      </AuthGate>
     </QueryProvider>
   );
 }

@@ -1,8 +1,9 @@
 import { db } from "@/lib/db";
 import { ok } from "@/lib/api-utils";
+import { withApi, SCAN_MAX, scanned } from "@/lib/api/with-api";
 
-export async function GET() {
-  const shapes = await db.shapeMapping.findMany({ orderBy: { rawShape: "asc" } });
+export const GET = withApi({ permission: "config.read" }, async () => {
+  const shapes = await db.shapeMapping.findMany({ take: SCAN_MAX, orderBy: { rawShape: "asc" } }).then(scanned);
   return ok({
     rows: shapes.map((s) => ({
       id: s.id,
@@ -12,4 +13,4 @@ export async function GET() {
       active: s.active,
     })),
   });
-}
+});

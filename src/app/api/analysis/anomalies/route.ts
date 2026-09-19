@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
+import { withApi, SCAN_MAX, scanned } from "@/lib/api/with-api";
 
 // Anomaly Detection — statistical outliers in monthly sales velocity per
 // planning category (lab|shape|weightBand). Spec §61 — data science
@@ -21,7 +22,7 @@ import { ok, num } from "@/lib/api-utils";
 //
 // We compute the calendar-month skeleton so missing months contribute 0,
 // giving a more honest std-dev for sparse categories.
-export async function GET() {
+export const GET = withApi({ permission: "analysis.read" }, async () => {
   // Anchor "latest month" to the most recent calendar month with sales, but
   // fall back to the current month if no sales exist.
   const now = new Date();
@@ -44,12 +45,12 @@ export async function GET() {
   windowStart.setMonth(windowStart.getMonth() - 12);
 
   // Pull all invoiced sales in the window.
-  const records = await db.salesRecord.findMany({
+  const records = await db.salesRecord.findMany({ take: SCAN_MAX,
     where: {
       lotStatusDb: "Invoice",
       docDate: { gte: windowStart, lt: latestMonthEnd },
     },
-  });
+  }).then(scanned);
 
   // Group by planning category (lab|shape|weightBand label) and by month bucket.
   // Month bucket key = `${year}-${month0Indexed}` for stable sorting.
@@ -95,7 +96,7 @@ export async function GET() {
   }
   const bandLabels = new Map<string, string>();
   if (bandIds.size > 0) {
-    const bands = await db.weightBand.findMany({ where: { id: { in: Array.from(bandIds) } } });
+    const bands = await db.weightBand.findMany({ take: SCAN_MAX, where: { id: { in: Array.from(bandIds) } } }).then(scanned);
     for (const b of bands) bandLabels.set(b.id, b.label);
   }
 
@@ -183,4 +184,4 @@ export async function GET() {
   };
 
   return ok({ rows, summary, windowStart: windowStart.toISOString(), latestMonthEnd: latestMonthEnd.toISOString() });
-}
+});

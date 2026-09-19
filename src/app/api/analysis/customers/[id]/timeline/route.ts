@@ -1,18 +1,17 @@
 import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
 import { classifyWeightBand, normalizeLab, normalizeShape } from "@/lib/domain/diamond-rules";
+import { notFound } from "@/lib/api/errors";
+import { withApi, SCAN_MAX, idSchema, scanned } from "@/lib/api/with-api";
 
 // Customer 360 — monthly purchase timeline (last 12 months) + preference breakdown.
 // Aggregates only Invoice sales for this customer over the trailing 365 days.
-export async function GET(
-  _req: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const { id } = await params;
+export const GET = withApi({ permission: "customers.read" }, async (_req: Request, { params }: { params: Promise<{ id: string }> }) => {
+  const id = idSchema.parse((await params).id);
 
   const customer = await db.customer.findUnique({ where: { id } });
   if (!customer) {
-    return Response.json({ error: "Customer not found" }, { status: 404 });
+    throw notFound("Customer");
   }
 
   // Last 12 months window
@@ -20,14 +19,14 @@ export async function GET(
   const since = new Date(now);
   since.setDate(since.getDate() - 365);
 
-  const records = await db.salesRecord.findMany({
+  const records = await db.salesRecord.findMany({ take: SCAN_MAX,
     where: {
       customerId: id,
       lotStatusDb: "Invoice",
       docDate: { gte: since },
     },
     include: { weightBand: true },
-  });
+  }).then(scanned);
 
   // ---- Build the 12-month skeleton (oldest → newest, calendar months) ----
   const monthlyMap = new Map<string, { pieces: number; carats: number; value: number }>();
@@ -65,7 +64,7 @@ export async function GET(
     // Weight band — prefer related band label, fall back to classifier
     let bandLabel = r.weightBand?.label;
     if (!bandLabel) {
-      const def = classifyWeightBand(r.weight);
+      const def = classifyWeightBand(num(r.weight));
       bandLabel = def?.label ?? "Unmapped";
     }
     weightBands.set(bandLabel, (weightBands.get(bandLabel) ?? 0) + 1);
@@ -118,4 +117,4 @@ export async function GET(
       clarities: top(clarities, 8),
     },
   });
-}
+});

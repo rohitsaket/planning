@@ -1,8 +1,9 @@
 import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
+import { withApi } from "@/lib/api/with-api";
 
 // Forecast Analysis — clearly separate from confirmed demand
-export async function GET() {
+export const GET = withApi({ permission: "analysis.read" }, async () => {
   const latestRun = await db.forecastRun.findFirst({
     orderBy: { runDate: "desc" },
     include: { predictions: true },
@@ -29,4 +30,4 @@ export async function GET() {
     horizon90d: latestRun.horizon90d,
     advisoryNotice: "FORECAST IS A PREDICTION, NOT CONFIRMED DEMAND. Forecast must remain separate from confirmed current manufacturing requirement.",
   });
-}
+});

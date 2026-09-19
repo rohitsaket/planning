@@ -1,22 +1,23 @@
 import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
+import { withApi, qInt, qStr } from "@/lib/api/with-api";
 
 // Requirements Matrix — high-density enterprise grid
 // Supports filters: type, status, country, branch, lab, shape, weightBand, priority
 // Supports sort, server-side pagination
-export async function GET(req: Request) {
+export const GET = withApi({ permission: "requirement.read" }, async (req: Request) => {
   const url = new URL(req.url);
-  const page = Math.max(1, parseInt(url.searchParams.get("page") || "1", 10));
-  const pageSize = Math.min(500, Math.max(10, parseInt(url.searchParams.get("pageSize") || "100", 10)));
-  const type = url.searchParams.get("type");
-  const status = url.searchParams.get("status");
-  const country = url.searchParams.get("country");
-  const branch = url.searchParams.get("branch");
-  const lab = url.searchParams.get("lab");
-  const shape = url.searchParams.get("shape");
-  const weightBandId = url.searchParams.get("weightBandId");
-  const priority = url.searchParams.get("priority");
-  const search = url.searchParams.get("q");
+  const page = qInt(url, "page", { def: 1, min: 1, max: 1_000_000 });
+  const pageSize = qInt(url, "pageSize", { def: 100, min: 1, max: 500 });
+  const type = qStr(url, "type");
+  const status = qStr(url, "status");
+  const country = qStr(url, "country");
+  const branch = qStr(url, "branch");
+  const lab = qStr(url, "lab");
+  const shape = qStr(url, "shape");
+  const weightBandId = qStr(url, "weightBandId");
+  const priority = qStr(url, "priority");
+  const search = qStr(url, "q", 100);
 
   const where: Record<string, unknown> = {};
   if (type) where.type = type;
@@ -27,7 +28,8 @@ export async function GET(req: Request) {
   if (shape) where.shape = shape;
   if (weightBandId) where.weightBandId = weightBandId;
   if (priority) where.requirementPriority = priority;
-  if (search) where.requirementCode = { contains: search };
+  // % and _ are LIKE wildcards that Prisma does not escape: make them literals.
+  if (search) where.requirementCode = { contains: search.replace(/[\\%_]/g, "\\$&") };
 
   const [total, rows] = await Promise.all([
     db.requirement.count({ where }),
@@ -78,4 +80,4 @@ export async function GET(req: Request) {
     page,
     pageSize,
   });
-}
+});

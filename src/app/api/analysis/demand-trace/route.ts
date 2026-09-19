@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
+import { withApi, SCAN_MAX, scanned } from "@/lib/api/with-api";
 
 // ============================================================================
 // Demand Calculation Trace — exposes every intermediate step of the
@@ -7,7 +8,7 @@ import { ok, num } from "@/lib/api-utils";
 // Each step shows: step#, label, value, formula, source.
 // Categories come from the latest DemandRun's DemandMetric rows.
 // ============================================================================
-export async function GET() {
+export const GET = withApi({ permission: "analysis.read" }, async () => {
   // 1. Latest confirmed demand run
   const latestRun = await db.demandRun.findFirst({
     orderBy: { runDate: "desc" },
@@ -36,10 +37,10 @@ export async function GET() {
   });
   const forecastByCategory = new Map<string, number>();
   if (latestForecastRun) {
-    const preds = await db.forecastPrediction.findMany({
+    const preds = await db.forecastPrediction.findMany({ take: SCAN_MAX,
       where: { runId: latestForecastRun.id },
       select: { category: true, prediction90d: true },
-    });
+    }).then(scanned);
     for (const p of preds) {
       forecastByCategory.set(p.category, num(p.prediction90d));
     }
@@ -225,7 +226,7 @@ export async function GET() {
       categoriesWithExcess,
     },
   });
-}
+});
 
 function round2(v: number): number {
   if (!Number.isFinite(v)) return 0;

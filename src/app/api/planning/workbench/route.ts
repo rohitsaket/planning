@@ -1,11 +1,12 @@
 import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
 import { NextResponse } from "next/server";
+import { withApi, qStr, SCAN_MAX, scanned } from "@/lib/api/with-api";
 
 // Planning Workbench — left: priority requirement queue, center: available rough, right: plan possibilities for selected rough
-export async function GET(req: Request) {
+export const GET = withApi({ permission: "plan.read" }, async (req: Request) => {
   const url = new URL(req.url);
-  const roughId = url.searchParams.get("roughId");
+  const roughId = qStr(url, "roughId");
 
   // LEFT — priority requirement queue (top 25 by priority + remainingUnplanned)
   const queue = await db.requirement.findMany({
@@ -55,10 +56,10 @@ export async function GET(req: Request) {
   // RIGHT — plan possibilities for the selected rough
   let rightPlan: unknown = null;
   if (roughId) {
-    const cases = await db.planningCase.findMany({
+    const cases = await db.planningCase.findMany({ take: SCAN_MAX,
       where: { roughId, status: { in: ["DRAFT", "READY_FOR_REVIEW", "SELECTED", "APPROVAL_PENDING", "APPROVED"] } },
       include: { versions: { include: { options: { include: { pieces: true } } } }, rough: true },
-    });
+    }).then(scanned);
     rightPlan = cases.map((c) => ({
       id: c.id,
       caseCode: c.caseCode,
@@ -90,4 +91,4 @@ export async function GET(req: Request) {
   }
 
   return ok({ leftQueue, centerRough, rightPlan });
-}
+});

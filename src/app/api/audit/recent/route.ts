@@ -1,10 +1,11 @@
 import { db } from "@/lib/db";
 import { ok } from "@/lib/api-utils";
+import { withApi, qInt } from "@/lib/api/with-api";
 
 // Recent audit events for the live activity feed on the dashboard
-export async function GET(req: Request) {
+export const GET = withApi({ permission: "audit.read" }, async (req: Request) => {
   const url = new URL(req.url);
-  const limit = Math.min(50, parseInt(url.searchParams.get("limit") || "15", 10));
+  const limit = qInt(url, "limit", { def: 15, min: 1, max: 50 });
   const logs = await db.auditLog.findMany({
     orderBy: { timestamp: "desc" },
     take: limit,
@@ -21,4 +22,4 @@ export async function GET(req: Request) {
       correlationId: l.correlationId,
     })),
   });
-}
+});

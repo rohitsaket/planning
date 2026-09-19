@@ -8,7 +8,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -270,6 +270,10 @@ model RoughReservation {
   releasedAt    DateTime?
   notes         String?
   createdAt     DateTime @default(now())
+  // Equals roughId while the reservation is active, NULL once released/cancelled.
+  // The unique index makes a second active reservation of the same rough impossible.
+  activeRoughKey String?  @unique
+  reservedByUserId String?
 }
 
 // ---------------------------------------------------------------------------
@@ -464,6 +468,8 @@ model PlanVersion {
   createdAt       DateTime @default(now())
   supersededAt    DateTime?
   options         PlanOption[]
+
+  @@unique([planningCaseId, versionNumber])
 }
 
 model PlanOption {
@@ -638,6 +644,15 @@ model AuditLog {
   reason    String?
   timestamp DateTime @default(now())
   correlationId String?
+  // Server-derived identity (never taken from the request body)
+  actorUserId String?
+  actorRole   String?
+  requestId   String?
+  sessionId   String?
+  sourceIp    String?
+
+  @@index([timestamp])
+  @@index([actorUserId])
 }
 
 model DataQualityIssue {
@@ -681,4 +696,39 @@ model IntegrationSyncRun {
   startedAt     DateTime @default(now())
   finishedAt    DateTime?
   nextRunAt     DateTime?
+}
+
+// ---------------------------------------------------------------------------
+// IDENTITY — users and server-side sessions
+// ---------------------------------------------------------------------------
+model User {
+  id               String    @id @default(cuid())
+  username         String    @unique
+  displayName      String
+  email            String?   @unique
+  passwordHash     String
+  role             String    // role code, see src/lib/auth/permissions.ts
+  status           String    @default("ACTIVE") // ACTIVE | DISABLED
+  failedLoginCount Int       @default(0)
+  lockedUntil      DateTime?
+  lastLoginAt      DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  sessions         Session[]
+}
+
+model Session {
+  id         String    @id @default(cuid())
+  tokenHash  String    @unique // sha-256 of the opaque cookie token; the token itself is never stored
+  userId     String
+  user       User      @relation(fields: [userId], references: [id])
+  createdAt  DateTime  @default(now())
+  lastSeenAt DateTime  @default(now())
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  ip         String?
+  userAgent  String?
+
+  @@index([userId])
 }
