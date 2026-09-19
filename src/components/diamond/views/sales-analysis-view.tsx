@@ -6,6 +6,7 @@ import { KpiCard } from "@/components/diamond/shared/kpi-card";
 import { Section, PageHeader } from "@/components/diamond/shared/page-header";
 import { DataTable, Column } from "@/components/diamond/shared/data-table";
 import { Money, NumberCell } from "@/components/diamond/shared/empty-state";
+import { useGlobalFilter } from "@/stores/global-filter";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   Legend,
@@ -45,19 +46,20 @@ const DIMENSIONS = [
   { value: "month", label: "Month" },
 ];
 
-const WINDOWS = [
-  { value: "7", label: "7D" },
-  { value: "30", label: "30D" },
-  { value: "60", label: "60D" },
-  { value: "90", label: "90D" },
-  { value: "180", label: "180D" },
-  { value: "365", label: "365D" },
-];
-
 export function SalesAnalysisView() {
+  // Global filter is the single source of truth for windowDays / country / lab.
+  // The GlobalFilterBar in the AppShell exposes these to every view.
+  const globalFilter = useGlobalFilter();
   const [dimension, setDimension] = useState("shape");
-  const [windowDays, setWindowDays] = useState("90");
-  const url = `/api/analysis/sales?dimension=${dimension}&windowDays=${windowDays}`;
+  const url = useMemo(() => {
+    const base = `/api/analysis/sales?dimension=${dimension}`;
+    const params = new URLSearchParams();
+    params.set("windowDays", String(globalFilter.windowDays));
+    if (globalFilter.country) params.set("country", globalFilter.country);
+    if (globalFilter.branch) params.set("branch", globalFilter.branch);
+    if (globalFilter.lab) params.set("lab", globalFilter.lab);
+    return `${base}&${params.toString()}`;
+  }, [dimension, globalFilter.windowDays, globalFilter.country, globalFilter.branch, globalFilter.lab]);
   const { data, isLoading } = useApi<SalesAnalysisResponse>(url);
 
   const totalCarats = (data?.rows ?? []).reduce((s, r) => s + r.carats, 0);
@@ -102,6 +104,17 @@ export function SalesAnalysisView() {
       cell: (r) => <span className="tabular-nums">{r.pct.toFixed(1)}%</span> },
   ];
 
+  const filterMeta = globalFilter.hasActiveFilters() && (
+    <span className="text-[10px] text-sky-600 dark:text-sky-400 font-medium">
+      Filtered by: {[
+        globalFilter.country && `Country=${globalFilter.country}`,
+        globalFilter.branch && `Branch=${globalFilter.branch}`,
+        globalFilter.lab && `Lab=${globalFilter.lab}`,
+        `Window=${globalFilter.windowDays}D`,
+      ].filter(Boolean).join(", ")}
+    </span>
+  );
+
   return (
     <div className="flex flex-col gap-3 p-3">
       <PageHeader
@@ -119,19 +132,14 @@ export function SalesAnalysisView() {
                 ))}
               </SelectContent>
             </Select>
-            <Select value={windowDays} onValueChange={setWindowDays}>
-              <SelectTrigger size="sm" className="h-8 w-[90px] text-xs">
-                <SelectValue placeholder="Window" />
-              </SelectTrigger>
-              <SelectContent>
-                {WINDOWS.map((w) => (
-                  <SelectItem key={w.value} value={w.value} className="text-xs">{w.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
           </div>
         }
-        meta={<span className="text-[10px] text-muted-foreground">Dimension: {DIMENSIONS.find((d) => d.value === dimension)?.label} · Window: {windowDays}D</span>}
+        meta={
+          <div className="flex items-center gap-2 flex-wrap">
+            {filterMeta}
+            <span className="text-[10px] text-muted-foreground">Dimension: {DIMENSIONS.find((d) => d.value === dimension)?.label} · Window: {globalFilter.windowDays}D</span>
+          </div>
+        }
       />
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
@@ -170,7 +178,7 @@ export function SalesAnalysisView() {
           initialSortKey="value"
           initialSortDir="desc"
           exportable
-          exportFilename={`sales-${dimension}-${windowDays}d.csv`}
+          exportFilename={`sales-${dimension}-${globalFilter.windowDays}d.csv`}
           searchable
           searchPlaceholder="Search dimension..."
           searchFn={(r, q) => r.dimension.toLowerCase().includes(q.toLowerCase())}

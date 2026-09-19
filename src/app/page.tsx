@@ -28,6 +28,8 @@ import { PlanningWorkbenchView } from "@/components/diamond/views/planning-workb
 import { ApprovalQueueView } from "@/components/diamond/views/approval-queue-view";
 import { PlannedPiecesView } from "@/components/diamond/views/planned-pieces-view";
 import { ReservationsView } from "@/components/diamond/views/reservations-view";
+import { PlanComparisonView } from "@/components/diamond/views/plan-comparison-view";
+import { AnomalyDetectionView } from "@/components/diamond/views/anomaly-detection-view";
 import { FantasySyncView } from "@/components/diamond/views/fantasy-sync-view";
 import { FantasyRoughView } from "@/components/diamond/views/fantasy-rough-view";
 import { FantasyPolishedView } from "@/components/diamond/views/fantasy-polished-view";
@@ -73,6 +75,7 @@ const VIEW_REGISTRY: Record<string, React.ComponentType> = {
   "requirements-allocation": RequirementsMatrixView,
   "planning-rough-availability": RoughAvailabilityView,
   "planning-cases": PlanningCasesView,
+  "planning-comparison": PlanComparisonView,
   "planning-workbook-import": WorkbookImportView,
   "planning-workbench": PlanningWorkbenchView,
   "planning-approval-queue": ApprovalQueueView,
@@ -94,6 +97,7 @@ const VIEW_REGISTRY: Record<string, React.ComponentType> = {
   "data-quality-issues": DataQualityView,
   "data-quality-unmapped-labs": LabMappingsView,
   "data-quality-unmapped-shapes": ShapeMappingsView,
+  "data-science-anomaly-detection": AnomalyDetectionView,
   "data-science-forecast": ForecastView,
   "data-science-models": ForecastModelsView,
   "data-science-prediction-monitoring": ForecastView,

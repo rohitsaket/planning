@@ -1,0 +1,1052 @@
+     1→"use client";
+     2→
+     3→import { useMemo, useState } from "react";
+     4→import { useMutation, useQueryClient } from "@tanstack/react-query";
+     5→import { toast } from "sonner";
+     6→import { useApi, apiPost } from "@/lib/api-client";
+     7→import { PageHeader, Section } from "@/components/diamond/shared/page-header";
+     8→import { DataTable, type Column } from "@/components/diamond/shared/data-table";
+     9→import { StatusBadge, Badge } from "@/components/diamond/shared/badges";
+    10→import { KpiCard } from "@/components/diamond/shared/kpi-card";
+    11→import { InfoBanner, NumberCell } from "@/components/diamond/shared/empty-state";
+    12→import { Input } from "@/components/ui/input";
+    13→import { Textarea } from "@/components/ui/textarea";
+    14→import { Label } from "@/components/ui/label";
+    15→import {
+    16→  Select,
+    17→  SelectTrigger,
+    18→  SelectValue,
+    19→  SelectContent,
+    20→  SelectItem,
+    21→} from "@/components/ui/select";
+    22→import { Button } from "@/components/ui/button";
+    23→import {
+    24→  Dialog,
+    25→  DialogContent,
+    26→  DialogHeader,
+    27→  DialogTitle,
+    28→  DialogDescription,
+    29→} from "@/components/ui/dialog";
+    30→import {
+    31→  Search,
+    32→  ChevronLeft,
+    33→  ChevronRight,
+    34→  Filter,
+    35→  X,
+    36→  Pencil,
+    37→  Loader2,
+    38→  Bookmark,
+    39→  Save,
+    40→  Trash2,
+    41→  Star,
+    42→} from "lucide-react";
+    43→import { useSavedViews, type SavedView } from "@/stores/saved-views";
+    44→
+    45→interface RequirementRow {
+    46→  id: string;
+    47→  requirementCode: string;
+    48→  type: string;
+    49→  status: string;
+    50→  customerName: string | null;
+    51→  orderNumber: string | null;
+    52→  country: string | null;
+    53→  branch: string | null;
+    54→  lab: string | null;
+    55→  shape: string | null;
+    56→  weightBand: string | null;
+    57→  requiredQty: number;
+    58→  physicalStockQty: number;
+    59→  planningAvailableQty: number;
+    60→  memoQty: number;
+    61→  transferCoverage: number;
+    62→  wipCoverage: number;
+    63→  approvedPlanCoverage: number;
+    64→  actualCoverage: number;
+    65→  remainingUnplanned: number;
+    66→  forecastQty: number;
+    67→  requiredBy: string | null;
+    68→  ageDays: number;
+    69→  daysRemaining: number | null;
+    70→  daysOverdue: number;
+    71→  customerPriority: string | null;
+    72→  orderPriority: string | null;
+    73→  requirementPriority: string | null;
+    74→  priorityReason: string | null;
+    75→}
+    76→
+    77→interface RequirementDetail {
+    78→  id: string;
+    79→  requirementCode: string;
+    80→  type: string;
+    81→  status: string;
+    82→  customerName: string | null;
+    83→  orderNumber: string | null;
+    84→  country: string | null;
+    85→  branch: string | null;
+    86→  lab: string | null;
+    87→  shape: string | null;
+    88→  weightBand: string | null;
+    89→  colorGroup: string | null;
+    90→  clarityGroup: string | null;
+    91→  treatment: string | null;
+    92→  requiredQty: number;
+    93→  physicalStockQty: number;
+    94→  planningAvailableQty: number;
+    95→  memoQty: number;
+    96→  transferCoverage: number;
+    97→  wipCoverage: number;
+    98→  approvedPlanCoverage: number;
+    99→  actualCoverage: number;
+   100→  remainingUnplanned: number;
+   101→  forecastQty: number;
+   102→  requiredBy: string | null;
+   103→  ageDays: number;
+   104→  daysRemaining: number | null;
+   105→  daysOverdue: number;
+   106→  customerPriority: string | null;
+   107→  orderPriority: string | null;
+   108→  requirementPriority: string | null;
+   109→  priorityReason: string | null;
+   110→  sourceRecords: unknown;
+   111→  allocations: Array<{
+   112→    id: string;
+   113→    allocatedQty: number;
+   114→    allocatedBy: string;
+   115→    allocatedAt: string;
+   116→    status: string;
+   117→    planOptionCode: string | null;
+   118→  }>;
+   119→  fourNumbers: {
+   120→    physicalShortage: number;
+   121→    pipelineAdjusted: number;
+   122→    planningAdjusted: number;
+   123→    forecastRequirement: number;
+   124→  };
+   125→}
+   126→
+   127→const TYPES = [
+   128→  "SALES_ORDER",
+   129→  "MEMO",
+   130→  "FORECAST",
+   131→  "STOCKOUT_REPLENISHMENT",
+   132→  "SPECIAL",
+   133→  "BACKORDER",
+   134→];
+   135→const STATUSES = [
+   136→  "OPEN",
+   137→  "PARTIALLY_COVERED",
+   138→  "FULLY_PLANNED",
+   139→  "PARTIALLY_FULFILLED",
+   140→  "FULFILLED",
+   141→  "IN_MANUFACTURING",
+   142→  "EXPIRED",
+   143→  "CANCELLED",
+   144→];
+   145→const COUNTRIES = ["USA", "India", "Belgium", "Israel", "HongKong", "UAE", "Botswana"];
+   146→const PRIORITIES = ["CRITICAL", "HIGH", "NORMAL", "LOW", "WATCH"];
+   147→
+   148→function priorityVariant(
+   149→  v: string | null
+   150→): "default" | "critical" | "high" | "low" | "neutral" {
+   151→  if (!v) return "default";
+   152→  if (v === "CRITICAL") return "critical";
+   153→  if (v === "HIGH") return "high";
+   154→  if (v === "LOW") return "low";
+   155→  if (v === "WATCH") return "neutral";
+   156→  return "default";
+   157→}
+   158→
+   159→function PriorityBadge({ value }: { value: string | null }) {
+   160→  if (!value) return <span className="text-muted-foreground">—</span>;
+   161→  return <Badge variant={priorityVariant(value)}>{value}</Badge>;
+   162→}
+   163→
+   164→function fmtDate(iso: string | null): string {
+   165→  if (!iso) return "—";
+   166→  try {
+   167→    return new Date(iso).toISOString().slice(0, 10);
+   168→  } catch {
+   169→    return "—";
+   170→  }
+   171→}
+   172→
+   173→export function RequirementsMatrixView() {
+   174→  const qc = useQueryClient();
+   175→  const [filters, setFilters] = useState({
+   176→    type: "",
+   177→    status: "",
+   178→    country: "",
+   179→    priority: "",
+   180→    q: "",
+   181→  });
+   182→  const [page, setPage] = useState(1);
+   183→  const pageSize = 100;
+   184→  const [selectedId, setSelectedId] = useState<string | null>(null);
+   185→
+   186→  // Requirement Priority Override form state
+   187→  const [showOverrideForm, setShowOverrideForm] = useState(false);
+   188→  const [newPriority, setNewPriority] = useState<string>("NORMAL");
+   189→  const [overrideReason, setOverrideReason] = useState<string>("");
+   190→
+   191→  // Saved Views state
+   192→  const { views: savedViews, addView, removeView } = useSavedViews();
+   193→  const [showSaveDialog, setShowSaveDialog] = useState(false);
+   194→  const [newViewName, setNewViewName] = useState("");
+   195→
+   196→  const applySavedView = (sv: SavedView) => {
+   197→    setFilters({
+   198→      type: sv.filters.type ?? "",
+   199→      status: sv.filters.status ?? "",
+   200→      country: sv.filters.country ?? "",
+   201→      priority: sv.filters.priority ?? "",
+   202→      q: sv.filters.search ?? "",
+   203→    });
+   204→    setPage(1);
+   205→    toast.success(`Applied saved view "${sv.name}"`);
+   206→  };
+   207→
+   208→  const handleSaveView = () => {
+   209→    if (newViewName.trim().length < 3) {
+   210→      toast.error("View name must be at least 3 characters");
+   211→      return;
+   212→    }
+   213→    addView(newViewName.trim(), {
+   214→      type: filters.type || null,
+   215→      status: filters.status || null,
+   216→      country: filters.country || null,
+   217→      priority: filters.priority || null,
+   218→      search: filters.q || "",
+   219→    });
+   220→    toast.success(`Saved view "${newViewName.trim()}"`);
+   221→    setNewViewName("");
+   222→    setShowSaveDialog(false);
+   223→  };
+   224→
+   225→  const qs = useMemo(() => {
+   226→    const parts: string[] = [`page=${page}`, `pageSize=${pageSize}`];
+   227→    if (filters.type) parts.push(`type=${encodeURIComponent(filters.type)}`);
+   228→    if (filters.status) parts.push(`status=${encodeURIComponent(filters.status)}`);
+   229→    if (filters.country) parts.push(`country=${encodeURIComponent(filters.country)}`);
+   230→    if (filters.priority) parts.push(`priority=${encodeURIComponent(filters.priority)}`);
+   231→    if (filters.q) parts.push(`q=${encodeURIComponent(filters.q)}`);
+   232→    return parts.join("&");
+   233→  }, [filters, page]);
+   234→
+   235→  const url = `/api/requirements?${qs}`;
+   236→  const { data, isLoading } = useApi<{
+   237→    data: RequirementRow[];
+   238→    total: number;
+   239→    page: number;
+   240→    pageSize: number;
+   241→  }>(url);
+   242→
+   243→  const { data: detail, isLoading: detailLoading } = useApi<RequirementDetail | null>(
+   244→    selectedId ? `/api/requirements/${selectedId}` : null
+   245→  );
+   246→
+   247→  // Requirement Priority Override mutation
+   248→  const overrideMutation = useMutation({
+   249→    mutationFn: async (vars: { id: string; priority: string; reason: string }) =>
+   250→      apiPost<{
+   251→        id: string;
+   252→        requirementCode: string;
+   253→        requirementPriority: string;
+   254→        priorityReason: string;
+   255→        auditLogged: true;
+   256→      }>(`/api/requirements/${vars.id}/priority`, {
+   257→        priority: vars.priority,
+   258→        reason: vars.reason,
+   259→        actor: "planner.user",
+   260→      }),
+   261→    onSuccess: (_data, vars) => {
+   262→      toast.success("Priority overridden — audit logged");
+   263→      // Invalidate the matrix list query (current page+filters) and the detail query so they refetch.
+   264→      qc.invalidateQueries({ queryKey: [url] });
+   265→      qc.invalidateQueries({ queryKey: [`/api/requirements/${vars.id}`] });
+   266→      // Reset form
+   267→      setShowOverrideForm(false);
+   268→      setOverrideReason("");
+   269→      setNewPriority("NORMAL");
+   270→    },
+   271→    onError: (e: Error) => {
+   272→      toast.error(`Override failed: ${e.message}`);
+   273→    },
+   274→  });
+   275→
+   276→  const resetOverrideForm = () => {
+   277→    setShowOverrideForm(false);
+   278→    setOverrideReason("");
+   279→    setNewPriority("NORMAL");
+   280→  };
+   281→
+   282→  const openOverrideForm = () => {
+   283→    setNewPriority(detail?.requirementPriority ?? "NORMAL");
+   284→    setOverrideReason("");
+   285→    setShowOverrideForm(true);
+   286→  };
+   287→
+   288→  const applyOverride = () => {
+   289→    if (!detail) return;
+   290→    const reason = overrideReason.trim();
+   291→    if (!newPriority || reason.length < 5) return;
+   292→    overrideMutation.mutate({ id: detail.id, priority: newPriority, reason });
+   293→  };
+   294→
+   295→  const rows = data?.data ?? [];
+   296→  const total = data?.total ?? 0;
+   297→  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+   298→
+   299→  const resetPage = () => setPage(1);
+   300→
+   301→  const updateFilter = (key: keyof typeof filters, value: string) => {
+   302→    setFilters((f) => ({ ...f, [key]: value }));
+   303→    resetPage();
+   304→  };
+   305→
+   306→  const clearFilters = () => {
+   307→    setFilters({ type: "", status: "", country: "", priority: "", q: "" });
+   308→    resetPage();
+   309→  };
+   310→
+   311→  const activeFilters = Object.values(filters).filter(Boolean).length;
+   312→
+   313→  const columns: Column<RequirementRow>[] = [
+   314→    {
+   315→      key: "requirementCode",
+   316→      header: "Req. Code",
+   317→      width: "150px",
+   318→      sticky: "left",
+   319→      sortable: true,
+   320→      sortValue: (r) => r.requirementCode,
+   321→      cell: (r) => (
+   322→        <span className="font-medium text-foreground">{r.requirementCode}</span>
+   323→      ),
+   324→    },
+   325→    {
+   326→      key: "type",
+   327→      header: "Type",
+   328→      width: "120px",
+   329→      cell: (r) => <Badge variant="info">{r.type.replace(/_/g, " ")}</Badge>,
+   330→    },
+   331→    {
+   332→      key: "status",
+   333→      header: "Status",
+   334→      width: "120px",
+   335→      cell: (r) => <StatusBadge status={r.status} />,
+   336→    },
+   337→    {
+   338→      key: "customerName",
+   339→      header: "Customer",
+   340→      width: "140px",
+   341→      cell: (r) => (
+   342→        <span className="truncate">{r.customerName ?? "—"}</span>
+   343→      ),
+   344→    },
+   345→    {
+   346→      key: "orderNumber",
+   347→      header: "Order #",
+   348→      width: "120px",
+   349→      cell: (r) => r.orderNumber ?? "—",
+   350→    },
+   351→    {
+   352→      key: "country",
+   353→      header: "Country",
+   354→      width: "90px",
+   355→      cell: (r) => r.country ?? "—",
+   356→    },
+   357→    {
+   358→      key: "branch",
+   359→      header: "Branch",
+   360→      width: "90px",
+   361→      cell: (r) => r.branch ?? "—",
+   362→    },
+   363→    {
+   364→      key: "lab",
+   365→      header: "Lab",
+   366→      width: "80px",
+   367→      cell: (r) => r.lab ?? "—",
+   368→    },
+   369→    {
+   370→      key: "shape",
+   371→      header: "Shape",
+   372→      width: "90px",
+   373→      cell: (r) => r.shape ?? "—",
+   374→    },
+   375→    {
+   376→      key: "weightBand",
+   377→      header: "Wt Band",
+   378→      width: "110px",
+   379→      cell: (r) => r.weightBand ?? "—",
+   380→    },
+   381→    {
+   382→      key: "requiredQty",
+   383→      header: "Req Qty",
+   384→      width: "70px",
+   385→      align: "right",
+   386→      sortable: true,
+   387→      sortValue: (r) => r.requiredQty,
+   388→      cell: (r) => <NumberCell value={r.requiredQty} intent="info" />,
+   389→    },
+   390→    {
+   391→      key: "physicalStockQty",
+   392→      header: "Phys Stock",
+   393→      width: "70px",
+   394→      align: "right",
+   395→      sortable: true,
+   396→      sortValue: (r) => r.physicalStockQty,
+   397→      cell: (r) => <NumberCell value={r.physicalStockQty} />,
+   398→    },
+   399→    {
+   400→      key: "planningAvailableQty",
+   401→      header: "Plan Avail",
+   402→      width: "70px",
+   403→      align: "right",
+   404→      cell: (r) => <NumberCell value={r.planningAvailableQty} />,
+   405→    },
+   406→    {
+   407→      key: "memoQty",
+   408→      header: "Memo",
+   409→      width: "60px",
+   410→      align: "right",
+   411→      cell: (r) => <NumberCell value={r.memoQty} intent="warning" />,
+   412→    },
+   413→    {
+   414→      key: "transferCoverage",
+   415→      header: "Trans Cov",
+   416→      width: "70px",
+   417→      align: "right",
+   418→      cell: (r) => <NumberCell value={r.transferCoverage} />,
+   419→    },
+   420→    {
+   421→      key: "wipCoverage",
+   422→      header: "WIP Cov",
+   423→      width: "70px",
+   424→      align: "right",
+   425→      cell: (r) => <NumberCell value={r.wipCoverage} intent="info" />,
+   426→    },
+   427→    {
+   428→      key: "approvedPlanCoverage",
+   429→      header: "Plan Cov",
+   430→      width: "70px",
+   431→      align: "right",
+   432→      cell: (r) => <NumberCell value={r.approvedPlanCoverage} intent="success" />,
+   433→    },
+   434→    {
+   435→      key: "actualCoverage",
+   436→      header: "Act Cov",
+   437→      width: "70px",
+   438→      align: "right",
+   439→      cell: (r) => <NumberCell value={r.actualCoverage} />,
+   440→    },
+   441→    {
+   442→      key: "remainingUnplanned",
+   443→      header: "Rem Unpl",
+   444→      width: "75px",
+   445→      align: "right",
+   446→      sortable: true,
+   447→      sortValue: (r) => r.remainingUnplanned,
+   448→      cell: (r) => (
+   449→        <NumberCell
+   450→          value={r.remainingUnplanned}
+   451→          intent={r.remainingUnplanned > 0 ? "critical" : "success"}
+   452→        />
+   453→      ),
+   454→    },
+   455→    {
+   456→      key: "forecastQty",
+   457→      header: "Forecast",
+   458→      width: "70px",
+   459→      align: "right",
+   460→      cell: (r) => <NumberCell value={r.forecastQty} intent="info" />,
+   461→    },
+   462→    {
+   463→      key: "requiredBy",
+   464→      header: "Req By",
+   465→      width: "90px",
+   466→      cell: (r) => fmtDate(r.requiredBy),
+   467→    },
+   468→    {
+   469→      key: "ageDays",
+   470→      header: "Age",
+   471→      width: "60px",
+   472→      align: "right",
+   473→      sortable: true,
+   474→      sortValue: (r) => r.ageDays,
+   475→      cell: (r) => <NumberCell value={r.ageDays} />,
+   476→    },
+   477→    {
+   478→      key: "daysRemaining",
+   479→      header: "Days Rem",
+   480→      width: "70px",
+   481→      align: "right",
+   482→      cell: (r) => <NumberCell value={r.daysRemaining} />,
+   483→    },
+   484→    {
+   485→      key: "daysOverdue",
+   486→      header: "Days Over",
+   487→      width: "70px",
+   488→      align: "right",
+   489→      sortable: true,
+   490→      sortValue: (r) => r.daysOverdue,
+   491→      cell: (r) => (
+   492→        <NumberCell value={r.daysOverdue} intent={r.daysOverdue > 0 ? "critical" : "default"} />
+   493→      ),
+   494→    },
+   495→    {
+   496→      key: "customerPriority",
+   497→      header: "Cust Pri",
+   498→      width: "80px",
+   499→      sticky: "left",
+   500→      cell: (r) => <PriorityBadge value={r.customerPriority} />,
+   501→    },
+   502→    {
+   503→      key: "orderPriority",
+   504→      header: "Ord Pri",
+   505→      width: "80px",
+   506→      sticky: "left",
+   507→      cell: (r) => <PriorityBadge value={r.orderPriority} />,
+   508→    },
+   509→    {
+   510→      key: "requirementPriority",
+   511→      header: "Req Pri",
+   512→      width: "80px",
+   513→      sticky: "left",
+   514→      cell: (r) => <PriorityBadge value={r.requirementPriority} />,
+   515→    },
+   516→    {
+   517→      key: "priorityReason",
+   518→      header: "Reason",
+   519→      width: "200px",
+   520→      cell: (r) => (
+   521→        <span className="text-muted-foreground truncate block max-w-[180px]" title={r.priorityReason ?? ""}>
+   522→          {r.priorityReason ?? "—"}
+   523→        </span>
+   524→      ),
+   525→    },
+   526→  ];
+   527→
+   528→  // KPIs from current page (approximate)
+   529→  const totalRemaining = rows.reduce((s, r) => s + r.remainingUnplanned, 0);
+   530→  const totalOverdue = rows.filter((r) => r.daysOverdue > 0).length;
+   531→  const totalCritical = rows.filter((r) => r.requirementPriority === "CRITICAL").length;
+   532→
+   533→  return (
+   534→    <div className="flex flex-col gap-3 p-3">
+   535→      <PageHeader
+   536→        title="Requirements Matrix"
+   537→        subtitle="High-density enterprise requirement grid · Physical Shortage → Pipeline-Adjusted → Plan Coverage → Remaining Unplanned · Filter, search and drill down to four-number evidence"
+   538→        meta={
+   539→          <span className="text-[10px] text-muted-foreground">
+   540→            {total.toLocaleString()} total · Page {page} / {totalPages}
+   541→          </span>
+   542→        }
+   543→      />
+   544→
+   545→      {/* KPI strip for current page */}
+   546→      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+   547→        <KpiCard label="Page Rows" value={rows.length} unit="reqs" intent="default" />
+   548→        <KpiCard
+   549→          label="Remaining Unplanned (page)"
+   550→          value={totalRemaining}
+   551→          unit="pcs"
+   552→          intent="critical"
+   553→          hint="Sum of remainingUnplanned on current page"
+   554→        />
+   555→        <KpiCard label="Overdue Rows" value={totalOverdue} unit="reqs" intent="warning" />
+   556→        <KpiCard label="Critical Rows" value={totalCritical} unit="reqs" intent="critical" />
+   557→      </div>
+   558→
+   559→      {/* Filter row */}
+   560→      <Section
+   561→        title="Filters"
+   562→        description="Type, status, country, priority and free-text search"
+   563→        bodyClassName="p-2"
+   564→        actions={
+   565→          <div className="flex items-center gap-1">
+   566→            {activeFilters > 0 && (
+   567→              <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setShowSaveDialog(true)}>
+   568→                <Save className="h-3 w-3 mr-1" /> Save View
+   569→              </Button>
+   570→            )}
+   571→            {activeFilters > 0 && (
+   572→              <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={clearFilters}>
+   573→                <X className="h-3 w-3 mr-1" /> Clear ({activeFilters})
+   574→              </Button>
+   575→            )}
+   576→          </div>
+   577→        }
+   578→      >
+   579→        <div className="flex items-center gap-2 flex-wrap">
+   580→          <Filter className="h-3.5 w-3.5 text-muted-foreground" />
+   581→          <Select value={filters.type || "ALL"} onValueChange={(v) => updateFilter("type", v === "ALL" ? "" : v)}>
+   582→            <SelectTrigger size="sm" className="h-8 w-[160px] text-xs">
+   583→              <SelectValue placeholder="All Types" />
+   584→            </SelectTrigger>
+   585→            <SelectContent>
+   586→              <SelectItem value="ALL">All Types</SelectItem>
+   587→              {TYPES.map((t) => (
+   588→                <SelectItem key={t} value={t}>
+   589→                  {t.replace(/_/g, " ")}
+   590→                </SelectItem>
+   591→              ))}
+   592→            </SelectContent>
+   593→          </Select>
+   594→
+   595→          <Select value={filters.status || "ALL"} onValueChange={(v) => updateFilter("status", v === "ALL" ? "" : v)}>
+   596→            <SelectTrigger size="sm" className="h-8 w-[170px] text-xs">
+   597→              <SelectValue placeholder="All Statuses" />
+   598→            </SelectTrigger>
+   599→            <SelectContent>
+   600→              <SelectItem value="ALL">All Statuses</SelectItem>
+   601→              {STATUSES.map((s) => (
+   602→                <SelectItem key={s} value={s}>
+   603→                  {s.replace(/_/g, " ")}
+   604→                </SelectItem>
+   605→              ))}
+   606→            </SelectContent>
+   607→          </Select>
+   608→
+   609→          <Select value={filters.country || "ALL"} onValueChange={(v) => updateFilter("country", v === "ALL" ? "" : v)}>
+   610→            <SelectTrigger size="sm" className="h-8 w-[140px] text-xs">
+   611→              <SelectValue placeholder="All Countries" />
+   612→            </SelectTrigger>
+   613→            <SelectContent>
+   614→              <SelectItem value="ALL">All Countries</SelectItem>
+   615→              {COUNTRIES.map((c) => (
+   616→                <SelectItem key={c} value={c}>
+   617→                  {c}
+   618→                </SelectItem>
+   619→              ))}
+   620→            </SelectContent>
+   621→          </Select>
+   622→
+   623→          <Select
+   624→            value={filters.priority || "ALL"}
+   625→            onValueChange={(v) => updateFilter("priority", v === "ALL" ? "" : v)}
+   626→          >
+   627→            <SelectTrigger size="sm" className="h-8 w-[140px] text-xs">
+   628→              <SelectValue placeholder="All Priorities" />
+   629→            </SelectTrigger>
+   630→            <SelectContent>
+   631→              <SelectItem value="ALL">All Priorities</SelectItem>
+   632→              {PRIORITIES.map((p) => (
+   633→                <SelectItem key={p} value={p}>
+   634→                  {p}
+   635→                </SelectItem>
+   636→              ))}
+   637→            </SelectContent>
+   638→          </Select>
+   639→
+   640→          <div className="relative flex-1 min-w-[200px] max-w-sm">
+   641→            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+   642→            <Input
+   643→              value={filters.q}
+   644→              onChange={(e) => updateFilter("q", e.target.value)}
+   645→              placeholder="Search requirement code…"
+   646→              className="h-8 pl-7 text-xs"
+   647→            />
+   648→          </div>
+   649→        </div>
+   650→      </Section>
+   651→
+   652→      {/* Saved Views bar — persisted to localStorage */}
+   653→      {savedViews.length > 0 && (
+   654→        <Section title="Saved Views" description="Click to apply · persisted in browser localStorage" bodyClassName="p-2">
+   655→          <div className="flex items-center gap-1.5 flex-wrap">
+   656→            <Bookmark className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+   657→            {savedViews.map((sv) => {
+   658→              const activeCount = [sv.filters.type, sv.filters.status, sv.filters.country, sv.filters.priority, sv.filters.search].filter(Boolean).length;
+   659→              return (
+   660→                <div key={sv.id} className="inline-flex items-center gap-1 group">
+   661→                  <button
+   662→                    onClick={() => applySavedView(sv)}
+   663→                    className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-border bg-card hover:bg-primary/5 hover:border-primary/40 transition-colors text-xs"
+   664→                    title={`Filters: ${activeCount} active\nType: ${sv.filters.type || "any"}\nStatus: ${sv.filters.status || "any"}\nCountry: ${sv.filters.country || "any"}\nPriority: ${sv.filters.priority || "any"}\nSearch: ${sv.filters.search || "none"}`}
+   665→                  >
+   666→                    <Star className="h-3 w-3 text-amber-500" />
+   667→                    <span className="font-medium">{sv.name}</span>
+   668→                    <Badge variant="neutral" className="text-[9px]">{activeCount}</Badge>
+   669→                  </button>
+   670→                  <button
+   671→                    onClick={() => { removeView(sv.id); toast.success(`Deleted saved view "${sv.name}"`); }}
+   672→                    className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-rose-100 dark:hover:bg-rose-950/40"
+   673→                    title="Delete saved view"
+   674→                  >
+   675→                    <Trash2 className="h-3 w-3 text-rose-500" />
+   676→                  </button>
+   677→                </div>
+   678→              );
+   679→            })}
+   680→          </div>
+   681→        </Section>
+   682→      )}
+   683→
+   684→      {/* Save View Dialog */}
+   685→      {showSaveDialog && (
+   686→        <Dialog open={showSaveDialog} onOpenChange={setShowSaveDialog}>
+   687→          <DialogContent className="max-w-md">
+   688→            <DialogHeader>
+   689→              <DialogTitle>Save Current View</DialogTitle>
+   690→              <DialogDescription>
+   691→                Save the current filter combination with a name for quick access. Saved views are stored in your browser localStorage.
+   692→              </DialogDescription>
+   693→            </DialogHeader>
+   694→            <div className="space-y-3 py-2">
+   695→              <div>
+   696→                <Label htmlFor="view-name" className="text-xs">View Name</Label>
+   697→                <Input
+   698→                  id="view-name"
+   699→                  value={newViewName}
+   700→                  onChange={(e) => setNewViewName(e.target.value)}
+   701→                  placeholder="e.g., Critical US Backorders"
+   702→                  className="mt-1 text-xs"
+   703→                  autoFocus
+   704→                  onKeyDown={(e) => { if (e.key === "Enter") handleSaveView(); }}
+   705→                />
+   706→                <p className="text-[10px] text-muted-foreground mt-1">Min 3 characters</p>
+   707→              </div>
+   708→              <div className="rounded-md border border-border bg-muted/30 p-2 text-[11px]">
+   709→                <p className="font-medium mb-1">Current filters being saved:</p>
+   710→                <ul className="space-y-0.5 text-muted-foreground">
+   711→                  <li>Type: <span className="text-foreground font-medium">{filters.type || "any"}</span></li>
+   712→                  <li>Status: <span className="text-foreground font-medium">{filters.status || "any"}</span></li>
+   713→                  <li>Country: <span className="text-foreground font-medium">{filters.country || "any"}</span></li>
+   714→                  <li>Priority: <span className="text-foreground font-medium">{filters.priority || "any"}</span></li>
+   715→                  <li>Search: <span className="text-foreground font-medium">{filters.q || "none"}</span></li>
+   716→                </ul>
+   717→              </div>
+   718→            </div>
+   719→            <div className="flex justify-end gap-2">
+   720→              <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setShowSaveDialog(false)}>Cancel</Button>
+   721→              <Button size="sm" className="h-8 text-xs" onClick={handleSaveView} disabled={newViewName.trim().length < 3}>
+   722→                <Save className="h-3 w-3 mr-1" /> Save View
+   723→              </Button>
+   724→            </div>
+   725→          </DialogContent>
+   726→        </Dialog>
+   727→      )}
+   728→
+   729→      {/* Main table */}
+   730→      <DataTable<RequirementRow>
+   731→        columns={columns}
+   732→        rows={rows}
+   733→        loading={isLoading}
+   734→        emptyMessage="No requirements match the current filters."
+   735→        maxHeight="640px"
+   736→        onRowClick={(r) => setSelectedId(r.id)}
+   737→        rowClassName={(r) => (r.remainingUnplanned > 0 ? "bg-rose-50/40 dark:bg-rose-950/10" : "")}
+   738→        exportable
+   739→        exportFilename={`requirements-page-${page}.csv`}
+   740→      />
+   741→
+   742→      {/* Server-side pagination */}
+   743→      <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+   744→        <span>
+   745→          Showing {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)} of {total.toLocaleString()}
+   746→        </span>
+   747→        <div className="flex items-center gap-2">
+   748→          <Button
+   749→            size="sm"
+   750→            variant="outline"
+   751→            className="h-7 text-xs"
+   752→            disabled={page === 1}
+   753→            onClick={() => setPage((p) => Math.max(1, p - 1))}
+   754→          >
+   755→            <ChevronLeft className="h-3 w-3 mr-1" /> Prev
+   756→          </Button>
+   757→          <span>
+   758→            Page {page} / {totalPages}
+   759→          </span>
+   760→          <Button
+   761→            size="sm"
+   762→            variant="outline"
+   763→            className="h-7 text-xs"
+   764→            disabled={page >= totalPages}
+   765→            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+   766→          >
+   767→            Next <ChevronRight className="h-3 w-3 ml-1" />
+   768→          </Button>
+   769→        </div>
+   770→      </div>
+   771→
+   772→      {/* Detail dialog */}
+   773→      <Dialog
+   774→        open={!!selectedId}
+   775→        onOpenChange={(o) => {
+   776→          if (!o) {
+   777→            setSelectedId(null);
+   778→            resetOverrideForm();
+   779→          }
+   780→        }}
+   781→      >
+   782→        <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto">
+   783→          <DialogHeader>
+   784→            <DialogTitle className="flex items-center gap-2 text-sm">
+   785→              <span>{detail?.requirementCode ?? "Loading…"}</span>
+   786→              {detail && <StatusBadge status={detail.status} />}
+   787→              {detail && <Badge variant="info">{detail.type.replace(/_/g, " ")}</Badge>}
+   788→            </DialogTitle>
+   789→            <DialogDescription className="text-[11px]">
+   790→              Four confirmed requirement numbers + source records + allocations. Each number drills down to its evidence.
+   791→            </DialogDescription>
+   792→          </DialogHeader>
+   793→
+   794→          {detailLoading || !detail ? (
+   795→            <div className="py-10 text-center text-xs text-muted-foreground">
+   796→              <div className="inline-flex items-center gap-2">
+   797→                <div className="h-3 w-3 border-2 border-muted-foreground border-t-transparent rounded-full animate-spin" />
+   798→                Loading requirement detail…
+   799→              </div>
+   800→            </div>
+   801→          ) : (
+   802→            <div className="flex flex-col gap-3">
+   803→              {/* 4 numbers grid */}
+   804→              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+   805→                <KpiCard
+   806→                  label="1 · Physical Shortage"
+   807→                  value={detail.fourNumbers.physicalShortage}
+   808→                  unit="pcs"
+   809→                  intent="critical"
+   810→                  hint="MAX(0, RequiredQty − PlanningAvailableQty)"
+   811→                />
+   812→                <KpiCard
+   813→                  label="2 · Pipeline-Adjusted"
+   814→                  value={detail.fourNumbers.pipelineAdjusted}
+   815→                  unit="pcs"
+   816→                  intent="warning"
+   817→                  hint="MAX(0, PhysicalShortage − WIP Coverage)"
+   818→                />
+   819→                <KpiCard
+   820→                  label="3 · Planning-Adjusted"
+   821→                  value={detail.fourNumbers.planningAdjusted}
+   822→                  unit="pcs"
+   823→                  intent="info"
+   824→                  hint="MAX(0, PipelineAdjusted − ApprovedPlanCoverage)"
+   825→                />
+   826→                <KpiCard
+   827→                  label="4 · Forecast Signal"
+   828→                  value={detail.fourNumbers.forecastRequirement}
+   829→                  unit="pcs"
+   830→                  intent="default"
+   831→                  hint="Advisory — NOT confirmed demand"
+   832→                />
+   833→              </div>
+   834→
+   835→              {/* Requirement Priority Override */}
+   836→              <div className="rounded-md border border-border bg-muted/20 p-2.5 flex flex-col gap-2">
+   837→                <div className="flex items-center justify-between gap-2 flex-wrap">
+   838→                  <div className="flex items-center gap-2 flex-wrap">
+   839→                    <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+   840→                      Current Requirement Priority
+   841→                    </span>
+   842→                    <PriorityBadge value={detail.requirementPriority} />
+   843→                    {detail.priorityReason ? (
+   844→                      <span
+   845→                        className="text-[11px] text-muted-foreground truncate max-w-[320px]"
+   846→                        title={detail.priorityReason}
+   847→                      >
+   848→                        {detail.priorityReason}
+   849→                      </span>
+   850→                    ) : (
+   851→                      <span className="text-[11px] text-muted-foreground/70 italic">
+   852→                        no reason recorded
+   853→                      </span>
+   854→                    )}
+   855→                  </div>
+   856→                  {!showOverrideForm && (
+   857→                    <Button
+   858→                      size="sm"
+   859→                      variant="outline"
+   860→                      className="h-7 text-xs"
+   861→                      onClick={openOverrideForm}
+   862→                    >
+   863→                      <Pencil className="h-3 w-3 mr-1" /> Override Priority
+   864→                    </Button>
+   865→                  )}
+   866→                </div>
+   867→
+   868→                {showOverrideForm && (
+   869→                  <div className="flex flex-col gap-2 mt-1 pt-2 border-t border-border/60">
+   870→                    <InfoBanner variant="warning">
+   871→                      Manual override is audit-logged. OPEN rule BR-CUST-PRI-001 — customer
+   872→                      priority scoring formula is OPEN; this manual classification is
+   873→                      business-owned.
+   874→                    </InfoBanner>
+   875→
+   876→                    <div className="grid grid-cols-1 md:grid-cols-[200px_1fr] gap-2">
+   877→                      <div className="flex flex-col gap-1">
+   878→                        <Label
+   879→                          htmlFor="override-priority"
+   880→                          className="text-[10px] uppercase tracking-wide text-muted-foreground"
+   881→                        >
+   882→                          New Priority
+   883→                        </Label>
+   884→                        <Select value={newPriority} onValueChange={setNewPriority}>
+   885→                          <SelectTrigger id="override-priority" size="sm" className="h-8 text-xs">
+   886→                            <SelectValue placeholder="Select priority" />
+   887→                          </SelectTrigger>
+   888→                          <SelectContent>
+   889→                            {PRIORITIES.map((p) => (
+   890→                              <SelectItem key={p} value={p}>
+   891→                                {p}
+   892→                              </SelectItem>
+   893→                            ))}
+   894→                          </SelectContent>
+   895→                        </Select>
+   896→                      </div>
+   897→                      <div className="flex flex-col gap-1">
+   898→                        <Label
+   899→                          htmlFor="override-reason"
+   900→                          className="text-[10px] uppercase tracking-wide text-muted-foreground"
+   901→                        >
+   902→                          Reason{" "}
+   903→                          <span className="text-rose-600 dark:text-rose-400">*</span>{" "}
+   904→                          (min 5 chars, required for audit)
+   905→                        </Label>
+   906→                        <Textarea
+   907→                          id="override-reason"
+   908→                          value={overrideReason}
+   909→                          onChange={(e) => setOverrideReason(e.target.value)}
+   910→                          placeholder="e.g. VIP customer escalation per sales director request"
+   911→                          className="min-h-[60px] text-xs"
+   912→                          aria-invalid={
+   913→                            overrideReason.length > 0 && overrideReason.trim().length < 5
+   914→                          }
+   915→                        />
+   916→                        <span className="text-[10px] text-muted-foreground">
+   917→                          {overrideReason.trim().length} / 5+ chars
+   918→                          {overrideReason.length > 0 &&
+   919→                            overrideReason.trim().length < 5 &&
+   920→                            " — reason too short"}
+   921→                        </span>
+   922→                      </div>
+   923→                    </div>
+   924→
+   925→                    <div className="flex items-center justify-end gap-2">
+   926→                      <Button
+   927→                        size="sm"
+   928→                        variant="ghost"
+   929→                        className="h-7 text-xs"
+   930→                        onClick={resetOverrideForm}
+   931→                        disabled={overrideMutation.isPending}
+   932→                      >
+   933→                        Cancel
+   934→                      </Button>
+   935→                      <Button
+   936→                        size="sm"
+   937→                        variant="default"
+   938→                        className="h-7 text-xs"
+   939→                        disabled={
+   940→                          overrideMutation.isPending ||
+   941→                          !newPriority ||
+   942→                          overrideReason.trim().length < 5
+   943→                        }
+   944→                        onClick={applyOverride}
+   945→                      >
+   946→                        {overrideMutation.isPending ? (
+   947→                          <>
+   948→                            <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+   949→                            Applying…
+   950→                          </>
+   951→                        ) : (
+   952→                          "Apply Override"
+   953→                        )}
+   954→                      </Button>
+   955→                    </div>
+   956→                  </div>
+   957→                )}
+   958→              </div>
+   959→
+   960→              {/* Quantities breakdown */}
+   961→              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[11px]">
+   962→                <DataPair label="Required Qty" value={detail.requiredQty} />
+   963→                <DataPair label="Physical Stock" value={detail.physicalStockQty} />
+   964→                <DataPair label="Planning Available" value={detail.planningAvailableQty} />
+   965→                <DataPair label="Memo Qty" value={detail.memoQty} />
+   966→                <DataPair label="Transfer Coverage" value={detail.transferCoverage} />
+   967→                <DataPair label="WIP Coverage" value={detail.wipCoverage} />
+   968→                <DataPair label="Approved Plan Coverage" value={detail.approvedPlanCoverage} />
+   969→                <DataPair label="Actual Coverage" value={detail.actualCoverage} />
+   970→              </div>
+   971→
+   972→              {/* Context */}
+   973→              <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-[11px] rounded-md border border-border bg-muted/30 p-2">
+   974→                <DataPair label="Customer" value={detail.customerName ?? "—"} />
+   975→                <DataPair label="Order #" value={detail.orderNumber ?? "—"} />
+   976→                <DataPair label="Country / Branch" value={`${detail.country ?? "—"} / ${detail.branch ?? "—"}`} />
+   977→                <DataPair label="Shape" value={detail.shape ?? "—"} />
+   978→                <DataPair label="Weight Band" value={detail.weightBand ?? "—"} />
+   979→                <DataPair label="Lab" value={detail.lab ?? "—"} />
+   980→                <DataPair label="Color / Clarity" value={`${detail.colorGroup ?? "—"} / ${detail.clarityGroup ?? "—"}`} />
+   981→                <DataPair label="Treatment" value={detail.treatment ?? "—"} />
+   982→                <DataPair label="Required By" value={fmtDate(detail.requiredBy)} />
+   983→                <DataPair label="Age / Days Remaining / Days Overdue" value={`${detail.ageDays} / ${detail.daysRemaining ?? "—"} / ${detail.daysOverdue}`} />
+   984→                <DataPair label="Customer Priority" value={detail.customerPriority ?? "—"} />
+   985→                <DataPair label="Order Priority" value={detail.orderPriority ?? "—"} />
+   986→                <DataPair label="Requirement Priority" value={detail.requirementPriority ?? "—"} />
+   987→                <DataPair label="Priority Reason" value={detail.priorityReason ?? "—"} />
+   988→              </div>
+   989→
+   990→              {/* Allocations */}
+   991→              <div className="rounded-md border border-border overflow-hidden">
+   992→                <div className="px-2 py-1.5 border-b border-border bg-muted/40 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+   993→                  Plan Allocations ({detail.allocations.length})
+   994→                </div>
+   995→                {detail.allocations.length === 0 ? (
+   996→                  <div className="px-3 py-3 text-[11px] text-muted-foreground">No allocations yet.</div>
+   997→                ) : (
+   998→                  <table className="w-full text-[11px]">
+   999→                    <thead className="bg-muted/30 text-[10px] uppercase text-muted-foreground">
+  1000→                      <tr>
+  1001→                        <th className="px-2 py-1 text-left">Option Code</th>
+  1002→                        <th className="px-2 py-1 text-right">Allocated Qty</th>
+  1003→                        <th className="px-2 py-1 text-left">By</th>
+  1004→                        <th className="px-2 py-1 text-left">At</th>
+  1005→                        <th className="px-2 py-1 text-left">Status</th>
+  1006→                      </tr>
+  1007→                    </thead>
+  1008→                    <tbody>
+  1009→                      {detail.allocations.map((a) => (
+  1010→                        <tr key={a.id} className="border-t border-border/60">
+  1011→                          <td className="px-2 py-1 font-medium">{a.planOptionCode ?? "—"}</td>
+  1012→                          <td className="px-2 py-1 text-right tabular-nums">{a.allocatedQty}</td>
+  1013→                          <td className="px-2 py-1">{a.allocatedBy}</td>
+  1014→                          <td className="px-2 py-1">{fmtDate(a.allocatedAt)}</td>
+  1015→                          <td className="px-2 py-1"><StatusBadge status={a.status} /></td>
+  1016→                        </tr>
+  1017→                      ))}
+  1018→                    </tbody>
+  1019→                  </table>
+  1020→                )}
+  1021→              </div>
+  1022→
+  1023→              {/* Source records */}
+  1024→              <div className="rounded-md border border-border overflow-hidden">
+  1025→                <div className="px-2 py-1.5 border-b border-border bg-muted/40 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+  1026→                  Source Records (JSON)
+  1027→                </div>
+  1028→                <pre className="text-[10px] leading-relaxed p-2 overflow-x-auto max-h-48 bg-muted/20">
+  1029→                  {JSON.stringify(detail.sourceRecords, null, 2)}
+  1030→                </pre>
+  1031→              </div>
+  1032→
+  1033→              <InfoBanner variant="info">
+  1034→                Four numbers are computed via deterministic formulas with decimal-safe round-half-up. Each step is auditable.
+  1035→              </InfoBanner>
+  1036→            </div>
+  1037→          )}
+  1038→        </DialogContent>
+  1039→      </Dialog>
+  1040→    </div>
+  1041→  );
+  1042→}
+  1043→
+  1044→function DataPair({ label, value }: { label: string; value: string | number }) {
+  1045→  return (
+  1046→    <div className="flex flex-col">
+  1047→      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</span>
+  1048→      <span className="text-[11px] font-medium text-foreground tabular-nums">{value}</span>
+  1049→    </div>
+  1050→  );
+  1051→}
+  1052→

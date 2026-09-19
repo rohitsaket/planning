@@ -41,6 +41,7 @@ import {
   Star,
 } from "lucide-react";
 import { useSavedViews, type SavedView } from "@/stores/saved-views";
+import { useGlobalFilter } from "@/stores/global-filter";
 
 interface RequirementRow {
   id: string;
@@ -172,6 +173,11 @@ function fmtDate(iso: string | null): string {
 
 export function RequirementsMatrixView() {
   const qc = useQueryClient();
+  // Global filter (country/lab/branch/windowDays) is sourced from the GlobalFilterBar
+  // mounted in the AppShell. The global filter is ADDITIVE to local filters — local
+  // country takes precedence over the global country so users can drill down further
+  // within an already-filtered view.
+  const globalFilter = useGlobalFilter();
   const [filters, setFilters] = useState({
     type: "",
     status: "",
@@ -226,11 +232,20 @@ export function RequirementsMatrixView() {
     const parts: string[] = [`page=${page}`, `pageSize=${pageSize}`];
     if (filters.type) parts.push(`type=${encodeURIComponent(filters.type)}`);
     if (filters.status) parts.push(`status=${encodeURIComponent(filters.status)}`);
-    if (filters.country) parts.push(`country=${encodeURIComponent(filters.country)}`);
+    // Country: local takes precedence over global — only append global country when the
+    // local country selector has not been used.
+    if (filters.country) {
+      parts.push(`country=${encodeURIComponent(filters.country)}`);
+    } else if (globalFilter.country) {
+      parts.push(`country=${encodeURIComponent(globalFilter.country)}`);
+    }
     if (filters.priority) parts.push(`priority=${encodeURIComponent(filters.priority)}`);
     if (filters.q) parts.push(`q=${encodeURIComponent(filters.q)}`);
+    // Global-only filters (additive — no local equivalent in the matrix toolbar).
+    if (globalFilter.branch) parts.push(`branch=${encodeURIComponent(globalFilter.branch)}`);
+    if (globalFilter.lab) parts.push(`lab=${encodeURIComponent(globalFilter.lab)}`);
     return parts.join("&");
-  }, [filters, page]);
+  }, [filters, page, globalFilter.country, globalFilter.branch, globalFilter.lab]);
 
   const url = `/api/requirements?${qs}`;
   const { data, isLoading } = useApi<{
@@ -536,9 +551,20 @@ export function RequirementsMatrixView() {
         title="Requirements Matrix"
         subtitle="High-density enterprise requirement grid · Physical Shortage → Pipeline-Adjusted → Plan Coverage → Remaining Unplanned · Filter, search and drill down to four-number evidence"
         meta={
-          <span className="text-[10px] text-muted-foreground">
-            {total.toLocaleString()} total · Page {page} / {totalPages}
-          </span>
+          <div className="flex items-center gap-2 flex-wrap">
+            {globalFilter.hasActiveFilters() && (
+              <span className="text-[10px] text-sky-600 dark:text-sky-400 font-medium">
+                Filtered by: {[
+                  globalFilter.country && !filters.country && `Country=${globalFilter.country}`,
+                  globalFilter.branch && `Branch=${globalFilter.branch}`,
+                  globalFilter.lab && `Lab=${globalFilter.lab}`,
+                ].filter(Boolean).join(", ")}
+              </span>
+            )}
+            <span className="text-[10px] text-muted-foreground">
+              {total.toLocaleString()} total · Page {page} / {totalPages}
+            </span>
+          </div>
         }
       />
 

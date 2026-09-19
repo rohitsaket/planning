@@ -7,6 +7,7 @@ import { Section, PageHeader } from "@/components/diamond/shared/page-header";
 import { DataTable, Column } from "@/components/diamond/shared/data-table";
 import { NumberCell } from "@/components/diamond/shared/empty-state";
 import { Badge } from "@/components/diamond/shared/badges";
+import { useGlobalFilter } from "@/stores/global-filter";
 import {
   ResponsiveContainer, ComposedChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   Legend,
@@ -63,7 +64,19 @@ function trendVariant(trend: string): React.ComponentProps<typeof Badge>["varian
 
 export function SalesTrendsView() {
   const [groupBy, setGroupBy] = useState("shape");
-  const url = `/api/analysis/sales/trend?groupBy=${groupBy}`;
+  // Global filter — /api/analysis/sales/trend?groupBy=X currently only respects the
+  // `groupBy` param. We append country/lab/branch so the URL stays consistent (forward-
+  // compat) and so the user has an explicit indicator that the trend is being filtered.
+  const globalFilter = useGlobalFilter();
+  const url = useMemo(() => {
+    const params = new URLSearchParams();
+    params.set("groupBy", groupBy);
+    if (globalFilter.country) params.set("country", globalFilter.country);
+    if (globalFilter.branch) params.set("branch", globalFilter.branch);
+    if (globalFilter.lab) params.set("lab", globalFilter.lab);
+    if (globalFilter.windowDays !== 90) params.set("windowDays", String(globalFilter.windowDays));
+    return `/api/analysis/sales/trend?${params.toString()}`;
+  }, [groupBy, globalFilter.country, globalFilter.branch, globalFilter.lab, globalFilter.windowDays]);
   const { data, isLoading } = useApi<TrendResponse>(url);
 
   const chartData = (data?.rows ?? []).slice(0, 15).map((r) => ({
@@ -136,7 +149,20 @@ export function SalesTrendsView() {
             </SelectContent>
           </Select>
         }
-        meta={<span className="text-[10px] text-muted-foreground">Group: {GROUPS.find((g) => g.value === groupBy)?.label}</span>}
+        meta={
+          <div className="flex items-center gap-2 flex-wrap">
+            {globalFilter.hasActiveFilters() && (
+              <span className="text-[10px] text-sky-600 dark:text-sky-400 font-medium">
+                Filtered by: {[
+                  globalFilter.country && `Country=${globalFilter.country}`,
+                  globalFilter.branch && `Branch=${globalFilter.branch}`,
+                  globalFilter.lab && `Lab=${globalFilter.lab}`,
+                ].filter(Boolean).join(", ")}
+              </span>
+            )}
+            <span className="text-[10px] text-muted-foreground">Group: {GROUPS.find((g) => g.value === groupBy)?.label}</span>
+          </div>
+        }
       />
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">

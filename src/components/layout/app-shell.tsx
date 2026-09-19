@@ -85,6 +85,7 @@ const NAV: NavGroup[] = [
     items: [
       { id: "planning-rough-availability", label: "Rough Availability", icon: <Gem className="h-3.5 w-3.5" /> },
       { id: "planning-cases", label: "Planning Cases", icon: <ClipboardList className="h-3.5 w-3.5" /> },
+      { id: "planning-comparison", label: "Plan Comparison", icon: <Scale className="h-3.5 w-3.5" /> },
       { id: "planning-workbook-import", label: "Workbook Import", icon: <FileText className="h-3.5 w-3.5" /> },
       { id: "planning-workbench", label: "Planning Workbench", icon: <LayoutDashboard className="h-3.5 w-3.5" /> },
       { id: "planning-approval-queue", label: "Approval Queue", icon: <BookCheck className="h-3.5 w-3.5" /> },
@@ -134,6 +135,7 @@ const NAV: NavGroup[] = [
     label: "Data Science",
     icon: <FlaskConical className="h-4 w-4" />,
     items: [
+      { id: "data-science-anomaly-detection", label: "Anomaly Detection", icon: <AlertTriangle className="h-3.5 w-3.5" /> },
       { id: "data-science-forecast", label: "Forecast", icon: <TrendingUp className="h-3.5 w-3.5" /> },
       { id: "data-science-models", label: "Models", icon: <Layers className="h-3.5 w-3.5" /> },
       { id: "data-science-prediction-monitoring", label: "Prediction Monitoring", icon: <Activity className="h-3.5 w-3.5" /> },

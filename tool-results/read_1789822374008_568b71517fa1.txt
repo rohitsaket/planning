@@ -1,0 +1,823 @@
+     1→"use client";
+     2→
+     3→import { useMemo, useState } from "react";
+     4→import { useMutation, useQueryClient } from "@tanstack/react-query";
+     5→import { useApi, apiPost } from "@/lib/api-client";
+     6→import { PageHeader, Section } from "@/components/diamond/shared/page-header";
+     7→import { DataTable, type Column } from "@/components/diamond/shared/data-table";
+     8→import { StatusBadge, Badge } from "@/components/diamond/shared/badges";
+     9→import { KpiCard } from "@/components/diamond/shared/kpi-card";
+    10→import { NumberCell, EmptyState, InfoBanner } from "@/components/diamond/shared/empty-state";
+    11→import {
+    12→  Select,
+    13→  SelectTrigger,
+    14→  SelectValue,
+    15→  SelectContent,
+    16→  SelectItem,
+    17→} from "@/components/ui/select";
+    18→import {
+    19→  Sheet,
+    20→  SheetContent,
+    21→  SheetHeader,
+    22→  SheetTitle,
+    23→  SheetDescription,
+    24→} from "@/components/ui/sheet";
+    25→import {
+    26→  Dialog,
+    27→  DialogContent,
+    28→  DialogHeader,
+    29→  DialogTitle,
+    30→  DialogDescription,
+    31→  DialogFooter,
+    32→} from "@/components/ui/dialog";
+    33→import { Button } from "@/components/ui/button";
+    34→import { Textarea } from "@/components/ui/textarea";
+    35→import { Label } from "@/components/ui/label";
+    36→import { toast } from "sonner";
+    37→import { useNavStore } from "@/stores/nav-store";
+    38→import { Filter, X, FileText, Layers, GitBranch, RefreshCw } from "lucide-react";
+    39→
+    40→interface CaseRow {
+    41→  id: string;
+    42→  caseCode: string;
+    43→  roughId: string;
+    44→  fantasyRoughId: string | null;
+    45→  stoneName: string | null;
+    46→  kapan: string | null;
+    47→  packet: string | null;
+    48→  signer: string | null;
+    49→  originalRoughWeight: number;
+    50→  stoneType: string;
+    51→  planner: string;
+    52→  planningDate: string;
+    53→  status: string;
+    54→  currentVersion: number;
+    55→  selectedOptionCode: string | null;
+    56→  approvedBy: string | null;
+    57→  approvedAt: string | null;
+    58→  approvalComment: string | null;
+    59→  optionCount: number;
+    60→  expectedPieces: number;
+    61→  expectedYieldPct: number;
+    62→  requirementCoveragePct: number;
+    63→}
+    64→
+    65→interface CaseDetail {
+    66→  id: string;
+    67→  caseCode: string;
+    68→  rough: {
+    69→    id: string;
+    70→    fantasyRoughId: string | null;
+    71→    kapan: string | null;
+    72→    packet: string | null;
+    73→    stoneName: string | null;
+    74→    signer: string | null;
+    75→    stoneType: string;
+    76→    roughWeight: number;
+    77→    country: string | null;
+    78→    branch: string | null;
+    79→    fantasyStatus: string | null;
+    80→    planningEligible: boolean;
+    81→    planningStatus: string;
+    82→  } | null;
+    83→  stoneName: string | null;
+    84→  kapan: string | null;
+    85→  packet: string | null;
+    86→  originalRoughWeight: number;
+    87→  stoneType: string;
+    88→  planner: string;
+    89→  planningDate: string;
+    90→  status: string;
+    91→  currentVersion: number;
+    92→  selectedOptionId: string | null;
+    93→  sourceFile: string | null;
+    94→  approvedBy: string | null;
+    95→  approvedAt: string | null;
+    96→  approvalComment: string | null;
+    97→  requirementContext: unknown;
+    98→  reservations: Array<{
+    99→    id: string;
+   100→    status: string;
+   101→    reservedBy: string;
+   102→    reservedAt: string;
+   103→    releasedAt: string | null;
+   104→  }>;
+   105→  versions: Array<{
+   106→    id: string;
+   107→    versionNumber: number;
+   108→    status: string;
+   109→    reason: string | null;
+   110→    createdBy: string;
+   111→    createdAt: string;
+   112→    supersededAt: string | null;
+   113→    options: Array<{
+   114→      id: string;
+   115→      optionCode: string;
+   116→      optionNumber: number;
+   117→      expectedPieces: number;
+   118→      expectedTotalWeight: number;
+   119→      yieldPct: number;
+   120→      matchingRequiredPieces: number;
+   121→      requirementCoverage: number;
+   122→      coveragePct: number;
+   123→      nonRequiredPieces: number;
+   124→      expectedColor: string | null;
+   125→      expectedClarity: string | null;
+   126→      certificationIntent: string | null;
+   127→      potentialExcess: number;
+   128→      validationWarnings: string | null;
+   129→      selected: boolean;
+   130→      selectedBy: string | null;
+   131→      selectedAt: string | null;
+   132→      approvalStatus: string | null;
+   133→      approvedBy: string | null;
+   134→      approvedAt: string | null;
+   135→      pieces: Array<{
+   136→        id: string;
+   137→        pieceCode: string;
+   138→        sequence: number;
+   139→        expectedShape: string | null;
+   140→        expectedWeight: number;
+   141→        expectedColor: string | null;
+   142→        expectedClarity: string | null;
+   143→        expectedCategory: string | null;
+   144→        certificationIntent: string | null;
+   145→        fulfilled: boolean;
+   146→        actualPolishedLotId: string | null;
+   147→        fantasyChildId: string | null;
+   148→      }>;
+   149→    }>;
+   150→  }>;
+   151→}
+   152→
+   153→const STATUSES = [
+   154→  "DRAFT",
+   155→  "READY_FOR_REVIEW",
+   156→  "SELECTED",
+   157→  "APPROVAL_PENDING",
+   158→  "APPROVED",
+   159→  "REJECTED",
+   160→  "REPLAN_REQUIRED",
+   161→  "RELEASED_TO_MANUFACTURING",
+   162→];
+   163→const STONE_TYPES = ["WHITE", "BLUE"];
+   164→const PLANNERS = [
+   165→  "planner.alice",
+   166→  "planner.bob",
+   167→  "planner.carol",
+   168→  "planner.dan",
+   169→  "planner.eva",
+   170→  "planner.frank",
+   171→  "system.import",
+   172→];
+   173→const REPLAN_ACTOR = "planner.user";
+   174→const REPLAN_REASON_MIN = 5;
+   175→
+   176→const fmtDate = (iso: string | null): string => {
+   177→  if (!iso) return "—";
+   178→  try {
+   179→    return new Date(iso).toISOString().slice(0, 10);
+   180→  } catch {
+   181→    return "—";
+   182→  }
+   183→};
+   184→
+   185→function WarningsCell({ value }: { value: string | null }) {
+   186→  if (!value) return <span className="text-muted-foreground">—</span>;
+   187→  let parsed: string[] = [];
+   188→  try {
+   189→    const j = JSON.parse(value);
+   190→    if (Array.isArray(j)) parsed = j.map((s) => String(s));
+   191→    else if (typeof j === "string") parsed = [j];
+   192→    else parsed = [JSON.stringify(j)];
+   193→  } catch {
+   194→    parsed = [value];
+   195→  }
+   196→  if (parsed.length === 0) return <span className="text-muted-foreground">—</span>;
+   197→  return (
+   198→    <div className="flex flex-wrap gap-1">
+   199→      {parsed.slice(0, 3).map((w, i) => (
+   200→        <Badge key={i} variant="warning">{w}</Badge>
+   201→      ))}
+   202→      {parsed.length > 3 && (
+   203→        <Badge variant="neutral">+{parsed.length - 3}</Badge>
+   204→      )}
+   205→    </div>
+   206→  );
+   207→}
+   208→
+   209→export function PlanningCasesView() {
+   210→  const setView = useNavStore((s) => s.setView);
+   211→  const qc = useQueryClient();
+   212→  const [status, setStatus] = useState("");
+   213→  const [planner, setPlanner] = useState("");
+   214→  const [stoneType, setStoneType] = useState("");
+   215→  const [selectedId, setSelectedId] = useState<string | null>(null);
+   216→  const [replanOpen, setReplanOpen] = useState(false);
+   217→  const [replanReason, setReplanReason] = useState("");
+   218→
+   219→  const qs = useMemo(() => {
+   220→    const parts: string[] = [];
+   221→    if (status) parts.push(`status=${encodeURIComponent(status)}`);
+   222→    if (planner) parts.push(`planner=${encodeURIComponent(planner)}`);
+   223→    if (stoneType) parts.push(`stoneType=${encodeURIComponent(stoneType)}`);
+   224→    return parts.length ? `?${parts.join("&")}` : "";
+   225→  }, [status, planner, stoneType]);
+   226→
+   227→  const { data, isLoading } = useApi<{ rows: CaseRow[] }>(`/api/planning/cases${qs}`);
+   228→  const rows = data?.rows ?? [];
+   229→
+   230→  const { data: detail, isLoading: detailLoading } = useApi<CaseDetail | null>(
+   231→    selectedId ? `/api/planning/cases/${selectedId}` : null
+   232→  );
+   233→
+   234→  const replanMutation = useMutation({
+   235→    mutationFn: async (vars: { caseId: string; reason: string; actor: string }) =>
+   236→      apiPost<{
+   237→        id: string;
+   238→        caseCode: string;
+   239→        status: string;
+   240→        currentVersion: number;
+   241→        auditLogged: boolean;
+   242→      }>(`/api/planning/cases/${vars.caseId}/replan`, {
+   243→        reason: vars.reason,
+   244→        actor: vars.actor,
+   245→      }),
+   246→    onSuccess: (data) => {
+   247→      toast.success("Marked for replan — new version created, audit logged");
+   248→      qc.invalidateQueries({ queryKey: ["/api/planning/cases"] });
+   249→      qc.invalidateQueries({ queryKey: ["/api/planning/approvals"] });
+   250→      qc.invalidateQueries({ queryKey: [`/api/planning/cases/${data.id}`] });
+   251→      setReplanOpen(false);
+   252→      setReplanReason("");
+   253→    },
+   254→    onError: (e: unknown) => {
+   255→      toast.error(`Replan failed: ${(e as Error).message}`);
+   256→    },
+   257→  });
+   258→
+   259→  const openReplan = () => {
+   260→    if (!detail) return;
+   261→    setReplanReason("");
+   262→    setReplanOpen(true);
+   263→  };
+   264→
+   265→  const cancelReplan = () => {
+   266→    setReplanOpen(false);
+   267→    setReplanReason("");
+   268→  };
+   269→
+   270→  const confirmReplan = () => {
+   271→    if (!detail) return;
+   272→    const reason = replanReason.trim();
+   273→    if (reason.length < REPLAN_REASON_MIN) return;
+   274→    replanMutation.mutate({
+   275→      caseId: detail.id,
+   276→      reason,
+   277→      actor: REPLAN_ACTOR,
+   278→    });
+   279→  };
+   280→
+   281→  const totalCases = rows.length;
+   282→  const approved = rows.filter((r) => r.status === "APPROVED").length;
+   283→  const pending = rows.filter((r) =>
+   284→    ["READY_FOR_REVIEW", "SELECTED", "APPROVAL_PENDING"].includes(r.status)
+   285→  ).length;
+   286→  const draft = rows.filter((r) => r.status === "DRAFT").length;
+   287→
+   288→  const activeFilters = (status ? 1 : 0) + (planner ? 1 : 0) + (stoneType ? 1 : 0);
+   289→  const clearFilters = () => {
+   290→    setStatus("");
+   291→    setPlanner("");
+   292→    setStoneType("");
+   293→  };
+   294→
+   295→  const columns: Column<CaseRow>[] = [
+   296→    {
+   297→      key: "caseCode",
+   298→      header: "Case Code",
+   299→      width: "140px",
+   300→      sticky: "left",
+   301→      sortable: true,
+   302→      sortValue: (r) => r.caseCode,
+   303→      cell: (r) => <span className="font-medium">{r.caseCode}</span>,
+   304→    },
+   305→    {
+   306→      key: "stoneName",
+   307→      header: "Stone Name",
+   308→      width: "150px",
+   309→      cell: (r) => r.stoneName ?? "—",
+   310→    },
+   311→    {
+   312→      key: "kapan",
+   313→      header: "Kapan",
+   314→      width: "80px",
+   315→      cell: (r) => r.kapan ?? "—",
+   316→    },
+   317→    {
+   318→      key: "packet",
+   319→      header: "Packet",
+   320→      width: "70px",
+   321→      cell: (r) => r.packet ?? "—",
+   322→    },
+   323→    {
+   324→      key: "signer",
+   325→      header: "Signer",
+   326→      width: "70px",
+   327→      cell: (r) => r.signer ?? "—",
+   328→    },
+   329→    {
+   330→      key: "stoneType",
+   331→      header: "Type",
+   332→      width: "70px",
+   333→      cell: (r) => (
+   334→        <Badge variant={r.stoneType === "BLUE" ? "info" : "default"}>
+   335→          {r.stoneType}
+   336→        </Badge>
+   337→      ),
+   338→    },
+   339→    {
+   340→      key: "originalRoughWeight",
+   341→      header: "Orig Wt",
+   342→      width: "80px",
+   343→      align: "right",
+   344→      sortable: true,
+   345→      sortValue: (r) => r.originalRoughWeight,
+   346→      cell: (r) => <span className="tabular-nums">{r.originalRoughWeight.toFixed(3)}</span>,
+   347→    },
+   348→    {
+   349→      key: "planner",
+   350→      header: "Planner",
+   351→      width: "120px",
+   352→      cell: (r) => <span className="text-muted-foreground">{r.planner}</span>,
+   353→    },
+   354→    {
+   355→      key: "planningDate",
+   356→      header: "Plan Date",
+   357→      width: "90px",
+   358→      sortable: true,
+   359→      sortValue: (r) => r.planningDate,
+   360→      cell: (r) => fmtDate(r.planningDate),
+   361→    },
+   362→    {
+   363→      key: "status",
+   364→      header: "Status",
+   365→      width: "130px",
+   366→      cell: (r) => <StatusBadge status={r.status} />,
+   367→    },
+   368→    {
+   369→      key: "currentVersion",
+   370→      header: "Ver",
+   371→      width: "50px",
+   372→      align: "right",
+   373→      cell: (r) => <NumberCell value={r.currentVersion} />,
+   374→    },
+   375→    {
+   376→      key: "selectedOptionCode",
+   377→      header: "Sel Opt",
+   378→      width: "90px",
+   379→      cell: (r) => r.selectedOptionCode ?? "—",
+   380→    },
+   381→    {
+   382→      key: "optionCount",
+   383→      header: "Opts",
+   384→      width: "50px",
+   385→      align: "right",
+   386→      cell: (r) => <NumberCell value={r.optionCount} />,
+   387→    },
+   388→    {
+   389→      key: "expectedPieces",
+   390→      header: "Pieces",
+   391→      width: "60px",
+   392→      align: "right",
+   393→      cell: (r) => <NumberCell value={r.expectedPieces} intent="info" />,
+   394→    },
+   395→    {
+   396→      key: "expectedYieldPct",
+   397→      header: "Yield %",
+   398→      width: "70px",
+   399→      align: "right",
+   400→      sortable: true,
+   401→      sortValue: (r) => r.expectedYieldPct,
+   402→      cell: (r) => (
+   403→        <span className="tabular-nums">{r.expectedYieldPct.toFixed(2)}%</span>
+   404→      ),
+   405→    },
+   406→    {
+   407→      key: "requirementCoveragePct",
+   408→      header: "Cov %",
+   409→      width: "70px",
+   410→      align: "right",
+   411→      sortable: true,
+   412→      sortValue: (r) => r.requirementCoveragePct,
+   413→      cell: (r) => (
+   414→        <span
+   415→          className={
+   416→            r.requirementCoveragePct >= 100
+   417→              ? "tabular-nums text-emerald-600 dark:text-emerald-400 font-medium"
+   418→              : r.requirementCoveragePct > 0
+   419→              ? "tabular-nums text-amber-600 dark:text-amber-400"
+   420→              : "tabular-nums text-muted-foreground"
+   421→          }
+   422→        >
+   423→          {r.requirementCoveragePct.toFixed(2)}%
+   424→        </span>
+   425→      ),
+   426→    },
+   427→  ];
+   428→
+   429→  return (
+   430→    <div className="flex flex-col gap-3 p-3">
+   431→      <PageHeader
+   432→        title="Planning Cases"
+   433→        subtitle="All planning cases across statuses · drill into versions, options and pieces"
+   434→        meta={
+   435→          <span className="text-[10px] text-muted-foreground">
+   436→            {totalCases} cases · {approved} approved · {pending} pending review · {draft} draft
+   437→          </span>
+   438→        }
+   439→      />
+   440→
+   441→      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+   442→        <KpiCard label="Total Cases" value={totalCases} unit="cases" intent="default" onClick={() => setView("planning-cases")} />
+   443→        <KpiCard label="Pending Review" value={pending} unit="cases" intent="warning" hint="READY_FOR_REVIEW + SELECTED + APPROVAL_PENDING" onClick={() => setView("planning-approval-queue")} />
+   444→        <KpiCard label="Approved" value={approved} unit="cases" intent="success" onClick={() => setView("planning-cases")} />
+   445→        <KpiCard label="Draft" value={draft} unit="cases" intent="info" onClick={() => setView("planning-workbench")} />
+   446→      </div>
+   447→
+   448→      <Section
+   449→        title="Filters"
+   450→        description="status · planner · stoneType"
+   451→        bodyClassName="p-2"
+   452→        actions={
+   453→          activeFilters > 0 ? (
+   454→            <button onClick={clearFilters} className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground">
+   455→              <X className="h-3 w-3" /> Clear ({activeFilters})
+   456→            </button>
+   457→          ) : null
+   458→        }
+   459→      >
+   460→        <div className="flex items-center gap-2 flex-wrap">
+   461→          <Filter className="h-3.5 w-3.5 text-muted-foreground" />
+   462→          <Select value={status || "ALL"} onValueChange={(v) => setStatus(v === "ALL" ? "" : v)}>
+   463→            <SelectTrigger size="sm" className="h-8 w-[200px] text-xs">
+   464→              <SelectValue placeholder="All Statuses" />
+   465→            </SelectTrigger>
+   466→            <SelectContent>
+   467→              <SelectItem value="ALL">All Statuses</SelectItem>
+   468→              {STATUSES.map((s) => (
+   469→                <SelectItem key={s} value={s}>
+   470→                  {s.replace(/_/g, " ")}
+   471→                </SelectItem>
+   472→              ))}
+   473→            </SelectContent>
+   474→          </Select>
+   475→
+   476→          <Select value={planner || "ALL"} onValueChange={(v) => setPlanner(v === "ALL" ? "" : v)}>
+   477→            <SelectTrigger size="sm" className="h-8 w-[160px] text-xs">
+   478→              <SelectValue placeholder="All Planners" />
+   479→            </SelectTrigger>
+   480→            <SelectContent>
+   481→              <SelectItem value="ALL">All Planners</SelectItem>
+   482→              {PLANNERS.map((p) => (
+   483→                <SelectItem key={p} value={p}>
+   484→                  {p}
+   485→                </SelectItem>
+   486→              ))}
+   487→            </SelectContent>
+   488→          </Select>
+   489→
+   490→          <Select value={stoneType || "ALL"} onValueChange={(v) => setStoneType(v === "ALL" ? "" : v)}>
+   491→            <SelectTrigger size="sm" className="h-8 w-[140px] text-xs">
+   492→              <SelectValue placeholder="All Stone Types" />
+   493→            </SelectTrigger>
+   494→            <SelectContent>
+   495→              <SelectItem value="ALL">All Stone Types</SelectItem>
+   496→              {STONE_TYPES.map((t) => (
+   497→                <SelectItem key={t} value={t}>
+   498→                  {t}
+   499→                </SelectItem>
+   500→              ))}
+   501→            </SelectContent>
+   502→          </Select>
+   503→        </div>
+   504→      </Section>
+   505→
+   506→      <DataTable<CaseRow>
+   507→        columns={columns}
+   508→        rows={rows}
+   509→        loading={isLoading}
+   510→        emptyMessage="No planning cases match the current filters."
+   511→        maxHeight="600px"
+   512→        searchable
+   513→        searchPlaceholder="Search by case code, stone name, kapan…"
+   514→        searchFn={(r, q) => {
+   515→          const s = q.toLowerCase();
+   516→          return (
+   517→            r.caseCode.toLowerCase().includes(s) ||
+   518→            (r.stoneName ?? "").toLowerCase().includes(s) ||
+   519→            (r.kapan ?? "").toLowerCase().includes(s) ||
+   520→            (r.fantasyRoughId ?? "").toLowerCase().includes(s)
+   521→          );
+   522→        }}
+   523→        exportable
+   524→        exportFilename="planning-cases.csv"
+   525→        pagination
+   526→        pageSize={25}
+   527→        onRowClick={(r) => setSelectedId(r.id)}
+   528→        initialSortKey="planningDate"
+   529→        initialSortDir="desc"
+   530→      />
+   531→
+   532→      {/* Detail Sheet */}
+   533→      <Sheet open={!!selectedId} onOpenChange={(o) => !o && setSelectedId(null)}>
+   534→        <SheetContent side="right" className="sm:max-w-2xl w-full flex flex-col gap-3 overflow-y-auto p-4">
+   535→          <SheetHeader>
+   536→            <SheetTitle className="text-sm flex items-center gap-2">
+   537→              <FileText className="h-4 w-4" />
+   538→              {detail?.caseCode ?? "Loading…"}
+   539→              {detail && <StatusBadge status={detail.status} />}
+   540→              {detail && <Badge variant="info">{detail.stoneType}</Badge>}
+   541→            </SheetTitle>
+   542→            <SheetDescription className="text-[11px]">
+   543→              Versions, options, pieces, reservations and validation warnings.
+   544→            </SheetDescription>
+   545→          </SheetHeader>
+   546→
+   547→          {detailLoading || !detail ? (
+   548→            <div className="py-10 text-center text-xs text-muted-foreground">
+   549→              <div className="inline-flex items-center gap-2">
+   550→                <div className="h-3 w-3 border-2 border-muted-foreground border-t-transparent rounded-full animate-spin" />
+   551→                Loading case detail…
+   552→              </div>
+   553→            </div>
+   554→          ) : (
+   555→            <div className="flex flex-col gap-3">
+   556→              {/* Replan action bar */}
+   557→              <div className="flex flex-col gap-2 rounded-md border border-amber-300 dark:border-amber-900 bg-amber-50/40 dark:bg-amber-950/20 p-2">
+   558→                <div className="flex items-center justify-between gap-2 flex-wrap">
+   559→                  <div className="flex items-center gap-2 text-[11px]">
+   560→                    <RefreshCw className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+   561→                    <span className="font-medium text-amber-800 dark:text-amber-200">
+   562→                      Plan versioning
+   563→                    </span>
+   564→                    <span className="text-muted-foreground">
+   565→                      current v{detail.currentVersion} · status {detail.status}
+   566→                    </span>
+   567→                  </div>
+   568→                  <Button
+   569→                    size="sm"
+   570→                    variant="outline"
+   571→                    className="h-7 text-xs text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-900 hover:bg-amber-50 dark:hover:bg-amber-950/40"
+   572→                    disabled={replanMutation.isPending}
+   573→                    onClick={openReplan}
+   574→                    title="Mark this case for replan — creates a new DRAFT plan version"
+   575→                  >
+   576→                    {replanMutation.isPending ? (
+   577→                      <div className="h-3 w-3 border-2 border-amber-600 border-t-transparent rounded-full animate-spin mr-1.5" />
+   578→                    ) : (
+   579→                      <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+   580→                    )}
+   581→                    Mark for Replan
+   582→                  </Button>
+   583→                </div>
+   584→                <InfoBanner variant="warning">
+   585→                  Replanning preserves historical planning evidence. A new plan version is created in <span className="font-medium">DRAFT</span> status; the previous version is superseded. The case moves to <span className="font-medium">REPLAN_REQUIRED</span> and the action is audit-logged.
+   586→                </InfoBanner>
+   587→              </div>
+   588→
+   589→              {/* Rough info */}
+   590→              <Section title="Rough" bodyClassName="p-2">
+   591→                {detail.rough ? (
+   592→                  <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
+   593→                    <div><span className="text-muted-foreground">Fantasy ID: </span>{detail.rough.fantasyRoughId ?? "—"}</div>
+   594→                    <div><span className="text-muted-foreground">Stone Name: </span>{detail.rough.stoneName ?? "—"}</div>
+   595→                    <div><span className="text-muted-foreground">Kapan/Packet: </span>{detail.rough.kapan ?? "—"} / {detail.rough.packet ?? "—"}</div>
+   596→                    <div><span className="text-muted-foreground">Signer: </span>{detail.rough.signer ?? "—"}</div>
+   597→                    <div><span className="text-muted-foreground">Weight: </span><span className="tabular-nums">{detail.rough.roughWeight.toFixed(3)} ct</span></div>
+   598→                    <div><span className="text-muted-foreground">Country/Branch: </span>{detail.rough.country ?? "—"} / {detail.rough.branch ?? "—"}</div>
+   599→                    <div><span className="text-muted-foreground">Fantasy Status: </span><Badge variant="neutral">{detail.rough.fantasyStatus ?? "—"}</Badge></div>
+   600→                    <div><span className="text-muted-foreground">Planning Status: </span><StatusBadge status={detail.rough.planningStatus} /></div>
+   601→                    <div><span className="text-muted-foreground">Eligible: </span>{detail.rough.planningEligible ? <Badge variant="success">YES</Badge> : <Badge variant="critical">NO</Badge>}</div>
+   602→                  </div>
+   603→                ) : (
+   604→                  <EmptyState title="Rough not linked" message="This case is not bound to a rough stone." />
+   605→                )}
+   606→              </Section>
+   607→
+   608→              {/* Case header */}
+   609→              <Section title="Case Header" bodyClassName="p-2">
+   610→                <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
+   611→                  <div><span className="text-muted-foreground">Case Code: </span>{detail.caseCode}</div>
+   612→                  <div><span className="text-muted-foreground">Planner: </span>{detail.planner}</div>
+   613→                  <div><span className="text-muted-foreground">Planning Date: </span>{fmtDate(detail.planningDate)}</div>
+   614→                  <div><span className="text-muted-foreground">Current Version: </span>{detail.currentVersion}</div>
+   615→                  <div><span className="text-muted-foreground">Source File: </span>{detail.sourceFile ?? "—"}</div>
+   616→                  <div><span className="text-muted-foreground">Original Wt: </span><span className="tabular-nums">{detail.originalRoughWeight.toFixed(3)} ct</span></div>
+   617→                  <div><span className="text-muted-foreground">Approved By: </span>{detail.approvedBy ?? "—"}</div>
+   618→                  <div><span className="text-muted-foreground">Approved At: </span>{fmtDate(detail.approvedAt)}</div>
+   619→                </div>
+   620→              </Section>
+   621→
+   622→              {/* Reservations */}
+   623→              <Section title={`Reservations (${detail.reservations.length})`} bodyClassName="p-2">
+   624→                {detail.reservations.length === 0 ? (
+   625→                  <p className="text-[11px] text-muted-foreground">No reservations.</p>
+   626→                ) : (
+   627→                  <table className="w-full text-[11px]">
+   628→                    <thead className="text-[10px] uppercase text-muted-foreground">
+   629→                      <tr>
+   630→                        <th className="px-1 py-0.5 text-left">By</th>
+   631→                        <th className="px-1 py-0.5 text-left">Status</th>
+   632→                        <th className="px-1 py-0.5 text-left">Reserved At</th>
+   633→                        <th className="px-1 py-0.5 text-left">Released At</th>
+   634→                      </tr>
+   635→                    </thead>
+   636→                    <tbody>
+   637→                      {detail.reservations.map((r) => (
+   638→                        <tr key={r.id} className="border-t border-border/40">
+   639→                          <td className="px-1 py-0.5">{r.reservedBy}</td>
+   640→                          <td className="px-1 py-0.5"><StatusBadge status={r.status} /></td>
+   641→                          <td className="px-1 py-0.5">{fmtDate(r.reservedAt)}</td>
+   642→                          <td className="px-1 py-0.5">{fmtDate(r.releasedAt)}</td>
+   643→                        </tr>
+   644→                      ))}
+   645→                    </tbody>
+   646→                  </table>
+   647→                )}
+   648→              </Section>
+   649→
+   650→              {/* Versions */}
+   651→              <Section
+   652→                title={`Versions (${detail.versions.length})`}
+   653→                description="Each version contains planning options; each option lists pieces"
+   654→                bodyClassName="p-2"
+   655→              >
+   656→                <div className="flex flex-col gap-3">
+   657→                  {detail.versions.map((v) => (
+   658→                    <div key={v.id} className="rounded-md border border-border p-2 bg-muted/20">
+   659→                      <div className="flex items-center gap-2 mb-2">
+   660→                        <GitBranch className="h-3.5 w-3.5 text-muted-foreground" />
+   661→                        <span className="text-[11px] font-medium">v{v.versionNumber}</span>
+   662→                        <StatusBadge status={v.status} />
+   663→                        <span className="text-[10px] text-muted-foreground">by {v.createdBy} · {fmtDate(v.createdAt)}</span>
+   664→                        {v.reason && <span className="text-[10px] text-muted-foreground">· {v.reason}</span>}
+   665→                      </div>
+   666→
+   667→                      <div className="flex flex-col gap-2">
+   668→                        {v.options.map((o) => (
+   669→                          <div key={o.id} className={`rounded-md border p-2 ${o.selected ? "border-sky-300 dark:border-sky-900 bg-sky-50/50 dark:bg-sky-950/30" : "border-border bg-card"}`}>
+   670→                            <div className="flex items-center gap-2 mb-1">
+   671→                              <Layers className="h-3 w-3 text-muted-foreground" />
+   672→                              <span className="text-[11px] font-medium">{o.optionCode}</span>
+   673→                              {o.selected && <Badge variant="info">SELECTED</Badge>}
+   674→                              {o.approvalStatus && <StatusBadge status={o.approvalStatus} />}
+   675→                              <span className="ml-auto text-[10px] text-muted-foreground">{o.pieces.length} pieces</span>
+   676→                            </div>
+   677→                            <div className="grid grid-cols-4 gap-1 text-[10px]">
+   678→                              <div><span className="text-muted-foreground">Pieces: </span><span className="tabular-nums font-medium">{o.expectedPieces}</span></div>
+   679→                              <div><span className="text-muted-foreground">Wt: </span><span className="tabular-nums">{o.expectedTotalWeight.toFixed(3)}</span></div>
+   680→                              <div><span className="text-muted-foreground">Yield: </span><span className="tabular-nums">{o.yieldPct.toFixed(2)}%</span></div>
+   681→                              <div><span className="text-muted-foreground">Coverage: </span><span className="tabular-nums">{o.coveragePct.toFixed(2)}%</span></div>
+   682→                              <div><span className="text-muted-foreground">Match Req: </span><span className="tabular-nums">{o.matchingRequiredPieces}</span></div>
+   683→                              <div><span className="text-muted-foreground">Non-Req: </span><span className="tabular-nums">{o.nonRequiredPieces}</span></div>
+   684→                              <div><span className="text-muted-foreground">Excess: </span><span className="tabular-nums">{o.potentialExcess}</span></div>
+   685→                              <div><span className="text-muted-foreground">Color/Clarity: </span>{o.expectedColor ?? "—"} / {o.expectedClarity ?? "—"}</div>
+   686→                            </div>
+   687→
+   688→                            {o.validationWarnings && (
+   689→                              <div className="mt-2 rounded border border-amber-300 dark:border-amber-900 bg-amber-50/60 dark:bg-amber-950/30 p-1.5">
+   690→                                <div className="text-[10px] font-semibold text-amber-700 dark:text-amber-300 mb-1">Validation Warnings</div>
+   691→                                <WarningsCell value={o.validationWarnings} />
+   692→                              </div>
+   693→                            )}
+   694→
+   695→                            {/* Pieces list */}
+   696→                            <div className="mt-2 max-h-32 overflow-y-auto rounded border border-border/60 bg-background">
+   697→                              <table className="w-full text-[10px]">
+   698→                                <thead className="text-[9px] uppercase text-muted-foreground bg-muted/40 sticky top-0">
+   699→                                  <tr>
+   700→                                    <th className="px-1 py-0.5 text-left">Seq</th>
+   701→                                    <th className="px-1 py-0.5 text-left">Piece Code</th>
+   702→                                    <th className="px-1 py-0.5 text-left">Shape</th>
+   703→                                    <th className="px-1 py-0.5 text-right">Wt</th>
+   704→                                    <th className="px-1 py-0.5 text-left">Color/Clarity</th>
+   705→                                    <th className="px-1 py-0.5 text-left">Cat</th>
+   706→                                  </tr>
+   707→                                </thead>
+   708→                                <tbody>
+   709→                                  {o.pieces.map((p) => (
+   710→                                    <tr key={p.id} className="border-t border-border/40">
+   711→                                      <td className="px-1 py-0.5 tabular-nums">{p.sequence}</td>
+   712→                                      <td className="px-1 py-0.5">{p.pieceCode}</td>
+   713→                                      <td className="px-1 py-0.5">{p.expectedShape ?? "—"}</td>
+   714→                                      <td className="px-1 py-0.5 text-right tabular-nums">{p.expectedWeight.toFixed(3)}</td>
+   715→                                      <td className="px-1 py-0.5">{p.expectedColor ?? "—"} / {p.expectedClarity ?? "—"}</td>
+   716→                                      <td className="px-1 py-0.5">{p.expectedCategory ?? "—"}</td>
+   717→                                    </tr>
+   718→                                  ))}
+   719→                                </tbody>
+   720→                              </table>
+   721→                            </div>
+   722→                          </div>
+   723→                        ))}
+   724→                      </div>
+   725→                    </div>
+   726→                  ))}
+   727→                </div>
+   728→              </Section>
+   729→            </div>
+   730→          )}
+   731→        </SheetContent>
+   732→      </Sheet>
+   733→
+   734→      {/* Replan Dialog */}
+   735→      <Dialog
+   736→        open={replanOpen}
+   737→        onOpenChange={(o) => {
+   738→          if (!o) cancelReplan();
+   739→        }}
+   740→      >
+   741→        <DialogContent className="max-w-md">
+   742→          <DialogHeader>
+   743→            <DialogTitle className="flex items-center gap-2 text-sm">
+   744→              <RefreshCw className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+   745→              Mark case for replan
+   746→            </DialogTitle>
+   747→            <DialogDescription className="text-[11px]">
+   748→              {detail && (
+   749→                <span>
+   750→                  Case <span className="font-medium text-foreground">{detail.caseCode}</span>
+   751→                  {" · "}{detail.stoneType}
+   752→                  {" · "}v{detail.currentVersion}
+   753→                  {" · "}<StatusBadge status={detail.status} />
+   754→                  <br />
+   755→                </span>
+   756→              )}
+   757→              A new plan version will be created in <span className="font-medium">DRAFT</span> status; the current version is superseded. The action is audit-logged.
+   758→            </DialogDescription>
+   759→          </DialogHeader>
+   760→
+   761→          <div className="flex flex-col gap-2">
+   762→            <Label htmlFor="replan-reason" className="text-xs">
+   763→              Reason <span className="text-rose-600">*</span>
+   764→              <span className="ml-1 text-[10px] text-muted-foreground">(min {REPLAN_REASON_MIN} chars)</span>
+   765→            </Label>
+   766→            <Textarea
+   767→              id="replan-reason"
+   768→              value={replanReason}
+   769→              onChange={(e) => setReplanReason(e.target.value)}
+   770→              placeholder="e.g., Actual output missed target category; yield below threshold"
+   771→              rows={4}
+   772→              className="text-xs resize-none"
+   773→              autoFocus
+   774→            />
+   775→            <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+   776→              <span>
+   777→                actor: <code className="font-mono">{REPLAN_ACTOR}</code>
+   778→              </span>
+   779→              <span
+   780→                className={
+   781→                  replanReason.trim().length >= REPLAN_REASON_MIN
+   782→                    ? "text-emerald-600 dark:text-emerald-400"
+   783→                    : "text-amber-600 dark:text-amber-400"
+   784→                }
+   785→              >
+   786→                {replanReason.trim().length}/{REPLAN_REASON_MIN}+ chars
+   787→              </span>
+   788→            </div>
+   789→          </div>
+   790→
+   791→          <DialogFooter className="gap-2">
+   792→            <Button
+   793→              variant="outline"
+   794→              size="sm"
+   795→              className="h-8 text-xs"
+   796→              onClick={cancelReplan}
+   797→              disabled={replanMutation.isPending}
+   798→            >
+   799→              Cancel
+   800→            </Button>
+   801→            <Button
+   802→              size="sm"
+   803→              className="h-8 text-xs text-amber-700 dark:text-amber-200 bg-amber-500 hover:bg-amber-600 dark:bg-amber-700 dark:hover:bg-amber-600 border-amber-500 dark:border-amber-700"
+   804→              onClick={confirmReplan}
+   805→              disabled={
+   806→                replanMutation.isPending ||
+   807→                replanReason.trim().length < REPLAN_REASON_MIN
+   808→              }
+   809→            >
+   810→              {replanMutation.isPending ? (
+   811→                <div className="h-3 w-3 border-2 border-white border-t-transparent rounded-full animate-spin mr-1.5" />
+   812→              ) : (
+   813→                <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+   814→              )}
+   815→              Confirm Replan
+   816→            </Button>
+   817→          </DialogFooter>
+   818→        </DialogContent>
+   819→      </Dialog>
+   820→    </div>
+   821→  );
+   822→}
+   823→

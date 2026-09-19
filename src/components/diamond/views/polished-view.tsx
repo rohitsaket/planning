@@ -6,6 +6,7 @@ import { KpiCard } from "@/components/diamond/shared/kpi-card";
 import { Section, PageHeader } from "@/components/diamond/shared/page-header";
 import { DataTable, Column } from "@/components/diamond/shared/data-table";
 import { NumberCell, Money } from "@/components/diamond/shared/empty-state";
+import { useGlobalFilter } from "@/stores/global-filter";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   Legend,
@@ -45,7 +46,18 @@ const DIMENSIONS = [
 
 export function PolishedView() {
   const [dimension, setDimension] = useState("planningClass");
-  const url = `/api/analysis/polished?dimension=${dimension}`;
+  // Global filter — /api/analysis/polished accepts `dimension` and (forward-compat)
+  // ignores country/lab/branch as separate filter params; we still append them so the
+  // URL stays consistent and the polished API can pick them up when extended.
+  const globalFilter = useGlobalFilter();
+  const url = useMemo(() => {
+    const params = new URLSearchParams();
+    params.set("dimension", dimension);
+    if (globalFilter.country) params.set("country", globalFilter.country);
+    if (globalFilter.branch) params.set("branch", globalFilter.branch);
+    if (globalFilter.lab) params.set("lab", globalFilter.lab);
+    return `/api/analysis/polished?${params.toString()}`;
+  }, [dimension, globalFilter.country, globalFilter.branch, globalFilter.lab]);
   const { data, isLoading } = useApi<PolishedResponse>(url);
 
   const agingData = data
@@ -105,7 +117,20 @@ export function PolishedView() {
             </SelectContent>
           </Select>
         }
-        meta={<span className="text-[10px] text-muted-foreground">Dimension: {DIMENSIONS.find((d) => d.value === dimension)?.label}</span>}
+        meta={
+          <div className="flex items-center gap-2 flex-wrap">
+            {globalFilter.hasActiveFilters() && (
+              <span className="text-[10px] text-sky-600 dark:text-sky-400 font-medium">
+                Filtered by: {[
+                  globalFilter.country && `Country=${globalFilter.country}`,
+                  globalFilter.branch && `Branch=${globalFilter.branch}`,
+                  globalFilter.lab && `Lab=${globalFilter.lab}`,
+                ].filter(Boolean).join(", ")}
+              </span>
+            )}
+            <span className="text-[10px] text-muted-foreground">Dimension: {DIMENSIONS.find((d) => d.value === dimension)?.label}</span>
+          </div>
+        }
       />
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-2">

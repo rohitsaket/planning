@@ -7,6 +7,7 @@ import { Section, PageHeader } from "@/components/diamond/shared/page-header";
 import { DataTable, Column } from "@/components/diamond/shared/data-table";
 import { NumberCell, Money, InfoBanner } from "@/components/diamond/shared/empty-state";
 import { StatusBadge } from "@/components/diamond/shared/badges";
+import { useGlobalFilter } from "@/stores/global-filter";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   Legend,
@@ -56,18 +57,87 @@ function formatDate(iso: string): string {
 }
 
 export function MemoView() {
-  const { data, isLoading } = useApi<MemoResponse>("/api/analysis/memo");
+  // Global filter — /api/analysis/memo currently returns the full memo dataset and
+  // ignores country/branch/lab params. We append them (forward-compat) and additionally
+  // filter the `rows` array client-side so the user sees the global filter take effect
+  // on the detail table. Aggregate byCountry / byCustomer / ageBuckets are server-
+  // computed over the full dataset and therefore remain as-is.
+  const globalFilter = useGlobalFilter();
+  const url = useMemo(() => {
+    const base = "/api/analysis/memo";
+    const params = new URLSearchParams();
+    if (globalFilter.country) params.set("country", globalFilter.country);
+    if (globalFilter.branch) params.set("branch", globalFilter.branch);
+    if (globalFilter.lab) params.set("lab", globalFilter.lab);
+    const qs = params.toString();
+    return qs ? `${base}?${qs}` : base;
+  }, [globalFilter.country, globalFilter.branch, globalFilter.lab]);
+  const { data, isLoading } = useApi<MemoResponse>(url);
+
+  // Client-side filter on the detail rows + the byCountry/byCustomer aggregates so the
+  // KPI cards and tables reflect the global filter until the API is extended.
+  const filteredRows = useMemo(() => {
+    const all = data?.rows ?? [];
+    let r = all;
+    if (globalFilter.country) r = r.filter((row) => row.country === globalFilter.country);
+    if (globalFilter.branch) r = r.filter((row) => row.branch === globalFilter.branch);
+    if (globalFilter.lab) r = r.filter((row) => (row.lab ?? "Non-Cert") === globalFilter.lab);
+    return r;
+  }, [data, globalFilter.country, globalFilter.branch, globalFilter.lab]);
+  const filteredByCountry = useMemo(() => {
+    const all = data?.byCountry ?? [];
+    if (!globalFilter.country) return all;
+    return all.filter((row) => row.dimension === globalFilter.country);
+  }, [data, globalFilter.country]);
+  const filteredByCustomer = useMemo(() => {
+    // Group filtered detail rows by customer to derive a customer-side aggregate that
+    // respects the global filter (the server response groups over the full dataset).
+    const all = filteredRows;
+    const agg = new Map<string, { qty: number; value: number; ageSum: number; ageCount: number }>();
+    for (const r of all) {
+      const cur = agg.get(r.customerName) ?? { qty: 0, value: 0, ageSum: 0, ageCount: 0 };
+      cur.qty += 1;
+      cur.value += r.memoValueUsd;
+      if (r.memoAgeDays != null) {
+        cur.ageSum += r.memoAgeDays;
+        cur.ageCount += 1;
+      }
+      agg.set(r.customerName, cur);
+    }
+    return Array.from(agg.entries())
+      .map(([dimension, v]) => ({
+        dimension,
+        qty: v.qty,
+        value: v.value,
+        avgAge: v.ageCount > 0 ? Math.round(v.ageSum / v.ageCount) : 0,
+      }))
+      .sort((a, b) => b.value - a.value);
+  }, [filteredRows]);
+  const filteredTotalQty = filteredRows.length;
+  const filteredTotalValue = filteredRows.reduce((s, r) => s + r.memoValueUsd, 0);
+  const filteredAgeBuckets = useMemo(() => {
+    const buckets = { "0-30": 0, "31-60": 0, "61-90": 0, "91-180": 0, "180+": 0 };
+    for (const r of filteredRows) {
+      const a = r.memoAgeDays ?? 0;
+      if (a <= 30) buckets["0-30"]++;
+      else if (a <= 60) buckets["31-60"]++;
+      else if (a <= 90) buckets["61-90"]++;
+      else if (a <= 180) buckets["91-180"]++;
+      else buckets["180+"]++;
+    }
+    return buckets;
+  }, [filteredRows]);
 
   const ageChartData = data
     ? ([
-        { name: "0-30", qty: data.ageBuckets["0-30"] },
-        { name: "31-60", qty: data.ageBuckets["31-60"] },
-        { name: "61-90", qty: data.ageBuckets["61-90"] },
-        { name: "91-180", qty: data.ageBuckets["91-180"] },
-        { name: "180+", qty: data.ageBuckets["180+"] },
+        { name: "0-30", qty: filteredAgeBuckets["0-30"] },
+        { name: "31-60", qty: filteredAgeBuckets["31-60"] },
+        { name: "61-90", qty: filteredAgeBuckets["61-90"] },
+        { name: "91-180", qty: filteredAgeBuckets["91-180"] },
+        { name: "180+", qty: filteredAgeBuckets["180+"] },
       ])
     : [];
-  const byCountry = data?.byCountry ?? [];
+  const byCountry = filteredByCountry;
   const qtySpark = useMemo(() => {
     const slice = byCountry.slice(0, 7).map((r) => r.qty);
     while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 1);
@@ -84,9 +154,9 @@ export function MemoView() {
     return slice;
   }, [byCountry]);
   const agedSpark = useMemo(() => {
-    const base = data ? (data.ageBuckets["91-180"] + data.ageBuckets["180+"]) : 1;
+    const base = filteredAgeBuckets ? (filteredAgeBuckets["91-180"] + filteredAgeBuckets["180+"]) : 1;
     return [base * 0.85, base * 0.9, base * 1.0, base * 1.05, base * 1.1, base * 1.0, base];
-  }, [data]);
+  }, [filteredAgeBuckets]);
 
   const aggColumns: Column<MemoAggRow>[] = [
     {
@@ -137,7 +207,20 @@ export function MemoView() {
       <PageHeader
         title="Memo Analysis"
         subtitle="Stock on consignment — pieces, value and age by country and customer"
-        meta={<span className="text-[10px] text-muted-foreground">{data?.rows.length ?? 0} memo lots across {data?.byCountry.length ?? 0} countries</span>}
+        meta={
+          <div className="flex items-center gap-2 flex-wrap">
+            {globalFilter.hasActiveFilters() && (
+              <span className="text-[10px] text-sky-600 dark:text-sky-400 font-medium">
+                Filtered by: {[
+                  globalFilter.country && `Country=${globalFilter.country}`,
+                  globalFilter.branch && `Branch=${globalFilter.branch}`,
+                  globalFilter.lab && `Lab=${globalFilter.lab}`,
+                ].filter(Boolean).join(", ")}
+              </span>
+            )}
+            <span className="text-[10px] text-muted-foreground">{filteredRows.length} memo lots across {filteredByCountry.length} countries</span>
+          </div>
+        }
       />
 
       <InfoBanner variant="warning">
@@ -145,15 +228,15 @@ export function MemoView() {
       </InfoBanner>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
-        <KpiCard label="Total Qty" value={data?.totalQty ?? 0} unit="pcs" intent="info" hint="All memo lots" icon={FileText} sparkline={qtySpark} />
-        <KpiCard label="Total Value" value={`$${((data?.totalValue ?? 0) / 1000).toFixed(1)}K`} intent="warning" hint="Memo exposure at cost" icon={DollarSign} sparkline={valueSpark} />
+        <KpiCard label="Total Qty" value={filteredTotalQty} unit="pcs" intent="info" hint="All memo lots" icon={FileText} sparkline={qtySpark} />
+        <KpiCard label="Total Value" value={`$${(filteredTotalValue / 1000).toFixed(1)}K`} intent="warning" hint="Memo exposure at cost" icon={DollarSign} sparkline={valueSpark} />
         <KpiCard label="Avg Age" value={
-          data && data.rows.length > 0
-            ? Math.round(data.rows.reduce((s, r) => s + (r.memoAgeDays ?? 0), 0) / data.rows.length)
+          filteredRows.length > 0
+            ? Math.round(filteredRows.reduce((s, r) => s + (r.memoAgeDays ?? 0), 0) / filteredRows.length)
             : 0
         } unit="days" intent="default" hint="Mean across all open memos" icon={Clock} sparkline={avgAgeSpark} />
         <KpiCard label="Aged > 90D" value={
-          data ? (data.ageBuckets["91-180"] + data.ageBuckets["180+"]) : 0
+          filteredAgeBuckets["91-180"] + filteredAgeBuckets["180+"]
         } unit="pcs" intent="critical" hint="Memos needing follow-up" icon={AlertTriangle} sparkline={agedSpark} />
       </div>
 
@@ -161,7 +244,7 @@ export function MemoView() {
         <Section title="By Country" description="Memo qty, value and avg age per country">
           <DataTable<MemoAggRow>
             columns={aggColumns}
-            rows={data?.byCountry ?? []}
+            rows={filteredByCountry}
             loading={isLoading}
             emptyMessage="No memo data by country."
             initialSortKey="value"
@@ -172,7 +255,7 @@ export function MemoView() {
         <Section title="By Customer" description="Memo qty, value and avg age per customer">
           <DataTable<MemoAggRow>
             columns={aggColumns}
-            rows={data?.byCustomer ?? []}
+            rows={filteredByCustomer}
             loading={isLoading}
             emptyMessage="No memo data by customer."
             initialSortKey="value"
@@ -206,7 +289,7 @@ export function MemoView() {
       <Section title="Memo Detail" description="All memo lots with full stone characteristics and aging">
         <DataTable<MemoRow>
           columns={detailColumns}
-          rows={data?.rows ?? []}
+          rows={filteredRows}
           loading={isLoading}
           emptyMessage="No memo lots found."
           initialSortKey="memoAgeDays"

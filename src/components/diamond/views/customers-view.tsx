@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useApi, apiFetch } from "@/lib/api-client";
 import { Section, PageHeader } from "@/components/diamond/shared/page-header";
 import { DataTable, Column } from "@/components/diamond/shared/data-table";
 import { Money, NumberCell, InfoBanner } from "@/components/diamond/shared/empty-state";
 import { Badge } from "@/components/diamond/shared/badges";
 import { KpiCard } from "@/components/diamond/shared/kpi-card";
+import { useGlobalFilter } from "@/stores/global-filter";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from "@/components/ui/dialog";
@@ -371,7 +372,30 @@ function CustomerDetailDialog({
 
 export function CustomersView() {
   const [selected, setSelected] = useState<CustomerRow | null>(null);
-  const { data, isLoading } = useApi<CustomersResponse>("/api/analysis/customers");
+  // Global filter — the /api/analysis/customers endpoint currently does not accept
+  // country/branch query params, so we append the filter to the URL (forward-compat
+  // for when the API is extended) AND apply the filter client-side on the returned rows.
+  const globalFilter = useGlobalFilter();
+  const url = useMemo(() => {
+    const base = "/api/analysis/customers";
+    const params = new URLSearchParams();
+    if (globalFilter.country) params.set("country", globalFilter.country);
+    if (globalFilter.branch) params.set("branch", globalFilter.branch);
+    if (globalFilter.lab) params.set("lab", globalFilter.lab);
+    const qs = params.toString();
+    return qs ? `${base}?${qs}` : base;
+  }, [globalFilter.country, globalFilter.branch, globalFilter.lab]);
+  const { data, isLoading } = useApi<CustomersResponse>(url);
+
+  // Client-side filter — applies the global country/branch to the rows returned by
+  // the API (which currently returns the full customer list).
+  const filteredRows = useMemo(() => {
+    const all = data?.rows ?? [];
+    let r = all;
+    if (globalFilter.country) r = r.filter((row) => row.country === globalFilter.country);
+    if (globalFilter.branch) r = r.filter((row) => row.branch === globalFilter.branch);
+    return r;
+  }, [data, globalFilter.country, globalFilter.branch]);
 
   const columns: Column<CustomerRow>[] = [
     {
@@ -407,22 +431,35 @@ export function CustomersView() {
       cell: (r) => <span className="tabular-nums text-muted-foreground">{formatDate(r.lastPurchase)}</span> },
   ];
 
-  const totalPieces = (data?.rows ?? []).reduce((s, r) => s + r.pieces, 0);
-  const totalValue = (data?.rows ?? []).reduce((s, r) => s + r.totalValue, 0);
-  const totalMemo = (data?.rows ?? []).reduce((s, r) => s + r.memoExposure, 0);
+  const totalPieces = filteredRows.reduce((s, r) => s + r.pieces, 0);
+  const totalValue = filteredRows.reduce((s, r) => s + r.totalValue, 0);
+  const totalMemo = filteredRows.reduce((s, r) => s + r.memoExposure, 0);
 
   return (
     <div className="flex flex-col gap-3 p-3">
       <PageHeader
         title="Customer 360"
         subtitle="Sales, memo exposure, open orders & priority classification over the trailing 365 days"
-        meta={<span className="text-[10px] text-muted-foreground">{data?.rows.length ?? 0} customers · {totalPieces} pcs · ${(totalValue / 1000).toFixed(1)}K · ${(totalMemo / 1000).toFixed(1)}K memo</span>}
+        meta={
+          <div className="flex items-center gap-2 flex-wrap">
+            {globalFilter.hasActiveFilters() && (
+              <span className="text-[10px] text-sky-600 dark:text-sky-400 font-medium">
+                Filtered by: {[
+                  globalFilter.country && `Country=${globalFilter.country}`,
+                  globalFilter.branch && `Branch=${globalFilter.branch}`,
+                  globalFilter.lab && `Lab=${globalFilter.lab}`,
+                ].filter(Boolean).join(", ")}
+              </span>
+            )}
+            <span className="text-[10px] text-muted-foreground">{filteredRows.length} customers · {totalPieces} pcs · ${(totalValue / 1000).toFixed(1)}K · ${(totalMemo / 1000).toFixed(1)}K memo</span>
+          </div>
+        }
       />
 
       <Section title="Customers" description="Click any row to inspect priority reason and buying profile">
         <DataTable<CustomerRow>
           columns={columns}
-          rows={data?.rows ?? []}
+          rows={filteredRows}
           loading={isLoading}
           emptyMessage="No customer data available."
           onRowClick={(r) => setSelected(r)}

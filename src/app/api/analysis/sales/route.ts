@@ -3,20 +3,27 @@ import { ok, num } from "@/lib/api-utils";
 
 // Sales Analysis — by dimension (lab, shape, weightBand, color, clarity, treatment, customer, country, branch, month)
 // Supports windows: 7, 30, 60, 90, 180, 365 days
+// Honors global filter params: country, branch, lab
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const dimension = url.searchParams.get("dimension") || "shape";
   const windowDays = parseInt(url.searchParams.get("windowDays") || "90", 10);
+  const country = url.searchParams.get("country");
+  const branch = url.searchParams.get("branch");
+  const lab = url.searchParams.get("lab");
 
   const since = new Date();
   since.setDate(since.getDate() - windowDays);
 
-  const records = await db.salesRecord.findMany({
-    where: {
-      lotStatusDb: "Invoice",
-      docDate: { gte: since },
-    },
-  });
+  const where: Record<string, unknown> = {
+    lotStatusDb: "Invoice",
+    docDate: { gte: since },
+  };
+  if (country) where.country = country;
+  if (branch) where.branch = branch;
+  if (lab) where.labNormalized = lab;
+
+  const records = await db.salesRecord.findMany({ where });
 
   const agg = new Map<string, { pieces: number; carats: number; value: number }>();
   for (const r of records) {

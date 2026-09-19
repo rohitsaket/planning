@@ -7,6 +7,7 @@ import { Section, PageHeader } from "@/components/diamond/shared/page-header";
 import { DataTable, Column } from "@/components/diamond/shared/data-table";
 import { NumberCell } from "@/components/diamond/shared/empty-state";
 import { StatusBadge, Badge } from "@/components/diamond/shared/badges";
+import { useGlobalFilter } from "@/stores/global-filter";
 import { FileText, AlertTriangle, Clock, Boxes } from "lucide-react";
 
 interface OrderRow {
@@ -56,7 +57,28 @@ function isOverdue(row: OrderRow): boolean {
 }
 
 export function OrdersView() {
-  const { data, isLoading } = useApi<OrdersResponse>("/api/analysis/orders");
+  // Global filter — /api/analysis/orders currently returns all orders; we append the
+  // global filter params to the URL (forward-compat) AND apply the country/branch
+  // filter client-side on the returned rows.
+  const globalFilter = useGlobalFilter();
+  const url = useMemo(() => {
+    const base = "/api/analysis/orders";
+    const params = new URLSearchParams();
+    if (globalFilter.country) params.set("country", globalFilter.country);
+    if (globalFilter.branch) params.set("branch", globalFilter.branch);
+    if (globalFilter.lab) params.set("lab", globalFilter.lab);
+    const qs = params.toString();
+    return qs ? `${base}?${qs}` : base;
+  }, [globalFilter.country, globalFilter.branch, globalFilter.lab]);
+  const { data, isLoading } = useApi<OrdersResponse>(url);
+
+  const filteredRows = useMemo(() => {
+    const all = data?.rows ?? [];
+    let r = all;
+    if (globalFilter.country) r = r.filter((row) => row.country === globalFilter.country);
+    if (globalFilter.branch) r = r.filter((row) => row.branch === globalFilter.branch);
+    return r;
+  }, [data, globalFilter.country, globalFilter.branch]);
 
   const columns: Column<OrderRow>[] = [
     {
@@ -92,21 +114,21 @@ export function OrdersView() {
       cell: (r) => <NumberCell value={r.backorderQty} intent={r.backorderQty > 0 ? "critical" : undefined} /> },
   ];
 
-  const totalOrders = data?.rows.length ?? 0;
-  const totalOrdered = (data?.rows ?? []).reduce((s, r) => s + r.qtyOrdered, 0);
-  const totalOutstanding = (data?.rows ?? []).reduce((s, r) => s + r.qtyOutstanding, 0);
-  const totalBackorder = (data?.rows ?? []).reduce((s, r) => s + r.backorderQty, 0);
-  const overdueCount = (data?.rows ?? []).filter(isOverdue).length;
+  const totalOrders = filteredRows.length;
+  const totalOrdered = filteredRows.reduce((s, r) => s + r.qtyOrdered, 0);
+  const totalOutstanding = filteredRows.reduce((s, r) => s + r.qtyOutstanding, 0);
+  const totalBackorder = filteredRows.reduce((s, r) => s + r.backorderQty, 0);
+  const overdueCount = filteredRows.filter(isOverdue).length;
   const outstandingSpark = useMemo(() => {
-    const slice = (data?.rows ?? []).slice(0, 7).map((r) => r.qtyOutstanding);
+    const slice = filteredRows.slice(0, 7).map((r) => r.qtyOutstanding);
     while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 1);
     return slice;
-  }, [data?.rows]);
+  }, [filteredRows]);
   const backorderSpark = useMemo(() => {
-    const slice = (data?.rows ?? []).slice(0, 7).map((r) => r.backorderQty);
+    const slice = filteredRows.slice(0, 7).map((r) => r.backorderQty);
     while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 1);
     return slice;
-  }, [data?.rows]);
+  }, [filteredRows]);
 
   return (
     <div className="flex flex-col gap-3 p-3">
@@ -114,9 +136,20 @@ export function OrdersView() {
         title="Order Analysis"
         subtitle="Sales orders with line-level quantities, outstanding balances and backorders"
         meta={
-          <span className="text-[10px] text-muted-foreground">
-            {totalOrders} orders · {totalOrdered} qty · {totalOutstanding} outstanding · {totalBackorder} backorder · {overdueCount} overdue
-          </span>
+          <div className="flex items-center gap-2 flex-wrap">
+            {globalFilter.hasActiveFilters() && (
+              <span className="text-[10px] text-sky-600 dark:text-sky-400 font-medium">
+                Filtered by: {[
+                  globalFilter.country && `Country=${globalFilter.country}`,
+                  globalFilter.branch && `Branch=${globalFilter.branch}`,
+                  globalFilter.lab && `Lab=${globalFilter.lab}`,
+                ].filter(Boolean).join(", ")}
+              </span>
+            )}
+            <span className="text-[10px] text-muted-foreground">
+              {totalOrders} orders · {totalOrdered} qty · {totalOutstanding} outstanding · {totalBackorder} backorder · {overdueCount} overdue
+            </span>
+          </div>
         }
       />
 
@@ -130,7 +163,7 @@ export function OrdersView() {
       <Section title="Orders" description="Rows are tinted rose when required date is past and outstanding > 0">
         <DataTable<OrderRow>
           columns={columns}
-          rows={data?.rows ?? []}
+          rows={filteredRows}
           loading={isLoading}
           emptyMessage="No orders found."
           initialSortKey="orderDate"
