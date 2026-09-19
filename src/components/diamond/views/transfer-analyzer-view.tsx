@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useApi } from "@/lib/api-client";
 import { KpiCard } from "@/components/diamond/shared/kpi-card";
 import { Section, PageHeader } from "@/components/diamond/shared/page-header";
@@ -75,6 +75,12 @@ export function TransferAnalyzerView() {
   const candidates = data?.candidates ?? [];
   const summary = data?.summary;
   const countryBalance = data?.countryBalance ?? [];
+
+  // Mobile advisory banner — Show more / Show less toggle (mirrors demand-trace-view pattern)
+  const [showFullAdvisory, setShowFullAdvisory] = useState(false);
+  const fullAdvisoryText =
+    "Cross-country transfer eligibility is not confirmed. Do NOT auto-execute transfers without business approval. Displayed separately from confirmed manufacturing requirement (spec §17 — Multi-Country / Multi-Branch Analysis, OPEN rule BR-TRANSFER-001).";
+  const shortAdvisoryText = `${fullAdvisoryText.split(".")[0]}.`;
 
   // Chart data: top 12 categories by transferQty, with from/to split
   const chartData = useMemo(() => {
@@ -274,16 +280,30 @@ export function TransferAnalyzerView() {
         }
       />
 
+      {/* Advisory banner — collapsible on mobile, full text on desktop */}
       <InfoBanner variant="warning">
-        <strong>POTENTIAL transfer candidates only</strong> — OPEN rule{" "}
-        <strong>BR-TRANSFER-001</strong>. Cross-country transfer eligibility is
-        not confirmed. <strong>Do NOT auto-execute transfers</strong> without
-        business approval. Displayed separately from confirmed manufacturing
-        requirement.
+        <div className="flex flex-col gap-0.5">
+          <span className="font-semibold">
+            POTENTIAL transfer candidates only — OPEN rule BR-TRANSFER-001.
+          </span>
+          {/* Mobile: short text + Show more/less toggle */}
+          <span className="md:hidden">
+            {showFullAdvisory ? fullAdvisoryText : shortAdvisoryText}{" "}
+            <button
+              type="button"
+              onClick={() => setShowFullAdvisory(!showFullAdvisory)}
+              className="text-sky-600 dark:text-sky-400 underline underline-offset-2 ml-1 text-[10px] font-medium hover:text-sky-700 dark:hover:text-sky-300"
+            >
+              {showFullAdvisory ? "Show less" : "Show more"}
+            </button>
+          </span>
+          {/* Desktop: always show full text */}
+          <span className="hidden md:inline">{fullAdvisoryText}</span>
+        </div>
       </InfoBanner>
 
-      {/* Summary KPI grid */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2">
+      {/* Summary KPI grid — single column on phones */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-2">
         <KpiCard
           label="Total Candidates"
           value={summary?.totalCandidates ?? 0}
@@ -341,12 +361,13 @@ export function TransferAnalyzerView() {
             message="No category currently has both an excess country and a shortage country."
           />
         ) : (
-          <div className="h-80">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart
-                data={chartData}
-                margin={{ top: 4, right: 16, bottom: 4, left: 0 }}
-              >
+          <div className="overflow-x-auto">
+            <div className="h-80 min-w-[600px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={chartData}
+                  margin={{ top: 4, right: 16, bottom: 4, left: 0 }}
+                >
                 <defs>
                   <linearGradient id="excessGrad" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor="#10b981" stopOpacity={0.95} />
@@ -396,6 +417,7 @@ export function TransferAnalyzerView() {
                 />
               </BarChart>
             </ResponsiveContainer>
+            </div>
           </div>
         )}
       </Section>
@@ -448,6 +470,10 @@ export function TransferAnalyzerView() {
           emptyMessage="No country balance to display."
           initialSortKey="netBalance"
           initialSortDir="desc"
+          exportable
+          exportFilename="country-balance.csv"
+          excelExportable
+          excelExportFilename="country-balance.xlsx"
           maxHeight="360px"
         />
       </Section>

@@ -21,6 +21,7 @@ export type ViewId =
   | "demand-history"
   | "demand-trace"
   | "transfer-analyzer"
+  | "aging-dashboard"
   | "requirements-matrix"
   | "requirements-priority-queue"
   | "requirements-orders"

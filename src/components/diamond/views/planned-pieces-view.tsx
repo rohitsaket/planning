@@ -313,6 +313,8 @@ export function PlannedPiecesView() {
         }}
         exportable
         exportFilename="planned-pieces.csv"
+        excelExportable
+        excelExportFilename="planned-pieces.xlsx"
         pagination
         pageSize={50}
         initialSortKey="pieceCode"

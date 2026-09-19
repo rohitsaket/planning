@@ -308,6 +308,8 @@ export function RoughAvailabilityView() {
         }}
         exportable
         exportFilename="rough-availability.csv"
+        excelExportable
+        excelExportFilename="rough-availability.xlsx"
         onRowClick={() => setView("planning-workbench")}
         rowClassName={(r) =>
           r.planningStatus === "AVAILABLE"

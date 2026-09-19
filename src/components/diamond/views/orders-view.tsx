@@ -195,6 +195,8 @@ export function OrdersView() {
           initialSortDir="desc"
           exportable
           exportFilename="orders.csv"
+          excelExportable
+          excelExportFilename="sales-orders.xlsx"
           searchable
           searchPlaceholder="Search order #, customer, country..."
           searchFn={(r, q) => `${r.orderNumber} ${r.customerName} ${r.country} ${r.branch} ${r.status}`.toLowerCase().includes(q.toLowerCase())}

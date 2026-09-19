@@ -524,6 +524,8 @@ export function PlanningCasesView() {
         exportFilename="planning-cases.csv"
         excelExportable
         excelExportFilename="planning-cases.xlsx"
+        pdfExportable
+        pdfExportFilename="planning-cases"
         pagination
         pageSize={25}
         onRowClick={(r) => setSelectedId(r.id)}

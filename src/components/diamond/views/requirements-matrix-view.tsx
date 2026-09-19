@@ -769,6 +769,8 @@ export function RequirementsMatrixView() {
           exportFilename={`requirements-page-${page}.csv`}
           excelExportable
           excelExportFilename={`requirements-page-${page}.xlsx`}
+          pdfExportable
+          pdfExportFilename={`requirements-page-${page}`}
         />
       )}
 

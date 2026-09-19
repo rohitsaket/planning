@@ -543,6 +543,8 @@ export function CustomersView() {
           initialSortDir="desc"
           exportable
           exportFilename="customers.csv"
+          excelExportable
+          excelExportFilename="customers.xlsx"
           searchable
           searchPlaceholder="Search code, name, country..."
           searchFn={(r, q) => `${r.customerCode} ${r.name} ${r.country} ${r.branch} ${r.accountOwner}`.toLowerCase().includes(q.toLowerCase())}

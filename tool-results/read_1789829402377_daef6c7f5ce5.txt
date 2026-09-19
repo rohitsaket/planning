@@ -1,0 +1,684 @@
+     1→"use client";
+     2→
+     3→import { useMemo, useState, useEffect } from "react";
+     4→import { useApi } from "@/lib/api-client";
+     5→import { KpiCard } from "@/components/diamond/shared/kpi-card";
+     6→import { Section, PageHeader } from "@/components/diamond/shared/page-header";
+     7→import { DataTable, type Column } from "@/components/diamond/shared/data-table";
+     8→import { Badge, StatusBadge } from "@/components/diamond/shared/badges";
+     9→import { EmptyState, InfoBanner, NumberCell } from "@/components/diamond/shared/empty-state";
+    10→import { KpiGridSkeleton } from "@/components/diamond/shared/skeleton";
+    11→import { Button } from "@/components/ui/button";
+    12→import {
+    13→  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+    14→} from "@/components/ui/select";
+    15→import { Input } from "@/components/ui/input";
+    16→import { cn } from "@/lib/utils";
+    17→import {
+    18→  Calculator, Layers, AlertTriangle, Package, Boxes, Target,
+    19→  ShieldCheck, GitBranch, Wrench, FileWarning, Sparkles,
+    20→  ChevronDown, ChevronUp,
+    21→  type LucideIcon,
+    22→} from "lucide-react";
+    23→
+    24→// ---------------------------------------------------------------------------
+    25→// API response types (mirror the route.ts output)
+    26→// ---------------------------------------------------------------------------
+    27→interface TraceStep {
+    28→  step: number;
+    29→  label: string;
+    30→  value: number;
+    31→  formula: string;
+    32→  source: string;
+    33→  tone?: "shortage" | "coverage" | "advisory";
+    34→}
+    35→
+    36→interface TraceCategory {
+    37→  category: string;
+    38→  lab: string;
+    39→  shape: string;
+    40→  weightBand: string;
+    41→  steps: TraceStep[];
+    42→  fourNumbers: {
+    43→    physicalShortage: number;
+    44→    pipelineAdjusted: number;
+    45→    planningAdjusted: number;
+    46→    forecastRequirement: number;
+    47→  };
+    48→}
+    49→
+    50→interface TraceSummary {
+    51→  totalCategories: number;
+    52→  totalShortage: number;
+    53→  totalExcess: number;
+    54→  categoriesWithShortage: number;
+    55→  categoriesWithExcess: number;
+    56→}
+    57→
+    58→interface DemandTraceResponse {
+    59→  ruleVersion: string;
+    60→  runDate: string | null;
+    61→  windowDays: number;
+    62→  forecastRunVersion: string | null;
+    63→  categories: TraceCategory[];
+    64→  summary: TraceSummary;
+    65→}
+    66→
+    67→// ---------------------------------------------------------------------------
+    68→// Per-step styling palette
+    69→// ---------------------------------------------------------------------------
+    70→const TONE_STYLES: Record<
+    71→  NonNullable<TraceStep["tone"]>,
+    72→  { border: string; dot: string; bg: string; value: string; label: string }
+    73→> = {
+    74→  shortage: {
+    75→    border: "border-rose-200/70 dark:border-rose-900/60",
+    76→    dot: "bg-rose-500 text-white",
+    77→    bg: "bg-rose-50/60 dark:bg-rose-950/30",
+    78→    value: "text-rose-700 dark:text-rose-300",
+    79→    label: "Shortage",
+    80→  },
+    81→  coverage: {
+    82→    border: "border-emerald-200/70 dark:border-emerald-900/60",
+    83→    dot: "bg-emerald-500 text-white",
+    84→    bg: "bg-emerald-50/60 dark:bg-emerald-950/30",
+    85→    value: "text-emerald-700 dark:text-emerald-300",
+    86→    label: "Coverage",
+    87→  },
+    88→  advisory: {
+    89→    border: "border-amber-200/70 dark:border-amber-900/60",
+    90→    dot: "bg-amber-500 text-white",
+    91→    bg: "bg-amber-50/60 dark:bg-amber-950/30",
+    92→    value: "text-amber-700 dark:text-amber-300",
+    93→    label: "Advisory",
+    94→  },
+    95→};
+    96→
+    97→const DEFAULT_TONE = {
+    98→  border: "border-border",
+    99→  dot: "bg-muted-foreground/70 text-white",
+   100→  bg: "bg-card",
+   101→  value: "text-foreground",
+   102→  label: "Input",
+   103→};
+   104→
+   105→function fmtRunDate(iso: string | null): string {
+   106→  if (!iso) return "—";
+   107→  const d = new Date(iso);
+   108→  if (Number.isNaN(d.getTime())) return "—";
+   109→  return d.toISOString().slice(0, 16).replace("T", " ");
+   110→}
+   111→
+   112→function formatNum(v: number): string {
+   113→  if (!Number.isFinite(v)) return "0";
+   114→  if (Number.isInteger(v)) return v.toString();
+   115→  return v.toFixed(2);
+   116→}
+   117→
+   118→// ---------------------------------------------------------------------------
+   119→// Single step card in the vertical timeline
+   120→// ---------------------------------------------------------------------------
+   121→function StepCard({ step, isLast }: { step: TraceStep; isLast: boolean }) {
+   122→  const tone = step.tone ? TONE_STYLES[step.tone] : DEFAULT_TONE;
+   123→  return (
+   124→    <div className="relative pl-9">
+   125→      {/* Vertical connector */}
+   126→      {!isLast && (
+   127→        <span
+   128→          aria-hidden
+   129→          className="absolute left-[14px] top-7 bottom-0 w-px bg-border"
+   130→        />
+   131→      )}
+   132→      {/* Step number badge */}
+   133→      <span
+   134→        className={cn(
+   135→          "absolute left-0 top-1.5 h-7 w-7 rounded-full flex items-center justify-center text-[11px] font-bold shadow-sm ring-2 ring-background",
+   136→          tone.dot,
+   137→        )}
+   138→      >
+   139→        {step.step}
+   140→      </span>
+   141→
+   142→      <div
+   143→        className={cn(
+   144→          "rounded-md border px-3 py-2 transition-colors",
+   145→          tone.border,
+   146→          tone.bg,
+   147→        )}
+   148→      >
+   149→        <div className="flex items-start justify-between gap-3 flex-wrap">
+   150→          <div className="min-w-0 flex-1">
+   151→            <div className="flex items-center gap-1.5 flex-wrap">
+   152→              <span className="text-xs font-semibold text-foreground">
+   153→                {step.label}
+   154→              </span>
+   155→              {step.tone && (
+   156→                <Badge variant={step.tone === "shortage" ? "critical" : step.tone === "coverage" ? "success" : "warning"}>
+   157→                  {TONE_STYLES[step.tone].label}
+   158→                </Badge>
+   159→              )}
+   160→            </div>
+   161→            <p className="mt-1 text-[10px] font-mono text-muted-foreground leading-snug break-words">
+   162→              {step.formula}
+   163→            </p>
+   164→            <p className="mt-0.5 text-[10px] text-muted-foreground/80 leading-snug">
+   165→              <span className="font-semibold">Source:</span> {step.source}
+   166→            </p>
+   167→          </div>
+   168→          <div className="text-right shrink-0">
+   169→            <div className={cn("text-2xl font-bold tabular-nums leading-none", tone.value)}>
+   170→              {formatNum(step.value)}
+   171→            </div>
+   172→            <div className="text-[9px] uppercase tracking-wide text-muted-foreground/80 mt-1">
+   173→              output
+   174→            </div>
+   175→          </div>
+   176→        </div>
+   177→      </div>
+   178→    </div>
+   179→  );
+   180→}
+   181→
+   182→// ---------------------------------------------------------------------------
+   183→// Four Requirement Numbers card
+   184→// ---------------------------------------------------------------------------
+   185→function FourNumberCard({
+   186→  label, value, formula, icon: Icon, intent,
+   187→}: {
+   188→  label: string;
+   189→  value: number;
+   190→  formula: string;
+   191→  icon: LucideIcon;
+   192→  intent: "critical" | "warning" | "info" | "success";
+   193→}) {
+   194→  const styles: Record<string, { ring: string; text: string; chip: string }> = {
+   195→    critical: { ring: "border-rose-300 dark:border-rose-900", text: "text-rose-700 dark:text-rose-300", chip: "bg-rose-500/15 text-rose-600 dark:text-rose-400" },
+   196→    warning: { ring: "border-amber-300 dark:border-amber-900", text: "text-amber-700 dark:text-amber-300", chip: "bg-amber-500/15 text-amber-600 dark:text-amber-400" },
+   197→    info: { ring: "border-sky-300 dark:border-sky-900", text: "text-sky-700 dark:text-sky-300", chip: "bg-sky-500/15 text-sky-600 dark:text-sky-400" },
+   198→    success: { ring: "border-emerald-300 dark:border-emerald-900", text: "text-emerald-700 dark:text-emerald-300", chip: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" },
+   199→  };
+   200→  const s = styles[intent];
+   201→  return (
+   202→    <div className={cn("rounded-md border p-3 bg-card flex flex-col gap-1.5", s.ring)}>
+   203→      <div className="flex items-center justify-between gap-2">
+   204→        <span className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold">
+   205→          {label}
+   206→        </span>
+   207→        <span className={cn("p-1 rounded-md", s.chip)}>
+   208→          <Icon className="h-3 w-3" />
+   209→        </span>
+   210→      </div>
+   211→      <div className={cn("text-3xl font-bold tabular-nums leading-none", s.text)}>
+   212→        {value}
+   213→      </div>
+   214→      <div className="text-[10px] font-mono text-muted-foreground leading-snug">
+   215→        {formula}
+   216→      </div>
+   217→    </div>
+   218→  );
+   219→}
+   220→
+   221→// ---------------------------------------------------------------------------
+   222→// Main view
+   223→// ---------------------------------------------------------------------------
+   224→export function DemandTraceView() {
+   225→  const { data, isLoading } = useApi<DemandTraceResponse>("/api/analysis/demand-trace");
+   226→
+   227→  const categories = data?.categories ?? [];
+   228→  const summary = data?.summary;
+   229→  const ruleVersion = data?.ruleVersion ?? "DEMAND-V1";
+   230→  const runDate = fmtRunDate(data?.runDate ?? null);
+   231→  const windowDays = data?.windowDays ?? 90;
+   232→  const forecastVersion = data?.forecastRunVersion ?? null;
+   233→
+   234→  // Selected category — default to first category with shortage > 0
+   235→  const defaultCatId = useMemo(() => {
+   236→    const withShortage = categories.find((c) => c.fourNumbers.physicalShortage > 0);
+   237→    return withShortage?.category ?? categories[0]?.category ?? null;
+   238→  }, [categories]);
+   239→
+   240→  const [selectedCat, setSelectedCat] = useState<string | null>(null);
+   241→  const [search, setSearch] = useState("");
+   242→
+   243→  // Mobile collapsibles — InfoBanner rule text + 13-step timeline
+   244→  const [showFullRule, setShowFullRule] = useState(false);
+   245→  const [showAllSteps, setShowAllSteps] = useState(false);
+   246→
+   247→  // Detect desktop (md+) — on desktop, always show all 13 steps (no collapse)
+   248→  const [isDesktop, setIsDesktop] = useState(false);
+   249→  useEffect(() => {
+   250→    const mq = window.matchMedia("(min-width: 768px)");
+   251→    const update = () => setIsDesktop(mq.matches);
+   252→    update();
+   253→    mq.addEventListener("change", update);
+   254→    return () => mq.removeEventListener("change", update);
+   255→  }, []);
+   256→
+   257→  const fullRuleText = `90-day rolling invoice window. Monthly Average = 90D/3. Target = Monthly Avg × 2 (round-half-up). Shortage = MAX(0, Target − Available). Memo excluded per BR-MEMO-001. WIP contribution is OPEN (BR-WIP-001). Forecast signal is advisory only — NOT confirmed demand.${forecastVersion ? ` Forecast model: ${forecastVersion}.` : ""}`;
+   258→  const shortRuleText = `${fullRuleText.split(".")[0]}.`;
+   259→
+   260→  const activeCat =
+   261→    categories.find((c) => c.category === (selectedCat ?? defaultCatId)) ?? null;
+   262→
+   263→  // ---------------------------------------------------------------------------
+   264→  // All-categories table rows (one per planning category)
+   265→  // ---------------------------------------------------------------------------
+   266→  interface RowShape {
+   267→    category: string;
+   268→    lab: string;
+   269→    shape: string;
+   270→    weightBand: string;
+   271→    sales90d: number;
+   272→    monthlyAverage: number;
+   273→    roundedTarget: number;
+   274→    availableStock: number;
+   275→    physicalShortage: number;
+   276→    wipCoverage: number;
+   277→    approvedPlanCoverage: number;
+   278→    remainingUnplanned: number;
+   279→    forecastSignal: number;
+   280→    excessStock: number;
+   281→  }
+   282→
+   283→  const rows: RowShape[] = useMemo(() => {
+   284→    return categories.map((c) => {
+   285→      const findVal = (n: number) => c.steps.find((s) => s.step === n)?.value ?? 0;
+   286→      return {
+   287→        category: c.category,
+   288→        lab: c.lab,
+   289→        shape: c.shape,
+   290→        weightBand: c.weightBand,
+   291→        sales90d: findVal(1),
+   292→        monthlyAverage: findVal(2),
+   293→        roundedTarget: findVal(4),
+   294→        availableStock: findVal(5),
+   295→        physicalShortage: findVal(6),
+   296→        wipCoverage: findVal(8),
+   297→        approvedPlanCoverage: findVal(10),
+   298→        remainingUnplanned: findVal(11),
+   299→        forecastSignal: findVal(13),
+   300→        excessStock: findVal(12),
+   301→      };
+   302→    });
+   303→  }, [categories]);
+   304→
+   305→  // Filter categories for the Select dropdown (search-filtered)
+   306→  const filteredCategories = useMemo(() => {
+   307→    if (!search.trim()) return categories;
+   308→    const q = search.toLowerCase();
+   309→    return categories.filter((c) =>
+   310→      `${c.lab} ${c.shape} ${c.weightBand} ${c.category}`.toLowerCase().includes(q),
+   311→    );
+   312→  }, [categories, search]);
+   313→
+   314→  const columns: Column<RowShape>[] = [
+   315→    {
+   316→      key: "category",
+   317→      header: "Category",
+   318→      sortable: true,
+   319→      sortValue: (r) => r.category,
+   320→      sticky: "left",
+   321→      width: "240px",
+   322→      cell: (r) => (
+   323→        <div className="flex flex-col gap-0.5 min-w-0">
+   324→          <span className="text-xs font-medium text-foreground truncate">
+   325→            {r.lab} <span className="text-muted-foreground">|</span> {r.shape} <span className="text-muted-foreground">|</span> {r.weightBand}
+   326→          </span>
+   327→          <span className="text-[9px] text-muted-foreground/70 truncate font-mono">
+   328→            {r.category}
+   329→          </span>
+   330→        </div>
+   331→      ),
+   332→    },
+   333→    { key: "sales90d", header: "90D Sales", sortable: true, sortValue: (r) => r.sales90d, align: "right", width: "90px", cell: (r) => <NumberCell value={r.sales90d} /> },
+   334→    { key: "monthlyAverage", header: "Monthly Avg", sortable: true, sortValue: (r) => r.monthlyAverage, align: "right", width: "95px", cell: (r) => <NumberCell value={r.monthlyAverage} decimals={2} /> },
+   335→    { key: "roundedTarget", header: "Target", sortable: true, sortValue: (r) => r.roundedTarget, align: "right", width: "75px", cell: (r) => <NumberCell value={r.roundedTarget} /> },
+   336→    { key: "availableStock", header: "Available", sortable: true, sortValue: (r) => r.availableStock, align: "right", width: "85px", cell: (r) => <NumberCell value={r.availableStock} /> },
+   337→    {
+   338→      key: "physicalShortage",
+   339→      header: "Shortage",
+   340→      sortable: true,
+   341→      sortValue: (r) => r.physicalShortage,
+   342→      align: "right",
+   343→      width: "85px",
+   344→      cell: (r) => <NumberCell value={r.physicalShortage} intent={r.physicalShortage > 0 ? "critical" : undefined} />,
+   345→    },
+   346→    { key: "wipCoverage", header: "WIP Cov", sortable: true, sortValue: (r) => r.wipCoverage, align: "right", width: "75px", cell: (r) => <NumberCell value={r.wipCoverage} intent={r.wipCoverage > 0 ? "info" : undefined} /> },
+   347→    { key: "approvedPlanCoverage", header: "Plan Cov", sortable: true, sortValue: (r) => r.approvedPlanCoverage, align: "right", width: "80px", cell: (r) => <NumberCell value={r.approvedPlanCoverage} intent={r.approvedPlanCoverage > 0 ? "success" : undefined} /> },
+   348→    {
+   349→      key: "remainingUnplanned",
+   350→      header: "Remaining",
+   351→      sortable: true,
+   352→      sortValue: (r) => r.remainingUnplanned,
+   353→      align: "right",
+   354→      width: "90px",
+   355→      cell: (r) => <NumberCell value={r.remainingUnplanned} intent={r.remainingUnplanned > 0 ? "critical" : "success"} />,
+   356→    },
+   357→    {
+   358→      key: "forecastSignal",
+   359→      header: "Forecast",
+   360→      sortable: true,
+   361→      sortValue: (r) => r.forecastSignal,
+   362→      align: "right",
+   363→      width: "85px",
+   364→      cell: (r) => (
+   365→        <span className="inline-flex items-center gap-1">
+   366→          <NumberCell value={r.forecastSignal} intent={r.forecastSignal > 0 ? "warning" : undefined} />
+   367→          {r.forecastSignal > 0 && (
+   368→            <span className="text-[8px] text-amber-600 dark:text-amber-400 font-semibold uppercase">adv</span>
+   369→          )}
+   370→        </span>
+   371→      ),
+   372→    },
+   373→  ];
+   374→
+   375→  // ---------------------------------------------------------------------------
+   376→  if (isLoading && !data) {
+   377→    return (
+   378→      <div className="flex flex-col gap-3 p-3">
+   379→        <PageHeader
+   380→          title="Demand Calculation Trace"
+   381→          subtitle="Step-by-step breakdown of the confirmed 90-day demand rule — source, input, calculation, output"
+   382→        />
+   383→        <KpiGridSkeleton count={5} />
+   384→      </div>
+   385→    );
+   386→  }
+   387→
+   388→  if (!data || categories.length === 0) {
+   389→    return (
+   390→      <div className="flex flex-col gap-3 p-3">
+   391→        <PageHeader
+   392→          title="Demand Calculation Trace"
+   393→          subtitle="Step-by-step breakdown of the confirmed 90-day demand rule — source, input, calculation, output"
+   394→        />
+   395→        <EmptyState
+   396→          title="No demand run found"
+   397→          message="Trigger a demand calculation from the Executive Dashboard to populate the trace."
+   398→          icon={<Calculator className="h-8 w-8" />}
+   399→        />
+   400→      </div>
+   401→    );
+   402→  }
+   403→
+   404→  return (
+   405→    <div className="flex flex-col gap-3 p-3">
+   406→      <PageHeader
+   407→        title="Demand Calculation Trace"
+   408→        subtitle="Step-by-step breakdown of the confirmed 90-day demand rule — source, input, calculation, output"
+   409→        meta={
+   410→          <div className="flex items-center gap-2 flex-wrap">
+   411→            <Badge variant="info" className="gap-1">
+   412→              <Calculator className="h-2.5 w-2.5" />
+   413→              {ruleVersion}
+   414→            </Badge>
+   415→            <Badge variant="neutral" className="gap-1">
+   416→              <span className="text-muted-foreground">Window</span>
+   417→              <span className="font-semibold">{windowDays}d</span>
+   418→            </Badge>
+   419→            <span className="text-[10px] text-muted-foreground">
+   420→              Run: <span className="tabular-nums">{runDate}</span>
+   421→            </span>
+   422→          </div>
+   423→        }
+   424→      />
+   425→
+   426→      {/* Confirmed-rule banner — collapsible on mobile, full text on desktop */}
+   427→      <InfoBanner variant="info">
+   428→        <div className="flex flex-col gap-0.5">
+   429→          <span className="font-semibold">CONFIRMED rule {ruleVersion}.</span>
+   430→          {/* Mobile: short text + Show more/less toggle */}
+   431→          <span className="md:hidden">
+   432→            {showFullRule ? fullRuleText : shortRuleText}{" "}
+   433→            <button
+   434→              type="button"
+   435→              onClick={() => setShowFullRule(!showFullRule)}
+   436→              className="text-sky-600 dark:text-sky-400 underline underline-offset-2 ml-1 text-[10px] font-medium hover:text-sky-700 dark:hover:text-sky-300"
+   437→            >
+   438→              {showFullRule ? "Show less" : "Show more"}
+   439→            </button>
+   440→          </span>
+   441→          {/* Desktop: always show full text */}
+   442→          <span className="hidden md:inline">{fullRuleText}</span>
+   443→        </div>
+   444→      </InfoBanner>
+   445→
+   446→      {/* Summary KPI grid (5 cards) — single column on phones */}
+   447→      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-2">
+   448→        <KpiCard
+   449→          label="Total Categories"
+   450→          value={summary?.totalCategories ?? 0}
+   451→          unit="cats"
+   452→          intent="info"
+   453→          icon={Layers}
+   454→          hint="Planning categories processed"
+   455→        />
+   456→        <KpiCard
+   457→          label="Total Shortage"
+   458→          value={summary?.totalShortage ?? 0}
+   459→          unit="pcs"
+   460→          intent="critical"
+   461→          icon={AlertTriangle}
+   462→          hint="Σ physicalShortage across all categories"
+   463→        />
+   464→        <KpiCard
+   465→          label="Total Excess"
+   466→          value={summary?.totalExcess ?? 0}
+   467→          unit="pcs"
+   468→          intent="warning"
+   469→          icon={Package}
+   470→          hint="Advisory — does NOT change shortage"
+   471→        />
+   472→        <KpiCard
+   473→          label="Cats w/ Shortage"
+   474→          value={summary?.categoriesWithShortage ?? 0}
+   475→          unit="cats"
+   476→          intent="critical"
+   477→          icon={Boxes}
+   478→          hint="physicalShortage > 0"
+   479→        />
+   480→        <KpiCard
+   481→          label="Cats w/ Excess"
+   482→          value={summary?.categoriesWithExcess ?? 0}
+   483→          unit="cats"
+   484→          intent="warning"
+   485→          icon={Target}
+   486→          hint="excessStock > 0 (advisory)"
+   487→        />
+   488→      </div>
+   489→
+   490→      {/* Selected category step-by-step trace */}
+   491→      <Section
+   492→        title="Calculation Steps"
+   493→        description="Pick a planning category to drill into its 13-step demand calculation. Each step exposes its source table, formula, and output."
+   494→        actions={
+   495→          <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
+   496→            <Input
+   497→              value={search}
+   498→              onChange={(e) => setSearch(e.target.value)}
+   499→              placeholder="Filter categories…"
+   500→              className="h-8 w-full sm:w-[160px] text-xs"
+   501→            />
+   502→            <Select
+   503→              value={activeCat?.category ?? ""}
+   504→              onValueChange={setSelectedCat}
+   505→            >
+   506→              <SelectTrigger size="sm" className="h-8 w-full sm:w-[280px] text-xs">
+   507→                <SelectValue placeholder="Select category" />
+   508→              </SelectTrigger>
+   509→              <SelectContent className="max-h-72">
+   510→                {filteredCategories.map((c) => (
+   511→                  <SelectItem key={c.category} value={c.category} className="text-xs">
+   512→                    <span className="font-mono">
+   513→                      {c.lab} | {c.shape} | {c.weightBand}
+   514→                    </span>
+   515→                    {c.fourNumbers.physicalShortage > 0 && (
+   516→                      <span className="ml-2 text-[9px] text-rose-600 dark:text-rose-400 font-semibold">
+   517→                        ▲{c.fourNumbers.physicalShortage}
+   518→                      </span>
+   519→                    )}
+   520→                  </SelectItem>
+   521→                ))}
+   522→                {filteredCategories.length === 0 && (
+   523→                  <div className="px-3 py-2 text-[10px] text-muted-foreground">
+   524→                    No categories match filter
+   525→                  </div>
+   526→                )}
+   527→              </SelectContent>
+   528→            </Select>
+   529→          </div>
+   530→        }
+   531→      >
+   532→        {!activeCat ? (
+   533→          <EmptyState
+   534→            title="Select a category"
+   535→            message="Choose a planning category above to see its 13-step demand trace."
+   536→            icon={<Calculator className="h-6 w-6" />}
+   537→          />
+   538→        ) : (
+   539→          <div className="flex flex-col gap-2">
+   540→            {/* Category header line */}
+   541→            <div className="flex items-center justify-between gap-3 flex-wrap rounded-md border border-border bg-muted/30 px-3 py-2">
+   542→              <div className="flex items-center gap-2 flex-wrap">
+   543→                <span className="text-xs font-semibold text-foreground">
+   544→                  {activeCat.lab} <span className="text-muted-foreground">|</span> {activeCat.shape} <span className="text-muted-foreground">|</span> {activeCat.weightBand}
+   545→                </span>
+   546→                <StatusBadge status="OPEN" className="opacity-70" />
+   547→              </div>
+   548→              <span className="text-[10px] text-muted-foreground font-mono">
+   549→                {activeCat.category}
+   550→              </span>
+   551→            </div>
+   552→
+   553→            {/* Vertical timeline — first 4 steps on mobile, all 13 on desktop */}
+   554→            <div className="flex flex-col gap-2.5 mt-1">
+   555→              {(isDesktop || showAllSteps ? activeCat.steps : activeCat.steps.slice(0, 4)).map((s, i, arr) => (
+   556→                <StepCard
+   557→                  key={s.step}
+   558→                  step={s}
+   559→                  isLast={i === arr.length - 1 && (isDesktop || showAllSteps)}
+   560→                />
+   561→              ))}
+   562→            </div>
+   563→
+   564→            {/* Show-all toggle — mobile only */}
+   565→            {!isDesktop && activeCat.steps.length > 4 && (
+   566→              <Button
+   567→                variant="outline"
+   568→                size="sm"
+   569→                onClick={() => setShowAllSteps(!showAllSteps)}
+   570→                className="self-start mt-1 h-8 text-xs"
+   571→              >
+   572→                {showAllSteps ? (
+   573→                  <>
+   574→                    Show less <ChevronUp className="h-3 w-3 ml-1" />
+   575→                  </>
+   576→                ) : (
+   577→                  <>
+   578→                    Show all {activeCat.steps.length} steps <ChevronDown className="h-3 w-3 ml-1" />
+   579→                  </>
+   580→                )}
+   581→              </Button>
+   582→            )}
+   583→          </div>
+   584→        )}
+   585→      </Section>
+   586→
+   587→      {/* Four requirement numbers — 2 cols on phones, 4 on desktop */}
+   588→      {activeCat && (
+   589→        <Section
+   590→          title="Four Requirement Numbers"
+   591→          description="The four headline numbers required by spec section 4 — never collapsed into one. Physical Shortage is the only one that triggers procurement; the others describe different adjustment layers."
+   592→        >
+   593→          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+   594→            <FourNumberCard
+   595→              label="Physical Shortage"
+   596→              value={activeCat.fourNumbers.physicalShortage}
+   597→              formula="MAX(0, Target − Available)"
+   598→              icon={AlertTriangle}
+   599→              intent="critical"
+   600→            />
+   601→            <FourNumberCard
+   602→              label="Pipeline-Adjusted"
+   603→              value={activeCat.fourNumbers.pipelineAdjusted}
+   604→              formula="MAX(0, Physical Shortage − Eligible WIP)"
+   605→              icon={GitBranch}
+   606→              intent="warning"
+   607→            />
+   608→            <FourNumberCard
+   609→              label="Planning-Adjusted"
+   610→              value={activeCat.fourNumbers.planningAdjusted}
+   611→              formula="MAX(0, Pipeline − Approved Plan Coverage)"
+   612→              icon={ShieldCheck}
+   613→              intent="success"
+   614→            />
+   615→            <FourNumberCard
+   616→              label="Forecast Requirement"
+   617→              value={activeCat.fourNumbers.forecastRequirement}
+   618→              formula="PREDICTION — advisory only"
+   619→              icon={Sparkles}
+   620→              intent="info"
+   621→            />
+   622→          </div>
+   623→        </Section>
+   624→      )}
+   625→
+   626→      {/* All categories table */}
+   627→      <Section
+   628→        title="All Categories"
+   629→        description="Every planning category in the latest demand run. Click a row to drill into its 13-step trace above."
+   630→        actions={
+   631→          <Badge variant="neutral" className="gap-1">
+   632→            <Layers className="h-2.5 w-2.5" />
+   633→            {rows.length} categories
+   634→          </Badge>
+   635→        }
+   636→      >
+   637→        <DataTable<RowShape>
+   638→          columns={columns}
+   639→          rows={rows}
+   640→          initialSortKey="physicalShortage"
+   641→          initialSortDir="desc"
+   642→          searchable
+   643→          searchPlaceholder="Search lab / shape / band…"
+   644→          searchFn={(r, q) =>
+   645→            `${r.lab} ${r.shape} ${r.weightBand} ${r.category}`.toLowerCase().includes(q.toLowerCase())
+   646→          }
+   647→          exportable
+   648→          exportFilename="demand-trace.csv"
+   649→          maxHeight="560px"
+   650→          onRowClick={(r) => setSelectedCat(r.category)}
+   651→          rowClassName={(r) =>
+   652→            r.category === (selectedCat ?? defaultCatId)
+   653→              ? "bg-primary/10"
+   654→              : r.physicalShortage > 0
+   655→                ? "bg-rose-50/40 dark:bg-rose-950/20"
+   656→                : ""
+   657→          }
+   658→        />
+   659→      </Section>
+   660→
+   661→      {/* Methodology footnote */}
+   662→      <div className="rounded-md border border-border bg-muted/20 px-3 py-2 text-[10px] text-muted-foreground leading-relaxed">
+   663→        <div className="flex items-start gap-2">
+   664→          <Wrench className="h-3 w-3 mt-0.5 shrink-0" />
+   665→          <div>
+   666→            <span className="font-semibold">Methodology:</span>{" "}
+   667→            All values come from the <span className="font-mono">DemandMetric</span> rows of the latest{" "}
+   668→            <span className="font-mono">DemandRun</span> (rule <span className="font-mono">{ruleVersion}</span>).
+   669→            The 13 steps rebuild the calculation in the same order the backend engine persisted it —
+   670→            so the trace you see here is <span className="font-semibold">deterministic and reproducible</span>,
+   671→            not recomputed in the browser. Step 13 forecast signal is read from the live{" "}
+   672→            <span className="font-mono">ForecastPrediction</span> table where available; otherwise the stored{" "}
+   673→            <span className="font-mono">DemandMetric.forecastSignal</span> value is shown with a flagged source.
+   674→            <span className="ml-2 inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
+   675→              <FileWarning className="h-2.5 w-2.5" />
+   676→              OPEN rules (BR-WIP-001, BR-MEMO-001) are surfaced but never auto-applied.
+   677→            </span>
+   678→          </div>
+   679→        </div>
+   680→      </div>
+   681→    </div>
+   682→  );
+   683→}
+   684→

@@ -284,6 +284,8 @@ export function ReservationsView() {
         }}
         exportable
         exportFilename="reservations.csv"
+        excelExportable
+        excelExportFilename="rough-reservations.xlsx"
         initialSortKey="reservedAt"
         initialSortDir="desc"
         rowClassName={(r) =>

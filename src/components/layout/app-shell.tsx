@@ -64,6 +64,7 @@ const NAV: NavGroup[] = [
       { id: "demand-history", label: "Demand Run History", icon: <History className="h-3.5 w-3.5" /> },
       { id: "demand-trace", label: "Demand Trace", icon: <Calculator className="h-3.5 w-3.5" /> },
       { id: "transfer-analyzer", label: "Transfer Analyzer", icon: <ArrowLeftRight className="h-3.5 w-3.5" /> },
+      { id: "aging-dashboard", label: "Aging Dashboard", icon: <CalendarClock className="h-3.5 w-3.5" /> },
     ],
   },
   {

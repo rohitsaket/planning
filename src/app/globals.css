@@ -120,3 +120,65 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* ============================================================
+ * Print styles — used by exportToPDF() (src/lib/pdf-export.ts).
+ * Hides app chrome (sidebar, topbar, footer, filter bar, command
+ * palette) so the printed page / "Save as PDF" output contains
+ * only the main content area + tables.
+ * ============================================================ */
+@media print {
+  /* Hide sidebar, topbar, footer, filter bar, command palette, dialogs */
+  aside,
+  header,
+  footer,
+  nav,
+  .sticky.top-12,
+  [class*="global-filter"],
+  [role="dialog"],
+  [data-command-palette],
+  [data-print-hidden] {
+    display: none !important;
+  }
+
+  /* Show only the main content, full width, page-break-friendly */
+  main {
+    max-height: none !important;
+    overflow: visible !important;
+    width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* Expand scroll containers so all rows render to the print page */
+  .overflow-y-auto,
+  .overflow-auto,
+  .overflow-x-auto {
+    max-height: none !important;
+    overflow: visible !important;
+    max-width: none !important;
+  }
+
+  /* Hide export action buttons (they trigger downloads / print again) */
+  button[class*="Export"],
+  button[class*="export"],
+  .recharts-wrapper {
+    display: none !important;
+  }
+
+  /* Avoid row splitting inside table bodies when possible */
+  tr, td, th {
+    page-break-inside: avoid;
+  }
+
+  /* Ensure colors / charts print as drawn */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Use a sensible page margin for printed/PDF output */
+  @page {
+    margin: 12mm;
+  }
+}

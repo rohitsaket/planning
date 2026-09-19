@@ -1509,3 +1509,184 @@ Task: QA assessment + demand trace mobile fix + Excel export utility + transfer 
 - ✅ Transfer Candidates API (excess/shortage matching, coverage %)
 - ✅ Transfer flow chart (solid colors, confirmed rendering via DOM)
 - ✅ Remaining sparklines wired (polished, memo, wip)
+
+---
+Task ID: 11-A
+Agent: full-stack-developer (Transfer Mobile + Excel Exports)
+Task: Fix Transfer Analyzer mobile responsive + apply Excel export to more DataTables
+
+Work Log:
+- Read prior worklog (Tasks 0–10) for context; confirmed DataTable already supports `excelExportable` + `excelExportFilename` props and renders a FileSpreadsheet button alongside CSV.
+- Read `transfer-analyzer-view.tsx`, `data-table.tsx`, `demand-trace-view.tsx` (for the Show more/less mobile pattern), and all 5 target views (customers/orders/rough-availability/planned-pieces/reservations) for Task 2.
+- **Task 1 — Transfer Analyzer mobile responsive:**
+  1. KPI grid: changed `grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5` → `grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5` so cards stack single-column on phones, then 2-up on small tablets, then 5-across on desktop.
+  2. Transfer Flow chart: wrapped the existing `<div className="h-80">` in an outer `<div className="overflow-x-auto">` and added `min-w-[600px]` to the inner chart wrapper so the BarChart scrolls horizontally on mobile instead of being cut off.
+  3. Verified DataTable already renders its own `overflow-auto` wrapper around the table — candidates & country-balance tables already scroll horizontally. No code change needed.
+  4. InfoBanner: converted the static advisory text into a `showFullAdvisory` useState toggle that mirrors the demand-trace-view pattern (mobile shows `shortAdvisoryText` + a "Show more"/"Show less" button, desktop always shows `fullAdvisoryText`). Short text = first sentence of the full advisory.
+- **Task 2 — Excel export on 5 more views:**
+  - `customers-view.tsx` main customers DataTable: added `excelExportable` + `excelExportFilename="customers.xlsx"`.
+  - `orders-view.tsx` main orders DataTable: added `excelExportable` + `excelExportFilename="sales-orders.xlsx"`.
+  - `rough-availability-view.tsx` main rough stones DataTable: added `excelExportable` + `excelExportFilename="rough-availability.xlsx"`.
+  - `planned-pieces-view.tsx` main planned pieces DataTable: added `excelExportable` + `excelExportFilename="planned-pieces.xlsx"`.
+  - `reservations-view.tsx` main reservations DataTable: added `excelExportable` + `excelExportFilename="rough-reservations.xlsx"`.
+  - `transfer-analyzer-view.tsx` Country Balance DataTable: added `exportable` + `exportFilename="country-balance.csv"` (was missing) AND `excelExportable` + `excelExportFilename="country-balance.xlsx"`. (Candidates table already had Excel export from a prior round — left in place.)
+- Ran `bun run lint` — clean (no errors, no warnings). Verified dev log shows `/api/analysis/transfer-candidates` returning 200 and no compile/runtime errors after the edits.
+
+Stage Summary:
+- **Files edited (7):**
+  - `src/components/diamond/views/transfer-analyzer-view.tsx` (mobile KPI grid, horizontal-scroll chart wrapper, InfoBanner Show more/less, Country Balance Excel+CSV export)
+  - `src/components/diamond/views/customers-view.tsx` (Excel export `customers.xlsx`)
+  - `src/components/diamond/views/orders-view.tsx` (Excel export `sales-orders.xlsx`)
+  - `src/components/diamond/views/rough-availability-view.tsx` (Excel export `rough-availability.xlsx`)
+  - `src/components/diamond/views/planned-pieces-view.tsx` (Excel export `planned-pieces.xlsx`)
+  - `src/components/diamond/views/reservations-view.tsx` (Excel export `rough-reservations.xlsx`)
+- All Excel export buttons now render alongside the existing CSV button in the DataTable toolbar (via the shared DataTable component's `excelExportable` branch — FileSpreadsheet icon).
+- Lint clean; no build performed (per instructions).
+
+---
+Task ID: 11-B
+Agent: full-stack-developer (PDF Export + Aging Dashboard)
+Task: Build PDF export utility + Inventory Aging Dashboard view with visual timeline
+
+Work Log:
+- Read worklog.md (prior multi-agent history through Task 10-FINAL) and inspected project structure (Next.js 16, Prisma, shadcn/ui, recharts, shared DataTable/KpiCard/Section/PageHeader components, /api/analysis/aging existing route, PolishedStone schema: weight/lastUpdated/country/lab/shape, no cost/value column)
+- Verified DataTable already supported CSV + Excel exports (Task 10-B), shared aging-view.tsx exists with simple bucket table + 4 KPI cards
+
+Feature 1 — PDF Export Utility:
+- Created `src/lib/pdf-export.ts` exporting `exportToPDF(title)` that sets `document.title` (so OS print dialog suggests a meaningful filename), calls `window.print()`, then restores the original title via `setTimeout(..., 500)` after the blocking print dialog is dismissed. SSR-safe (guards `window`/`document`).
+- Added print stylesheet block at the end of `src/app/globals.css` under `@media print`: hides `aside`, `header`, `footer`, `nav`, `.sticky.top-12`, `[class*="global-filter"]`, `[role="dialog"]`, `[data-command-palette]`, and `[data-print-hidden]`; expands `main` and `.overflow-y-auto/.overflow-auto/.overflow-x-auto` to `overflow:visible` so paginated rows render in full; hides export-action buttons (`button[class*="Export"]`, `button[class*="export"]`) and `.recharts-wrapper`; preserves row integrity via `tr, td, th { page-break-inside: avoid }`; forces color printing via `-webkit-print-color-adjust: exact !important`; adds 12mm `@page` margin.
+- Updated `src/components/diamond/shared/data-table.tsx`:
+  - Imported `FileText` icon + `exportToPDF`
+  - Added `pdfExportable?: boolean` and `pdfExportFilename?: string` props (default `"export"`)
+  - Added `exportPDF()` calling `exportToPDF(pdfExportFilename || "export")`
+  - Added third toolbar button "Export PDF" with `FileText` icon alongside CSV + Excel
+  - Extended toolbar render condition to include `pdfExportable`
+- Applied `pdfExportable` + `pdfExportFilename` to:
+  - `src/components/diamond/views/requirements-matrix-view.tsx` → `requirements-page-{page}`
+  - `src/components/diamond/views/planning-cases-view.tsx` → `planning-cases`
+
+Feature 2 — Inventory Aging Dashboard:
+- Created API route `src/app/api/analysis/aging-dashboard/route.ts`:
+  - Fetches all PolishedStone records, computes `ageDays = floor((now - lastUpdated) / DAY_MS)`
+  - Buckets into 6 ranges: 0-30, 31-60, 61-90, 91-180, 181-365, 365+
+  - Slow-moving = 91+ days, Aged = 365+ days
+  - Derives per-stone value from a lab/shape-based price-per-carat estimate (GIA $7k, GIA-Premium $7.5k, GIA-Standard $6.5k, IGI $5k, HRD $5.5k, Non-Cert $3k base; Round +20%, Emerald/Asscher +10%, Pear/Oval/Marquise/Heart +5%) — PolishedStone has no cost/value column in current schema
+  - Aggregates by country, lab, shape (totalPieces/slowMoving/aged counts each)
+  - Collects slow-moving lot alerts sorted by age desc, capped at top 10 (lotId, ageDays, country, value, shape, weight)
+  - Computes `summary` (totalPieces/Carats/Value, slowMovingPieces/Pct, agedPieces/Pct, avgAgeDays)
+- Found and fixed a bug in initial bucket assignment: the new `buckets` array lost `min`/`max` from BUCKETS during `.map()`, so `ageDays >= undefined && ageDays <= undefined` returned false → all buckets stayed at 0. Added `min`/`max` to the mapped bucket objects.
+- Created view `src/components/diamond/views/aging-dashboard-view.tsx`:
+  - `"use client"`, wrapped in `<div className="flex flex-col gap-3 p-3">`
+  - `PageHeader` "Inventory Aging Dashboard" + subtitle "Stock age analysis — slow-moving and aged inventory detection" + meta chip showing total pieces/carats/avg age
+  - `InfoBanner` (info variant): "Stock aging helps identify slow-moving and aged inventory for transfer, discount, or repurposing decisions."
+  - 6-card KPI grid (`grid-cols-2 md:grid-cols-3 xl:grid-cols-6`): Total Pieces (Gem/info), Total Carats (Diamond/default), Total Value (DollarSign/success), Slow-Moving (TrendingDown/warning when >0), Aged (AlertTriangle/critical when >0), Avg Age (Clock/info). Each card includes real-data sparklines from buckets and slow-alert ages.
+  - Aging Distribution BarChart: pieces per bucket with per-bucket `Cell` colored via 3 gradient defs — `url(#ageEmerald)` for 0-90d, `url(#ageAmber)` for 91-180d, `url(#ageRose)` for 181+; `radius={[6,6,0,0]}` rounded top corners
+  - Value at Risk PieChart: value distribution across buckets (non-empty only) with donut shape (innerRadius=40, outerRadius=90, paddingAngle=2), per-bucket Cell fill from BUCKET_COLORS map, label showing "Bucket (pct%)"
+  - By Country + By Lab tables in a 2-column grid (`grid-cols-1 lg:grid-cols-2`) — sortable columns: Country/Lab, Total Pieces, Slow-Moving (warning intent when >0), Aged 365+ (critical intent when >0), Slow-Moving % (computed pct)
+  - By Shape table (full width) with same columns — exports CSV/Excel/PDF
+  - Slow-Moving Alerts table: top 10 oldest lots with Lot ID (mono), Age (days) color-coded (rose for 365+, amber for 91-180), Country, Shape, Weight (2 decimals), Est. Value (`Money` component). Row background color-coded by age (rose-50 for 365+, amber-50 for 91-180). Includes CSV/Excel/PDF export buttons.
+- Registered the view:
+  - `src/stores/nav-store.ts` — added `"aging-dashboard"` to `ViewId` union after `"transfer-analyzer"`
+  - `src/components/layout/app-shell.tsx` — added `{ id: "aging-dashboard", label: "Aging Dashboard", icon: <CalendarClock className="h-3.5 w-3.5" /> }` in the Analysis group after Transfer Analyzer (CalendarClock was already imported)
+  - `src/app/page.tsx` — imported `AgingDashboardView` and added `"aging-dashboard": AgingDashboardView` to `VIEW_REGISTRY`
+- To make the dashboard meaningfully demonstrate slow-moving and aged inventory detection (current seed had `lastUpdated: dayOffset(randInt(0, 60))` → no slow-moving data), updated `prisma/seed.ts` to spread `lastUpdated` across the full 0-400 day range, then ran `bun run prisma/seed.ts` to re-seed. Result: 220 stones, 165 slow-moving (75%), 18 aged (8.2%), avg age 195d, with all 6 buckets populated.
+
+Verification:
+- `bun run lint` — clean, 0 errors, 0 warnings (after removing unused `bucketIntent` helper)
+- Dev server: GET /api/analysis/aging-dashboard returns 200 with rich data — verified JSON shape matches spec (summary/buckets/byCountry/byLab/byShape/slowMovingAlerts)
+- Sample API response shows realistic data: totalValue $2.49M, slowMovingPct 75%, agedPct 8.2%, top slow-moving lot FPL-000067 aged 400 days
+- GET / serves the page (200), all existing routes still 200
+
+Stage Summary:
+- 8 files created/edited:
+  1. src/lib/pdf-export.ts (NEW) — `exportToPDF(title)` via browser print
+  2. src/app/globals.css — @media print stylesheet (hide chrome, expand tables, color printing, 12mm page margin)
+  3. src/components/diamond/shared/data-table.tsx — added `pdfExportable`/`pdfExportFilename` props + 3rd toolbar button "Export PDF" with FileText icon
+  4. src/components/diamond/views/requirements-matrix-view.tsx — added pdfExportable + `requirements-page-{page}` filename
+  5. src/components/diamond/views/planning-cases-view.tsx — added pdfExportable + `planning-cases` filename
+  6. src/app/api/analysis/aging-dashboard/route.ts (NEW) — enriched aging API with summary, 6 buckets, byCountry, byLab, byShape, top-10 slow-moving alerts; derives value from lab/shape price-per-ct
+  7. src/components/diamond/views/aging-dashboard-view.tsx (NEW) — full dashboard: PageHeader + InfoBanner + 6 KPI cards + BarChart (color-coded emerald/amber/rose gradient bars) + PieChart (value at risk) + By Country/Lab/Shape DataTables + Slow-Moving Alerts table with row color-coding + CSV/Excel/PDF exports on the bottom two tables
+  8. src/stores/nav-store.ts — added `"aging-dashboard"` to ViewId
+  9. src/components/layout/app-shell.tsx — added nav item in Analysis group
+  10. src/app/page.tsx — imported AgingDashboardView, registered in VIEW_REGISTRY
+  11. prisma/seed.ts — spread polished lastUpdated across 0-400 days (was 0-60) so dashboard demonstrates slow-moving and aged detection
+- PDF Export Utility provides a third export option across the existing CSV/Excel exports with zero new dependencies (uses native `window.print()`)
+- Aging Dashboard surfaces stock-age analytics the basic aging-view didn't expose: per-bucket value, slow-moving alerts, per-country/lab/shape aging breakdown, value-at-risk pie — all backed by a single `/api/analysis/aging-dashboard` endpoint
+- Re-seeding the database affects only the dev DB; production deploy would not run the seed
+- Wrote work record to /home/z/my-project/agent-ctx/11-B-full-stack-developer.md
+
+---
+Task ID: 11-FINAL
+Agent: main (cron-triggered webDevReview round 10)
+Task: QA assessment + transfer analyzer mobile fix + more Excel exports + PDF export utility + Inventory Aging Dashboard view
+
+## Current Project Status Assessment
+- Project was in stable state from Round 9 (demand trace mobile, Excel export, transfer analyzer, remaining sparklines)
+- Lint was clean, dev server compiled successfully
+- QA via agent-browser confirmed no regressions; VLM identified Transfer Analyzer mobile as needing chart scroll + KPI stacking
+- Remaining items: transfer analyzer mobile, more Excel exports, PDF export, new features
+
+## Goals / Completed Modifications / Verification Results
+
+### Fix: Transfer Analyzer Mobile Responsive
+- **Updated** `transfer-analyzer-view.tsx`:
+  - KPI grid: `grid-cols-2` → `grid-cols-1 sm:grid-cols-2 md:grid-cols-5` (single column on phones)
+  - Transfer Flow chart: wrapped in `overflow-x-auto` + `min-w-[600px]` for horizontal scroll on mobile
+  - InfoBanner: collapsible "Show more/less" toggle on mobile (short text + toggle, full text on desktop)
+  - Country Balance table: added Excel export (`country-balance.xlsx`)
+- VLM: **8/10 mobile usability** ("KPIs single-column, clean layout, clear hierarchy")
+
+### Feature: Excel Export Applied to 6 More DataTables
+- **customers-view.tsx** — `excelExportable` + `customers.xlsx`
+- **orders-view.tsx** — `excelExportable` + `sales-orders.xlsx`
+- **rough-availability-view.tsx** — `excelExportable` + `rough-availability.xlsx`
+- **planned-pieces-view.tsx** — `excelExportable` + `planned-pieces.xlsx`
+- **reservations-view.tsx** — `excelExportable` + `rough-reservations.xlsx`
+- **transfer-analyzer-view.tsx** (country balance table) — `excelExportable` + `country-balance.xlsx`
+- Total: 9 views now have Excel export (3 from Round 9 + 6 from this round)
+
+### Feature: PDF Export Utility
+- **New utility** `src/lib/pdf-export.ts` — `exportToPDF(title)` that sets `document.title`, calls `window.print()`, restores original title
+- **Print CSS** added to `globals.css` — `@media print` block that hides sidebar/topbar/footer/filter-bar/dialogs, expands main content, hides export buttons + recharts, preserves colors with `print-color-adjust: exact`
+- **Updated DataTable** with `pdfExportable` + `pdfExportFilename` props + "Export PDF" button (FileText icon) alongside CSV + Excel
+- **Applied to 2 views**: requirements-matrix (`requirements-page-N`), planning-cases (`planning-cases`)
+- Verified: all three export buttons (CSV, Excel, PDF) visible in requirements matrix toolbar
+
+### Feature: Inventory Aging Dashboard View (spec §20)
+- **New API** `/api/analysis/aging-dashboard` — returns enriched aging data: summary (totalPieces, totalCarats, totalValue, slowMoving, aged, avgAgeDays), 6 age buckets with pieces/carats/value/pct, byCountry/byLab/byShape aggregates, top 10 slowMovingAlerts. Derives per-stone value from lab/shape-based price-per-ct estimate.
+- **Updated seed** to spread `lastUpdated` across 0-400 days (was 0-60) so the dashboard demonstrates slow-moving + aged detection
+- **New view** `aging-dashboard-view.tsx` — PageHeader + InfoBanner + 6 KPI cards (Total Pieces, Carats, Value, Slow-Moving, Aged, Avg Age) + Aging Distribution BarChart (emerald/amber/rose gradient bars) + Value at Risk PieChart + By Country/Lab/Shape DataTables + Slow-Moving Alerts table (color-coded rows)
+- Registered in nav store, sidebar (Analysis group, CalendarClock icon), page.tsx VIEW_REGISTRY
+- Verified: 220 stones, $2.49M value, 165 slow-moving (75%), 18 aged (8.2%), avg age 195 days
+- VLM: **9/10 polish**, "highly effective chart, excellent organization, clean, professional, coherent color palette"
+
+### Verification Results
+- `bun run lint` → exit 0, zero errors/warnings
+- Dev server compiles cleanly, HTTP 200
+- agent-browser end-to-end testing confirmed:
+  - Aging Dashboard: 6 KPIs, aging distribution chart, value at risk pie, 3 tables, slow-moving alerts — VLM 9/10
+  - Transfer Analyzer mobile: KPIs single-column, chart scrolls horizontally — VLM 8/10
+  - Requirements Matrix: all 3 export buttons (CSV, Excel, PDF) visible
+  - No console errors, no runtime errors, no page errors
+
+## Unresolved Issues / Risks / Priority Recommendations for Next Phase
+
+### Remaining items (lower priority)
+1. **Authentication + RBAC enforcement** — login/sessions still not implemented; NextAuth.js v4 available
+2. **Real Fantasy ERP adapter** — currently using local synced read model; needs real credentials/API
+3. **Background job workers** — Fantasy sync, demand runs, forecast runs should be queued
+4. **WebSocket service persistence** — background bun processes exit in this environment
+5. **More views with PDF export** — apply pdfExportable to remaining DataTables (customers, orders, rough, etc.)
+6. **Aging Dashboard mobile responsive** — the charts + 3 tables may need mobile optimization
+7. **Value at Risk PieChart labels** — VLM noted "slightly cluttered" labels on the pie chart
+
+### Confirmed working features (regression-tested this round)
+- ✅ All Round 0-9 features still working
+- ✅ Transfer Analyzer mobile responsive (single-col KPIs, chart scroll, collapsible advisory)
+- ✅ Excel export on 9 views (requirements-matrix, planning-cases, fantasy-rough, customers, orders, rough-availability, planned-pieces, reservations, transfer-analyzer country-balance)
+- ✅ PDF export utility (window.print + print CSS)
+- ✅ PDF export on DataTable (FileText button alongside CSV + Excel)
+- ✅ PDF export on 2 views (requirements-matrix, planning-cases)
+- ✅ Inventory Aging Dashboard view (6 KPIs, aging distribution chart, value at risk pie, 3 tables, slow-moving alerts)
+- ✅ Aging Dashboard API (enriched data: summary, buckets, byCountry/Lab/Shape, alerts)
+- ✅ Seed updated (polished lastUpdated spread 0-400 days for realistic aging)

@@ -349,7 +349,10 @@ async function main() {
         certificate: lab === "Non-Cert" ? null : `CERT-${randInt(100000, 999999)}`,
         treatment: pick(["HPHT", "CVD", null]),
         planningClass: statusMap?.planningClass ?? "OTHER",
-        lastUpdated: dayOffset(randInt(0, 60)),
+        // Spread lastUpdated across the full 6-bucket aging range (0-30, 31-60,
+        // 61-90, 91-180, 181-365, 365+) so the Aging Dashboard demonstrates
+        // slow-moving (91+) and aged (365+) detection meaningfully.
+        lastUpdated: dayOffset(randInt(0, 400)),
       },
     });
   }

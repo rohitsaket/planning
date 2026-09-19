@@ -2,10 +2,11 @@
 
 import { cn } from "@/lib/utils";
 import { ReactNode, useState } from "react";
-import { ChevronDown, ChevronRight, Download, FileSpreadsheet, Search, SlidersHorizontal } from "lucide-react";
+import { ChevronDown, ChevronRight, Download, FileSpreadsheet, FileText, Search, SlidersHorizontal } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { exportDataTableToExcel } from "@/lib/excel-export";
+import { exportToPDF } from "@/lib/pdf-export";
 
 export interface Column<T> {
   key: string;
@@ -34,6 +35,8 @@ interface DataTableProps<T> {
   exportFilename?: string;
   excelExportable?: boolean;
   excelExportFilename?: string;
+  pdfExportable?: boolean;
+  pdfExportFilename?: string;
   searchable?: boolean;
   searchPlaceholder?: string;
   searchFn?: (row: T, q: string) => boolean;
@@ -57,6 +60,8 @@ export function DataTable<T>({
   exportFilename = "export.csv",
   excelExportable = false,
   excelExportFilename = "export.xlsx",
+  pdfExportable = false,
+  pdfExportFilename = "export",
   searchable = false,
   searchPlaceholder = "Search...",
   searchFn,
@@ -123,9 +128,13 @@ export function DataTable<T>({
     exportDataTableToExcel(processed, cols, excelExportFilename);
   };
 
+  const exportPDF = () => {
+    exportToPDF(pdfExportFilename || "export");
+  };
+
   return (
     <div className="flex flex-col gap-2">
-      {(searchable || toolbar || exportable || excelExportable) && (
+      {(searchable || toolbar || exportable || excelExportable || pdfExportable) && (
         <div className="flex items-center gap-2 flex-wrap">
           {searchable && (
             <div className="relative flex-1 min-w-[200px] max-w-sm">
@@ -147,6 +156,11 @@ export function DataTable<T>({
           {excelExportable && (
             <Button variant="outline" size="sm" className="h-8 text-xs" onClick={exportExcel}>
               <FileSpreadsheet className="h-3 w-3 mr-1" /> Export Excel
+            </Button>
+          )}
+          {pdfExportable && (
+            <Button variant="outline" size="sm" className="h-8 text-xs" onClick={exportPDF}>
+              <FileText className="h-3 w-3 mr-1" /> Export PDF
             </Button>
           )}
           <div className="ml-auto text-[11px] text-muted-foreground">
