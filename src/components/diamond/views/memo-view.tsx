@@ -148,14 +148,32 @@ export function MemoView() {
     while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 1);
     return slice;
   }, [byCountry]);
+  // Avg Age sparkline — 5 age buckets (0-30, 31-60, 61-90, 91-180, 180+) → pad to 7
   const avgAgeSpark = useMemo(() => {
-    const slice = byCountry.slice(0, 7).map((r) => r.avgAge);
-    while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 1);
-    return slice;
-  }, [byCountry]);
+    if (filteredAgeBuckets) {
+      const slice = [
+        filteredAgeBuckets["0-30"],
+        filteredAgeBuckets["31-60"],
+        filteredAgeBuckets["61-90"],
+        filteredAgeBuckets["91-180"],
+        filteredAgeBuckets["180+"],
+      ];
+      while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 1);
+      return slice;
+    }
+    return [3, 5, 4, 6, 8, 7, 9];
+  }, [filteredAgeBuckets]);
+
+  // Aged > 90D sparkline — derived from ageBuckets (sum of 91-180 + 180+),
+  // shown as a 2-point [91-180, 180+] series padded to 7 with the last value
   const agedSpark = useMemo(() => {
-    const base = filteredAgeBuckets ? (filteredAgeBuckets["91-180"] + filteredAgeBuckets["180+"]) : 1;
-    return [base * 0.85, base * 0.9, base * 1.0, base * 1.05, base * 1.1, base * 1.0, base];
+    if (filteredAgeBuckets) {
+      const base = [filteredAgeBuckets["91-180"], filteredAgeBuckets["180+"]];
+      const slice = [...base];
+      while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 1);
+      return slice.length >= 2 ? slice : [3, 5, 4, 6, 8, 7, 9];
+    }
+    return [3, 5, 4, 6, 8, 7, 9];
   }, [filteredAgeBuckets]);
 
   const aggColumns: Column<MemoAggRow>[] = [

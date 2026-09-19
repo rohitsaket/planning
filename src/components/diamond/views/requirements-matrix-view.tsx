@@ -767,6 +767,8 @@ export function RequirementsMatrixView() {
           rowClassName={(r) => (r.remainingUnplanned > 0 ? "bg-rose-50/40 dark:bg-rose-950/10" : "")}
           exportable
           exportFilename={`requirements-page-${page}.csv`}
+          excelExportable
+          excelExportFilename={`requirements-page-${page}.xlsx`}
         />
       )}
 

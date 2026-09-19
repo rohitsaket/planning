@@ -189,6 +189,8 @@ export function FantasyRoughView() {
           initialSortDir="desc"
           exportable
           exportFilename="fantasy-rough-stock.csv"
+          excelExportable
+          excelExportFilename="fantasy-rough-stock.xlsx"
           searchable
           searchPlaceholder="Search rough ID, kapan, packet, stone name..."
           searchFn={(r, q) => {

@@ -124,11 +124,17 @@ export function WipView() {
   // Fetch pieces separately so we can compute approved / expected / actual counts client-side
   const { data: piecesData, isLoading: piecesLoading } = useApi<PlanningPiecesResponse>("/api/planning/pieces");
 
+  // Total WIP Pieces sparkline — top 7 by-shape piece counts.
+  // Falls back to synthetic when byShape has fewer than 2 entries.
   const piecesSpark = useMemo(() => {
-    const slice = (data?.byStatus ?? []).slice(0, 7).map((r) => r.pieces);
-    while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 1);
-    return slice;
-  }, [data?.byStatus]);
+    const byShape = data?.byShape ?? [];
+    if (byShape.length >= 2) {
+      const slice = byShape.slice(0, 7).map((r) => r.pieces);
+      while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 1);
+      return slice;
+    }
+    return [3, 5, 4, 6, 8, 7, 9]; // synthetic fallback
+  }, [data?.byShape]);
 
   // Compute pipeline counts from pieces data
   const pipelineCounts = useMemo(() => {

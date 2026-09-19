@@ -1,0 +1,597 @@
+     1→"use client";
+     2→
+     3→import { useNavStore, ViewId } from "@/stores/nav-store";
+     4→import { cn } from "@/lib/utils";
+     5→import { usePathname } from "next/navigation";
+     6→import {
+     7→  LayoutDashboard, BarChart3, TrendingUp, Users, ShoppingCart, Globe, Gem,
+     8→  FileText, Package, Boxes, Factory, GitBranch, ShieldCheck, AlertTriangle,
+     9→  FlaskConical, FileBarChart, Settings, ChevronDown, ChevronRight, Search,
+    10→  Bell, User, Database, Activity, Scale, Layers, Map, FileWarning,
+    11→  Workflow, ClipboardCheck, CalendarClock, Hash, RefreshCw, BookCheck, ClipboardList, Diamond,
+    12→  Moon, Sun, Monitor, Command as CommandIcon, History, Calculator
+    13→} from "lucide-react";
+    14→import { ReactNode, useState, useEffect } from "react";
+    15→import { Button } from "@/components/ui/button";
+    16→import { Input } from "@/components/ui/input";
+    17→import { useTheme } from "next-themes";
+    18→import { apiFetch } from "@/lib/api-client";
+    19→import { useQuery } from "@tanstack/react-query";
+    20→import { CommandPalette } from "@/components/diamond/command-palette";
+    21→import { GlobalFilterBar } from "@/components/diamond/global-filter-bar";
+    22→import { useRealtimeStore } from "@/stores/realtime-store";
+    23→
+    24→interface NavItem {
+    25→  id: ViewId;
+    26→  label: string;
+    27→  icon: ReactNode;
+    28→}
+    29→interface NavGroup {
+    30→  id: string;
+    31→  label: string;
+    32→  icon: ReactNode;
+    33→  items: NavItem[];
+    34→}
+    35→
+    36→const NAV: NavGroup[] = [
+    37→  {
+    38→    id: "top",
+    39→    label: "Overview",
+    40→    icon: <LayoutDashboard className="h-4 w-4" />,
+    41→    items: [
+    42→      { id: "dashboard", label: "Executive Dashboard", icon: <LayoutDashboard className="h-3.5 w-3.5" /> },
+    43→    ],
+    44→  },
+    45→  {
+    46→    id: "analysis",
+    47→    label: "Analysis",
+    48→    icon: <BarChart3 className="h-4 w-4" />,
+    49→    items: [
+    50→      { id: "analysis-executive", label: "Executive Analysis", icon: <Activity className="h-3.5 w-3.5" /> },
+    51→      { id: "analysis-sales", label: "Sales Analysis", icon: <ShoppingCart className="h-3.5 w-3.5" /> },
+    52→      { id: "analysis-sales-trends", label: "Sales Trends", icon: <TrendingUp className="h-3.5 w-3.5" /> },
+    53→      { id: "analysis-customers", label: "Customers", icon: <Users className="h-3.5 w-3.5" /> },
+    54→      { id: "analysis-orders", label: "Orders", icon: <FileText className="h-3.5 w-3.5" /> },
+    55→      { id: "analysis-country", label: "Country / Branch", icon: <Globe className="h-3.5 w-3.5" /> },
+    56→      { id: "analysis-polished", label: "Polished Inventory", icon: <Gem className="h-3.5 w-3.5" /> },
+    57→      { id: "analysis-memo", label: "Memo Analysis", icon: <FileText className="h-3.5 w-3.5" /> },
+    58→      { id: "analysis-wip", label: "WIP Analysis", icon: <Boxes className="h-3.5 w-3.5" /> },
+    59→      { id: "analysis-forecast", label: "Forecast", icon: <TrendingUp className="h-3.5 w-3.5" /> },
+    60→      { id: "analysis-stockout", label: "Stockout Risk", icon: <AlertTriangle className="h-3.5 w-3.5" /> },
+    61→      { id: "analysis-excess", label: "Excess Stock", icon: <Package className="h-3.5 w-3.5" /> },
+    62→      { id: "analysis-aging", label: "Stock Aging", icon: <CalendarClock className="h-3.5 w-3.5" /> },
+    63→      { id: "analysis-reorder-signals", label: "Reorder Signals", icon: <Star className="h-3.5 w-3.5" /> },
+    64→      { id: "demand-history", label: "Demand Run History", icon: <History className="h-3.5 w-3.5" /> },
+    65→      { id: "demand-trace", label: "Demand Trace", icon: <Calculator className="h-3.5 w-3.5" /> },
+    66→    ],
+    67→  },
+    68→  {
+    69→    id: "requirements",
+    70→    label: "Requirements",
+    71→    icon: <ClipboardList className="h-4 w-4" />,
+    72→    items: [
+    73→      { id: "requirements-matrix", label: "Requirement Matrix", icon: <Hash className="h-3.5 w-3.5" /> },
+    74→      { id: "requirements-priority-queue", label: "Priority Queue", icon: <AlertTriangle className="h-3.5 w-3.5" /> },
+    75→      { id: "requirements-orders", label: "Customer Orders", icon: <FileText className="h-3.5 w-3.5" /> },
+    76→      { id: "requirements-replenishment", label: "Replenishment", icon: <RefreshCw className="h-3.5 w-3.5" /> },
+    77→      { id: "requirements-backorders", label: "Backorders", icon: <FileWarning className="h-3.5 w-3.5" /> },
+    78→      { id: "requirements-special", label: "Special Requirements", icon: <Star className="h-3.5 w-3.5" /> },
+    79→      { id: "requirements-forecast-signals", label: "Forecast Signals", icon: <TrendingUp className="h-3.5 w-3.5" /> },
+    80→      { id: "requirements-allocation", label: "Allocation", icon: <Workflow className="h-3.5 w-3.5" /> },
+    81→    ],
+    82→  },
+    83→  {
+    84→    id: "planning",
+    85→    label: "Planning",
+    86→    icon: <Diamond className="h-4 w-4" />,
+    87→    items: [
+    88→      { id: "planning-rough-availability", label: "Rough Availability", icon: <Gem className="h-3.5 w-3.5" /> },
+    89→      { id: "planning-cases", label: "Planning Cases", icon: <ClipboardList className="h-3.5 w-3.5" /> },
+    90→      { id: "planning-comparison", label: "Plan Comparison", icon: <Scale className="h-3.5 w-3.5" /> },
+    91→      { id: "planning-workbook-import", label: "Workbook Import", icon: <FileText className="h-3.5 w-3.5" /> },
+    92→      { id: "planning-workbench", label: "Planning Workbench", icon: <LayoutDashboard className="h-3.5 w-3.5" /> },
+    93→      { id: "planning-approval-queue", label: "Approval Queue", icon: <BookCheck className="h-3.5 w-3.5" /> },
+    94→      { id: "planning-planned-pieces", label: "Planned Pieces", icon: <Layers className="h-3.5 w-3.5" /> },
+    95→      { id: "planning-reservations", label: "Rough Reservations", icon: <ShieldCheck className="h-3.5 w-3.5" /> },
+    96→    ],
+    97→  },
+    98→  {
+    99→    id: "manufacturing",
+   100→    label: "Manufacturing",
+   101→    icon: <Factory className="h-4 w-4" />,
+   102→    items: [
+   103→      { id: "manufacturing-tracking", label: "Fantasy Tracking", icon: <Activity className="h-3.5 w-3.5" /> },
+   104→      { id: "manufacturing-departments", label: "Department View", icon: <Boxes className="h-3.5 w-3.5" /> },
+   105→      { id: "manufacturing-locations", label: "Location View", icon: <Map className="h-3.5 w-3.5" /> },
+   106→      { id: "manufacturing-wip", label: "WIP", icon: <Boxes className="h-3.5 w-3.5" /> },
+   107→      { id: "manufacturing-traceability", label: "Traceability", icon: <GitBranch className="h-3.5 w-3.5" /> },
+   108→      { id: "manufacturing-plan-vs-actual", label: "Plan vs Actual", icon: <Scale className="h-3.5 w-3.5" /> },
+   109→    ],
+   110→  },
+   111→  {
+   112→    id: "fantasy",
+   113→    label: "Fantasy ERP",
+   114→    icon: <Database className="h-4 w-4" />,
+   115→    items: [
+   116→      { id: "fantasy-sync", label: "Sync Dashboard", icon: <RefreshCw className="h-3.5 w-3.5" /> },
+   117→      { id: "fantasy-rough", label: "Rough Stock", icon: <Gem className="h-3.5 w-3.5" /> },
+   118→      { id: "fantasy-polished", label: "Polished Stock", icon: <Diamond className="h-3.5 w-3.5" /> },
+   119→      { id: "fantasy-departments", label: "Departments", icon: <Boxes className="h-3.5 w-3.5" /> },
+   120→      { id: "fantasy-locations", label: "Locations", icon: <Map className="h-3.5 w-3.5" /> },
+   121→      { id: "fantasy-status-mapping", label: "Status Mapping", icon: <Workflow className="h-3.5 w-3.5" /> },
+   122→      { id: "fantasy-reconciliation", label: "Reconciliation", icon: <ClipboardCheck className="h-3.5 w-3.5" /> },
+   123→    ],
+   124→  },
+   125→  {
+   126→    id: "data-quality",
+   127→    label: "Data Quality",
+   128→    icon: <FileWarning className="h-4 w-4" />,
+   129→    items: [
+   130→      { id: "data-quality-issues", label: "Issues", icon: <AlertTriangle className="h-3.5 w-3.5" /> },
+   131→      { id: "data-quality-unmapped-labs", label: "Unmapped Labs", icon: <FileWarning className="h-3.5 w-3.5" /> },
+   132→      { id: "data-quality-unmapped-shapes", label: "Unmapped Shapes", icon: <FileWarning className="h-3.5 w-3.5" /> },
+   133→    ],
+   134→  },
+   135→  {
+   136→    id: "data-science",
+   137→    label: "Data Science",
+   138→    icon: <FlaskConical className="h-4 w-4" />,
+   139→    items: [
+   140→      { id: "data-science-anomaly-detection", label: "Anomaly Detection", icon: <AlertTriangle className="h-3.5 w-3.5" /> },
+   141→      { id: "data-science-yield-prediction", label: "Yield Prediction", icon: <TrendingUp className="h-3.5 w-3.5" /> },
+   142→      { id: "data-science-forecast", label: "Forecast", icon: <TrendingUp className="h-3.5 w-3.5" /> },
+   143→      { id: "data-science-models", label: "Models", icon: <Layers className="h-3.5 w-3.5" /> },
+   144→      { id: "data-science-prediction-monitoring", label: "Prediction Monitoring", icon: <Activity className="h-3.5 w-3.5" /> },
+   145→      { id: "data-science-forecast-accuracy", label: "Forecast Accuracy", icon: <BarChart3 className="h-3.5 w-3.5" /> },
+   146→    ],
+   147→  },
+   148→  {
+   149→    id: "reports",
+   150→    label: "Reports",
+   151→    icon: <FileBarChart className="h-4 w-4" />,
+   152→    items: [
+   153→      { id: "reports", label: "Reports Library", icon: <FileBarChart className="h-3.5 w-3.5" /> },
+   154→    ],
+   155→  },
+   156→  {
+   157→    id: "admin",
+   158→    label: "Administration",
+   159→    icon: <Settings className="h-4 w-4" />,
+   160→    items: [
+   161→      { id: "admin-business-rules", label: "Business Rules", icon: <ShieldCheck className="h-3.5 w-3.5" /> },
+   162→      { id: "admin-weight-bands", label: "Weight Bands", icon: <Scale className="h-3.5 w-3.5" /> },
+   163→      { id: "admin-lab-mappings", label: "Lab Mapping", icon: <Gem className="h-3.5 w-3.5" /> },
+   164→      { id: "admin-shape-mappings", label: "Shape Mapping", icon: <Diamond className="h-3.5 w-3.5" /> },
+   165→      { id: "admin-feature-flags", label: "Feature Flags", icon: <Workflow className="h-3.5 w-3.5" /> },
+   166→      { id: "admin-audit-log", label: "Audit Log", icon: <ClipboardList className="h-3.5 w-3.5" /> },
+   167→      { id: "admin-users", label: "Users & Roles", icon: <Users className="h-3.5 w-3.5" /> },
+   168→    ],
+   169→  },
+   170→];
+   171→
+   172→function Star({ className }: { className?: string }) {
+   173→  return <span className={cn("inline-block", className)}>★</span>;
+   174→}
+   175→
+   176→function NavGroupItem({ group }: { group: NavGroup }) {
+   177→  const collapsed = useNavStore((s) => s.collapsedGroups[group.id]);
+   178→  const toggleGroup = useNavStore((s) => s.toggleGroup);
+   179→  const view = useNavStore((s) => s.view);
+   180→  const setView = useNavStore((s) => s.setView);
+   181→  const hasActive = group.items.some((i) => i.id === view) || group.id === "top" && view === "dashboard";
+   182→
+   183→  return (
+   184→    <div className="border-b border-sidebar-border/40 last:border-0">
+   185→      <button
+   186→        type="button"
+   187→        onClick={() => toggleGroup(group.id)}
+   188→        className={cn(
+   189→          "w-full flex items-center gap-2 px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-sidebar-foreground/80 hover:bg-sidebar-accent/60 transition-colors",
+   190→          hasActive && "text-sidebar-foreground"
+   191→        )}
+   192→      >
+   193→        <span className="text-sidebar-foreground/70">{group.icon}</span>
+   194→        <span className="flex-1 truncate">{group.label}</span>
+   195→        {group.id !== "top" && (
+   196→          <span className="text-muted-foreground">
+   197→            {collapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+   198→          </span>
+   199→        )}
+   200→      </button>
+   201→      {(!collapsed || group.id === "top") && (
+   202→        <ul className="space-y-0.5 pb-1">
+   203→          {group.items.map((item) => {
+   204→            const active = view === item.id;
+   205→            return (
+   206→              <li key={item.id}>
+   207→                <button
+   208→                  type="button"
+   209→                  onClick={() => setView(item.id)}
+   210→                  className={cn(
+   211→                    "w-full flex items-center gap-2 pl-5 pr-3 py-1.5 text-left text-[12px] text-sidebar-foreground/80 hover:bg-sidebar-accent/70 hover:text-sidebar-foreground transition-colors border-l-2",
+   212→                    active
+   213→                      ? "border-sidebar-primary bg-sidebar-accent text-sidebar-foreground font-medium"
+   214→                      : "border-transparent"
+   215→                  )}
+   216→                >
+   217→                  <span className="text-muted-foreground">{item.icon}</span>
+   218→                  <span className="flex-1 truncate">{item.label}</span>
+   219→                </button>
+   220→              </li>
+   221→            );
+   222→          })}
+   223→        </ul>
+   224→      )}
+   225→    </div>
+   226→  );
+   227→}
+   228→
+   229→function GlobalSearch() {
+   230→  const [query, setQuery] = useState("");
+   231→  const [open, setOpen] = useState(false);
+   232→  const setView = useNavStore((s) => s.setView);
+   233→
+   234→  const { data: searchResults } = useQuery({
+   235→    queryKey: ["global-search", query],
+   236→    queryFn: async () => {
+   237→      if (!query || query.length < 2) return null;
+   238→      // Search across rough, polished, requirements, cases
+   239→      try {
+   240→        const [roughRes, polishedRes, reqRes] = await Promise.all([
+   241→          apiFetch<{ rows: Array<{ id: string; fantasyRoughId: string; stoneName: string; kapan: string }> }>(`/api/planning/rough?q=${encodeURIComponent(query)}`).catch(() => null),
+   242→          apiFetch<{ rows: Array<{ id: string; fantasyLotId: string; shape: string; weight: number }> }>(`/api/fantasy/polished?q=${encodeURIComponent(query)}`).catch(() => null),
+   243→          apiFetch<{ data: Array<{ id: string; requirementCode: string; customerName: string | null }> }>(`/api/requirements?q=${encodeURIComponent(query)}`).catch(() => null),
+   244→        ]);
+   245→        return { rough: roughRes?.rows?.slice(0, 5) ?? [], polished: polishedRes?.rows?.slice(0, 5) ?? [], requirements: reqRes?.data?.slice(0, 5) ?? [] };
+   246→      } catch {
+   247→        return null;
+   248→      }
+   249→    },
+   250→    enabled: query.length >= 2,
+   251→    staleTime: 10_000,
+   252→  });
+   253→
+   254→  return (
+   255→    <div className="relative w-full max-w-md">
+   256→      <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+   257→      <Input
+   258→        value={query}
+   259→        onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
+   260→        onFocus={() => setOpen(true)}
+   261→        onBlur={() => setTimeout(() => setOpen(false), 200)}
+   262→        placeholder="Search Lot ID, Rough ID, Kapan, Requirement..."
+   263→        className="h-8 pl-8 text-xs bg-muted/50 border-border/60"
+   264→      />
+   265→      {open && searchResults && (searchResults.rough.length > 0 || searchResults.polished.length > 0 || searchResults.requirements.length > 0) && (
+   266→        <div className="absolute top-full mt-1 left-0 right-0 z-50 rounded-md border border-border bg-popover shadow-lg overflow-hidden">
+   267→          {searchResults.rough.length > 0 && (
+   268→            <div className="p-2">
+   269→              <p className="text-[10px] uppercase tracking-wide text-muted-foreground px-1 mb-1">Rough Stones</p>
+   270→              {searchResults.rough.map((r) => (
+   271→                <button key={r.id} onClick={() => { setView("fantasy-rough"); setOpen(false); }} className="w-full flex items-center gap-2 px-2 py-1 text-xs hover:bg-muted rounded text-left">
+   272→                  <Gem className="h-3 w-3 text-muted-foreground" />
+   273→                  <span className="font-medium">{r.fantasyRoughId}</span>
+   274→                  <span className="text-muted-foreground truncate">{r.stoneName}</span>
+   275→                </button>
+   276→              ))}
+   277→            </div>
+   278→          )}
+   279→          {searchResults.polished.length > 0 && (
+   280→            <div className="p-2 border-t border-border">
+   281→              <p className="text-[10px] uppercase tracking-wide text-muted-foreground px-1 mb-1">Polished Lots</p>
+   282→              {searchResults.polished.map((p) => (
+   283→                <button key={p.id} onClick={() => { setView("fantasy-polished"); setOpen(false); }} className="w-full flex items-center gap-2 px-2 py-1 text-xs hover:bg-muted rounded text-left">
+   284→                  <Diamond className="h-3 w-3 text-muted-foreground" />
+   285→                  <span className="font-medium">{p.fantasyLotId}</span>
+   286→                  <span className="text-muted-foreground">{p.shape} {p.weight}ct</span>
+   287→                </button>
+   288→              ))}
+   289→            </div>
+   290→          )}
+   291→          {searchResults.requirements.length > 0 && (
+   292→            <div className="p-2 border-t border-border">
+   293→              <p className="text-[10px] uppercase tracking-wide text-muted-foreground px-1 mb-1">Requirements</p>
+   294→              {searchResults.requirements.map((r) => (
+   295→                <button key={r.id} onClick={() => { setView("requirements-matrix"); setOpen(false); }} className="w-full flex items-center gap-2 px-2 py-1 text-xs hover:bg-muted rounded text-left">
+   296→                  <ClipboardList className="h-3 w-3 text-muted-foreground" />
+   297→                  <span className="font-medium">{r.requirementCode}</span>
+   298→                  <span className="text-muted-foreground truncate">{r.customerName ?? ""}</span>
+   299→                </button>
+   300→              ))}
+   301→            </div>
+   302→          )}
+   303→        </div>
+   304→      )}
+   305→    </div>
+   306→  );
+   307→}
+   308→
+   309→function ThemeToggle() {
+   310→  const { theme, setTheme } = useTheme();
+   311→  const [mounted, setMounted] = useState(false);
+   312→  // eslint-disable-next-line react-hooks/set-state-in-effect
+   313→  useEffect(() => setMounted(true), []);
+   314→  if (!mounted) return <div className="h-8 w-8" />;
+   315→  return (
+   316→    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>
+   317→      {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+   318→    </Button>
+   319→  );
+   320→}
+   321→
+   322→function NotificationsBell() {
+   323→  const { data } = useQuery({
+   324→    queryKey: ["notifications"],
+   325→    queryFn: () => apiFetch<{ rows: Array<{ id: string; title: string; message: string; severity: string; read: boolean }> }>("/api/notifications"),
+   326→    staleTime: 60_000,
+   327→  });
+   328→  const unread = data?.rows.filter((n) => !n.read).length ?? 0;
+   329→  const [open, setOpen] = useState(false);
+   330→  // Realtime notifications
+   331→  const realtimeEvents = useRealtimeStore((s) => s.events);
+   332→  const realtimeConnected = useRealtimeStore((s) => s.connected);
+   333→  const realtimeUnread = useRealtimeStore((s) => s.unreadCount);
+   334→  const clearRealtimeUnread = useRealtimeStore((s) => s.clearUnread);
+   335→  const totalUnread = unread + realtimeUnread;
+   336→
+   337→  const handleToggle = () => {
+   338→    const next = !open;
+   339→    setOpen(next);
+   340→    if (next && realtimeUnread > 0) clearRealtimeUnread();
+   341→  };
+   342→
+   343→  const formatRelTime = (iso: string) => {
+   344→    const diff = Date.now() - new Date(iso).getTime();
+   345→    const sec = Math.floor(diff / 1000);
+   346→    if (sec < 60) return `${sec}s ago`;
+   347→    const min = Math.floor(sec / 60);
+   348→    if (min < 60) return `${min}m ago`;
+   349→    const hr = Math.floor(min / 60);
+   350→    return `${hr}h ago`;
+   351→  };
+   352→
+   353→  return (
+   354→    <div className="relative">
+   355→      <Button variant="ghost" size="icon" className="h-8 w-8 relative" onClick={handleToggle}>
+   356→        <Bell className="h-4 w-4" />
+   357→        {/* Live indicator when connected */}
+   358→        {realtimeConnected && (
+   359→          <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-emerald-500 ring-2 ring-card animate-pulse" title="Live — connected to realtime service" />
+   360→        )}
+   361→        {totalUnread > 0 && (
+   362→          <span className="absolute -top-0.5 -right-0.5 h-3.5 min-w-3.5 px-1 rounded-full bg-rose-500 text-white text-[9px] font-bold flex items-center justify-center">
+   363→            {totalUnread > 9 ? "9+" : totalUnread}
+   364→          </span>
+   365→        )}
+   366→      </Button>
+   367→      {open && (
+   368→        <div className="absolute top-full mt-1 right-0 w-80 z-50 rounded-md border border-border bg-popover shadow-lg overflow-hidden">
+   369→          <div className="px-3 py-2 border-b border-border bg-muted/50 flex items-center justify-between">
+   370→            <p className="text-xs font-semibold">Notifications</p>
+   371→            <span className={cn("flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded",
+   372→              realtimeConnected ? "text-emerald-700 bg-emerald-100 dark:text-emerald-300 dark:bg-emerald-950/40" : "text-muted-foreground bg-muted")}>
+   373→              <span className={cn("h-1.5 w-1.5 rounded-full", realtimeConnected ? "bg-emerald-500" : "bg-muted-foreground")} />
+   374→              {realtimeConnected ? "Live" : "Offline"}
+   375→            </span>
+   376→          </div>
+   377→          <div className="max-h-80 overflow-y-auto">
+   378→            {/* Realtime events first */}
+   379→            {realtimeEvents.length > 0 && (
+   380→              <>
+   381→                <div className="px-3 py-1.5 bg-sky-50/50 dark:bg-sky-950/20 border-b border-border/50">
+   382→                  <p className="text-[10px] font-semibold uppercase tracking-wide text-sky-700 dark:text-sky-300">Realtime ({realtimeEvents.length})</p>
+   383→                </div>
+   384→                {realtimeEvents.map((evt) => (
+   385→                  <div key={evt.id} className="px-3 py-2 border-b border-border/50 last:border-0 hover:bg-muted/40">
+   386→                    <div className="flex items-start gap-2">
+   387→                      <span className={cn("h-1.5 w-1.5 rounded-full mt-1.5 flex-shrink-0",
+   388→                        evt.severity === "error" ? "bg-rose-500" :
+   389→                        evt.severity === "warning" ? "bg-amber-400" :
+   390→                        evt.severity === "success" ? "bg-emerald-500" :
+   391→                        "bg-sky-400")} />
+   392→                      <div className="min-w-0 flex-1">
+   393→                        <div className="flex items-baseline justify-between gap-2">
+   394→                          <p className="text-xs font-medium truncate">{evt.title}</p>
+   395→                          <span className="text-[9px] text-muted-foreground flex-shrink-0">{formatRelTime(evt.timestamp)}</span>
+   396→                        </div>
+   397→                        <p className="text-[10px] text-muted-foreground line-clamp-2">{evt.message}</p>
+   398→                        {evt.demoMode && <span className="text-[9px] text-muted-foreground/60 italic">demo</span>}
+   399→                      </div>
+   400→                    </div>
+   401→                  </div>
+   402→                ))}
+   403→              </>
+   404→            )}
+   405→            {/* Static notifications */}
+   406→            {data && data.rows.length > 0 && (
+   407→              <>
+   408→                <div className="px-3 py-1.5 bg-muted/30 border-b border-border/50">
+   409→                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Seeded ({data.rows.length})</p>
+   410→                </div>
+   411→                {data.rows.map((n) => (
+   412→                  <div key={n.id} className="px-3 py-2 border-b border-border/50 last:border-0 hover:bg-muted/40">
+   413→                    <div className="flex items-start gap-2">
+   414→                      <span className={cn("h-1.5 w-1.5 rounded-full mt-1.5 flex-shrink-0",
+   415→                        n.severity === "CRITICAL" ? "bg-rose-500" :
+   416→                        n.severity === "ERROR" ? "bg-rose-400" :
+   417→                        n.severity === "WARNING" ? "bg-amber-400" :
+   418→                        "bg-sky-400")} />
+   419→                      <div className="min-w-0">
+   420→                        <p className="text-xs font-medium truncate">{n.title}</p>
+   421→                        <p className="text-[10px] text-muted-foreground line-clamp-2">{n.message}</p>
+   422→                      </div>
+   423→                    </div>
+   424→                  </div>
+   425→                ))}
+   426→              </>
+   427→            )}
+   428→            {realtimeEvents.length === 0 && (!data || data.rows.length === 0) && (
+   429→              <div className="px-3 py-6 text-center text-xs text-muted-foreground">No notifications</div>
+   430→            )}
+   431→          </div>
+   432→        </div>
+   433→      )}
+   434→    </div>
+   435→  );
+   436→}
+   437→
+   438→export function AppShell({ children }: { children: ReactNode }) {
+   439→  const sidebarOpen = useNavStore((s) => s.sidebarOpen);
+   440→  const setSidebarOpen = useNavStore((s) => s.setSidebarOpen);
+   441→  const view = useNavStore((s) => s.view);
+   442→
+   443→  // Close mobile sidebar on view change (via hash change)
+   444→  useEffect(() => {
+   445→    const closeOnMobile = () => {
+   446→      if (typeof window !== "undefined" && window.innerWidth < 768) {
+   447→        setSidebarOpen(false);
+   448→      }
+   449→    };
+   450→    window.addEventListener("hashchange", closeOnMobile);
+   451→    return () => window.removeEventListener("hashchange", closeOnMobile);
+   452→  }, [setSidebarOpen]);
+   453→
+   454→  // Auto-close sidebar on mobile initial load
+   455→  useEffect(() => {
+   456→    if (typeof window !== "undefined" && window.innerWidth < 768) {
+   457→      setSidebarOpen(false);
+   458→    }
+   459→  }, [setSidebarOpen]);
+   460→
+   461→  // Auto-close sidebar when viewport shrinks below md (768px)
+   462→  useEffect(() => {
+   463→    const handleResize = () => {
+   464→      if (window.innerWidth < 768) {
+   465→        setSidebarOpen(false);
+   466→      }
+   467→    };
+   468→    window.addEventListener("resize", handleResize);
+   469→    return () => window.removeEventListener("resize", handleResize);
+   470→  }, [setSidebarOpen]);
+   471→
+   472→  return (
+   473→    <div className="min-h-screen flex flex-col bg-background text-foreground">
+   474→      {/* Top bar */}
+   475→      <header className="h-12 border-b border-border bg-card/80 backdrop-blur-sm flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 sticky top-0 z-40">
+   476→        {/* Hamburger / collapse toggle */}
+   477→        <Button
+   478→          variant="ghost"
+   479→          size="icon"
+   480→          className="h-8 w-8 flex-shrink-0"
+   481→          onClick={() => setSidebarOpen(!sidebarOpen)}
+   482→          aria-label="Toggle sidebar"
+   483→        >
+   484→          {sidebarOpen ? (
+   485→            <ChevronDown className="h-4 w-4 -rotate-90" />
+   486→          ) : (
+   487→            <ChevronRight className="h-4 w-4" />
+   488→          )}
+   489→        </Button>
+   490→        <div className="flex items-center gap-2 mr-1 sm:mr-2 flex-shrink-0">
+   491→          <div className="h-6 w-6 rounded bg-gradient-to-br from-primary/80 to-primary flex items-center justify-center">
+   492→            <Diamond className="h-3.5 w-3.5 text-primary-foreground" />
+   493→          </div>
+   494→          <div className="hidden sm:flex flex-col leading-none">
+   495→            <span className="text-xs font-semibold tracking-tight">Diamond Manufacturing ERP</span>
+   496→            <span className="text-[9px] text-muted-foreground">Analysis · Requirement · Planning · Traceability</span>
+   497→          </div>
+   498→        </div>
+   499→        {/* Search: hidden on mobile (use command palette instead) */}
+   500→        <div className="hidden md:block flex-1 min-w-0">
+   501→          <GlobalSearch />
+   502→        </div>
+   503→        {/* Spacer for mobile to push actions right */}
+   504→        <div className="md:hidden flex-1" />
+   505→        <div className="flex items-center gap-1 sm:gap-1.5 ml-auto flex-shrink-0">
+   506→          {/* Mobile: show small Cmd+K icon button */}
+   507→          <Button
+   508→            variant="ghost"
+   509→            size="icon"
+   510→            className="h-8 w-8 lg:hidden"
+   511→            onClick={() => {
+   512→              window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, ctrlKey: true }));
+   513→            }}
+   514→            aria-label="Command palette"
+   515→          >
+   516→            <CommandIcon className="h-4 w-4" />
+   517→          </Button>
+   518→          {/* Desktop: show labeled Cmd+K button */}
+   519→          <Button
+   520→            variant="outline"
+   521→            size="sm"
+   522→            className="h-8 gap-1.5 text-[11px] hidden lg:flex"
+   523→            onClick={() => {
+   524→              window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, ctrlKey: true }));
+   525→            }}
+   526→          >
+   527→            <CommandIcon className="h-3 w-3" />
+   528→            <span>Command</span>
+   529→            <kbd className="font-mono text-[9px] bg-muted px-1 py-0.5 rounded border border-border">⌘K</kbd>
+   530→          </Button>
+   531→          <ThemeToggle />
+   532→          <NotificationsBell />
+   533→          <div className="h-7 w-7 sm:h-8 sm:w-8 rounded-full bg-muted border border-border flex items-center justify-center">
+   534→            <User className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-muted-foreground" />
+   535→          </div>
+   536→        </div>
+   537→      </header>
+   538→
+   539→      {/* Global filter bar (sticky below topbar) */}
+   540→      <GlobalFilterBar className="sticky top-12 z-30" />
+   541→
+   542→      <div className="flex flex-1 min-h-0 relative">
+   543→        {/* Mobile backdrop when sidebar open */}
+   544→        {sidebarOpen && (
+   545→          <div
+   546→            className="md:hidden fixed inset-0 top-12 bg-black/40 z-30 backdrop-blur-sm"
+   547→            onClick={() => setSidebarOpen(false)}
+   548→          />
+   549→        )}
+   550→        {/* Sidebar — overlay on mobile, inline on desktop */}
+   551→        {sidebarOpen && (
+   552→          <aside
+   553→            className={cn(
+   554→              "border-r border-sidebar-border bg-sidebar overflow-y-auto z-40",
+   555→              // Mobile: fixed drawer overlay
+   556→              "fixed inset-y-0 left-0 top-12 w-72 max-w-[85vw] shadow-xl md:shadow-none",
+   557→              // Desktop: inline sticky
+   558→              "md:static md:sticky md:top-12 md:w-60 md:max-w-none md:flex-shrink-0 md:z-auto md:max-h-[calc(100vh-3rem)]"
+   559→            )}
+   560→          >
+   561→            <nav className="py-1">
+   562→              {NAV.map((g) => <NavGroupItem key={g.id} group={g} />)}
+   563→            </nav>
+   564→            <div className="px-3 py-2 text-[9px] text-muted-foreground/60 border-t border-sidebar-border/40">
+   565→              <p>v1.0 · Demand rule v1 · {new Date().getFullYear()}</p>
+   566→            </div>
+   567→          </aside>
+   568→        )}
+   569→
+   570→        {/* Main content */}
+   571→        <main className="flex-1 min-w-0 overflow-y-auto max-h-[calc(100vh-3rem-2rem)]">
+   572→          {children}
+   573→        </main>
+   574→      </div>
+   575→
+   576→      {/* Sticky footer */}
+   577→      <footer className="mt-auto border-t border-border bg-card/60 px-2 sm:px-3 py-1.5 flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
+   578→        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+   579→          <span className="flex items-center gap-1 flex-shrink-0">
+   580→            <ShieldCheck className="h-3 w-3" /> Fantasy
+   581→          </span>
+   582→          <span className="hidden sm:inline">·</span>
+   583→          <span className="hidden sm:inline">90D rule CONFIRMED</span>
+   584→          <span className="hidden md:inline">·</span>
+   585→          <span className="hidden md:inline">Memo excluded</span>
+   586→        </div>
+   587→        <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+   588→          <span className="truncate">View: <span className="text-foreground font-medium">{view}</span></span>
+   589→        </div>
+   590→      </footer>
+   591→
+   592→      {/* Command palette (Cmd+K / Ctrl+K) */}
+   593→      <CommandPalette />
+   594→    </div>
+   595→  );
+   596→}
+   597→

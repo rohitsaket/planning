@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useApi } from "@/lib/api-client";
 import { KpiCard } from "@/components/diamond/shared/kpi-card";
 import { Section, PageHeader } from "@/components/diamond/shared/page-header";
@@ -8,6 +8,7 @@ import { DataTable, type Column } from "@/components/diamond/shared/data-table";
 import { Badge, StatusBadge } from "@/components/diamond/shared/badges";
 import { EmptyState, InfoBanner, NumberCell } from "@/components/diamond/shared/empty-state";
 import { KpiGridSkeleton } from "@/components/diamond/shared/skeleton";
+import { Button } from "@/components/ui/button";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -16,6 +17,7 @@ import { cn } from "@/lib/utils";
 import {
   Calculator, Layers, AlertTriangle, Package, Boxes, Target,
   ShieldCheck, GitBranch, Wrench, FileWarning, Sparkles,
+  ChevronDown, ChevronUp,
   type LucideIcon,
 } from "lucide-react";
 
@@ -238,6 +240,23 @@ export function DemandTraceView() {
   const [selectedCat, setSelectedCat] = useState<string | null>(null);
   const [search, setSearch] = useState("");
 
+  // Mobile collapsibles — InfoBanner rule text + 13-step timeline
+  const [showFullRule, setShowFullRule] = useState(false);
+  const [showAllSteps, setShowAllSteps] = useState(false);
+
+  // Detect desktop (md+) — on desktop, always show all 13 steps (no collapse)
+  const [isDesktop, setIsDesktop] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 768px)");
+    const update = () => setIsDesktop(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+
+  const fullRuleText = `90-day rolling invoice window. Monthly Average = 90D/3. Target = Monthly Avg × 2 (round-half-up). Shortage = MAX(0, Target − Available). Memo excluded per BR-MEMO-001. WIP contribution is OPEN (BR-WIP-001). Forecast signal is advisory only — NOT confirmed demand.${forecastVersion ? ` Forecast model: ${forecastVersion}.` : ""}`;
+  const shortRuleText = `${fullRuleText.split(".")[0]}.`;
+
   const activeCat =
     categories.find((c) => c.category === (selectedCat ?? defaultCatId)) ?? null;
 
@@ -404,24 +423,28 @@ export function DemandTraceView() {
         }
       />
 
-      {/* Confirmed-rule banner */}
+      {/* Confirmed-rule banner — collapsible on mobile, full text on desktop */}
       <InfoBanner variant="info">
-        <span className="font-semibold">CONFIRMED rule {ruleVersion}.</span>{" "}
-        90-day rolling invoice window. <span className="font-mono">Monthly Average = 90D/3</span>.
-        <span className="font-mono"> Target = Monthly Avg × 2 (round-half-up)</span>.
-        <span className="font-mono"> Shortage = MAX(0, Target − Available)</span>.
-        Memo excluded per <span className="font-semibold">BR-MEMO-001</span>.
-        WIP contribution is <span className="font-semibold">OPEN (BR-WIP-001)</span>.
-        Forecast signal is <span className="font-semibold">advisory only — NOT confirmed demand</span>.
-        {forecastVersion && (
-          <>
-            {" "}Forecast model: <span className="font-mono">{forecastVersion}</span>.
-          </>
-        )}
+        <div className="flex flex-col gap-0.5">
+          <span className="font-semibold">CONFIRMED rule {ruleVersion}.</span>
+          {/* Mobile: short text + Show more/less toggle */}
+          <span className="md:hidden">
+            {showFullRule ? fullRuleText : shortRuleText}{" "}
+            <button
+              type="button"
+              onClick={() => setShowFullRule(!showFullRule)}
+              className="text-sky-600 dark:text-sky-400 underline underline-offset-2 ml-1 text-[10px] font-medium hover:text-sky-700 dark:hover:text-sky-300"
+            >
+              {showFullRule ? "Show less" : "Show more"}
+            </button>
+          </span>
+          {/* Desktop: always show full text */}
+          <span className="hidden md:inline">{fullRuleText}</span>
+        </div>
       </InfoBanner>
 
-      {/* Summary KPI grid (5 cards) */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2">
+      {/* Summary KPI grid (5 cards) — single column on phones */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-2">
         <KpiCard
           label="Total Categories"
           value={summary?.totalCategories ?? 0}
@@ -469,18 +492,18 @@ export function DemandTraceView() {
         title="Calculation Steps"
         description="Pick a planning category to drill into its 13-step demand calculation. Each step exposes its source table, formula, and output."
         actions={
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
             <Input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Filter categories…"
-              className="h-8 w-[160px] text-xs"
+              className="h-8 w-full sm:w-[160px] text-xs"
             />
             <Select
               value={activeCat?.category ?? ""}
               onValueChange={setSelectedCat}
             >
-              <SelectTrigger size="sm" className="h-8 w-[280px] text-xs">
+              <SelectTrigger size="sm" className="h-8 w-full sm:w-[280px] text-xs">
                 <SelectValue placeholder="Select category" />
               </SelectTrigger>
               <SelectContent className="max-h-72">
@@ -527,27 +550,47 @@ export function DemandTraceView() {
               </span>
             </div>
 
-            {/* Vertical timeline */}
+            {/* Vertical timeline — first 4 steps on mobile, all 13 on desktop */}
             <div className="flex flex-col gap-2.5 mt-1">
-              {activeCat.steps.map((s, i) => (
+              {(isDesktop || showAllSteps ? activeCat.steps : activeCat.steps.slice(0, 4)).map((s, i, arr) => (
                 <StepCard
                   key={s.step}
                   step={s}
-                  isLast={i === activeCat.steps.length - 1}
+                  isLast={i === arr.length - 1 && (isDesktop || showAllSteps)}
                 />
               ))}
             </div>
+
+            {/* Show-all toggle — mobile only */}
+            {!isDesktop && activeCat.steps.length > 4 && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowAllSteps(!showAllSteps)}
+                className="self-start mt-1 h-8 text-xs"
+              >
+                {showAllSteps ? (
+                  <>
+                    Show less <ChevronUp className="h-3 w-3 ml-1" />
+                  </>
+                ) : (
+                  <>
+                    Show all {activeCat.steps.length} steps <ChevronDown className="h-3 w-3 ml-1" />
+                  </>
+                )}
+              </Button>
+            )}
           </div>
         )}
       </Section>
 
-      {/* Four requirement numbers */}
+      {/* Four requirement numbers — 2 cols on phones, 4 on desktop */}
       {activeCat && (
         <Section
           title="Four Requirement Numbers"
           description="The four headline numbers required by spec section 4 — never collapsed into one. Physical Shortage is the only one that triggers procurement; the others describe different adjustment layers."
         >
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
             <FourNumberCard
               label="Physical Shortage"
               value={activeCat.fourNumbers.physicalShortage}

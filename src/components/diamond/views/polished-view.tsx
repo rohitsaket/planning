@@ -71,20 +71,38 @@ export function PolishedView() {
       ])
     : [];
   const rows = data?.rows ?? [];
+
+  // Total Pieces sparkline — aging buckets (6 buckets → pad to 7 with last value)
   const piecesSpark = useMemo(() => {
-    const slice = rows.slice(0, 7).map((r) => r.pieces);
-    while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 1);
-    return slice;
-  }, [rows]);
+    if (data?.aging) {
+      const slice = [
+        data.aging["0-30"],
+        data.aging["31-60"],
+        data.aging["61-90"],
+        data.aging["91-180"],
+        data.aging["181-365"],
+        data.aging["365+"],
+      ];
+      while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 1);
+      return slice;
+    }
+    // Synthetic fallback
+    return [3, 5, 4, 6, 8, 7, 9];
+  }, [data?.aging]);
+
+  // Total Carats sparkline — aging buckets don't expose carats, so use top 7
+  // by-dimension carat totals as a real-data fallback (better than synthetic).
   const caratsSpark = useMemo(() => {
     const slice = rows.slice(0, 7).map((r) => r.carats);
     while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 1);
-    return slice;
+    return slice.length >= 2 ? slice : [3, 5, 4, 6, 8, 7, 9];
   }, [rows]);
-  const valueSpark = useMemo(() => {
-    const slice = rows.slice(0, 7).map((r) => r.value);
+
+  // Dimensions Distinct sparkline — top 7 dimension rows' piece counts
+  const dimPiecesSpark = useMemo(() => {
+    const slice = rows.slice(0, 7).map((r) => r.pieces);
     while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 1);
-    return slice;
+    return slice.length >= 2 ? slice : [3, 5, 4, 6, 8, 7, 9];
   }, [rows]);
 
   const columns: Column<PolishedRow>[] = [
@@ -136,7 +154,7 @@ export function PolishedView() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
         <KpiCard label="Total Pieces" value={data?.totalPieces ?? 0} unit="pcs" intent="info" hint="Polished lots (all dimensions)" icon={Gem} sparkline={piecesSpark} />
         <KpiCard label="Total Carats" value={(data?.totalCarats ?? 0).toFixed(2)} unit="ct" intent="default" hint="Σ weight" icon={Diamond} sparkline={caratsSpark} />
-        <KpiCard label="Dimensions Distinct" value={(data?.rows.length ?? 0)} intent="success" hint={`By ${DIMENSIONS.find((d) => d.value === dimension)?.label}`} icon={Layers} sparkline={valueSpark} />
+        <KpiCard label="Dimensions Distinct" value={(data?.rows.length ?? 0)} intent="success" hint={`By ${DIMENSIONS.find((d) => d.value === dimension)?.label}`} icon={Layers} sparkline={dimPiecesSpark} />
       </div>
 
       <Section title="Aging Buckets" description="Polished lot count by days since last update">

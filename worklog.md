@@ -1339,3 +1339,173 @@ Task: QA assessment + yield prediction mobile fix + plan comparison auto-select 
 - ✅ Demand Trace API (13 steps per category, formula + source + tone)
 - ✅ Customers view KPI grid added (4 cards with real-data sparklines)
 - ✅ Orders view sparklines wired to real data (Open Orders, Overdue)
+
+---
+Task ID: 10-A
+Agent: full-stack-developer (Demand Trace Mobile + Sparklines)
+Task: Fix Demand Trace mobile responsive + wire remaining analysis view sparklines to real data
+
+Work Log:
+- Read worklog.md (prior multi-agent history) — noted Task 9-A wired sparklines for sales-analysis / customers / orders; Task 9-FINAL flagged Demand Trace mobile + remaining sparklines (polished/memo/wip) as outstanding
+- Inspected current demand-trace-view.tsx (681 lines) — confirmed KPI grid was `grid-cols-2 md:grid-cols-3 lg:grid-cols-5`, InfoBanner had a single long uncollapsible rule paragraph, 13-step vertical timeline rendered all 13 cards unconditionally, category Select was `w-[280px]` (overflow on mobile)
+- Verified DataTable already wraps body in `overflow-auto h-full` — All Categories horizontal scroll handled, no edit needed
+- Verified polished API route only exposes aging bucket piece counts (no carats per bucket) → Total Carats must keep using real byDimension carats as fallback
+
+Task 1 — Demand Trace mobile (demand-trace-view.tsx):
+- Imports: added `useEffect`; added `Button` from `@/components/ui/button`; added `ChevronDown` + `ChevronUp` to lucide-react
+- Added state: `showFullRule`, `showAllSteps`, `isDesktop` (with `useEffect` + `window.matchMedia("(min-width: 768px)")` listener)
+- Built `fullRuleText` (concatenated rule string incl. optional forecast model) and `shortRuleText` (first sentence only) constants
+- InfoBanner restructured: flex column with always-shown "CONFIRMED rule" header + mobile-only short text + Show more/less toggle button (`md:hidden`) + desktop-only full-text span (`hidden md:inline`)
+- KPI grid: `grid-cols-2 md:grid-cols-3 lg:grid-cols-5` → `grid-cols-1 sm:grid-cols-2 md:grid-cols-5` (single column on phones)
+- Category selector Section actions wrapper: `flex items-center gap-2 flex-wrap` → `... w-full sm:w-auto`; Input `w-[160px]` → `w-full sm:w-[160px]`; Select trigger `w-[280px]` → `w-full sm:w-[280px]` (both stack full-width on phones)
+- Vertical timeline: render logic `(isDesktop || showAllSteps ? activeCat.steps : activeCat.steps.slice(0, 4)).map(...)`; `isLast` recomputed against visible slice so connector line correctly disappears after last visible card
+- Added "Show all N steps / Show less" outline Button below timeline — mobile-only (`!isDesktop`) and only when active category has > 4 steps; ChevronDown when collapsed, ChevronUp when expanded
+- Four Requirement Numbers grid: `grid-cols-1 sm:grid-cols-2 lg:grid-cols-4` → `grid-cols-2 md:grid-cols-4` (2 columns on phones — 4 cards fit in 2 rows)
+- Fixed accidental `@lib/utils` import typo (should be `@/lib/utils`) caught by dev server module-not-found error
+
+Task 2a — Polished view sparklines (polished-view.tsx):
+- Total Pieces: `piecesSpark` now uses `data.aging` (6 buckets: 0-30, 31-60, 61-90, 91-180, 181-365, 365+) padded to 7 with last value. Synthetic fallback when aging missing.
+- Total Carats: kept `caratsSpark` using top-7 byDimension carats (real data) — aging buckets only expose piece counts in the current API. Synthetic fallback when fewer than 2 rows.
+- Dimensions Distinct: renamed `valueSpark` → `dimPiecesSpark`, changed `.value` → `.pieces` (top 7 dimension rows' piece counts per task spec). Synthetic fallback when fewer than 2 rows.
+- KPI grid already mobile-first (`grid-cols-1 md:grid-cols-3`) — no change needed
+
+Task 2b — Memo view sparklines (memo-view.tsx):
+- Total Qty + Total Value: unchanged — already use top 7 byCountry qty/value per task spec
+- Avg Age: `avgAgeSpark` changed from `byCountry.slice(0,7).map(r => r.avgAge)` to `filteredAgeBuckets` — 5 bucket counts (0-30, 31-60, 61-90, 91-180, 180+) padded to 7 with last value. Synthetic fallback when no buckets.
+- Aged > 90D: `agedSpark` changed from synthetic `base * 0.85, base * 0.9, ...` interpolation to real-data series `[filteredAgeBuckets["91-180"], filteredAgeBuckets["180+"]]` padded to 7 with last value — directly derived from ageBuckets per task spec ("sum of 91-180 + 180+"). Synthetic fallback when no buckets.
+
+Task 2c — WIP view sparkline (wip-view.tsx):
+- Total WIP Pieces: `piecesSpark` changed from `data.byStatus` to `data.byShape` — top 7 shape piece counts, padded to 7. Per task spec, falls back to synthetic `[3,5,4,6,8,7,9]` when `byShape.length < 2` to satisfy Sparkline component's `data.length >= 2` requirement.
+
+Verification:
+- `bun run lint` → clean, 0 errors, 0 warnings
+- Dev server recompiled cleanly after each edit (latest log entries: ✓ Compiled in 907ms / 223ms / 984ms)
+- Earlier dev log module-not-found error for `@lib/utils` (typo) resolved by the import fix to `@/lib/utils`
+
+Stage Summary:
+- 4 files edited:
+  1. demand-trace-view.tsx — mobile responsive (collapsible InfoBanner rule, collapsible 13-step timeline showing 4 on mobile + Show all toggle, KPI grid 1-col phones, four-numbers grid 2-col phones, category Select full-width on mobile)
+  2. polished-view.tsx — Total Pieces sparkline → aging buckets; Total Carats keeps real byDimension carats (aging has no carats); Dimensions Distinct → top 7 dimension pieces (renamed valueSpark → dimPiecesSpark)
+  3. memo-view.tsx — Avg Age sparkline → 5 ageBuckets; Aged > 90D sparkline → derived from 91-180 + 180+ buckets (replaces synthetic interpolation)
+  4. wip-view.tsx — Total WIP Pieces sparkline → byShape (was byStatus), with synthetic fallback when byShape < 2 entries
+- All four views now expose real-data sparklines (with synthetic fallbacks where source data is unavailable)
+- Demand Trace mobile usability issues from VLM assessment (timeline cut off, KPI grid cramped, InfoBanner too long) all addressed
+- Lint clean; dev server compiles successfully
+- Wrote work record to /home/z/my-project/agent-ctx/10-A-full-stack-developer.md
+
+---
+Task ID: 10-B
+Agent: full-stack-developer (Excel Export + Transfer Analyzer)
+Task: Build Excel export utility + Transfer Candidate Analyzer view (OPEN rule — display candidates separately)
+
+Work Log:
+- Read worklog.md and inspected existing project structure (Next.js 16, App Router, Prisma, shadcn/ui, recharts)
+- Reviewed shared DataTable (already had CSV export), country-view pattern, country API route, api-utils, schema for Requirement/PolishedStone/WeightBand
+- Feature 1 — Excel Export Utility:
+  - Created `src/lib/excel-export.ts` with `ExcelColumn` interface, `exportToExcel()` (uses XLSX.utils.aoa_to_sheet, auto column widths, book_new + book_append_sheet + writeFile), and `exportDataTableToExcel<T>()` convenience helper
+  - Updated `src/components/diamond/shared/data-table.tsx`: imported `exportDataTableToExcel` + `FileSpreadsheet` icon, added `excelExportable?` and `excelExportFilename?` props (default `export.xlsx`), added `exportExcel()` method that maps columns to `{header,key}` and calls helper, added a second toolbar button labeled "Export Excel" beside the existing CSV button, extended toolbar render condition to include `excelExportable`
+  - Applied `excelExportable` + `excelExportFilename` to three key views alongside existing `exportable`/`exportFilename`:
+    - `requirements-matrix-view.tsx` → `requirements-page-{page}.xlsx`
+    - `planning-cases-view.tsx` → `planning-cases.xlsx`
+    - `fantasy-rough-view.tsx` → `fantasy-rough-stock.xlsx`
+- Feature 2 — Transfer Candidate Analyzer:
+  - Created API route `src/app/api/analysis/transfer-candidates/route.ts`:
+    - Fetches requirements where `remainingUnplanned > 0` (shortage side)
+    - Fetches polished stones where `planningClass ∈ {PHYSICAL, PLANNING_AVAILABLE}` (excess side)
+    - Resolves weightBand ids → labels via single `weightBand.findMany` lookup
+    - Builds per-(category, country) shortage + available aggregates, then merges them so each country's row contains available/target/shortage
+    - For each category with both excess countries and shortage countries, greedily pairs each shortage country with the largest-excess donor country (excluding same-country); `transferQty = min(fromExcess, toShortage)`, `potentialCoverage = transferQty/toShortage × 100`
+    - Sorts candidates by potentialCoverage desc then transferQty desc
+    - Computes summary (totalCandidates, totalTransferQty, avg coverage, distinct donor/receiver countries) and per-country balance (totalExcess, totalShortage, netBalance)
+    - Returns `advisoryNotice` flagging BR-TRANSFER-001 as OPEN rule
+  - Created view `src/components/diamond/views/transfer-analyzer-view.tsx`:
+    - "use client", wrapped in `flex flex-col gap-3 p-3`
+    - PageHeader "Transfer Candidate Analyzer" with subtitle and BR-TRANSFER-001 meta tag
+    - Warning InfoBanner quoting the OPEN-rule advisory notice
+    - 5-card KPI grid: Total Candidates (ArrowLeftRight), Transfer Qty (Package), Avg Coverage (Sparkles, color shifts by threshold), Countries w/ Excess (Layers), Countries w/ Shortage (AlertTriangle)
+    - Recharts grouped BarChart of top 12 candidate pairs showing Donor Excess (emerald gradient) vs Receiver Shortage (rose gradient), rotated x-axis labels, gradient fills + rounded bar corners
+    - Sortable/searchable/exportable DataTable of candidates with color-coded coverage progress bar (≥80% emerald, ≥40% amber, <40% rose), status badge, and From→To country pills — both CSV and Excel export enabled
+    - Country Balance DataTable: total excess, total shortage, net balance (color-coded), position badge (Donor / Receiver / Balanced)
+    - Methodology InfoBanner explaining the algorithm and stock-class filter
+- Registered the view:
+  - Added `"transfer-analyzer"` to `ViewId` union in `src/stores/nav-store.ts` (after `"demand-trace"`)
+  - Added nav item in Analysis group in `src/components/layout/app-shell.tsx` with `ArrowLeftRight` icon (and imported the icon)
+  - Imported `TransferAnalyzerView` and added `"transfer-analyzer": TransferAnalyzerView` to `VIEW_REGISTRY` in `src/app/page.tsx`
+- Ran `bun run lint` — clean (no errors). Verified dev server compiled successfully (dev.log shows "✓ Compiled" after edits)
+
+Stage Summary:
+- Excel export utility (`src/lib/excel-export.ts`) added and wired into the shared `DataTable` via new `excelExportable` / `excelExportFilename` props, with a FileSpreadsheet-iconed "Export Excel" button sitting beside the existing CSV button. Enabled on 3 priority views (requirements matrix, planning cases, fantasy rough stock).
+- New Transfer Candidate Analyzer view + API deliver the spec's §17 "display potential transfer candidates separately" requirement for OPEN rule BR-TRANSFER-001. The API returns candidate pairs with transferQty, potentialCoverage, status, plus summary + per-country balance; the view renders KPIs, a grouped excess-vs-shortage bar chart, a sortable/exportable candidates table with color-coded coverage, and a country balance table. An advisory banner repeats the OPEN-rule caveat prominently.
+- All changes lint-clean; dev server recompiled successfully.
+
+---
+Task ID: 10-FINAL
+Agent: main (cron-triggered webDevReview round 9)
+Task: QA assessment + demand trace mobile fix + Excel export utility + transfer candidate analyzer view + remaining sparklines
+
+## Current Project Status Assessment
+- Project was in stable state from Round 8 (yield prediction mobile, plan comparison auto-select, demand trace view, analysis sparklines)
+- Lint was clean, dev server compiled successfully
+- QA via agent-browser confirmed no regressions; VLM identified Demand Trace mobile as needing timeline collapse + single-col KPIs
+- Remaining items: demand trace mobile, Excel export, more sparklines, new features
+
+## Goals / Completed Modifications / Verification Results
+
+### Fix: Demand Trace Mobile Responsive
+- **Updated** `demand-trace-view.tsx`:
+  - KPI grid: `grid-cols-2` → `grid-cols-1 sm:grid-cols-2 md:grid-cols-5` (single column on phones)
+  - InfoBanner: collapsible "Show more/less" toggle on mobile (short text + toggle, full text on desktop)
+  - Calculation Steps: first 4 steps visible on mobile, "Show all 13 steps" button to expand (desktop shows all)
+  - Four Requirement Numbers: `grid-cols-2 md:grid-cols-4` (2 cols on mobile)
+  - Category selector: full-width on mobile
+- VLM: **9/10 mobile usability** ("timeline usable, KPIs single-column, clean, touch-friendly")
+
+### Feature: Excel Export Utility
+- **New utility** `src/lib/excel-export.ts` — `exportToExcel()` + `exportDataTableToExcel()` using sheetjs (XLSX.utils.aoa_to_sheet, column widths, XLSX.writeFile)
+- **Updated DataTable** `data-table.tsx` — added `excelExportable` + `excelExportFilename` props + "Export Excel" button (FileSpreadsheet icon) alongside existing "Export CSV"
+- **Applied to 3 views**: requirements-matrix (`requirements-page-N.xlsx`), planning-cases (`planning-cases.xlsx`), fantasy-rough (`fantasy-rough-stock.xlsx`)
+- Verified: both Export CSV and Export Excel buttons visible in Transfer Analyzer candidates table
+
+### Feature: Transfer Candidate Analyzer View (spec §17, OPEN rule BR-TRANSFER-001)
+- **New API** `/api/analysis/transfer-candidates` — fetches requirements with shortage + polished stones with excess, pairs excess countries with shortage countries per category, computes transferQty = min(excess, shortage) + potentialCoverage%. Returns candidates, summary, countryBalance, advisoryNotice.
+- **New view** `transfer-analyzer-view.tsx` — PageHeader + warning InfoBanner (BR-TRANSFER-001 advisory) + 5-card KPI grid + grouped BarChart (excess vs shortage per pair, solid emerald/rose colors, maxBarSize=40) + sortable candidates DataTable with coverage progress bars + country balance table.
+- Registered in nav store, sidebar (Analysis group, ArrowLeftRight icon), page.tsx VIEW_REGISTRY
+- Verified: 6 candidates, 7 transfer qty, 74.7% avg coverage, 5 donors, 4 receivers
+- **Bug fixed**: chart bars not visible — removed redundant Cell children, switched from gradient fills to solid colors (#10b981 emerald, #f43f5e rose), added maxBarSize=40. Bars render correctly after full page load (confirmed via DOM inspection: 7 emerald + 7 rose paths).
+
+### Feature: Remaining Analysis View Sparklines Wired to Real Data
+- **polished-view.tsx** — Total Pieces sparkline uses aging buckets (6 buckets padded to 7); Total Carats uses byDimension carats; Dimensions Distinct uses byDimension pieces
+- **memo-view.tsx** — Avg Age sparkline uses ageBuckets; Aged > 90D uses [91-180, 180+] bucket counts
+- **wip-view.tsx** — Total WIP Pieces sparkline uses byShape (top 7 shape piece counts)
+- All have synthetic fallbacks for graceful degradation
+
+### Verification Results
+- `bun run lint` → exit 0, zero errors/warnings
+- Dev server compiles cleanly, HTTP 200
+- agent-browser end-to-end testing confirmed:
+  - Demand Trace mobile: single-col KPIs, collapsible timeline, "Show more" toggle — VLM 9/10
+  - Transfer Analyzer: 5 KPIs, chart with emerald/rose bars (confirmed via DOM: 14 bar paths), candidates table with Export CSV + Export Excel buttons
+  - No console errors, no runtime errors, no page errors
+
+## Unresolved Issues / Risks / Priority Recommendations for Next Phase
+
+### Remaining items (lower priority)
+1. **Authentication + RBAC enforcement** — login/sessions still not implemented; NextAuth.js v4 available
+2. **Real Fantasy ERP adapter** — currently using local synced read model; needs real credentials/API
+3. **Background job workers** — Fantasy sync, demand runs, forecast runs should be queued
+4. **WebSocket service persistence** — background bun processes exit in this environment
+5. **Export to PDF** — currently CSV + Excel; spec also mentions PDF exports
+6. **More views with Excel export** — apply excelExportable to remaining DataTables (customers, orders, rough-availability, etc.)
+7. **Transfer Analyzer chart on mobile** — the grouped bar chart may need mobile horizontal scroll
+8. **Demand Trace export** — could add Excel/CSV export to the All Categories table
+
+### Confirmed working features (regression-tested this round)
+- ✅ All Round 0-8 features still working
+- ✅ Demand Trace mobile responsive (collapsible timeline, single-col KPIs, Show more toggle)
+- ✅ Excel export utility (sheetjs, reusable, column widths)
+- ✅ Excel export on DataTable (FileSpreadsheet button alongside CSV)
+- ✅ Excel export on 3 views (requirements-matrix, planning-cases, fantasy-rough)
+- ✅ Transfer Candidate Analyzer view (OPEN rule BR-TRANSFER-001, advisory only)
+- ✅ Transfer Candidates API (excess/shortage matching, coverage %)
+- ✅ Transfer flow chart (solid colors, confirmed rendering via DOM)
+- ✅ Remaining sparklines wired (polished, memo, wip)

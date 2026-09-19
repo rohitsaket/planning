@@ -20,6 +20,7 @@ export type ViewId =
   | "analysis-reorder-signals"
   | "demand-history"
   | "demand-trace"
+  | "transfer-analyzer"
   | "requirements-matrix"
   | "requirements-priority-queue"
   | "requirements-orders"
