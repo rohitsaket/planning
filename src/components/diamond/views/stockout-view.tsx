@@ -236,11 +236,17 @@ export function StockoutView() {
                     <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.4} />
                     <XAxis
                       dataKey="category"
-                      tick={{ fontSize: 10 }}
-                      angle={-30}
+                      tick={{ fontSize: 9 }}
+                      angle={-40}
                       textAnchor="end"
-                      height={60}
-                      interval={0}
+                      height={70}
+                      interval="preserveStartEnd"
+                      tickFormatter={(v: string) => {
+                        // Truncate long category names: "GIA|Round|1.00-1.09" → "Round 1.00"
+                        const parts = v.split("|");
+                        if (parts.length >= 3) return `${parts[1]} ${parts[2].slice(0, 5)}`;
+                        return v.length > 14 ? v.slice(0, 13) + "…" : v;
+                      }}
                     />
                     <YAxis
                       tick={{ fontSize: 10 }}

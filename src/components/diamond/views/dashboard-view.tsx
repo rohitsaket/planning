@@ -96,6 +96,13 @@ function relativeTime(iso: string): string {
   return `${day}d ago`;
 }
 
+// Compact USD formatter — keeps KPI values short enough to fit alongside sparklines
+function fmtMoney(v: number): string {
+  if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(1)}M`;
+  if (v >= 1_000) return `$${Math.round(v / 1_000)}K`;
+  return `$${v}`;
+}
+
 export function DashboardView() {
   const setView = useNavStore((s) => s.setView);
   const qc = useQueryClient();
@@ -159,22 +166,108 @@ export function DashboardView() {
     refetchInterval: 30_000, // auto-refresh every 30s
   });
 
-  // Sparkline data — generate from trendData totals (last 7 days synthetic)
+  // Demand run history — for real sparkline data (last 7 runs chronologically)
+  const { data: demandHistoryRaw } = useQuery({
+    queryKey: ["demand-history-spark"],
+    queryFn: async () => {
+      const r = await apiFetch<{
+        rows: Array<{ totalShortage: number; totalExcess: number }>;
+      }>("/api/demand/history");
+      return r.rows;
+    },
+  });
+
+  // Forecast predictions — for forecast signal sparkline (top categories' prediction90d)
+  const { data: forecastData } = useQuery({
+    queryKey: ["forecast-predictions-spark"],
+    queryFn: async () => {
+      const r = await apiFetch<{
+        rows: Array<{ category: string; prediction90d: number }>;
+      }>("/api/analysis/forecast");
+      return r;
+    },
+  });
+
+  // Memo analysis — for memo exposure sparkline (top customers' values)
+  const { data: memoData } = useQuery({
+    queryKey: ["memo-spark"],
+    queryFn: async () => {
+      const r = await apiFetch<{
+        byCustomer: Array<{ value: number }>;
+      }>("/api/analysis/memo");
+      return r;
+    },
+  });
+
+  // Sparkline data — wire to real historical aggregates where available, fall back to synthetic
   const salesSparkline = useMemo(() => {
     if (!trendData || trendData.length === 0) return [3, 5, 4, 6, 8, 7, 9];
     return trendData.slice(0, 7).map((t) => t.latest30);
   }, [trendData]);
 
+  // Most recent 7 demand runs in chronological order (oldest → newest)
+  const demandHistory7 = useMemo(() => {
+    if (!demandHistoryRaw || demandHistoryRaw.length < 2) return [];
+    return demandHistoryRaw.slice(0, 7).reverse();
+  }, [demandHistoryRaw]);
+
   const shortageSparkline = useMemo(() => {
-    // Synthetic 7-day trend based on current shortage
+    if (demandHistory7.length >= 2) {
+      return demandHistory7.map((r) => r.totalShortage);
+    }
+    // Fallback: synthetic 7-point trend anchored to current shortage
     const base = kpi?.physicalShortage ?? 100;
-    return [base * 0.9, base * 0.95, base * 1.0, base * 0.98, base * 1.05, base * 1.02, base];
-  }, [kpi?.physicalShortage]);
+    return [base * 0.9, base * 0.95, base, base * 0.98, base * 1.05, base * 1.02, base];
+  }, [demandHistory7, kpi?.physicalShortage]);
 
   const pipelineSparkline = useMemo(() => {
+    // History API doesn't return pipeline per run — approximate by applying
+    // the current pipeline-to-shortage ratio to historical shortage points.
+    if (
+      demandHistory7.length >= 2 &&
+      kpi?.physicalShortage &&
+      kpi.physicalShortage > 0
+    ) {
+      const ratio = (kpi.pipelineAdjusted ?? 0) / kpi.physicalShortage;
+      return demandHistory7.map((r) => Math.max(0, Math.round(r.totalShortage * ratio)));
+    }
     const base = kpi?.pipelineAdjusted ?? 100;
-    return [base * 1.1, base * 1.05, base * 1.0, base * 0.97, base * 0.95, base * 0.98, base];
-  }, [kpi?.pipelineAdjusted]);
+    return [base * 1.1, base * 1.05, base, base * 0.97, base * 0.95, base * 0.98, base];
+  }, [demandHistory7, kpi?.pipelineAdjusted, kpi?.physicalShortage]);
+
+  const approvedPlanCoverageSparkline = useMemo(() => {
+    // Proxy: (totalShortage − totalExcess) per historical run
+    if (demandHistory7.length >= 2) {
+      return demandHistory7.map((r) => Math.max(0, r.totalShortage - r.totalExcess));
+    }
+    const base = kpi?.approvedPlanCoverage ?? 100;
+    return [base * 0.8, base * 0.9, base * 0.95, base, base * 1.05, base * 1.1, base];
+  }, [demandHistory7, kpi?.approvedPlanCoverage]);
+
+  const remainingUnplannedSparkline = useMemo(() => {
+    // Trend follows shortage across runs (same data points)
+    if (demandHistory7.length >= 2) {
+      return demandHistory7.map((r) => r.totalShortage);
+    }
+    const base = kpi?.remainingUnplanned ?? 100;
+    return [base * 0.9, base * 1.05, base, base * 0.95, base * 1.08, base * 1.02, base];
+  }, [demandHistory7, kpi?.remainingUnplanned]);
+
+  const forecastSparkline = useMemo(() => {
+    if (forecastData?.rows && forecastData.rows.length >= 2) {
+      return forecastData.rows.slice(0, 7).map((r) => r.prediction90d);
+    }
+    const base = kpi?.forecastRequirement ?? 100;
+    return [base * 0.85, base * 0.92, base, base * 1.05, base * 1.1, base * 1.08, base];
+  }, [forecastData, kpi?.forecastRequirement]);
+
+  const memoSparkline = useMemo(() => {
+    if (memoData?.byCustomer && memoData.byCustomer.length >= 2) {
+      return memoData.byCustomer.slice(0, 7).map((c) => c.value);
+    }
+    const base = kpi?.memoExposure ?? 1000;
+    return [base * 0.8, base * 0.9, base * 0.95, base, base * 1.05, base * 1.1, base];
+  }, [memoData, kpi?.memoExposure]);
 
   return (
     <div className="flex flex-col gap-3 p-3">
@@ -220,9 +313,9 @@ export function DashboardView() {
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2">
             <KpiCard label="Physical Shortage" value={kpi?.physicalShortage ?? 0} unit="pcs" intent="critical" icon={AlertTriangle} hint="MAX(0, Target − Available)" sparkline={shortageSparkline} onClick={() => setView("requirements-matrix")} />
             <KpiCard label="Pipeline-Adjusted" value={kpi?.pipelineAdjusted ?? 0} unit="pcs" intent="warning" icon={TrendingDown} hint="Shortage − Eligible WIP" sparkline={pipelineSparkline} onClick={() => setView("requirements-matrix")} />
-            <KpiCard label="Approved Plan Coverage" value={kpi?.approvedPlanCoverage ?? 0} unit="pcs" intent="success" icon={ShieldCheck} hint="Approved plan pieces" onClick={() => setView("planning-approval-queue")} />
-            <KpiCard label="Remaining Unplanned" value={kpi?.remainingUnplanned ?? 0} unit="pcs" intent="critical" icon={AlertTriangle} hint="Pipeline − Plan Coverage" onClick={() => setView("requirements-matrix")} />
-            <KpiCard label="Forecast Signal" value={kpi?.forecastRequirement ?? 0} unit="pcs" intent="info" icon={TrendingUp} hint="Advisory — NOT confirmed demand" onClick={() => setView("data-science-forecast")} />
+            <KpiCard label="Approved Plan Coverage" value={kpi?.approvedPlanCoverage ?? 0} unit="pcs" intent="success" icon={ShieldCheck} hint="Approved plan pieces" sparkline={approvedPlanCoverageSparkline} onClick={() => setView("planning-approval-queue")} />
+            <KpiCard label="Remaining Unplanned" value={kpi?.remainingUnplanned ?? 0} unit="pcs" intent="critical" icon={AlertTriangle} hint="Pipeline − Plan Coverage" sparkline={remainingUnplannedSparkline} onClick={() => setView("requirements-matrix")} />
+            <KpiCard label="Forecast Signal" value={kpi?.forecastRequirement ?? 0} unit="pcs" intent="info" icon={TrendingUp} hint="Advisory — NOT confirmed demand" sparkline={forecastSparkline} onClick={() => setView("data-science-forecast")} />
           </div>
         )}
       </div>
@@ -237,13 +330,14 @@ export function DashboardView() {
         {isLoading ? (
           <KpiGridSkeleton count={6} />
         ) : (
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 xl:grid-cols-7 gap-2">
             <KpiCard label="Polished Stock" value={kpi?.polishedStock ?? 0} unit="lots" intent="default" icon={Gem} hint="Fantasy authoritative" onClick={() => setView("analysis-polished")} />
             <KpiCard label="Rough Available" value={kpi?.roughAvailable ?? 0} unit="stones" intent="success" icon={Gem} onClick={() => setView("planning-rough-availability")} />
             <KpiCard label="Rough Reserved" value={kpi?.roughReserved ?? 0} unit="stones" intent="warning" icon={ShieldCheck} onClick={() => setView("planning-reservations")} />
             <KpiCard label="Current WIP" value={kpi?.currentWip ?? 0} unit="pcs" intent="info" icon={Boxes} hint="Approved plan pieces" onClick={() => setView("analysis-wip")} />
             <KpiCard label="Open Orders" value={kpi?.openOrders ?? 0} intent="default" icon={ShoppingCart} onClick={() => setView("analysis-orders")} />
             <KpiCard label="Backorders" value={kpi?.backorders ?? 0} unit="pcs" intent="critical" icon={FileWarning} onClick={() => setView("requirements-backorders")} />
+            <KpiCard label="Memo Exposure" value={fmtMoney(kpi?.memoExposure ?? 0)} intent="warning" icon={FileWarning} hint="OPEN — memo does NOT reduce shortage" sparkline={memoSparkline} onClick={() => setView("analysis-memo")} />
           </div>
         )}
       </div>

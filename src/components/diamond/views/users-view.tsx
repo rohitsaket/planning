@@ -6,6 +6,13 @@ import { Badge } from "@/components/diamond/shared/badges";
 import { InfoBanner, EmptyState } from "@/components/diamond/shared/empty-state";
 import { KpiCard } from "@/components/diamond/shared/kpi-card";
 import { Check, Minus, Shield, KeySquare, Lock, Users, ShieldCheck, Key } from "lucide-react";
+import {
+  Accordion,
+  AccordionItem,
+  AccordionTrigger,
+  AccordionContent,
+} from "@/components/ui/accordion";
+import { cn } from "@/lib/utils";
 
 // ---------------------------------------------------------------------------
 // RBAC reference model — 15 roles × 13 permissions
@@ -204,6 +211,17 @@ const categoryAccent: Record<PermissionDef["category"], string> = {
   Audit: "text-slate-600 dark:text-slate-400",
 };
 
+// Permission category order — used to group permissions in the mobile card layout
+const PERM_CATEGORIES: PermissionDef["category"][] = [
+  "Requirements",
+  "Planning",
+  "Rough",
+  "Forecast",
+  "Fantasy",
+  "Admin",
+  "Audit",
+];
+
 export function UsersView() {
   return (
     <div className="flex flex-col gap-3 p-3">
@@ -274,16 +292,107 @@ export function UsersView() {
           </div>
         }
       >
-        <DataTable
-          columns={matrixColumns}
-          rows={matrixRows}
-          maxHeight="560px"
-          searchable={false}
-          exportable
-          exportFilename="rbac-permission-matrix.csv"
-          initialSortKey="roleLabel"
-          initialSortDir="asc"
-        />
+        {/* Desktop: wide matrix table (15 rows × 14 cols, sticky-left role col) */}
+        <div className="hidden md:block">
+          <DataTable
+            columns={matrixColumns}
+            rows={matrixRows}
+            maxHeight="560px"
+            searchable={false}
+            exportable
+            exportFilename="rbac-permission-matrix.csv"
+            initialSortKey="roleLabel"
+            initialSortDir="asc"
+          />
+        </div>
+
+        {/* Mobile: collapsible role cards with permission badges (replaces wide matrix on small screens) */}
+        <div className="md:hidden">
+          <Accordion
+            type="single"
+            collapsible
+            defaultValue="SUPER_ADMIN"
+            className="w-full"
+          >
+            {ROLES.map((role) => {
+              const grantedCount = ROLE_PERMISSIONS[role.code]?.length ?? 0;
+              const isFull = grantedCount === PERMISSIONS.length;
+              return (
+                <AccordionItem key={role.code} value={role.code}>
+                  <AccordionTrigger className="py-2.5 text-xs">
+                    <div className="flex items-center gap-2 flex-1 min-w-0 pr-2">
+                      <Shield className="h-3 w-3 text-muted-foreground shrink-0" />
+                      <span className="font-medium text-[11px] truncate">
+                        {role.label}
+                      </span>
+                      <Badge
+                        variant={
+                          isFull
+                            ? "critical"
+                            : grantedCount > 0
+                              ? "success"
+                              : "neutral"
+                        }
+                        className="ml-auto shrink-0 text-[9px] h-4 px-1.5 leading-none"
+                      >
+                        {grantedCount}/{PERMISSIONS.length}
+                      </Badge>
+                    </div>
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    <div className="space-y-2 pt-1">
+                      {PERM_CATEGORIES.map((cat) => {
+                        const catPerms = PERMISSIONS.filter(
+                          (p) => p.category === cat,
+                        );
+                        if (catPerms.length === 0) return null;
+                        return (
+                          <div key={cat}>
+                            <p className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground/80 mb-1">
+                              {cat}
+                            </p>
+                            <div className="grid grid-cols-2 gap-1">
+                              {catPerms.map((p) => {
+                                const granted = roleHas(role.code, p.code);
+                                return (
+                                  <div
+                                    key={p.code}
+                                    title={
+                                      granted
+                                        ? `${role.label} → ${p.code}: granted`
+                                        : `${role.label} → ${p.code}: denied`
+                                    }
+                                    aria-label={`${role.label} → ${p.code}: ${granted ? "granted" : "denied"}`}
+                                    className={cn(
+                                      "flex items-center gap-1 px-1.5 py-1 rounded border text-[10px] leading-tight",
+                                      granted
+                                        ? "bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-900 text-emerald-700 dark:text-emerald-300"
+                                        : "bg-muted/30 border-border text-muted-foreground",
+                                    )}
+                                  >
+                                    {granted ? (
+                                      <Check
+                                        className="h-2.5 w-2.5 shrink-0"
+                                        strokeWidth={3}
+                                      />
+                                    ) : (
+                                      <Minus className="h-2.5 w-2.5 shrink-0" />
+                                    )}
+                                    <span className="truncate">{p.name}</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
+              );
+            })}
+          </Accordion>
+        </div>
       </Section>
 
       {/* Permission definitions */}

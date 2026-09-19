@@ -457,6 +457,17 @@ export function AppShell({ children }: { children: ReactNode }) {
     }
   }, [setSidebarOpen]);
 
+  // Auto-close sidebar when viewport shrinks below md (768px)
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth < 768) {
+        setSidebarOpen(false);
+      }
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [setSidebarOpen]);
+
   return (
     <div className="min-h-screen flex flex-col bg-background text-foreground">
       {/* Top bar */}
