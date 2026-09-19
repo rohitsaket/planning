@@ -524,3 +524,132 @@ Returns 12-month monthly aggregates (pieces/carats/value) + top-N preference bre
 - ✅ Demand Run History view (KPIs + chart + table)
 - ✅ Demand history API (joined with audit log for actor)
 - ✅ Dev server auto-restart after schema changes
+
+---
+Task ID: 4-A
+Agent: full-stack-developer (Real XLSX Upload UI)
+Task: Replace mock workbook validation with real .xlsx file upload + parse + results display
+
+Work Log:
+- Read prior work log `/home/z/my-project/worklog.md` and existing `workbook-import-view.tsx` (had UI-only mock validation with `setTimeout` + hardcoded counts/warnings)
+- Read shared component contracts: `KpiCard`, `Section`/`PageHeader`, `Badge`/`StatusBadge`/`Pill`, `InfoBanner`/`EmptyState`/`NumberCell`/`Money`, `DataTable`, `Accordion`/`Collapsible` shadcn primitives
+- Verified the API contract by reading `/api/planning/workbook/parse/route.ts` + `/lib/domain/workbook-parser.ts` — confirmed the exact response shape (blocks/rows/planGroups/validationIssues/unknownShapes/topThreeYields/legacyHeaderDetected/extraColumnsCount/parseErrors)
+- Rewrote `workbook-import-view.tsx` end-to-end with these changes:
+  - Replaced mock `useState<MockValidationResult>` with `useState<WorkbookParseResult | null>` + `useState<string | null>` error state
+  - Added `useMutation` from TanStack Query: posts the File as `multipart/form-data` via raw `fetch('/api/planning/workbook/parse', { method: 'POST', body: formData })` (intentionally NOT using `apiPost` since that sets JSON content-type). Mutates to a typed `WorkbookParseResult`, with `onSuccess` toast (`Parsed N rows in M block(s)`) and `onError` setting both error state + toast (`Parse failed: …`)
+  - Kept existing client-side MIME/extension + 10MB size guards (rejected files surface an InfoBanner of variant `critical`); the server also enforces these so the UI is layered defense
+  - Renamed "Validate" button → "Parse Workbook" with loading spinner + "Parsing…" label (`parseMutation.isPending`)
+  - Added a "Sample Workbook" download button in `PageHeader.meta` that calls `generateSampleWorkbook()` — uses `xlsx` library client-side (`XLSX.utils.aoa_to_sheet` + `XLSX.utils.book_new` + `XLSX.writeFile`) to produce a `sample-workbook.xlsx` with 3 stone-name blocks (BLUE multi-shape incl. EMERALD 5STEP, WHITE ROUND×3, BLUE w/ unresolved packet + unknown shape "TREGAL") + a legacy header row so all parser paths are exercised
+  - On successful parse, renders 5 result sections after the upload form:
+    1. **Summary KPIs** (6-card KpiCard grid with emerald accent bar): Total Rows (`ListTree` icon), Stone Name Blocks (`Boxes`), Unknown Shapes (`AlertTriangle`, warning/success intent), Validation Issues (`ShieldAlert`, critical/warning/success intent based on BLOCKING/ERROR presence), Legacy Header Detected (`History`, "Detected"/"None"), Extra Columns (`Columns`, warning/success)
+    2. **Parse Errors** section — only rendered if `parseErrors.length > 0`, as a critical InfoBanner with `<ul>` list (fatal errors that prevented a clean parse, e.g., "Workbook has no sheets")
+    3. **Validation Issues** section — empty-state or list of cards with `StatusBadge` per severity (BLOCKING=critical, ERROR=critical, WARNING=warning, INFO=info) + row index + message
+    4. **Unknown Shapes** section — empty-state or wrapped badges each containing a lucide `AlertTriangle` + `<code>` raw shape name (critical variant)
+    5. **Top-3 Yields** section — empty-state or sticky-header `<table>` with Rank (Trophy badge: #1=critical, #2=warning, #3=info), Stone Name, Plan #, Yield % (uses `formatYield` helper)
+    6. **Stone Name Blocks** section — renders one collapsible `BlockCard` per block; each block defaults open with a toggle button
+  - `BlockCard` per-stone-name UI:
+    - Header (button w/ `aria-expanded`): block #, `<code>{stoneName}</code>`, BLUE/WHITE/UNKNOWN badge, parsed kapan/packet/signer + unresolved (red), rough weight Pill (formatEstWeight), row count Pill, plan group count Pill, warnings count Badge
+    - Body: amber block-warnings InfoBanner (if any), "Plan Groups" subsection with chips for every plan group (`#planNumber` + MAIN/ADD badge + row count + combined yield% + topRank Trophy badge if rank 1/2/3, colored with the matching pastel bg for additional groups), then the rows table (13 columns: Row#, Stone Name, Rough Cut, Shape (raw → normalized Badge, "unknown" Badge if not known), Polish Wt (3-decimal via `formatEstWeight`), Clarity, Color, Depth%, Ratio, Length, Width, Depth mm, Yield%) with main-plan rows uncolored (zebra/hover bg) and additional-plan rows colored in the fixed 10-pastel sequence — sequence **restarts per stone name** per spec §42
+- Preserved all existing workbook contract documentation sections (11-column contract, BLUE/WHITE parsing rules, plan slot limits, XLSX security InfoBanner, shape normalization seed DataTable) unchanged — only the upload form + result sections were replaced
+- Styling: compact enterprise ERP — text-xs cells, text-[10px]/[11px] labels, `tabular-nums` on all numeric cells, `font-mono` on raw shape names + stone names, `overflow-x-auto` wrapper on the 13-column rows table so it scrolls horizontally on narrow viewports
+- Defined `PASTEL_BG_SEQUENCE` (10 pastel Tailwind classes: rose/amber/emerald/sky/violet/cyan/pink/lime/orange/teal in `bg-{color}-50 dark:bg-{color}-950/30` form) as the fixed spec-§42 sequence
+- Added `rowPastelForBlock(block, row)` helper that walks `block.planGroups`, increments an "additional group index" counter only on `isAdditional` groups, and returns the matching pastel class for the row's group (or `""` for main-plan rows so they fall back to default table bg)
+
+Stage Summary:
+- Mock workbook validation is fully replaced with real server-side parsing via `POST /api/planning/workbook/parse` (multipart/form-data, TanStack Query `useMutation`, sonner toasts, error InfoBanner)
+- Parse result is rendered with 6 rich sections: 6-card KPI summary, parse errors, validation issues (severity-badged), unknown shapes (badges), top-3 yields (sticky-header table w/ Trophy ranks), and per-stone-name collapsible `BlockCard`s containing parsed header + plan-group chips + 13-column rows table
+- Additional plan group rows are color-coded with a fixed 10-pastel sequence that restarts per stone name (spec §42 — implemented in `PASTEL_BG_SEQUENCE` + `rowPastelForBlock` helper)
+- "Sample Workbook" download button generates a test `.xlsx` client-side via the `xlsx` library, exercising BLUE/WHITE/unknown-shape/EMERALD-5STEP/legacy-header parser paths so QA can validate the full pipeline without needing a real workbook
+- Existing contract documentation (11 columns, BLUE/WHITE parsing rules, plan slot limits, XLSX security banner, shape normalization seed table) preserved as-is
+- `bun run lint` → exit 0, zero errors/warnings
+- Dev server compiled cleanly (✓ Compiled in 1340ms) and `GET /` returned 200 in 605ms — no runtime errors introduced
+
+---
+Task ID: 4-FINAL
+Agent: main (cron-triggered webDevReview round 3)
+Task: QA assessment + mobile responsive fix + global filter bar + real xlsx workbook parsing + saved views
+
+## Current Project Status Assessment
+- Project was in stable state from Round 2 (12 analysis views upgraded, Customer 360, Demand Run History)
+- Lint was clean, dev server compiled successfully
+- QA via agent-browser + VLM identified: (1) mobile layout completely broken (sidebar doesn't collapse, takes full width on 375px); (2) no global filter bar; (3) workbook import was UI-only mock; (4) no saved views for requirements matrix
+
+## Goals / Completed Modifications / Verification Results
+
+### Styling: Mobile Responsive Fix
+- **Problem:** Sidebar was always visible (240px) even on 375px mobile, pushing content off-screen. VLM rated mobile usability 2/10.
+- **Fix:** Rewrote AppShell to be fully mobile responsive:
+  - Sidebar becomes a fixed overlay drawer on mobile (`fixed inset-y-0 left-0 top-12 w-72 max-w-[85vw] shadow-xl`), inline sticky on desktop (`md:static md:sticky md:w-60`)
+  - Added backdrop on mobile (`bg-black/40 backdrop-blur-sm`) that closes sidebar on click
+  - Auto-close sidebar on mobile initial load (useEffect checking `window.innerWidth < 768`)
+  - Auto-close sidebar on view change (hashchange listener)
+  - Topbar compact on mobile: hidden logo text on `<sm`, hidden search on `<md`, icon-only Cmd+K button on `<lg`, smaller user avatar
+  - Footer compact on mobile: shortened labels ("Fantasy" instead of "Fantasy ERP authoritative", "90D rule" instead of "90-day demand rule CONFIRMED")
+- **Result:** VLM rated mobile usability **8/10** ("Excellent use of space, clear data hierarchy, accessible controls")
+
+### New Feature: Global Filter Bar
+- **New store** `src/stores/global-filter.ts` — Zustand store with `country`, `branch`, `lab`, `windowDays` filters + `toQueryString()` helper for API integration + `hasActiveFilters()`
+- **New component** `src/components/diamond/global-filter-bar.tsx` — sticky bar below topbar with 4 Selects (Country, Branch, Lab, Window) + Clear button + "Filtered" badge when active. Country flags in dropdown. Branch options dynamically filtered by selected country.
+- Integrated into AppShell — appears on all views, sticky below topbar
+
+### New Feature: Real XLSX Workbook Parsing
+- **New library** `xlsx` (sheetjs) installed
+- **New parser** `src/lib/domain/workbook-parser.ts` — implements the confirmed workbook contract (spec §31-43):
+  - Reads first worksheet
+  - Detects/skips legacy header row
+  - Interprets only first 11 physical columns, warns on extra columns
+  - Preserves source order (NEVER sorts)
+  - Parses Blue/White stone names (spec §32-33)
+  - Applies shape normalization + tracks unknown shapes
+  - Validates EMERALD 5STEP ratio (Asscher 1.00-1.03, Emerald ≥1.40, blocking otherwise)
+  - Computes yield per row (Est Weight / Rough Weight)
+  - Groups additional plans by weight comparison (spec §37: same group if current ≤ previous 2-decimal)
+  - Identifies top-3 yields across main + additional groups (spec §43)
+  - Returns rich result: blocks, planGroups, validationIssues, unknownShapes, topThreeYields
+- **New API** `POST /api/planning/workbook/parse` — accepts multipart/form-data, validates .xlsx extension + 10MB limit, parses buffer
+- **Updated view** `workbook-import-view.tsx` — replaced mock validation with real upload + parse + 5 result sections (Summary KPIs, Validation Issues, Unknown Shapes, Top-3 Yields, Stone Name Blocks with collapsible cards + pastel group coloring). Added "Sample Workbook" download button that generates a test .xlsx client-side.
+- **Verified end-to-end:** Downloaded sample workbook → uploaded via API → parser correctly detected legacy header, parsed 9 rows into 3 blocks (2 BLUE, 1 WHITE), computed yields, identified 4 unknown shapes, ranked top-3 yields
+
+### New Feature: Saved Views for Requirements Matrix
+- **New store** `src/stores/saved-views.ts` — Zustand store with `persist` middleware (localStorage), stores named filter combinations (type, status, country, priority, search)
+- **Updated view** `requirements-matrix-view.tsx`:
+  - "Save View" button appears in Filters section when filters are active
+  - Save View Dialog with name input (min 3 chars) + current-filters summary
+  - Saved Views section appears below Filters when saved views exist
+  - Each saved view is a clickable chip with star icon, name, active-filter-count badge, and hover-delete button
+  - Clicking a saved view applies all its filters instantly + toast confirmation
+  - Delete button (hover-reveal) removes the saved view + toast
+- **Verified end-to-end:** Applied CRITICAL filter → saved as "Critical Requirements Watch" → cleared filters → saved view persisted → clicked saved view → CRITICAL filter re-applied
+
+### Verification Results
+- `bun run lint` → exit 0, zero errors/warnings
+- Dev server compiles cleanly
+- agent-browser end-to-end testing confirmed:
+  - Mobile (375px): sidebar collapsed, topbar compact, content readable — VLM 8/10
+  - Desktop (1600px): global filter bar visible with Country/Lab/Window selectors
+  - Workbook Import: Sample Workbook download works, file upload + parse works (9 rows, 3 blocks, top-3 yields, unknown shapes detected)
+  - Requirements Matrix: Save View dialog works, saved view persists in localStorage, click-to-apply works
+  - No console errors, no runtime errors
+
+## Unresolved Issues / Risks / Priority Recommendations for Next Phase
+
+### Remaining items (lower priority)
+1. **Authentication + RBAC** — login/sessions/granular permission checks still not implemented (users-view is a stub)
+2. **Real Fantasy ERP adapter** — currently using local synced read model; needs real credentials/API
+3. **Background job workers** — Fantasy sync, demand runs, forecast runs should be queued
+4. **WebSocket notifications** — real-time reservation/allocation conflicts
+5. **Wire global filter to APIs** — GlobalFilterBar currently sets state but doesn't yet filter API calls (views need to read `useGlobalFilter` and append to their API URLs)
+6. **Anomaly Detection view** — data science feature (spec §61) not yet built
+7. **Yield Prediction view** — data science feature (spec §61) not yet built
+8. **Plan Comparison rich UI** — spec §47 detailed comparison view not yet built
+9. **More sparkline data sources** — wire to real historical aggregates
+
+### Confirmed working features (regression-tested this round)
+- ✅ All Round 0 + Round 1 + Round 2 features still working
+- ✅ Mobile responsive layout (sidebar overlay drawer, compact topbar/footer)
+- ✅ Global filter bar (Country/Branch/Lab/Window selectors, persistent state)
+- ✅ Real XLSX workbook parsing (sheetjs, 11-column contract, stone name parsing, shape normalization, EMERALD 5STEP validation, yield computation, additional plan grouping, top-3 yields)
+- ✅ Workbook parse API (multipart upload, .xlsx validation, 10MB limit)
+- ✅ Sample workbook generator (client-side .xlsx creation)
+- ✅ Saved Views for requirements matrix (localStorage persistence, click-to-apply, delete)
+- ✅ Workbook Import rich results display (KPIs, validation issues, unknown shapes, top-3 yields, collapsible block cards with pastel group coloring)

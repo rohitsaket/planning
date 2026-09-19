@@ -18,6 +18,7 @@ import { useTheme } from "next-themes";
 import { apiFetch } from "@/lib/api-client";
 import { useQuery } from "@tanstack/react-query";
 import { CommandPalette } from "@/components/diamond/command-palette";
+import { GlobalFilterBar } from "@/components/diamond/global-filter-bar";
 
 interface NavItem {
   id: ViewId;
@@ -364,14 +365,43 @@ export function AppShell({ children }: { children: ReactNode }) {
   const setSidebarOpen = useNavStore((s) => s.setSidebarOpen);
   const view = useNavStore((s) => s.view);
 
+  // Close mobile sidebar on view change (via hash change)
+  useEffect(() => {
+    const closeOnMobile = () => {
+      if (typeof window !== "undefined" && window.innerWidth < 768) {
+        setSidebarOpen(false);
+      }
+    };
+    window.addEventListener("hashchange", closeOnMobile);
+    return () => window.removeEventListener("hashchange", closeOnMobile);
+  }, [setSidebarOpen]);
+
+  // Auto-close sidebar on mobile initial load
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.innerWidth < 768) {
+      setSidebarOpen(false);
+    }
+  }, [setSidebarOpen]);
+
   return (
     <div className="min-h-screen flex flex-col bg-background text-foreground">
       {/* Top bar */}
-      <header className="h-12 border-b border-border bg-card/80 backdrop-blur-sm flex items-center gap-2 px-3 sticky top-0 z-40">
-        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setSidebarOpen(!sidebarOpen)}>
-          {sidebarOpen ? <ChevronDown className="h-4 w-4 -rotate-90" /> : <ChevronRight className="h-4 w-4" />}
+      <header className="h-12 border-b border-border bg-card/80 backdrop-blur-sm flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 sticky top-0 z-40">
+        {/* Hamburger / collapse toggle */}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 flex-shrink-0"
+          onClick={() => setSidebarOpen(!sidebarOpen)}
+          aria-label="Toggle sidebar"
+        >
+          {sidebarOpen ? (
+            <ChevronDown className="h-4 w-4 -rotate-90" />
+          ) : (
+            <ChevronRight className="h-4 w-4" />
+          )}
         </Button>
-        <div className="flex items-center gap-2 mr-2">
+        <div className="flex items-center gap-2 mr-1 sm:mr-2 flex-shrink-0">
           <div className="h-6 w-6 rounded bg-gradient-to-br from-primary/80 to-primary flex items-center justify-center">
             <Diamond className="h-3.5 w-3.5 text-primary-foreground" />
           </div>
@@ -380,16 +410,31 @@ export function AppShell({ children }: { children: ReactNode }) {
             <span className="text-[9px] text-muted-foreground">Analysis · Requirement · Planning · Traceability</span>
           </div>
         </div>
-        <div className="hidden md:block flex-1">
+        {/* Search: hidden on mobile (use command palette instead) */}
+        <div className="hidden md:block flex-1 min-w-0">
           <GlobalSearch />
         </div>
-        <div className="flex items-center gap-1 ml-auto">
+        {/* Spacer for mobile to push actions right */}
+        <div className="md:hidden flex-1" />
+        <div className="flex items-center gap-1 sm:gap-1.5 ml-auto flex-shrink-0">
+          {/* Mobile: show small Cmd+K icon button */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 lg:hidden"
+            onClick={() => {
+              window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, ctrlKey: true }));
+            }}
+            aria-label="Command palette"
+          >
+            <CommandIcon className="h-4 w-4" />
+          </Button>
+          {/* Desktop: show labeled Cmd+K button */}
           <Button
             variant="outline"
             size="sm"
             className="h-8 gap-1.5 text-[11px] hidden lg:flex"
             onClick={() => {
-              // Dispatch Cmd+K programmatically by toggling the palette via custom event
               window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, ctrlKey: true }));
             }}
           >
@@ -399,16 +444,34 @@ export function AppShell({ children }: { children: ReactNode }) {
           </Button>
           <ThemeToggle />
           <NotificationsBell />
-          <div className="h-8 w-8 rounded-full bg-muted border border-border flex items-center justify-center">
-            <User className="h-4 w-4 text-muted-foreground" />
+          <div className="h-7 w-7 sm:h-8 sm:w-8 rounded-full bg-muted border border-border flex items-center justify-center">
+            <User className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-muted-foreground" />
           </div>
         </div>
       </header>
 
-      <div className="flex flex-1 min-h-0">
-        {/* Sidebar */}
+      {/* Global filter bar (sticky below topbar) */}
+      <GlobalFilterBar className="sticky top-12 z-30" />
+
+      <div className="flex flex-1 min-h-0 relative">
+        {/* Mobile backdrop when sidebar open */}
         {sidebarOpen && (
-          <aside className="w-60 flex-shrink-0 border-r border-sidebar-border bg-sidebar overflow-y-auto max-h-[calc(100vh-3rem)] sticky top-12">
+          <div
+            className="md:hidden fixed inset-0 top-12 bg-black/40 z-30 backdrop-blur-sm"
+            onClick={() => setSidebarOpen(false)}
+          />
+        )}
+        {/* Sidebar — overlay on mobile, inline on desktop */}
+        {sidebarOpen && (
+          <aside
+            className={cn(
+              "border-r border-sidebar-border bg-sidebar overflow-y-auto z-40",
+              // Mobile: fixed drawer overlay
+              "fixed inset-y-0 left-0 top-12 w-72 max-w-[85vw] shadow-xl md:shadow-none",
+              // Desktop: inline sticky
+              "md:static md:sticky md:top-12 md:w-60 md:max-w-none md:flex-shrink-0 md:z-auto md:max-h-[calc(100vh-3rem)]"
+            )}
+          >
             <nav className="py-1">
               {NAV.map((g) => <NavGroupItem key={g.id} group={g} />)}
             </nav>
@@ -425,18 +488,18 @@ export function AppShell({ children }: { children: ReactNode }) {
       </div>
 
       {/* Sticky footer */}
-      <footer className="mt-auto border-t border-border bg-card/60 px-3 py-1.5 flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
-        <div className="flex items-center gap-3">
-          <span className="flex items-center gap-1">
-            <ShieldCheck className="h-3 w-3" /> Fantasy ERP authoritative
+      <footer className="mt-auto border-t border-border bg-card/60 px-2 sm:px-3 py-1.5 flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+          <span className="flex items-center gap-1 flex-shrink-0">
+            <ShieldCheck className="h-3 w-3" /> Fantasy
           </span>
           <span className="hidden sm:inline">·</span>
-          <span className="hidden sm:inline">90-day demand rule CONFIRMED</span>
+          <span className="hidden sm:inline">90D rule CONFIRMED</span>
           <span className="hidden md:inline">·</span>
-          <span className="hidden md:inline">Memo excluded from shortage</span>
+          <span className="hidden md:inline">Memo excluded</span>
         </div>
-        <div className="flex items-center gap-3">
-          <span>Current view: <span className="text-foreground font-medium">{view}</span></span>
+        <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+          <span className="truncate">View: <span className="text-foreground font-medium">{view}</span></span>
         </div>
       </footer>
 

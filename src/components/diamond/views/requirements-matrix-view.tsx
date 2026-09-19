@@ -35,7 +35,12 @@ import {
   X,
   Pencil,
   Loader2,
+  Bookmark,
+  Save,
+  Trash2,
+  Star,
 } from "lucide-react";
+import { useSavedViews, type SavedView } from "@/stores/saved-views";
 
 interface RequirementRow {
   id: string;
@@ -182,6 +187,40 @@ export function RequirementsMatrixView() {
   const [showOverrideForm, setShowOverrideForm] = useState(false);
   const [newPriority, setNewPriority] = useState<string>("NORMAL");
   const [overrideReason, setOverrideReason] = useState<string>("");
+
+  // Saved Views state
+  const { views: savedViews, addView, removeView } = useSavedViews();
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [newViewName, setNewViewName] = useState("");
+
+  const applySavedView = (sv: SavedView) => {
+    setFilters({
+      type: sv.filters.type ?? "",
+      status: sv.filters.status ?? "",
+      country: sv.filters.country ?? "",
+      priority: sv.filters.priority ?? "",
+      q: sv.filters.search ?? "",
+    });
+    setPage(1);
+    toast.success(`Applied saved view "${sv.name}"`);
+  };
+
+  const handleSaveView = () => {
+    if (newViewName.trim().length < 3) {
+      toast.error("View name must be at least 3 characters");
+      return;
+    }
+    addView(newViewName.trim(), {
+      type: filters.type || null,
+      status: filters.status || null,
+      country: filters.country || null,
+      priority: filters.priority || null,
+      search: filters.q || "",
+    });
+    toast.success(`Saved view "${newViewName.trim()}"`);
+    setNewViewName("");
+    setShowSaveDialog(false);
+  };
 
   const qs = useMemo(() => {
     const parts: string[] = [`page=${page}`, `pageSize=${pageSize}`];
@@ -523,11 +562,18 @@ export function RequirementsMatrixView() {
         description="Type, status, country, priority and free-text search"
         bodyClassName="p-2"
         actions={
-          activeFilters > 0 ? (
-            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={clearFilters}>
-              <X className="h-3 w-3 mr-1" /> Clear ({activeFilters})
-            </Button>
-          ) : null
+          <div className="flex items-center gap-1">
+            {activeFilters > 0 && (
+              <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setShowSaveDialog(true)}>
+                <Save className="h-3 w-3 mr-1" /> Save View
+              </Button>
+            )}
+            {activeFilters > 0 && (
+              <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={clearFilters}>
+                <X className="h-3 w-3 mr-1" /> Clear ({activeFilters})
+              </Button>
+            )}
+          </div>
         }
       >
         <div className="flex items-center gap-2 flex-wrap">
@@ -602,6 +648,83 @@ export function RequirementsMatrixView() {
           </div>
         </div>
       </Section>
+
+      {/* Saved Views bar — persisted to localStorage */}
+      {savedViews.length > 0 && (
+        <Section title="Saved Views" description="Click to apply · persisted in browser localStorage" bodyClassName="p-2">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <Bookmark className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+            {savedViews.map((sv) => {
+              const activeCount = [sv.filters.type, sv.filters.status, sv.filters.country, sv.filters.priority, sv.filters.search].filter(Boolean).length;
+              return (
+                <div key={sv.id} className="inline-flex items-center gap-1 group">
+                  <button
+                    onClick={() => applySavedView(sv)}
+                    className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-border bg-card hover:bg-primary/5 hover:border-primary/40 transition-colors text-xs"
+                    title={`Filters: ${activeCount} active\nType: ${sv.filters.type || "any"}\nStatus: ${sv.filters.status || "any"}\nCountry: ${sv.filters.country || "any"}\nPriority: ${sv.filters.priority || "any"}\nSearch: ${sv.filters.search || "none"}`}
+                  >
+                    <Star className="h-3 w-3 text-amber-500" />
+                    <span className="font-medium">{sv.name}</span>
+                    <Badge variant="neutral" className="text-[9px]">{activeCount}</Badge>
+                  </button>
+                  <button
+                    onClick={() => { removeView(sv.id); toast.success(`Deleted saved view "${sv.name}"`); }}
+                    className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-rose-100 dark:hover:bg-rose-950/40"
+                    title="Delete saved view"
+                  >
+                    <Trash2 className="h-3 w-3 text-rose-500" />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </Section>
+      )}
+
+      {/* Save View Dialog */}
+      {showSaveDialog && (
+        <Dialog open={showSaveDialog} onOpenChange={setShowSaveDialog}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Save Current View</DialogTitle>
+              <DialogDescription>
+                Save the current filter combination with a name for quick access. Saved views are stored in your browser localStorage.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3 py-2">
+              <div>
+                <Label htmlFor="view-name" className="text-xs">View Name</Label>
+                <Input
+                  id="view-name"
+                  value={newViewName}
+                  onChange={(e) => setNewViewName(e.target.value)}
+                  placeholder="e.g., Critical US Backorders"
+                  className="mt-1 text-xs"
+                  autoFocus
+                  onKeyDown={(e) => { if (e.key === "Enter") handleSaveView(); }}
+                />
+                <p className="text-[10px] text-muted-foreground mt-1">Min 3 characters</p>
+              </div>
+              <div className="rounded-md border border-border bg-muted/30 p-2 text-[11px]">
+                <p className="font-medium mb-1">Current filters being saved:</p>
+                <ul className="space-y-0.5 text-muted-foreground">
+                  <li>Type: <span className="text-foreground font-medium">{filters.type || "any"}</span></li>
+                  <li>Status: <span className="text-foreground font-medium">{filters.status || "any"}</span></li>
+                  <li>Country: <span className="text-foreground font-medium">{filters.country || "any"}</span></li>
+                  <li>Priority: <span className="text-foreground font-medium">{filters.priority || "any"}</span></li>
+                  <li>Search: <span className="text-foreground font-medium">{filters.q || "none"}</span></li>
+                </ul>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setShowSaveDialog(false)}>Cancel</Button>
+              <Button size="sm" className="h-8 text-xs" onClick={handleSaveView} disabled={newViewName.trim().length < 3}>
+                <Save className="h-3 w-3 mr-1" /> Save View
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
 
       {/* Main table */}
       <DataTable<RequirementRow>
