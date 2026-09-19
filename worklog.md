@@ -971,3 +971,122 @@ Updated 3 APIs to honor `country`/`branch`/`lab` query params server-side (previ
 - ✅ Global filter server-side on customers/orders/memo APIs (was client-only in Round 4)
 - ✅ RBAC Users view (15×13 permission matrix, permission definitions, empty users state)
 - ✅ React Select warning eliminated (plan-comparison-view fix)
+
+---
+Task ID: 7-B
+Agent: full-stack-developer (Stockout Chart + WIP Viz + Skeletons)
+Task: Add stockout projection chart + WIP pipeline visualization + apply loading skeletons to key views
+
+Work Log:
+- Read worklog.md to understand prior multi-agent build context (Task 0/1/2/3/5 done)
+- Read the skeleton component library at src/components/diamond/shared/skeleton.tsx (Skeleton, KpiCardSkeleton, KpiGridSkeleton, TableSkeleton, ChartSkeleton, SectionSkeleton, PageSkeleton)
+- Read all 6 view files (dashboard, requirements-matrix, planning-workbench, plan-comparison, anomaly-detection, yield-prediction) plus stockout-view and wip-view
+- Inspected /api/planning/pieces and /api/analysis/wip + /api/analysis/stockout to confirm available fields
+- Task 1.1 dashboard-view.tsx: imported PageSkeleton + KpiGridSkeleton; wrapped KPI groups in conditional; if isLoading && !kpi returns PageSkeleton kpiCount=18 sections=4 (per task instructions); each of the 3 KPI groups (5/6/6 cards) renders KpiGridSkeleton while isLoading; chart sections left as-is (TanStack Query handles)
+- Task 1.2 requirements-matrix-view.tsx: imported TableSkeleton; replaced the main DataTable with a conditional that renders <TableSkeleton rows={10} cols={8} /> while isLoading && !data; filter row remains visible above
+- Task 1.3 planning-workbench-view.tsx: imported TableSkeleton; in each of the 3 panels (LEFT queue, CENTER rough, RIGHT plan possibilities), wrapped the DataTable/EmptyState in a conditional that renders <TableSkeleton rows={5} cols={4} /> while isLoading && !data
+- Task 1.4 plan-comparison-view.tsx: imported TableSkeleton + ChartSkeleton; between the case selector Section and the data block, added a loading branch that renders <TableSkeleton rows={6} cols={8} /> + <ChartSkeleton /> when isLoading && !data && a case is selected; case selector stays visible
+- Task 1.5 anomaly-detection-view.tsx: imported KpiGridSkeleton + ChartSkeleton + TableSkeleton; after the InfoBanner, wrapped the whole content (KPI grid + scatter section + table section + methodology) in a conditional rendering <KpiGridSkeleton count={4} /> + <ChartSkeleton /> + <TableSkeleton rows={6} cols={7} /> while isLoading && !data
+- Task 1.6 yield-prediction-view.tsx: imported KpiGridSkeleton + ChartSkeleton + TableSkeleton; after the InfoBanner, wrapped the whole content (KPI grid + methodology + historical chart + prediction chart + tables) in a conditional rendering <KpiGridSkeleton count={6} /> + <ChartSkeleton /> + <TableSkeleton rows={5} cols={8} /> while isLoading && !data
+- Task 2 stockout-view.tsx: full rewrite; added recharts ComposedChart with Bar+Line+ReferenceLine; for each of top-8 categories by risk (CRITICAL→HIGH→MEDIUM→LOW then by prediction90d), render 3 grouped bars (Proj 30D/60D/90D) colored by RISK_COLORS gradient (rose/amber/sky/emerald); added <ReferenceLine y={0}> for stockout boundary and <ReferenceLine y={5} stroke="amber" strokeDasharray="3 3" label="Reorder Threshold (5)"> for configurable reorder threshold; added a Line for day0 stock; wrapped chart in <Section title="Projected Inventory Balance" description="Projected available stock over 30/60/90 days — bars below zero indicate stockout">; also added a small skeleton branch (KpiGridSkeleton count=3 + TableSkeleton rows=8 cols=8) for the initial loading state; explanatory "How to read" footnote
+- Task 3 wip-view.tsx: full rewrite; added STAGES array of 4 pipeline stages (Approved Plans emerald, Pieces in WIP sky, Expected Output amber, Actual Output emerald) with icon + count + proportional bar; between stages a ChevronRight icon; computed counts from /api/analysis/wip (totalWipPieces for approved + WIP) and /api/planning/pieces (filter fulfilled=true for actual output); added amber-tinted legend below the funnel: "WIP contribution to shortage is an OPEN rule (BR-WIP-001) — counts shown but not auto-applied"; kept the existing KPI card + 4 DataTables (byStatus/byDept/byShape/byCategory) + eligibility flags table; added a KpiGridSkeleton count=4 fallback while loading
+- Lint: ran `bun run lint` — first pass had one error (React Compiler preserve-manual-memoization on stockout-view's useMemo deps `data?.rows`); fixed by changing deps to `data` with `if (!data) return []` guard; lint passed clean after fix (0 errors, 0 warnings)
+- Verified dev server log: latest entries show "✓ Compiled" with no errors; the prior "Fast Refresh had to perform a full reload" warnings cleared after the lint fix
+
+Stage Summary:
+- 8 view files edited: dashboard-view, requirements-matrix-view, planning-workbench-view, plan-comparison-view, anomaly-detection-view, yield-prediction-view, stockout-view (rewritten), wip-view (rewritten)
+- All 6 skeleton-loading cases now render proper skeleton placeholders instead of empty/spinner-only states during the initial fetch
+- Stockout view now has a ComposedChart showing projected 30/60/90-day inventory bars for top-8 risk categories, colored by stockoutRisk (CRITICAL=rose, HIGH=amber, MEDIUM=sky, LOW=emerald), with zero-line and amber dashed reorder threshold (y=5) ReferenceLines
+- WIP view now leads with a 4-stage horizontal pipeline (Approved Plans → Pieces in WIP → Expected Output → Actual Output) using ClipboardCheck/Boxes/Package/CheckCircle icons, proportional bars, ChevronRight connectors, and an amber BR-WIP-001 OPEN-rule legend
+- Lint passes cleanly; dev server compiles without errors
+
+---
+Task ID: 7-FINAL
+Agent: main (cron-triggered webDevReview round 6)
+Task: QA assessment + loading skeletons + WebSocket mini-service + stockout projection chart + WIP pipeline visualization
+
+## Current Project Status Assessment
+- Project was in stable state from Round 5 (Yield Prediction, global filter on all APIs, RBAC users view)
+- Lint was clean, dev server compiled successfully
+- QA via agent-browser confirmed no regressions across all major views; VLM rated views 8-9/10
+
+## Goals / Completed Modifications / Verification Results
+
+### Feature: Loading Skeleton Component Library
+- **New file** `src/components/diamond/shared/skeleton.tsx` — exports:
+  - `Skeleton` — base animated block (animate-pulse, bg-muted/60)
+  - `KpiCardSkeleton` — matches KpiCard layout (icon placeholder + label + value + sparkline)
+  - `KpiGridSkeleton({ count })` — n KPI skeletons in responsive grid
+  - `TableSkeleton({ rows, cols })` — table with header + n rows with staggered animation delays
+  - `ChartSkeleton({ height })` — chart placeholder with bar-like shapes of varying heights
+  - `SectionSkeleton({ hasChart })` — section with title + body (chart or table)
+  - `PageSkeleton({ kpiCount, sections })` — full page skeleton for initial load
+
+### Feature: Skeletons Applied to 6 Key Views
+1. **dashboard-view** — if `isLoading && !kpi`, returns `<PageSkeleton kpiCount={18} sections={4} />`; each KPI group renders `<KpiGridSkeleton>` while loading
+2. **requirements-matrix-view** — DataTable replaced with `<TableSkeleton rows={10} cols={8} />` while loading; filter row stays visible
+3. **planning-workbench-view** — all 3 panels render `<TableSkeleton rows={5} cols={4} />` while loading
+4. **plan-comparison-view** — `<TableSkeleton rows={6} cols={8} />` + `<ChartSkeleton />` while loading
+5. **anomaly-detection-view** — `<KpiGridSkeleton count={4} />` + `<ChartSkeleton />` + `<TableSkeleton rows={6} cols={7} />` while loading
+6. **yield-prediction-view** — `<KpiGridSkeleton count={6} />` + `<ChartSkeleton />` + `<TableSkeleton rows={5} cols={8} />` while loading
+
+### Feature: Stockout Projection Chart
+- **Updated** `stockout-view.tsx` — added ComposedChart with grouped Bars for day30/day60/day90 per top-8 categories, colored by stockoutRisk (CRITICAL=rose, HIGH=amber, MEDIUM=sky, LOW=emerald), ReferenceLine at y=0 (stockout boundary) + y=5 (reorder threshold), Line for current available stock. Wrapped in Section "Projected Inventory Balance" with color legend. Added loading skeleton branch.
+- VLM: **8/10 polish**, "effectively visualizes the when and how bad of stockouts"
+
+### Feature: WIP Pipeline Visualization
+- **Updated** `wip-view.tsx` — added 4-stage horizontal pipeline (Approved Plans → Pieces in WIP → Expected Output → Actual Output) with:
+  - ClipboardCheck (emerald), Boxes (sky), Package (amber), CheckCircle (emerald) icons
+  - Count + proportional bar per stage (width = count / maxCount)
+  - ChevronRight arrows between stages
+  - OPEN-rule legend (BR-WIP-001: WIP contribution not auto-applied)
+  - Counts computed from `/api/analysis/wip` + `/api/planning/pieces`
+- VLM: **8/10 polish**, "effectively visualizes the leakage in the process"
+
+### Feature: WebSocket Mini-Service for Realtime Notifications
+- **New mini-service** `mini-services/notifications-service/` with `package.json` + `index.ts`:
+  - Socket.io server on port 3001 (fixed, not env var)
+  - Path `/socket.io/` (changed from `/` to avoid intercepting HTTP endpoints)
+  - CORS: origin "*", methods GET/POST
+  - HTTP endpoints: POST `/broadcast` (push events), GET `/health`, GET `/`
+  - In-memory event log (last 50 events)
+  - Demo events every 30s (8 rotating templates: reservation conflict, plan approval pending, stockout warning, sync failure, requirement overdue, plan approved, demand run completed, replan required)
+  - On client connection, sends last 20 events
+- **New store** `src/stores/realtime-store.ts` — Zustand store with events, connected, unreadCount, addEvent, setConnected, clearUnread, setEventLog
+- **New provider** `src/components/diamond/realtime-provider.tsx` — singleton socket.io client, connects in dev (localhost:3001) or prod (gateway with XTransformPort), handles connect/disconnect/connect_error/event-log/notification events, shows sonner toast on notification
+- **Mounted** RealtimeProvider in `layout.tsx` wrapping all children
+- **Updated** NotificationsBell in app-shell: shows realtime events above static notifications, "Live"/"Offline" status badge, green pulse indicator when connected, relative timestamps, demo mode label, total unread count = static + realtime
+- **Note:** Background processes don't persist in this environment (bun --hot exits). The service works when running but needs to be restarted. In production with proper process management, it would stay up.
+
+### Verification Results
+- `bun run lint` → exit 0, zero errors/warnings
+- Dev server compiles cleanly, HTTP 200
+- agent-browser end-to-end testing confirmed:
+  - WIP Pipeline view: 4-stage pipeline with counts (66 pieces in WIP, 0 actual output) renders correctly
+  - Stockout view: "Projected Inventory Balance" section with ComposedChart + ReferenceLines renders correctly
+  - Notifications bell: opens panel showing "Notifications" + "Offline"/"Live" status + seeded notifications
+  - No console errors, no runtime errors, no page errors
+- VLM assessments:
+  - Stockout projection: **8/10**, "effectively visualizes the when and how bad of stockouts"
+  - WIP pipeline: **8/10**, "effectively visualizes the leakage in the process"
+
+## Unresolved Issues / Risks / Priority Recommendations for Next Phase
+
+### Remaining items (lower priority)
+1. **Authentication + RBAC enforcement** — login/sessions still not implemented; NextAuth.js v4 available
+2. **Real Fantasy ERP adapter** — currently using local synced read model; needs real credentials/API
+3. **Background job workers** — Fantasy sync, demand runs, forecast runs should be queued
+4. **WebSocket service persistence** — the notifications-service works but background bun processes exit in this environment; needs proper process management (PM2/systemd) in production
+5. **Chart X-axis label density** — stockout projection chart has truncated/overlapping X-axis labels (VLM noted)
+6. **Mobile responsive for new views** — Yield Prediction and RBAC matrix need mobile horizontal-scroll check
+7. **More sparkline data sources** — wire to real historical aggregates
+
+### Confirmed working features (regression-tested this round)
+- ✅ All Round 0-5 features still working
+- ✅ Loading skeleton library (7 components: Skeleton, KpiCardSkeleton, KpiGridSkeleton, TableSkeleton, ChartSkeleton, SectionSkeleton, PageSkeleton)
+- ✅ Skeletons applied to 6 key views (dashboard, requirements-matrix, planning-workbench, plan-comparison, anomaly-detection, yield-prediction)
+- ✅ Stockout projection chart (ComposedChart with grouped bars, ReferenceLines, risk coloring)
+- ✅ WIP pipeline visualization (4-stage funnel with icons, counts, proportional bars, OPEN-rule legend)
+- ✅ WebSocket mini-service (Socket.io on port 3001, broadcast endpoint, demo events, event log)
+- ✅ Realtime store + provider (Zustand, singleton socket client, sonner toasts)
+- ✅ Enhanced NotificationsBell (Live/Offline status, realtime events, green pulse indicator, relative timestamps)

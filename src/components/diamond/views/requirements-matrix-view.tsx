@@ -42,6 +42,7 @@ import {
 } from "lucide-react";
 import { useSavedViews, type SavedView } from "@/stores/saved-views";
 import { useGlobalFilter } from "@/stores/global-filter";
+import { TableSkeleton } from "@/components/diamond/shared/skeleton";
 
 interface RequirementRow {
   id: string;
@@ -753,17 +754,21 @@ export function RequirementsMatrixView() {
       )}
 
       {/* Main table */}
-      <DataTable<RequirementRow>
-        columns={columns}
-        rows={rows}
-        loading={isLoading}
-        emptyMessage="No requirements match the current filters."
-        maxHeight="640px"
-        onRowClick={(r) => setSelectedId(r.id)}
-        rowClassName={(r) => (r.remainingUnplanned > 0 ? "bg-rose-50/40 dark:bg-rose-950/10" : "")}
-        exportable
-        exportFilename={`requirements-page-${page}.csv`}
-      />
+      {isLoading && !data ? (
+        <TableSkeleton rows={10} cols={8} />
+      ) : (
+        <DataTable<RequirementRow>
+          columns={columns}
+          rows={rows}
+          loading={isLoading}
+          emptyMessage="No requirements match the current filters."
+          maxHeight="640px"
+          onRowClick={(r) => setSelectedId(r.id)}
+          rowClassName={(r) => (r.remainingUnplanned > 0 ? "bg-rose-50/40 dark:bg-rose-950/10" : "")}
+          exportable
+          exportFilename={`requirements-page-${page}.csv`}
+        />
+      )}
 
       {/* Server-side pagination */}
       <div className="flex items-center justify-between text-[11px] text-muted-foreground">

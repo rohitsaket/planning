@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { KpiGridSkeleton, PageSkeleton } from "@/components/diamond/shared/skeleton";
 
 interface DashboardKpi {
   physicalShortage: number;
@@ -201,6 +202,11 @@ export function DashboardView() {
         }
       />
 
+      {isLoading && !kpi ? (
+        <PageSkeleton kpiCount={18} sections={4} />
+      ) : (
+        <>
+
       {/* GROUP 1: Manufacturing Need — the four requirement numbers */}
       <div>
         <div className="flex items-center gap-2 mb-2 px-1">
@@ -208,13 +214,17 @@ export function DashboardView() {
           <h2 className="text-[11px] font-bold uppercase tracking-wide text-foreground">Manufacturing Need</h2>
           <span className="text-[10px] text-muted-foreground">— Four requirement numbers, never collapsed into one</span>
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2">
-          <KpiCard label="Physical Shortage" value={kpi?.physicalShortage ?? 0} unit="pcs" intent="critical" icon={AlertTriangle} hint="MAX(0, Target − Available)" sparkline={shortageSparkline} onClick={() => setView("requirements-matrix")} />
-          <KpiCard label="Pipeline-Adjusted" value={kpi?.pipelineAdjusted ?? 0} unit="pcs" intent="warning" icon={TrendingDown} hint="Shortage − Eligible WIP" sparkline={pipelineSparkline} onClick={() => setView("requirements-matrix")} />
-          <KpiCard label="Approved Plan Coverage" value={kpi?.approvedPlanCoverage ?? 0} unit="pcs" intent="success" icon={ShieldCheck} hint="Approved plan pieces" onClick={() => setView("planning-approval-queue")} />
-          <KpiCard label="Remaining Unplanned" value={kpi?.remainingUnplanned ?? 0} unit="pcs" intent="critical" icon={AlertTriangle} hint="Pipeline − Plan Coverage" onClick={() => setView("requirements-matrix")} />
-          <KpiCard label="Forecast Signal" value={kpi?.forecastRequirement ?? 0} unit="pcs" intent="info" icon={TrendingUp} hint="Advisory — NOT confirmed demand" onClick={() => setView("data-science-forecast")} />
-        </div>
+        {isLoading ? (
+          <KpiGridSkeleton count={5} />
+        ) : (
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2">
+            <KpiCard label="Physical Shortage" value={kpi?.physicalShortage ?? 0} unit="pcs" intent="critical" icon={AlertTriangle} hint="MAX(0, Target − Available)" sparkline={shortageSparkline} onClick={() => setView("requirements-matrix")} />
+            <KpiCard label="Pipeline-Adjusted" value={kpi?.pipelineAdjusted ?? 0} unit="pcs" intent="warning" icon={TrendingDown} hint="Shortage − Eligible WIP" sparkline={pipelineSparkline} onClick={() => setView("requirements-matrix")} />
+            <KpiCard label="Approved Plan Coverage" value={kpi?.approvedPlanCoverage ?? 0} unit="pcs" intent="success" icon={ShieldCheck} hint="Approved plan pieces" onClick={() => setView("planning-approval-queue")} />
+            <KpiCard label="Remaining Unplanned" value={kpi?.remainingUnplanned ?? 0} unit="pcs" intent="critical" icon={AlertTriangle} hint="Pipeline − Plan Coverage" onClick={() => setView("requirements-matrix")} />
+            <KpiCard label="Forecast Signal" value={kpi?.forecastRequirement ?? 0} unit="pcs" intent="info" icon={TrendingUp} hint="Advisory — NOT confirmed demand" onClick={() => setView("data-science-forecast")} />
+          </div>
+        )}
       </div>
 
       {/* GROUP 2: Inventory & Operations */}
@@ -224,14 +234,18 @@ export function DashboardView() {
           <h2 className="text-[11px] font-bold uppercase tracking-wide text-foreground">Inventory & Operations</h2>
           <span className="text-[10px] text-muted-foreground">— Fantasy-authoritative stock + open commitments</span>
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
-          <KpiCard label="Polished Stock" value={kpi?.polishedStock ?? 0} unit="lots" intent="default" icon={Gem} hint="Fantasy authoritative" onClick={() => setView("analysis-polished")} />
-          <KpiCard label="Rough Available" value={kpi?.roughAvailable ?? 0} unit="stones" intent="success" icon={Gem} onClick={() => setView("planning-rough-availability")} />
-          <KpiCard label="Rough Reserved" value={kpi?.roughReserved ?? 0} unit="stones" intent="warning" icon={ShieldCheck} onClick={() => setView("planning-reservations")} />
-          <KpiCard label="Current WIP" value={kpi?.currentWip ?? 0} unit="pcs" intent="info" icon={Boxes} hint="Approved plan pieces" onClick={() => setView("analysis-wip")} />
-          <KpiCard label="Open Orders" value={kpi?.openOrders ?? 0} intent="default" icon={ShoppingCart} onClick={() => setView("analysis-orders")} />
-          <KpiCard label="Backorders" value={kpi?.backorders ?? 0} unit="pcs" intent="critical" icon={FileWarning} onClick={() => setView("requirements-backorders")} />
-        </div>
+        {isLoading ? (
+          <KpiGridSkeleton count={6} />
+        ) : (
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
+            <KpiCard label="Polished Stock" value={kpi?.polishedStock ?? 0} unit="lots" intent="default" icon={Gem} hint="Fantasy authoritative" onClick={() => setView("analysis-polished")} />
+            <KpiCard label="Rough Available" value={kpi?.roughAvailable ?? 0} unit="stones" intent="success" icon={Gem} onClick={() => setView("planning-rough-availability")} />
+            <KpiCard label="Rough Reserved" value={kpi?.roughReserved ?? 0} unit="stones" intent="warning" icon={ShieldCheck} onClick={() => setView("planning-reservations")} />
+            <KpiCard label="Current WIP" value={kpi?.currentWip ?? 0} unit="pcs" intent="info" icon={Boxes} hint="Approved plan pieces" onClick={() => setView("analysis-wip")} />
+            <KpiCard label="Open Orders" value={kpi?.openOrders ?? 0} intent="default" icon={ShoppingCart} onClick={() => setView("analysis-orders")} />
+            <KpiCard label="Backorders" value={kpi?.backorders ?? 0} unit="pcs" intent="critical" icon={FileWarning} onClick={() => setView("requirements-backorders")} />
+          </div>
+        )}
       </div>
 
       {/* GROUP 3: Priority & Sync Health */}
@@ -241,14 +255,18 @@ export function DashboardView() {
           <h2 className="text-[11px] font-bold uppercase tracking-wide text-foreground">Priority & Sync Health</h2>
           <span className="text-[10px] text-muted-foreground">— Requirements by urgency + Fantasy integration status + yield variance</span>
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
-          <KpiCard label="Critical Reqs" value={kpi?.criticalRequirements ?? 0} intent="critical" icon={AlertTriangle} hint="CRITICAL priority + unplanned > 0" onClick={() => setView("requirements-priority-queue")} />
-          <KpiCard label="High Reqs" value={kpi?.highRequirements ?? 0} intent="warning" icon={AlertTriangle} hint="HIGH priority + unplanned > 0" onClick={() => setView("requirements-priority-queue")} />
-          <KpiCard label="Overdue Reqs" value={kpi?.overdueRequirements ?? 0} intent="critical" icon={Clock} hint="daysOverdue > 0" onClick={() => setView("requirements-priority-queue")} />
-          <KpiCard label="Fantasy Sync" value={kpi?.fantasySyncHealth ?? "—"} intent={kpi?.fantasySyncHealth === "HEALTHY" ? "success" : kpi?.fantasySyncHealth === "PARTIAL" ? "warning" : "critical"} icon={RefreshCw} onClick={() => setView("fantasy-sync")} />
-          <KpiCard label="Planned Yield" value={`${(kpi?.plannedYield ?? 0).toFixed(2)}%`} intent="info" icon={TrendingUp} onClick={() => setView("manufacturing-plan-vs-actual")} />
-          <KpiCard label="Yield Variance" value={`${(kpi?.yieldVariance ?? 0).toFixed(2)}%`} intent={(kpi?.yieldVariance ?? 0) < 0 ? "critical" : "success"} icon={(kpi?.yieldVariance ?? 0) < 0 ? TrendingDown : TrendingUp} hint={`Actual ${(kpi?.actualYield ?? 0).toFixed(2)}% vs Planned ${(kpi?.plannedYield ?? 0).toFixed(2)}%`} onClick={() => setView("manufacturing-plan-vs-actual")} />
-        </div>
+        {isLoading ? (
+          <KpiGridSkeleton count={6} />
+        ) : (
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
+            <KpiCard label="Critical Reqs" value={kpi?.criticalRequirements ?? 0} intent="critical" icon={AlertTriangle} hint="CRITICAL priority + unplanned > 0" onClick={() => setView("requirements-priority-queue")} />
+            <KpiCard label="High Reqs" value={kpi?.highRequirements ?? 0} intent="warning" icon={AlertTriangle} hint="HIGH priority + unplanned > 0" onClick={() => setView("requirements-priority-queue")} />
+            <KpiCard label="Overdue Reqs" value={kpi?.overdueRequirements ?? 0} intent="critical" icon={Clock} hint="daysOverdue > 0" onClick={() => setView("requirements-priority-queue")} />
+            <KpiCard label="Fantasy Sync" value={kpi?.fantasySyncHealth ?? "—"} intent={kpi?.fantasySyncHealth === "HEALTHY" ? "success" : kpi?.fantasySyncHealth === "PARTIAL" ? "warning" : "critical"} icon={RefreshCw} onClick={() => setView("fantasy-sync")} />
+            <KpiCard label="Planned Yield" value={`${(kpi?.plannedYield ?? 0).toFixed(2)}%`} intent="info" icon={TrendingUp} onClick={() => setView("manufacturing-plan-vs-actual")} />
+            <KpiCard label="Yield Variance" value={`${(kpi?.yieldVariance ?? 0).toFixed(2)}%`} intent={(kpi?.yieldVariance ?? 0) < 0 ? "critical" : "success"} icon={(kpi?.yieldVariance ?? 0) < 0 ? TrendingDown : TrendingUp} hint={`Actual ${(kpi?.actualYield ?? 0).toFixed(2)}% vs Planned ${(kpi?.plannedYield ?? 0).toFixed(2)}%`} onClick={() => setView("manufacturing-plan-vs-actual")} />
+          </div>
+        )}
       </div>
 
       {/* Charts row */}
@@ -367,6 +385,8 @@ export function DashboardView() {
           ))}
         </div>
       </Section>
+        </>
+      )}
     </div>
   );
 }

@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
+import { KpiGridSkeleton, ChartSkeleton, TableSkeleton } from "@/components/diamond/shared/skeleton";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -450,6 +451,14 @@ export function YieldPredictionView() {
         </div>
       </InfoBanner>
 
+      {isLoading && !data ? (
+        <div className="flex flex-col gap-3">
+          <KpiGridSkeleton count={6} />
+          <ChartSkeleton />
+          <TableSkeleton rows={5} cols={8} />
+        </div>
+      ) : (
+        <>
       {/* Summary KPI grid */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
         <KpiCard
@@ -940,6 +949,8 @@ export function YieldPredictionView() {
           maxHeight="500px"
         />
       </Section>
+        </>
+      )}
     </div>
   );
 }

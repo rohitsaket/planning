@@ -19,6 +19,7 @@ import { apiFetch } from "@/lib/api-client";
 import { useQuery } from "@tanstack/react-query";
 import { CommandPalette } from "@/components/diamond/command-palette";
 import { GlobalFilterBar } from "@/components/diamond/global-filter-bar";
+import { useRealtimeStore } from "@/stores/realtime-store";
 
 interface NavItem {
   id: ViewId;
@@ -325,37 +326,107 @@ function NotificationsBell() {
   });
   const unread = data?.rows.filter((n) => !n.read).length ?? 0;
   const [open, setOpen] = useState(false);
+  // Realtime notifications
+  const realtimeEvents = useRealtimeStore((s) => s.events);
+  const realtimeConnected = useRealtimeStore((s) => s.connected);
+  const realtimeUnread = useRealtimeStore((s) => s.unreadCount);
+  const clearRealtimeUnread = useRealtimeStore((s) => s.clearUnread);
+  const totalUnread = unread + realtimeUnread;
+
+  const handleToggle = () => {
+    const next = !open;
+    setOpen(next);
+    if (next && realtimeUnread > 0) clearRealtimeUnread();
+  };
+
+  const formatRelTime = (iso: string) => {
+    const diff = Date.now() - new Date(iso).getTime();
+    const sec = Math.floor(diff / 1000);
+    if (sec < 60) return `${sec}s ago`;
+    const min = Math.floor(sec / 60);
+    if (min < 60) return `${min}m ago`;
+    const hr = Math.floor(min / 60);
+    return `${hr}h ago`;
+  };
+
   return (
     <div className="relative">
-      <Button variant="ghost" size="icon" className="h-8 w-8 relative" onClick={() => setOpen(!open)}>
+      <Button variant="ghost" size="icon" className="h-8 w-8 relative" onClick={handleToggle}>
         <Bell className="h-4 w-4" />
-        {unread > 0 && (
+        {/* Live indicator when connected */}
+        {realtimeConnected && (
+          <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-emerald-500 ring-2 ring-card animate-pulse" title="Live — connected to realtime service" />
+        )}
+        {totalUnread > 0 && (
           <span className="absolute -top-0.5 -right-0.5 h-3.5 min-w-3.5 px-1 rounded-full bg-rose-500 text-white text-[9px] font-bold flex items-center justify-center">
-            {unread > 9 ? "9+" : unread}
+            {totalUnread > 9 ? "9+" : totalUnread}
           </span>
         )}
       </Button>
-      {open && data && (
+      {open && (
         <div className="absolute top-full mt-1 right-0 w-80 z-50 rounded-md border border-border bg-popover shadow-lg overflow-hidden">
-          <div className="px-3 py-2 border-b border-border bg-muted/50">
-            <p className="text-xs font-semibold">Notifications ({data.rows.length})</p>
+          <div className="px-3 py-2 border-b border-border bg-muted/50 flex items-center justify-between">
+            <p className="text-xs font-semibold">Notifications</p>
+            <span className={cn("flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded",
+              realtimeConnected ? "text-emerald-700 bg-emerald-100 dark:text-emerald-300 dark:bg-emerald-950/40" : "text-muted-foreground bg-muted")}>
+              <span className={cn("h-1.5 w-1.5 rounded-full", realtimeConnected ? "bg-emerald-500" : "bg-muted-foreground")} />
+              {realtimeConnected ? "Live" : "Offline"}
+            </span>
           </div>
           <div className="max-h-80 overflow-y-auto">
-            {data.rows.map((n) => (
-              <div key={n.id} className="px-3 py-2 border-b border-border/50 last:border-0 hover:bg-muted/40">
-                <div className="flex items-start gap-2">
-                  <span className={cn("h-1.5 w-1.5 rounded-full mt-1.5 flex-shrink-0",
-                    n.severity === "CRITICAL" ? "bg-rose-500" :
-                    n.severity === "ERROR" ? "bg-rose-400" :
-                    n.severity === "WARNING" ? "bg-amber-400" :
-                    "bg-sky-400")} />
-                  <div className="min-w-0">
-                    <p className="text-xs font-medium truncate">{n.title}</p>
-                    <p className="text-[10px] text-muted-foreground line-clamp-2">{n.message}</p>
-                  </div>
+            {/* Realtime events first */}
+            {realtimeEvents.length > 0 && (
+              <>
+                <div className="px-3 py-1.5 bg-sky-50/50 dark:bg-sky-950/20 border-b border-border/50">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-sky-700 dark:text-sky-300">Realtime ({realtimeEvents.length})</p>
                 </div>
-              </div>
-            ))}
+                {realtimeEvents.map((evt) => (
+                  <div key={evt.id} className="px-3 py-2 border-b border-border/50 last:border-0 hover:bg-muted/40">
+                    <div className="flex items-start gap-2">
+                      <span className={cn("h-1.5 w-1.5 rounded-full mt-1.5 flex-shrink-0",
+                        evt.severity === "error" ? "bg-rose-500" :
+                        evt.severity === "warning" ? "bg-amber-400" :
+                        evt.severity === "success" ? "bg-emerald-500" :
+                        "bg-sky-400")} />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-baseline justify-between gap-2">
+                          <p className="text-xs font-medium truncate">{evt.title}</p>
+                          <span className="text-[9px] text-muted-foreground flex-shrink-0">{formatRelTime(evt.timestamp)}</span>
+                        </div>
+                        <p className="text-[10px] text-muted-foreground line-clamp-2">{evt.message}</p>
+                        {evt.demoMode && <span className="text-[9px] text-muted-foreground/60 italic">demo</span>}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </>
+            )}
+            {/* Static notifications */}
+            {data && data.rows.length > 0 && (
+              <>
+                <div className="px-3 py-1.5 bg-muted/30 border-b border-border/50">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Seeded ({data.rows.length})</p>
+                </div>
+                {data.rows.map((n) => (
+                  <div key={n.id} className="px-3 py-2 border-b border-border/50 last:border-0 hover:bg-muted/40">
+                    <div className="flex items-start gap-2">
+                      <span className={cn("h-1.5 w-1.5 rounded-full mt-1.5 flex-shrink-0",
+                        n.severity === "CRITICAL" ? "bg-rose-500" :
+                        n.severity === "ERROR" ? "bg-rose-400" :
+                        n.severity === "WARNING" ? "bg-amber-400" :
+                        "bg-sky-400")} />
+                      <div className="min-w-0">
+                        <p className="text-xs font-medium truncate">{n.title}</p>
+                        <p className="text-[10px] text-muted-foreground line-clamp-2">{n.message}</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </>
+            )}
+            {realtimeEvents.length === 0 && (!data || data.rows.length === 0) && (
+              <div className="px-3 py-6 text-center text-xs text-muted-foreground">No notifications</div>
+            )}
           </div>
         </div>
       )}

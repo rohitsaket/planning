@@ -47,6 +47,7 @@ import {
   Boxes,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { TableSkeleton, ChartSkeleton } from "@/components/diamond/shared/skeleton";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -713,6 +714,13 @@ export function PlanComparisonView() {
           icon={<Scale className="h-8 w-8" />}
         />
       )}
+
+      {isLoading && !data && effectiveCaseId ? (
+        <div className="flex flex-col gap-3">
+          <TableSkeleton rows={6} cols={8} />
+          <ChartSkeleton />
+        </div>
+      ) : null}
 
       {data && (
         <>

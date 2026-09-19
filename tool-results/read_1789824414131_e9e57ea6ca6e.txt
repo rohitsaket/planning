@@ -1,0 +1,1078 @@
+     1→"use client";
+     2→
+     3→import { useMemo, useState } from "react";
+     4→import { useMutation, useQueryClient } from "@tanstack/react-query";
+     5→import { toast } from "sonner";
+     6→import { useApi, apiPost } from "@/lib/api-client";
+     7→import { PageHeader, Section } from "@/components/diamond/shared/page-header";
+     8→import { DataTable, type Column } from "@/components/diamond/shared/data-table";
+     9→import { StatusBadge, Badge } from "@/components/diamond/shared/badges";
+    10→import { KpiCard } from "@/components/diamond/shared/kpi-card";
+    11→import { InfoBanner, NumberCell } from "@/components/diamond/shared/empty-state";
+    12→import { Input } from "@/components/ui/input";
+    13→import { Textarea } from "@/components/ui/textarea";
+    14→import { Label } from "@/components/ui/label";
+    15→import {
+    16→  Select,
+    17→  SelectTrigger,
+    18→  SelectValue,
+    19→  SelectContent,
+    20→  SelectItem,
+    21→} from "@/components/ui/select";
+    22→import { Button } from "@/components/ui/button";
+    23→import {
+    24→  Dialog,
+    25→  DialogContent,
+    26→  DialogHeader,
+    27→  DialogTitle,
+    28→  DialogDescription,
+    29→} from "@/components/ui/dialog";
+    30→import {
+    31→  Search,
+    32→  ChevronLeft,
+    33→  ChevronRight,
+    34→  Filter,
+    35→  X,
+    36→  Pencil,
+    37→  Loader2,
+    38→  Bookmark,
+    39→  Save,
+    40→  Trash2,
+    41→  Star,
+    42→} from "lucide-react";
+    43→import { useSavedViews, type SavedView } from "@/stores/saved-views";
+    44→import { useGlobalFilter } from "@/stores/global-filter";
+    45→
+    46→interface RequirementRow {
+    47→  id: string;
+    48→  requirementCode: string;
+    49→  type: string;
+    50→  status: string;
+    51→  customerName: string | null;
+    52→  orderNumber: string | null;
+    53→  country: string | null;
+    54→  branch: string | null;
+    55→  lab: string | null;
+    56→  shape: string | null;
+    57→  weightBand: string | null;
+    58→  requiredQty: number;
+    59→  physicalStockQty: number;
+    60→  planningAvailableQty: number;
+    61→  memoQty: number;
+    62→  transferCoverage: number;
+    63→  wipCoverage: number;
+    64→  approvedPlanCoverage: number;
+    65→  actualCoverage: number;
+    66→  remainingUnplanned: number;
+    67→  forecastQty: number;
+    68→  requiredBy: string | null;
+    69→  ageDays: number;
+    70→  daysRemaining: number | null;
+    71→  daysOverdue: number;
+    72→  customerPriority: string | null;
+    73→  orderPriority: string | null;
+    74→  requirementPriority: string | null;
+    75→  priorityReason: string | null;
+    76→}
+    77→
+    78→interface RequirementDetail {
+    79→  id: string;
+    80→  requirementCode: string;
+    81→  type: string;
+    82→  status: string;
+    83→  customerName: string | null;
+    84→  orderNumber: string | null;
+    85→  country: string | null;
+    86→  branch: string | null;
+    87→  lab: string | null;
+    88→  shape: string | null;
+    89→  weightBand: string | null;
+    90→  colorGroup: string | null;
+    91→  clarityGroup: string | null;
+    92→  treatment: string | null;
+    93→  requiredQty: number;
+    94→  physicalStockQty: number;
+    95→  planningAvailableQty: number;
+    96→  memoQty: number;
+    97→  transferCoverage: number;
+    98→  wipCoverage: number;
+    99→  approvedPlanCoverage: number;
+   100→  actualCoverage: number;
+   101→  remainingUnplanned: number;
+   102→  forecastQty: number;
+   103→  requiredBy: string | null;
+   104→  ageDays: number;
+   105→  daysRemaining: number | null;
+   106→  daysOverdue: number;
+   107→  customerPriority: string | null;
+   108→  orderPriority: string | null;
+   109→  requirementPriority: string | null;
+   110→  priorityReason: string | null;
+   111→  sourceRecords: unknown;
+   112→  allocations: Array<{
+   113→    id: string;
+   114→    allocatedQty: number;
+   115→    allocatedBy: string;
+   116→    allocatedAt: string;
+   117→    status: string;
+   118→    planOptionCode: string | null;
+   119→  }>;
+   120→  fourNumbers: {
+   121→    physicalShortage: number;
+   122→    pipelineAdjusted: number;
+   123→    planningAdjusted: number;
+   124→    forecastRequirement: number;
+   125→  };
+   126→}
+   127→
+   128→const TYPES = [
+   129→  "SALES_ORDER",
+   130→  "MEMO",
+   131→  "FORECAST",
+   132→  "STOCKOUT_REPLENISHMENT",
+   133→  "SPECIAL",
+   134→  "BACKORDER",
+   135→];
+   136→const STATUSES = [
+   137→  "OPEN",
+   138→  "PARTIALLY_COVERED",
+   139→  "FULLY_PLANNED",
+   140→  "PARTIALLY_FULFILLED",
+   141→  "FULFILLED",
+   142→  "IN_MANUFACTURING",
+   143→  "EXPIRED",
+   144→  "CANCELLED",
+   145→];
+   146→const COUNTRIES = ["USA", "India", "Belgium", "Israel", "HongKong", "UAE", "Botswana"];
+   147→const PRIORITIES = ["CRITICAL", "HIGH", "NORMAL", "LOW", "WATCH"];
+   148→
+   149→function priorityVariant(
+   150→  v: string | null
+   151→): "default" | "critical" | "high" | "low" | "neutral" {
+   152→  if (!v) return "default";
+   153→  if (v === "CRITICAL") return "critical";
+   154→  if (v === "HIGH") return "high";
+   155→  if (v === "LOW") return "low";
+   156→  if (v === "WATCH") return "neutral";
+   157→  return "default";
+   158→}
+   159→
+   160→function PriorityBadge({ value }: { value: string | null }) {
+   161→  if (!value) return <span className="text-muted-foreground">—</span>;
+   162→  return <Badge variant={priorityVariant(value)}>{value}</Badge>;
+   163→}
+   164→
+   165→function fmtDate(iso: string | null): string {
+   166→  if (!iso) return "—";
+   167→  try {
+   168→    return new Date(iso).toISOString().slice(0, 10);
+   169→  } catch {
+   170→    return "—";
+   171→  }
+   172→}
+   173→
+   174→export function RequirementsMatrixView() {
+   175→  const qc = useQueryClient();
+   176→  // Global filter (country/lab/branch/windowDays) is sourced from the GlobalFilterBar
+   177→  // mounted in the AppShell. The global filter is ADDITIVE to local filters — local
+   178→  // country takes precedence over the global country so users can drill down further
+   179→  // within an already-filtered view.
+   180→  const globalFilter = useGlobalFilter();
+   181→  const [filters, setFilters] = useState({
+   182→    type: "",
+   183→    status: "",
+   184→    country: "",
+   185→    priority: "",
+   186→    q: "",
+   187→  });
+   188→  const [page, setPage] = useState(1);
+   189→  const pageSize = 100;
+   190→  const [selectedId, setSelectedId] = useState<string | null>(null);
+   191→
+   192→  // Requirement Priority Override form state
+   193→  const [showOverrideForm, setShowOverrideForm] = useState(false);
+   194→  const [newPriority, setNewPriority] = useState<string>("NORMAL");
+   195→  const [overrideReason, setOverrideReason] = useState<string>("");
+   196→
+   197→  // Saved Views state
+   198→  const { views: savedViews, addView, removeView } = useSavedViews();
+   199→  const [showSaveDialog, setShowSaveDialog] = useState(false);
+   200→  const [newViewName, setNewViewName] = useState("");
+   201→
+   202→  const applySavedView = (sv: SavedView) => {
+   203→    setFilters({
+   204→      type: sv.filters.type ?? "",
+   205→      status: sv.filters.status ?? "",
+   206→      country: sv.filters.country ?? "",
+   207→      priority: sv.filters.priority ?? "",
+   208→      q: sv.filters.search ?? "",
+   209→    });
+   210→    setPage(1);
+   211→    toast.success(`Applied saved view "${sv.name}"`);
+   212→  };
+   213→
+   214→  const handleSaveView = () => {
+   215→    if (newViewName.trim().length < 3) {
+   216→      toast.error("View name must be at least 3 characters");
+   217→      return;
+   218→    }
+   219→    addView(newViewName.trim(), {
+   220→      type: filters.type || null,
+   221→      status: filters.status || null,
+   222→      country: filters.country || null,
+   223→      priority: filters.priority || null,
+   224→      search: filters.q || "",
+   225→    });
+   226→    toast.success(`Saved view "${newViewName.trim()}"`);
+   227→    setNewViewName("");
+   228→    setShowSaveDialog(false);
+   229→  };
+   230→
+   231→  const qs = useMemo(() => {
+   232→    const parts: string[] = [`page=${page}`, `pageSize=${pageSize}`];
+   233→    if (filters.type) parts.push(`type=${encodeURIComponent(filters.type)}`);
+   234→    if (filters.status) parts.push(`status=${encodeURIComponent(filters.status)}`);
+   235→    // Country: local takes precedence over global — only append global country when the
+   236→    // local country selector has not been used.
+   237→    if (filters.country) {
+   238→      parts.push(`country=${encodeURIComponent(filters.country)}`);
+   239→    } else if (globalFilter.country) {
+   240→      parts.push(`country=${encodeURIComponent(globalFilter.country)}`);
+   241→    }
+   242→    if (filters.priority) parts.push(`priority=${encodeURIComponent(filters.priority)}`);
+   243→    if (filters.q) parts.push(`q=${encodeURIComponent(filters.q)}`);
+   244→    // Global-only filters (additive — no local equivalent in the matrix toolbar).
+   245→    if (globalFilter.branch) parts.push(`branch=${encodeURIComponent(globalFilter.branch)}`);
+   246→    if (globalFilter.lab) parts.push(`lab=${encodeURIComponent(globalFilter.lab)}`);
+   247→    return parts.join("&");
+   248→  }, [filters, page, globalFilter.country, globalFilter.branch, globalFilter.lab]);
+   249→
+   250→  const url = `/api/requirements?${qs}`;
+   251→  const { data, isLoading } = useApi<{
+   252→    data: RequirementRow[];
+   253→    total: number;
+   254→    page: number;
+   255→    pageSize: number;
+   256→  }>(url);
+   257→
+   258→  const { data: detail, isLoading: detailLoading } = useApi<RequirementDetail | null>(
+   259→    selectedId ? `/api/requirements/${selectedId}` : null
+   260→  );
+   261→
+   262→  // Requirement Priority Override mutation
+   263→  const overrideMutation = useMutation({
+   264→    mutationFn: async (vars: { id: string; priority: string; reason: string }) =>
+   265→      apiPost<{
+   266→        id: string;
+   267→        requirementCode: string;
+   268→        requirementPriority: string;
+   269→        priorityReason: string;
+   270→        auditLogged: true;
+   271→      }>(`/api/requirements/${vars.id}/priority`, {
+   272→        priority: vars.priority,
+   273→        reason: vars.reason,
+   274→        actor: "planner.user",
+   275→      }),
+   276→    onSuccess: (_data, vars) => {
+   277→      toast.success("Priority overridden — audit logged");
+   278→      // Invalidate the matrix list query (current page+filters) and the detail query so they refetch.
+   279→      qc.invalidateQueries({ queryKey: [url] });
+   280→      qc.invalidateQueries({ queryKey: [`/api/requirements/${vars.id}`] });
+   281→      // Reset form
+   282→      setShowOverrideForm(false);
+   283→      setOverrideReason("");
+   284→      setNewPriority("NORMAL");
+   285→    },
+   286→    onError: (e: Error) => {
+   287→      toast.error(`Override failed: ${e.message}`);
+   288→    },
+   289→  });
+   290→
+   291→  const resetOverrideForm = () => {
+   292→    setShowOverrideForm(false);
+   293→    setOverrideReason("");
+   294→    setNewPriority("NORMAL");
+   295→  };
+   296→
+   297→  const openOverrideForm = () => {
+   298→    setNewPriority(detail?.requirementPriority ?? "NORMAL");
+   299→    setOverrideReason("");
+   300→    setShowOverrideForm(true);
+   301→  };
+   302→
+   303→  const applyOverride = () => {
+   304→    if (!detail) return;
+   305→    const reason = overrideReason.trim();
+   306→    if (!newPriority || reason.length < 5) return;
+   307→    overrideMutation.mutate({ id: detail.id, priority: newPriority, reason });
+   308→  };
+   309→
+   310→  const rows = data?.data ?? [];
+   311→  const total = data?.total ?? 0;
+   312→  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+   313→
+   314→  const resetPage = () => setPage(1);
+   315→
+   316→  const updateFilter = (key: keyof typeof filters, value: string) => {
+   317→    setFilters((f) => ({ ...f, [key]: value }));
+   318→    resetPage();
+   319→  };
+   320→
+   321→  const clearFilters = () => {
+   322→    setFilters({ type: "", status: "", country: "", priority: "", q: "" });
+   323→    resetPage();
+   324→  };
+   325→
+   326→  const activeFilters = Object.values(filters).filter(Boolean).length;
+   327→
+   328→  const columns: Column<RequirementRow>[] = [
+   329→    {
+   330→      key: "requirementCode",
+   331→      header: "Req. Code",
+   332→      width: "150px",
+   333→      sticky: "left",
+   334→      sortable: true,
+   335→      sortValue: (r) => r.requirementCode,
+   336→      cell: (r) => (
+   337→        <span className="font-medium text-foreground">{r.requirementCode}</span>
+   338→      ),
+   339→    },
+   340→    {
+   341→      key: "type",
+   342→      header: "Type",
+   343→      width: "120px",
+   344→      cell: (r) => <Badge variant="info">{r.type.replace(/_/g, " ")}</Badge>,
+   345→    },
+   346→    {
+   347→      key: "status",
+   348→      header: "Status",
+   349→      width: "120px",
+   350→      cell: (r) => <StatusBadge status={r.status} />,
+   351→    },
+   352→    {
+   353→      key: "customerName",
+   354→      header: "Customer",
+   355→      width: "140px",
+   356→      cell: (r) => (
+   357→        <span className="truncate">{r.customerName ?? "—"}</span>
+   358→      ),
+   359→    },
+   360→    {
+   361→      key: "orderNumber",
+   362→      header: "Order #",
+   363→      width: "120px",
+   364→      cell: (r) => r.orderNumber ?? "—",
+   365→    },
+   366→    {
+   367→      key: "country",
+   368→      header: "Country",
+   369→      width: "90px",
+   370→      cell: (r) => r.country ?? "—",
+   371→    },
+   372→    {
+   373→      key: "branch",
+   374→      header: "Branch",
+   375→      width: "90px",
+   376→      cell: (r) => r.branch ?? "—",
+   377→    },
+   378→    {
+   379→      key: "lab",
+   380→      header: "Lab",
+   381→      width: "80px",
+   382→      cell: (r) => r.lab ?? "—",
+   383→    },
+   384→    {
+   385→      key: "shape",
+   386→      header: "Shape",
+   387→      width: "90px",
+   388→      cell: (r) => r.shape ?? "—",
+   389→    },
+   390→    {
+   391→      key: "weightBand",
+   392→      header: "Wt Band",
+   393→      width: "110px",
+   394→      cell: (r) => r.weightBand ?? "—",
+   395→    },
+   396→    {
+   397→      key: "requiredQty",
+   398→      header: "Req Qty",
+   399→      width: "70px",
+   400→      align: "right",
+   401→      sortable: true,
+   402→      sortValue: (r) => r.requiredQty,
+   403→      cell: (r) => <NumberCell value={r.requiredQty} intent="info" />,
+   404→    },
+   405→    {
+   406→      key: "physicalStockQty",
+   407→      header: "Phys Stock",
+   408→      width: "70px",
+   409→      align: "right",
+   410→      sortable: true,
+   411→      sortValue: (r) => r.physicalStockQty,
+   412→      cell: (r) => <NumberCell value={r.physicalStockQty} />,
+   413→    },
+   414→    {
+   415→      key: "planningAvailableQty",
+   416→      header: "Plan Avail",
+   417→      width: "70px",
+   418→      align: "right",
+   419→      cell: (r) => <NumberCell value={r.planningAvailableQty} />,
+   420→    },
+   421→    {
+   422→      key: "memoQty",
+   423→      header: "Memo",
+   424→      width: "60px",
+   425→      align: "right",
+   426→      cell: (r) => <NumberCell value={r.memoQty} intent="warning" />,
+   427→    },
+   428→    {
+   429→      key: "transferCoverage",
+   430→      header: "Trans Cov",
+   431→      width: "70px",
+   432→      align: "right",
+   433→      cell: (r) => <NumberCell value={r.transferCoverage} />,
+   434→    },
+   435→    {
+   436→      key: "wipCoverage",
+   437→      header: "WIP Cov",
+   438→      width: "70px",
+   439→      align: "right",
+   440→      cell: (r) => <NumberCell value={r.wipCoverage} intent="info" />,
+   441→    },
+   442→    {
+   443→      key: "approvedPlanCoverage",
+   444→      header: "Plan Cov",
+   445→      width: "70px",
+   446→      align: "right",
+   447→      cell: (r) => <NumberCell value={r.approvedPlanCoverage} intent="success" />,
+   448→    },
+   449→    {
+   450→      key: "actualCoverage",
+   451→      header: "Act Cov",
+   452→      width: "70px",
+   453→      align: "right",
+   454→      cell: (r) => <NumberCell value={r.actualCoverage} />,
+   455→    },
+   456→    {
+   457→      key: "remainingUnplanned",
+   458→      header: "Rem Unpl",
+   459→      width: "75px",
+   460→      align: "right",
+   461→      sortable: true,
+   462→      sortValue: (r) => r.remainingUnplanned,
+   463→      cell: (r) => (
+   464→        <NumberCell
+   465→          value={r.remainingUnplanned}
+   466→          intent={r.remainingUnplanned > 0 ? "critical" : "success"}
+   467→        />
+   468→      ),
+   469→    },
+   470→    {
+   471→      key: "forecastQty",
+   472→      header: "Forecast",
+   473→      width: "70px",
+   474→      align: "right",
+   475→      cell: (r) => <NumberCell value={r.forecastQty} intent="info" />,
+   476→    },
+   477→    {
+   478→      key: "requiredBy",
+   479→      header: "Req By",
+   480→      width: "90px",
+   481→      cell: (r) => fmtDate(r.requiredBy),
+   482→    },
+   483→    {
+   484→      key: "ageDays",
+   485→      header: "Age",
+   486→      width: "60px",
+   487→      align: "right",
+   488→      sortable: true,
+   489→      sortValue: (r) => r.ageDays,
+   490→      cell: (r) => <NumberCell value={r.ageDays} />,
+   491→    },
+   492→    {
+   493→      key: "daysRemaining",
+   494→      header: "Days Rem",
+   495→      width: "70px",
+   496→      align: "right",
+   497→      cell: (r) => <NumberCell value={r.daysRemaining} />,
+   498→    },
+   499→    {
+   500→      key: "daysOverdue",
+   501→      header: "Days Over",
+   502→      width: "70px",
+   503→      align: "right",
+   504→      sortable: true,
+   505→      sortValue: (r) => r.daysOverdue,
+   506→      cell: (r) => (
+   507→        <NumberCell value={r.daysOverdue} intent={r.daysOverdue > 0 ? "critical" : "default"} />
+   508→      ),
+   509→    },
+   510→    {
+   511→      key: "customerPriority",
+   512→      header: "Cust Pri",
+   513→      width: "80px",
+   514→      sticky: "left",
+   515→      cell: (r) => <PriorityBadge value={r.customerPriority} />,
+   516→    },
+   517→    {
+   518→      key: "orderPriority",
+   519→      header: "Ord Pri",
+   520→      width: "80px",
+   521→      sticky: "left",
+   522→      cell: (r) => <PriorityBadge value={r.orderPriority} />,
+   523→    },
+   524→    {
+   525→      key: "requirementPriority",
+   526→      header: "Req Pri",
+   527→      width: "80px",
+   528→      sticky: "left",
+   529→      cell: (r) => <PriorityBadge value={r.requirementPriority} />,
+   530→    },
+   531→    {
+   532→      key: "priorityReason",
+   533→      header: "Reason",
+   534→      width: "200px",
+   535→      cell: (r) => (
+   536→        <span className="text-muted-foreground truncate block max-w-[180px]" title={r.priorityReason ?? ""}>
+   537→          {r.priorityReason ?? "—"}
+   538→        </span>
+   539→      ),
+   540→    },
+   541→  ];
+   542→
+   543→  // KPIs from current page (approximate)
+   544→  const totalRemaining = rows.reduce((s, r) => s + r.remainingUnplanned, 0);
+   545→  const totalOverdue = rows.filter((r) => r.daysOverdue > 0).length;
+   546→  const totalCritical = rows.filter((r) => r.requirementPriority === "CRITICAL").length;
+   547→
+   548→  return (
+   549→    <div className="flex flex-col gap-3 p-3">
+   550→      <PageHeader
+   551→        title="Requirements Matrix"
+   552→        subtitle="High-density enterprise requirement grid · Physical Shortage → Pipeline-Adjusted → Plan Coverage → Remaining Unplanned · Filter, search and drill down to four-number evidence"
+   553→        meta={
+   554→          <div className="flex items-center gap-2 flex-wrap">
+   555→            {globalFilter.hasActiveFilters() && (
+   556→              <span className="text-[10px] text-sky-600 dark:text-sky-400 font-medium">
+   557→                Filtered by: {[
+   558→                  globalFilter.country && !filters.country && `Country=${globalFilter.country}`,
+   559→                  globalFilter.branch && `Branch=${globalFilter.branch}`,
+   560→                  globalFilter.lab && `Lab=${globalFilter.lab}`,
+   561→                ].filter(Boolean).join(", ")}
+   562→              </span>
+   563→            )}
+   564→            <span className="text-[10px] text-muted-foreground">
+   565→              {total.toLocaleString()} total · Page {page} / {totalPages}
+   566→            </span>
+   567→          </div>
+   568→        }
+   569→      />
+   570→
+   571→      {/* KPI strip for current page */}
+   572→      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+   573→        <KpiCard label="Page Rows" value={rows.length} unit="reqs" intent="default" />
+   574→        <KpiCard
+   575→          label="Remaining Unplanned (page)"
+   576→          value={totalRemaining}
+   577→          unit="pcs"
+   578→          intent="critical"
+   579→          hint="Sum of remainingUnplanned on current page"
+   580→        />
+   581→        <KpiCard label="Overdue Rows" value={totalOverdue} unit="reqs" intent="warning" />
+   582→        <KpiCard label="Critical Rows" value={totalCritical} unit="reqs" intent="critical" />
+   583→      </div>
+   584→
+   585→      {/* Filter row */}
+   586→      <Section
+   587→        title="Filters"
+   588→        description="Type, status, country, priority and free-text search"
+   589→        bodyClassName="p-2"
+   590→        actions={
+   591→          <div className="flex items-center gap-1">
+   592→            {activeFilters > 0 && (
+   593→              <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setShowSaveDialog(true)}>
+   594→                <Save className="h-3 w-3 mr-1" /> Save View
+   595→              </Button>
+   596→            )}
+   597→            {activeFilters > 0 && (
+   598→              <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={clearFilters}>
+   599→                <X className="h-3 w-3 mr-1" /> Clear ({activeFilters})
+   600→              </Button>
+   601→            )}
+   602→          </div>
+   603→        }
+   604→      >
+   605→        <div className="flex items-center gap-2 flex-wrap">
+   606→          <Filter className="h-3.5 w-3.5 text-muted-foreground" />
+   607→          <Select value={filters.type || "ALL"} onValueChange={(v) => updateFilter("type", v === "ALL" ? "" : v)}>
+   608→            <SelectTrigger size="sm" className="h-8 w-[160px] text-xs">
+   609→              <SelectValue placeholder="All Types" />
+   610→            </SelectTrigger>
+   611→            <SelectContent>
+   612→              <SelectItem value="ALL">All Types</SelectItem>
+   613→              {TYPES.map((t) => (
+   614→                <SelectItem key={t} value={t}>
+   615→                  {t.replace(/_/g, " ")}
+   616→                </SelectItem>
+   617→              ))}
+   618→            </SelectContent>
+   619→          </Select>
+   620→
+   621→          <Select value={filters.status || "ALL"} onValueChange={(v) => updateFilter("status", v === "ALL" ? "" : v)}>
+   622→            <SelectTrigger size="sm" className="h-8 w-[170px] text-xs">
+   623→              <SelectValue placeholder="All Statuses" />
+   624→            </SelectTrigger>
+   625→            <SelectContent>
+   626→              <SelectItem value="ALL">All Statuses</SelectItem>
+   627→              {STATUSES.map((s) => (
+   628→                <SelectItem key={s} value={s}>
+   629→                  {s.replace(/_/g, " ")}
+   630→                </SelectItem>
+   631→              ))}
+   632→            </SelectContent>
+   633→          </Select>
+   634→
+   635→          <Select value={filters.country || "ALL"} onValueChange={(v) => updateFilter("country", v === "ALL" ? "" : v)}>
+   636→            <SelectTrigger size="sm" className="h-8 w-[140px] text-xs">
+   637→              <SelectValue placeholder="All Countries" />
+   638→            </SelectTrigger>
+   639→            <SelectContent>
+   640→              <SelectItem value="ALL">All Countries</SelectItem>
+   641→              {COUNTRIES.map((c) => (
+   642→                <SelectItem key={c} value={c}>
+   643→                  {c}
+   644→                </SelectItem>
+   645→              ))}
+   646→            </SelectContent>
+   647→          </Select>
+   648→
+   649→          <Select
+   650→            value={filters.priority || "ALL"}
+   651→            onValueChange={(v) => updateFilter("priority", v === "ALL" ? "" : v)}
+   652→          >
+   653→            <SelectTrigger size="sm" className="h-8 w-[140px] text-xs">
+   654→              <SelectValue placeholder="All Priorities" />
+   655→            </SelectTrigger>
+   656→            <SelectContent>
+   657→              <SelectItem value="ALL">All Priorities</SelectItem>
+   658→              {PRIORITIES.map((p) => (
+   659→                <SelectItem key={p} value={p}>
+   660→                  {p}
+   661→                </SelectItem>
+   662→              ))}
+   663→            </SelectContent>
+   664→          </Select>
+   665→
+   666→          <div className="relative flex-1 min-w-[200px] max-w-sm">
+   667→            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+   668→            <Input
+   669→              value={filters.q}
+   670→              onChange={(e) => updateFilter("q", e.target.value)}
+   671→              placeholder="Search requirement code…"
+   672→              className="h-8 pl-7 text-xs"
+   673→            />
+   674→          </div>
+   675→        </div>
+   676→      </Section>
+   677→
+   678→      {/* Saved Views bar — persisted to localStorage */}
+   679→      {savedViews.length > 0 && (
+   680→        <Section title="Saved Views" description="Click to apply · persisted in browser localStorage" bodyClassName="p-2">
+   681→          <div className="flex items-center gap-1.5 flex-wrap">
+   682→            <Bookmark className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+   683→            {savedViews.map((sv) => {
+   684→              const activeCount = [sv.filters.type, sv.filters.status, sv.filters.country, sv.filters.priority, sv.filters.search].filter(Boolean).length;
+   685→              return (
+   686→                <div key={sv.id} className="inline-flex items-center gap-1 group">
+   687→                  <button
+   688→                    onClick={() => applySavedView(sv)}
+   689→                    className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-border bg-card hover:bg-primary/5 hover:border-primary/40 transition-colors text-xs"
+   690→                    title={`Filters: ${activeCount} active\nType: ${sv.filters.type || "any"}\nStatus: ${sv.filters.status || "any"}\nCountry: ${sv.filters.country || "any"}\nPriority: ${sv.filters.priority || "any"}\nSearch: ${sv.filters.search || "none"}`}
+   691→                  >
+   692→                    <Star className="h-3 w-3 text-amber-500" />
+   693→                    <span className="font-medium">{sv.name}</span>
+   694→                    <Badge variant="neutral" className="text-[9px]">{activeCount}</Badge>
+   695→                  </button>
+   696→                  <button
+   697→                    onClick={() => { removeView(sv.id); toast.success(`Deleted saved view "${sv.name}"`); }}
+   698→                    className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-rose-100 dark:hover:bg-rose-950/40"
+   699→                    title="Delete saved view"
+   700→                  >
+   701→                    <Trash2 className="h-3 w-3 text-rose-500" />
+   702→                  </button>
+   703→                </div>
+   704→              );
+   705→            })}
+   706→          </div>
+   707→        </Section>
+   708→      )}
+   709→
+   710→      {/* Save View Dialog */}
+   711→      {showSaveDialog && (
+   712→        <Dialog open={showSaveDialog} onOpenChange={setShowSaveDialog}>
+   713→          <DialogContent className="max-w-md">
+   714→            <DialogHeader>
+   715→              <DialogTitle>Save Current View</DialogTitle>
+   716→              <DialogDescription>
+   717→                Save the current filter combination with a name for quick access. Saved views are stored in your browser localStorage.
+   718→              </DialogDescription>
+   719→            </DialogHeader>
+   720→            <div className="space-y-3 py-2">
+   721→              <div>
+   722→                <Label htmlFor="view-name" className="text-xs">View Name</Label>
+   723→                <Input
+   724→                  id="view-name"
+   725→                  value={newViewName}
+   726→                  onChange={(e) => setNewViewName(e.target.value)}
+   727→                  placeholder="e.g., Critical US Backorders"
+   728→                  className="mt-1 text-xs"
+   729→                  autoFocus
+   730→                  onKeyDown={(e) => { if (e.key === "Enter") handleSaveView(); }}
+   731→                />
+   732→                <p className="text-[10px] text-muted-foreground mt-1">Min 3 characters</p>
+   733→              </div>
+   734→              <div className="rounded-md border border-border bg-muted/30 p-2 text-[11px]">
+   735→                <p className="font-medium mb-1">Current filters being saved:</p>
+   736→                <ul className="space-y-0.5 text-muted-foreground">
+   737→                  <li>Type: <span className="text-foreground font-medium">{filters.type || "any"}</span></li>
+   738→                  <li>Status: <span className="text-foreground font-medium">{filters.status || "any"}</span></li>
+   739→                  <li>Country: <span className="text-foreground font-medium">{filters.country || "any"}</span></li>
+   740→                  <li>Priority: <span className="text-foreground font-medium">{filters.priority || "any"}</span></li>
+   741→                  <li>Search: <span className="text-foreground font-medium">{filters.q || "none"}</span></li>
+   742→                </ul>
+   743→              </div>
+   744→            </div>
+   745→            <div className="flex justify-end gap-2">
+   746→              <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setShowSaveDialog(false)}>Cancel</Button>
+   747→              <Button size="sm" className="h-8 text-xs" onClick={handleSaveView} disabled={newViewName.trim().length < 3}>
+   748→                <Save className="h-3 w-3 mr-1" /> Save View
+   749→              </Button>
+   750→            </div>
+   751→          </DialogContent>
+   752→        </Dialog>
+   753→      )}
+   754→
+   755→      {/* Main table */}
+   756→      <DataTable<RequirementRow>
+   757→        columns={columns}
+   758→        rows={rows}
+   759→        loading={isLoading}
+   760→        emptyMessage="No requirements match the current filters."
+   761→        maxHeight="640px"
+   762→        onRowClick={(r) => setSelectedId(r.id)}
+   763→        rowClassName={(r) => (r.remainingUnplanned > 0 ? "bg-rose-50/40 dark:bg-rose-950/10" : "")}
+   764→        exportable
+   765→        exportFilename={`requirements-page-${page}.csv`}
+   766→      />
+   767→
+   768→      {/* Server-side pagination */}
+   769→      <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+   770→        <span>
+   771→          Showing {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)} of {total.toLocaleString()}
+   772→        </span>
+   773→        <div className="flex items-center gap-2">
+   774→          <Button
+   775→            size="sm"
+   776→            variant="outline"
+   777→            className="h-7 text-xs"
+   778→            disabled={page === 1}
+   779→            onClick={() => setPage((p) => Math.max(1, p - 1))}
+   780→          >
+   781→            <ChevronLeft className="h-3 w-3 mr-1" /> Prev
+   782→          </Button>
+   783→          <span>
+   784→            Page {page} / {totalPages}
+   785→          </span>
+   786→          <Button
+   787→            size="sm"
+   788→            variant="outline"
+   789→            className="h-7 text-xs"
+   790→            disabled={page >= totalPages}
+   791→            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+   792→          >
+   793→            Next <ChevronRight className="h-3 w-3 ml-1" />
+   794→          </Button>
+   795→        </div>
+   796→      </div>
+   797→
+   798→      {/* Detail dialog */}
+   799→      <Dialog
+   800→        open={!!selectedId}
+   801→        onOpenChange={(o) => {
+   802→          if (!o) {
+   803→            setSelectedId(null);
+   804→            resetOverrideForm();
+   805→          }
+   806→        }}
+   807→      >
+   808→        <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto">
+   809→          <DialogHeader>
+   810→            <DialogTitle className="flex items-center gap-2 text-sm">
+   811→              <span>{detail?.requirementCode ?? "Loading…"}</span>
+   812→              {detail && <StatusBadge status={detail.status} />}
+   813→              {detail && <Badge variant="info">{detail.type.replace(/_/g, " ")}</Badge>}
+   814→            </DialogTitle>
+   815→            <DialogDescription className="text-[11px]">
+   816→              Four confirmed requirement numbers + source records + allocations. Each number drills down to its evidence.
+   817→            </DialogDescription>
+   818→          </DialogHeader>
+   819→
+   820→          {detailLoading || !detail ? (
+   821→            <div className="py-10 text-center text-xs text-muted-foreground">
+   822→              <div className="inline-flex items-center gap-2">
+   823→                <div className="h-3 w-3 border-2 border-muted-foreground border-t-transparent rounded-full animate-spin" />
+   824→                Loading requirement detail…
+   825→              </div>
+   826→            </div>
+   827→          ) : (
+   828→            <div className="flex flex-col gap-3">
+   829→              {/* 4 numbers grid */}
+   830→              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+   831→                <KpiCard
+   832→                  label="1 · Physical Shortage"
+   833→                  value={detail.fourNumbers.physicalShortage}
+   834→                  unit="pcs"
+   835→                  intent="critical"
+   836→                  hint="MAX(0, RequiredQty − PlanningAvailableQty)"
+   837→                />
+   838→                <KpiCard
+   839→                  label="2 · Pipeline-Adjusted"
+   840→                  value={detail.fourNumbers.pipelineAdjusted}
+   841→                  unit="pcs"
+   842→                  intent="warning"
+   843→                  hint="MAX(0, PhysicalShortage − WIP Coverage)"
+   844→                />
+   845→                <KpiCard
+   846→                  label="3 · Planning-Adjusted"
+   847→                  value={detail.fourNumbers.planningAdjusted}
+   848→                  unit="pcs"
+   849→                  intent="info"
+   850→                  hint="MAX(0, PipelineAdjusted − ApprovedPlanCoverage)"
+   851→                />
+   852→                <KpiCard
+   853→                  label="4 · Forecast Signal"
+   854→                  value={detail.fourNumbers.forecastRequirement}
+   855→                  unit="pcs"
+   856→                  intent="default"
+   857→                  hint="Advisory — NOT confirmed demand"
+   858→                />
+   859→              </div>
+   860→
+   861→              {/* Requirement Priority Override */}
+   862→              <div className="rounded-md border border-border bg-muted/20 p-2.5 flex flex-col gap-2">
+   863→                <div className="flex items-center justify-between gap-2 flex-wrap">
+   864→                  <div className="flex items-center gap-2 flex-wrap">
+   865→                    <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+   866→                      Current Requirement Priority
+   867→                    </span>
+   868→                    <PriorityBadge value={detail.requirementPriority} />
+   869→                    {detail.priorityReason ? (
+   870→                      <span
+   871→                        className="text-[11px] text-muted-foreground truncate max-w-[320px]"
+   872→                        title={detail.priorityReason}
+   873→                      >
+   874→                        {detail.priorityReason}
+   875→                      </span>
+   876→                    ) : (
+   877→                      <span className="text-[11px] text-muted-foreground/70 italic">
+   878→                        no reason recorded
+   879→                      </span>
+   880→                    )}
+   881→                  </div>
+   882→                  {!showOverrideForm && (
+   883→                    <Button
+   884→                      size="sm"
+   885→                      variant="outline"
+   886→                      className="h-7 text-xs"
+   887→                      onClick={openOverrideForm}
+   888→                    >
+   889→                      <Pencil className="h-3 w-3 mr-1" /> Override Priority
+   890→                    </Button>
+   891→                  )}
+   892→                </div>
+   893→
+   894→                {showOverrideForm && (
+   895→                  <div className="flex flex-col gap-2 mt-1 pt-2 border-t border-border/60">
+   896→                    <InfoBanner variant="warning">
+   897→                      Manual override is audit-logged. OPEN rule BR-CUST-PRI-001 — customer
+   898→                      priority scoring formula is OPEN; this manual classification is
+   899→                      business-owned.
+   900→                    </InfoBanner>
+   901→
+   902→                    <div className="grid grid-cols-1 md:grid-cols-[200px_1fr] gap-2">
+   903→                      <div className="flex flex-col gap-1">
+   904→                        <Label
+   905→                          htmlFor="override-priority"
+   906→                          className="text-[10px] uppercase tracking-wide text-muted-foreground"
+   907→                        >
+   908→                          New Priority
+   909→                        </Label>
+   910→                        <Select value={newPriority} onValueChange={setNewPriority}>
+   911→                          <SelectTrigger id="override-priority" size="sm" className="h-8 text-xs">
+   912→                            <SelectValue placeholder="Select priority" />
+   913→                          </SelectTrigger>
+   914→                          <SelectContent>
+   915→                            {PRIORITIES.map((p) => (
+   916→                              <SelectItem key={p} value={p}>
+   917→                                {p}
+   918→                              </SelectItem>
+   919→                            ))}
+   920→                          </SelectContent>
+   921→                        </Select>
+   922→                      </div>
+   923→                      <div className="flex flex-col gap-1">
+   924→                        <Label
+   925→                          htmlFor="override-reason"
+   926→                          className="text-[10px] uppercase tracking-wide text-muted-foreground"
+   927→                        >
+   928→                          Reason{" "}
+   929→                          <span className="text-rose-600 dark:text-rose-400">*</span>{" "}
+   930→                          (min 5 chars, required for audit)
+   931→                        </Label>
+   932→                        <Textarea
+   933→                          id="override-reason"
+   934→                          value={overrideReason}
+   935→                          onChange={(e) => setOverrideReason(e.target.value)}
+   936→                          placeholder="e.g. VIP customer escalation per sales director request"
+   937→                          className="min-h-[60px] text-xs"
+   938→                          aria-invalid={
+   939→                            overrideReason.length > 0 && overrideReason.trim().length < 5
+   940→                          }
+   941→                        />
+   942→                        <span className="text-[10px] text-muted-foreground">
+   943→                          {overrideReason.trim().length} / 5+ chars
+   944→                          {overrideReason.length > 0 &&
+   945→                            overrideReason.trim().length < 5 &&
+   946→                            " — reason too short"}
+   947→                        </span>
+   948→                      </div>
+   949→                    </div>
+   950→
+   951→                    <div className="flex items-center justify-end gap-2">
+   952→                      <Button
+   953→                        size="sm"
+   954→                        variant="ghost"
+   955→                        className="h-7 text-xs"
+   956→                        onClick={resetOverrideForm}
+   957→                        disabled={overrideMutation.isPending}
+   958→                      >
+   959→                        Cancel
+   960→                      </Button>
+   961→                      <Button
+   962→                        size="sm"
+   963→                        variant="default"
+   964→                        className="h-7 text-xs"
+   965→                        disabled={
+   966→                          overrideMutation.isPending ||
+   967→                          !newPriority ||
+   968→                          overrideReason.trim().length < 5
+   969→                        }
+   970→                        onClick={applyOverride}
+   971→                      >
+   972→                        {overrideMutation.isPending ? (
+   973→                          <>
+   974→                            <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+   975→                            Applying…
+   976→                          </>
+   977→                        ) : (
+   978→                          "Apply Override"
+   979→                        )}
+   980→                      </Button>
+   981→                    </div>
+   982→                  </div>
+   983→                )}
+   984→              </div>
+   985→
+   986→              {/* Quantities breakdown */}
+   987→              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[11px]">
+   988→                <DataPair label="Required Qty" value={detail.requiredQty} />
+   989→                <DataPair label="Physical Stock" value={detail.physicalStockQty} />
+   990→                <DataPair label="Planning Available" value={detail.planningAvailableQty} />
+   991→                <DataPair label="Memo Qty" value={detail.memoQty} />
+   992→                <DataPair label="Transfer Coverage" value={detail.transferCoverage} />
+   993→                <DataPair label="WIP Coverage" value={detail.wipCoverage} />
+   994→                <DataPair label="Approved Plan Coverage" value={detail.approvedPlanCoverage} />
+   995→                <DataPair label="Actual Coverage" value={detail.actualCoverage} />
+   996→              </div>
+   997→
+   998→              {/* Context */}
+   999→              <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-[11px] rounded-md border border-border bg-muted/30 p-2">
+  1000→                <DataPair label="Customer" value={detail.customerName ?? "—"} />
+  1001→                <DataPair label="Order #" value={detail.orderNumber ?? "—"} />
+  1002→                <DataPair label="Country / Branch" value={`${detail.country ?? "—"} / ${detail.branch ?? "—"}`} />
+  1003→                <DataPair label="Shape" value={detail.shape ?? "—"} />
+  1004→                <DataPair label="Weight Band" value={detail.weightBand ?? "—"} />
+  1005→                <DataPair label="Lab" value={detail.lab ?? "—"} />
+  1006→                <DataPair label="Color / Clarity" value={`${detail.colorGroup ?? "—"} / ${detail.clarityGroup ?? "—"}`} />
+  1007→                <DataPair label="Treatment" value={detail.treatment ?? "—"} />
+  1008→                <DataPair label="Required By" value={fmtDate(detail.requiredBy)} />
+  1009→                <DataPair label="Age / Days Remaining / Days Overdue" value={`${detail.ageDays} / ${detail.daysRemaining ?? "—"} / ${detail.daysOverdue}`} />
+  1010→                <DataPair label="Customer Priority" value={detail.customerPriority ?? "—"} />
+  1011→                <DataPair label="Order Priority" value={detail.orderPriority ?? "—"} />
+  1012→                <DataPair label="Requirement Priority" value={detail.requirementPriority ?? "—"} />
+  1013→                <DataPair label="Priority Reason" value={detail.priorityReason ?? "—"} />
+  1014→              </div>
+  1015→
+  1016→              {/* Allocations */}
+  1017→              <div className="rounded-md border border-border overflow-hidden">
+  1018→                <div className="px-2 py-1.5 border-b border-border bg-muted/40 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+  1019→                  Plan Allocations ({detail.allocations.length})
+  1020→                </div>
+  1021→                {detail.allocations.length === 0 ? (
+  1022→                  <div className="px-3 py-3 text-[11px] text-muted-foreground">No allocations yet.</div>
+  1023→                ) : (
+  1024→                  <table className="w-full text-[11px]">
+  1025→                    <thead className="bg-muted/30 text-[10px] uppercase text-muted-foreground">
+  1026→                      <tr>
+  1027→                        <th className="px-2 py-1 text-left">Option Code</th>
+  1028→                        <th className="px-2 py-1 text-right">Allocated Qty</th>
+  1029→                        <th className="px-2 py-1 text-left">By</th>
+  1030→                        <th className="px-2 py-1 text-left">At</th>
+  1031→                        <th className="px-2 py-1 text-left">Status</th>
+  1032→                      </tr>
+  1033→                    </thead>
+  1034→                    <tbody>
+  1035→                      {detail.allocations.map((a) => (
+  1036→                        <tr key={a.id} className="border-t border-border/60">
+  1037→                          <td className="px-2 py-1 font-medium">{a.planOptionCode ?? "—"}</td>
+  1038→                          <td className="px-2 py-1 text-right tabular-nums">{a.allocatedQty}</td>
+  1039→                          <td className="px-2 py-1">{a.allocatedBy}</td>
+  1040→                          <td className="px-2 py-1">{fmtDate(a.allocatedAt)}</td>
+  1041→                          <td className="px-2 py-1"><StatusBadge status={a.status} /></td>
+  1042→                        </tr>
+  1043→                      ))}
+  1044→                    </tbody>
+  1045→                  </table>
+  1046→                )}
+  1047→              </div>
+  1048→
+  1049→              {/* Source records */}
+  1050→              <div className="rounded-md border border-border overflow-hidden">
+  1051→                <div className="px-2 py-1.5 border-b border-border bg-muted/40 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+  1052→                  Source Records (JSON)
+  1053→                </div>
+  1054→                <pre className="text-[10px] leading-relaxed p-2 overflow-x-auto max-h-48 bg-muted/20">
+  1055→                  {JSON.stringify(detail.sourceRecords, null, 2)}
+  1056→                </pre>
+  1057→              </div>
+  1058→
+  1059→              <InfoBanner variant="info">
+  1060→                Four numbers are computed via deterministic formulas with decimal-safe round-half-up. Each step is auditable.
+  1061→              </InfoBanner>
+  1062→            </div>
+  1063→          )}
+  1064→        </DialogContent>
+  1065→      </Dialog>
+  1066→    </div>
+  1067→  );
+  1068→}
+  1069→
+  1070→function DataPair({ label, value }: { label: string; value: string | number }) {
+  1071→  return (
+  1072→    <div className="flex flex-col">
+  1073→      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</span>
+  1074→      <span className="text-[11px] font-medium text-foreground tabular-nums">{value}</span>
+  1075→    </div>
+  1076→  );
+  1077→}
+  1078→

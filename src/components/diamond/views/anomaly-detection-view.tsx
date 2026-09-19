@@ -29,6 +29,7 @@ import {
   AlertOctagon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { KpiGridSkeleton, ChartSkeleton, TableSkeleton } from "@/components/diamond/shared/skeleton";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -304,6 +305,14 @@ export function AnomalyDetectionView() {
         </div>
       </InfoBanner>
 
+      {isLoading && !data ? (
+        <div className="flex flex-col gap-3">
+          <KpiGridSkeleton count={4} />
+          <ChartSkeleton />
+          <TableSkeleton rows={6} cols={7} />
+        </div>
+      ) : (
+        <>
       {/* KPI grid */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
         <KpiCard
@@ -515,6 +524,8 @@ export function AnomalyDetectionView() {
           </p>
         </div>
       </Section>
+        </>
+      )}
     </div>
   );
 }

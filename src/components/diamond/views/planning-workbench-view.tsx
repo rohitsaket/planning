@@ -16,6 +16,7 @@ import {
   AlertTriangle,
   CheckCircle2,
 } from "lucide-react";
+import { TableSkeleton } from "@/components/diamond/shared/skeleton";
 
 interface QueueRow {
   id: string;
@@ -273,21 +274,25 @@ export function PlanningWorkbenchView() {
           className="flex flex-col"
         >
           <div className="max-h-[600px] overflow-y-auto">
-            <DataTable<QueueRow>
-              columns={queueCols}
-              rows={leftQueue}
-              loading={isLoading}
-              emptyMessage="No open requirements."
-              maxHeight="560px"
-              onRowClick={() => setView("requirements-matrix")}
-              rowClassName={(r) =>
-                r.requirementPriority === "CRITICAL"
-                  ? "bg-rose-50/40 dark:bg-rose-950/10"
-                  : r.requirementPriority === "HIGH"
-                  ? "bg-amber-50/40 dark:bg-amber-950/10"
-                  : ""
-              }
-            />
+            {isLoading && !data ? (
+              <TableSkeleton rows={5} cols={4} />
+            ) : (
+              <DataTable<QueueRow>
+                columns={queueCols}
+                rows={leftQueue}
+                loading={isLoading}
+                emptyMessage="No open requirements."
+                maxHeight="560px"
+                onRowClick={() => setView("requirements-matrix")}
+                rowClassName={(r) =>
+                  r.requirementPriority === "CRITICAL"
+                    ? "bg-rose-50/40 dark:bg-rose-950/10"
+                    : r.requirementPriority === "HIGH"
+                    ? "bg-amber-50/40 dark:bg-amber-950/10"
+                    : ""
+                }
+              />
+            )}
           </div>
         </Section>
 
@@ -298,19 +303,23 @@ export function PlanningWorkbenchView() {
           bodyClassName="p-2"
         >
           <div className="max-h-[600px] overflow-y-auto">
-            <DataTable<RoughRow>
-              columns={roughCols}
-              rows={centerRough}
-              loading={isLoading}
-              emptyMessage="No available roughs."
-              maxHeight="560px"
-              onRowClick={(r) => setSelectedRoughId(r.id)}
-              rowClassName={(r) =>
-                r.id === selectedRoughId
-                  ? "bg-sky-100 dark:bg-sky-950/40 ring-1 ring-inset ring-sky-400"
-                  : ""
-              }
-            />
+            {isLoading && !data ? (
+              <TableSkeleton rows={5} cols={4} />
+            ) : (
+              <DataTable<RoughRow>
+                columns={roughCols}
+                rows={centerRough}
+                loading={isLoading}
+                emptyMessage="No available roughs."
+                maxHeight="560px"
+                onRowClick={(r) => setSelectedRoughId(r.id)}
+                rowClassName={(r) =>
+                  r.id === selectedRoughId
+                    ? "bg-sky-100 dark:bg-sky-950/40 ring-1 ring-inset ring-sky-400"
+                    : ""
+                }
+              />
+            )}
           </div>
         </Section>
 
@@ -325,7 +334,9 @@ export function PlanningWorkbenchView() {
           bodyClassName="p-2"
         >
           <div className="max-h-[600px] overflow-y-auto">
-            {!selectedRoughId ? (
+            {isLoading && !data ? (
+              <TableSkeleton rows={5} cols={4} />
+            ) : !selectedRoughId ? (
               <EmptyState
                 title="No rough selected"
                 message="Click a row in the center panel to load its plan possibilities."
