@@ -7,9 +7,21 @@ import { PageHeader, Section } from "@/components/diamond/shared/page-header";
 import { DataTable, type Column } from "@/components/diamond/shared/data-table";
 import { StatusBadge, Badge } from "@/components/diamond/shared/badges";
 import { KpiCard } from "@/components/diamond/shared/kpi-card";
+import { InfoBanner } from "@/components/diamond/shared/empty-state";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
-import { Check, X, MessageSquare, AlertTriangle } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { toast } from "sonner";
+import { Check, X, MessageSquare, AlertTriangle, RefreshCw } from "lucide-react";
 
 interface ApprovalRow {
   id: string;
@@ -68,11 +80,15 @@ function WarningsCell({ value }: { value: string | null }) {
 }
 
 const APPROVER = "current.user";
+const REPLAN_ACTOR = "planner.user";
+const REPLAN_REASON_MIN = 5;
 
 export function ApprovalQueueView() {
   const qc = useQueryClient();
   const { toast } = useToast();
   const [actingId, setActingId] = useState<string | null>(null);
+  const [replanTarget, setReplanTarget] = useState<ApprovalRow | null>(null);
+  const [replanReason, setReplanReason] = useState("");
 
   const { data, isLoading } = useApi<ApiResponse>("/api/planning/approvals");
   const rows = data?.rows ?? [];
@@ -104,6 +120,52 @@ export function ApprovalQueueView() {
       setActingId(null);
     },
   });
+
+  const replanMutation = useMutation({
+    mutationFn: async (vars: { caseId: string; reason: string; actor: string }) =>
+      apiPost<{
+        id: string;
+        caseCode: string;
+        status: string;
+        currentVersion: number;
+        auditLogged: boolean;
+      }>(`/api/planning/cases/${vars.caseId}/replan`, {
+        reason: vars.reason,
+        actor: vars.actor,
+      }),
+    onSuccess: (data) => {
+      toast.success("Marked for replan — new version created, audit logged");
+      qc.invalidateQueries({ queryKey: ["/api/planning/approvals"] });
+      qc.invalidateQueries({ queryKey: ["/api/planning/cases"] });
+      qc.invalidateQueries({ queryKey: [`/api/planning/cases/${data.id}`] });
+      setReplanTarget(null);
+      setReplanReason("");
+    },
+    onError: (e: unknown) => {
+      toast.error(`Replan failed: ${(e as Error).message}`);
+    },
+  });
+
+  const openReplan = (row: ApprovalRow) => {
+    setReplanTarget(row);
+    setReplanReason("");
+  };
+
+  const cancelReplan = () => {
+    setReplanTarget(null);
+    setReplanReason("");
+  };
+
+  const confirmReplan = () => {
+    if (!replanTarget) return;
+    const reason = replanReason.trim();
+    if (reason.length < REPLAN_REASON_MIN) return;
+    replanMutation.mutate({
+      caseId: replanTarget.id,
+      reason,
+      actor: REPLAN_ACTOR,
+    });
+  };
 
   const act = (row: ApprovalRow, action: "approve" | "reject") => {
     const comment =
@@ -255,37 +317,57 @@ export function ApprovalQueueView() {
     {
       key: "actions",
       header: "Actions",
-      width: "180px",
+      width: "250px",
       align: "center",
       sticky: "right",
-      cell: (r) => (
-        <div className="flex items-center justify-center gap-1">
-          <Button
-            size="sm"
-            variant="default"
-            className="h-7 text-xs"
-            disabled={mutation.isPending && actingId === r.id}
-            onClick={() => act(r, "approve")}
-          >
-            {mutation.isPending && actingId === r.id ? (
-              <div className="h-3 w-3 border-2 border-white border-t-transparent rounded-full animate-spin mr-1" />
-            ) : (
-              <Check className="h-3 w-3 mr-1" />
-            )}
-            Approve
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-7 text-xs text-rose-700 dark:text-rose-300 border-rose-300 dark:border-rose-900"
-            disabled={mutation.isPending && actingId === r.id}
-            onClick={() => act(r, "reject")}
-          >
-            <X className="h-3 w-3 mr-1" />
-            Reject
-          </Button>
-        </div>
-      ),
+      cell: (r) => {
+        const acting =
+          (mutation.isPending && actingId === r.id) ||
+          (replanMutation.isPending && replanTarget?.id === r.id);
+        return (
+          <div className="flex items-center justify-center gap-1">
+            <Button
+              size="sm"
+              variant="default"
+              className="h-7 text-xs"
+              disabled={acting}
+              onClick={() => act(r, "approve")}
+            >
+              {mutation.isPending && actingId === r.id ? (
+                <div className="h-3 w-3 border-2 border-white border-t-transparent rounded-full animate-spin mr-1" />
+              ) : (
+                <Check className="h-3 w-3 mr-1" />
+              )}
+              Approve
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs text-rose-700 dark:text-rose-300 border-rose-300 dark:border-rose-900"
+              disabled={acting}
+              onClick={() => act(r, "reject")}
+            >
+              <X className="h-3 w-3 mr-1" />
+              Reject
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 text-xs text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-900 hover:bg-amber-50 dark:hover:bg-amber-950/40"
+              disabled={acting}
+              onClick={() => openReplan(r)}
+              title="Mark this case for replan — creates a new DRAFT plan version"
+            >
+              {replanMutation.isPending && replanTarget?.id === r.id ? (
+                <div className="h-3 w-3 border-2 border-amber-600 border-t-transparent rounded-full animate-spin mr-1" />
+              ) : (
+                <RefreshCw className="h-3 w-3 mr-1" />
+              )}
+              Replan
+            </Button>
+          </div>
+        );
+      },
     },
   ];
 
@@ -320,6 +402,11 @@ export function ApprovalQueueView() {
         </div>
       )}
 
+      <InfoBanner variant="warning">
+        <span className="font-semibold">Replan preserves history. </span>
+        Replanning preserves historical planning evidence. A new plan version is created in <span className="font-medium">DRAFT</span> status; the previous version is superseded. Use <span className="font-medium">Replan</span> when actual output missed the target category or yield fell below threshold — the case moves to <span className="font-medium">REPLAN_REQUIRED</span> and the action is audit-logged.
+      </InfoBanner>
+
       <DataTable<ApprovalRow>
         columns={columns}
         rows={rows}
@@ -353,11 +440,98 @@ export function ApprovalQueueView() {
             <MessageSquare className="h-3 w-3 mt-0.5 flex-shrink-0" />
             Click <span className="font-medium text-foreground">Approve</span> or <span className="font-medium text-foreground">Reject</span> on a row. A prompt will ask for an optional comment.
           </li>
-          <li>The mutation POSTs <code className="font-mono">{`{ caseId, action, approver: "current.user", comment }`}</code> to <code className="font-mono">/api/planning/approvals</code>.</li>
-          <li>On success, the queue and planning cases queries are invalidated (TanStack Query) and a toast confirms the action.</li>
-          <li>Approved cases move to status <Badge variant="success">APPROVED</Badge>; rejected cases move to <Badge variant="critical">REJECTED</Badge> and an audit log row is written.</li>
+          <li>Click <span className="font-medium text-foreground">Replan</span> to open a dialog requesting a reason (min 5 chars). Use this when the actual output missed the target category or yield fell below threshold.</li>
+          <li>Approve/Reject POSTs <code className="font-mono">{`{ caseId, action, approver: "current.user", comment }`}</code> to <code className="font-mono">/api/planning/approvals</code>. Replan POSTs <code className="font-mono">{`{ reason, actor: "planner.user" }`}</code> to <code className="font-mono">/api/planning/cases/{`{id}`}/replan</code>.</li>
+          <li>On success, the queue, planning cases, and case detail queries are invalidated (TanStack Query) and a toast confirms the action.</li>
+          <li>Approved cases move to status <Badge variant="success">APPROVED</Badge>; rejected cases move to <Badge variant="critical">REJECTED</Badge>; replanned cases move to <Badge variant="warning">REPLAN_REQUIRED</Badge> with a new DRAFT version. All three actions write an audit log row.</li>
         </ul>
       </Section>
+
+      {/* Replan Dialog */}
+      <Dialog
+        open={!!replanTarget}
+        onOpenChange={(o) => {
+          if (!o) cancelReplan();
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-sm">
+              <RefreshCw className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+              Mark case for replan
+            </DialogTitle>
+            <DialogDescription className="text-[11px]">
+              {replanTarget && (
+                <span>
+                  Case <span className="font-medium text-foreground">{replanTarget.caseCode}</span>
+                  {" · "}{replanTarget.stoneType}
+                  {" · "}<StatusBadge status={replanTarget.status} />
+                  <br />
+                </span>
+              )}
+              A new plan version will be created in <span className="font-medium">DRAFT</span> status; the current version is superseded. The action is audit-logged.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="replan-reason" className="text-xs">
+              Reason <span className="text-rose-600">*</span>
+              <span className="ml-1 text-[10px] text-muted-foreground">(min {REPLAN_REASON_MIN} chars)</span>
+            </Label>
+            <Textarea
+              id="replan-reason"
+              value={replanReason}
+              onChange={(e) => setReplanReason(e.target.value)}
+              placeholder="e.g., Actual output missed target category; yield below threshold"
+              rows={4}
+              className="text-xs resize-none"
+              autoFocus
+            />
+            <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+              <span>
+                actor: <code className="font-mono">{REPLAN_ACTOR}</code>
+              </span>
+              <span
+                className={
+                  replanReason.trim().length >= REPLAN_REASON_MIN
+                    ? "text-emerald-600 dark:text-emerald-400"
+                    : "text-amber-600 dark:text-amber-400"
+                }
+              >
+                {replanReason.trim().length}/{REPLAN_REASON_MIN}+ chars
+              </span>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 text-xs"
+              onClick={cancelReplan}
+              disabled={replanMutation.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              className="h-8 text-xs text-amber-700 dark:text-amber-200 bg-amber-500 hover:bg-amber-600 dark:bg-amber-700 dark:hover:bg-amber-600 border-amber-500 dark:border-amber-700"
+              onClick={confirmReplan}
+              disabled={
+                replanMutation.isPending ||
+                replanReason.trim().length < REPLAN_REASON_MIN
+              }
+            >
+              {replanMutation.isPending ? (
+                <div className="h-3 w-3 border-2 border-white border-t-transparent rounded-full animate-spin mr-1.5" />
+              ) : (
+                <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+              )}
+              Confirm Replan
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -1,12 +1,13 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useApi } from "@/lib/api-client";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useApi, apiPost } from "@/lib/api-client";
 import { PageHeader, Section } from "@/components/diamond/shared/page-header";
 import { DataTable, type Column } from "@/components/diamond/shared/data-table";
 import { StatusBadge, Badge } from "@/components/diamond/shared/badges";
 import { KpiCard } from "@/components/diamond/shared/kpi-card";
-import { NumberCell, EmptyState } from "@/components/diamond/shared/empty-state";
+import { NumberCell, EmptyState, InfoBanner } from "@/components/diamond/shared/empty-state";
 import {
   Select,
   SelectTrigger,
@@ -21,8 +22,20 @@ import {
   SheetTitle,
   SheetDescription,
 } from "@/components/ui/sheet";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { toast } from "sonner";
 import { useNavStore } from "@/stores/nav-store";
-import { Filter, X, FileText, Layers, GitBranch } from "lucide-react";
+import { Filter, X, FileText, Layers, GitBranch, RefreshCw } from "lucide-react";
 
 interface CaseRow {
   id: string;
@@ -157,6 +170,8 @@ const PLANNERS = [
   "planner.frank",
   "system.import",
 ];
+const REPLAN_ACTOR = "planner.user";
+const REPLAN_REASON_MIN = 5;
 
 const fmtDate = (iso: string | null): string => {
   if (!iso) return "—";
@@ -193,10 +208,13 @@ function WarningsCell({ value }: { value: string | null }) {
 
 export function PlanningCasesView() {
   const setView = useNavStore((s) => s.setView);
+  const qc = useQueryClient();
   const [status, setStatus] = useState("");
   const [planner, setPlanner] = useState("");
   const [stoneType, setStoneType] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [replanOpen, setReplanOpen] = useState(false);
+  const [replanReason, setReplanReason] = useState("");
 
   const qs = useMemo(() => {
     const parts: string[] = [];
@@ -212,6 +230,53 @@ export function PlanningCasesView() {
   const { data: detail, isLoading: detailLoading } = useApi<CaseDetail | null>(
     selectedId ? `/api/planning/cases/${selectedId}` : null
   );
+
+  const replanMutation = useMutation({
+    mutationFn: async (vars: { caseId: string; reason: string; actor: string }) =>
+      apiPost<{
+        id: string;
+        caseCode: string;
+        status: string;
+        currentVersion: number;
+        auditLogged: boolean;
+      }>(`/api/planning/cases/${vars.caseId}/replan`, {
+        reason: vars.reason,
+        actor: vars.actor,
+      }),
+    onSuccess: (data) => {
+      toast.success("Marked for replan — new version created, audit logged");
+      qc.invalidateQueries({ queryKey: ["/api/planning/cases"] });
+      qc.invalidateQueries({ queryKey: ["/api/planning/approvals"] });
+      qc.invalidateQueries({ queryKey: [`/api/planning/cases/${data.id}`] });
+      setReplanOpen(false);
+      setReplanReason("");
+    },
+    onError: (e: unknown) => {
+      toast.error(`Replan failed: ${(e as Error).message}`);
+    },
+  });
+
+  const openReplan = () => {
+    if (!detail) return;
+    setReplanReason("");
+    setReplanOpen(true);
+  };
+
+  const cancelReplan = () => {
+    setReplanOpen(false);
+    setReplanReason("");
+  };
+
+  const confirmReplan = () => {
+    if (!detail) return;
+    const reason = replanReason.trim();
+    if (reason.length < REPLAN_REASON_MIN) return;
+    replanMutation.mutate({
+      caseId: detail.id,
+      reason,
+      actor: REPLAN_ACTOR,
+    });
+  };
 
   const totalCases = rows.length;
   const approved = rows.filter((r) => r.status === "APPROVED").length;
@@ -488,6 +553,39 @@ export function PlanningCasesView() {
             </div>
           ) : (
             <div className="flex flex-col gap-3">
+              {/* Replan action bar */}
+              <div className="flex flex-col gap-2 rounded-md border border-amber-300 dark:border-amber-900 bg-amber-50/40 dark:bg-amber-950/20 p-2">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-2 text-[11px]">
+                    <RefreshCw className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+                    <span className="font-medium text-amber-800 dark:text-amber-200">
+                      Plan versioning
+                    </span>
+                    <span className="text-muted-foreground">
+                      current v{detail.currentVersion} · status {detail.status}
+                    </span>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-900 hover:bg-amber-50 dark:hover:bg-amber-950/40"
+                    disabled={replanMutation.isPending}
+                    onClick={openReplan}
+                    title="Mark this case for replan — creates a new DRAFT plan version"
+                  >
+                    {replanMutation.isPending ? (
+                      <div className="h-3 w-3 border-2 border-amber-600 border-t-transparent rounded-full animate-spin mr-1.5" />
+                    ) : (
+                      <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+                    )}
+                    Mark for Replan
+                  </Button>
+                </div>
+                <InfoBanner variant="warning">
+                  Replanning preserves historical planning evidence. A new plan version is created in <span className="font-medium">DRAFT</span> status; the previous version is superseded. The case moves to <span className="font-medium">REPLAN_REQUIRED</span> and the action is audit-logged.
+                </InfoBanner>
+              </div>
+
               {/* Rough info */}
               <Section title="Rough" bodyClassName="p-2">
                 {detail.rough ? (
@@ -632,6 +730,93 @@ export function PlanningCasesView() {
           )}
         </SheetContent>
       </Sheet>
+
+      {/* Replan Dialog */}
+      <Dialog
+        open={replanOpen}
+        onOpenChange={(o) => {
+          if (!o) cancelReplan();
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-sm">
+              <RefreshCw className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+              Mark case for replan
+            </DialogTitle>
+            <DialogDescription className="text-[11px]">
+              {detail && (
+                <span>
+                  Case <span className="font-medium text-foreground">{detail.caseCode}</span>
+                  {" · "}{detail.stoneType}
+                  {" · "}v{detail.currentVersion}
+                  {" · "}<StatusBadge status={detail.status} />
+                  <br />
+                </span>
+              )}
+              A new plan version will be created in <span className="font-medium">DRAFT</span> status; the current version is superseded. The action is audit-logged.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="replan-reason" className="text-xs">
+              Reason <span className="text-rose-600">*</span>
+              <span className="ml-1 text-[10px] text-muted-foreground">(min {REPLAN_REASON_MIN} chars)</span>
+            </Label>
+            <Textarea
+              id="replan-reason"
+              value={replanReason}
+              onChange={(e) => setReplanReason(e.target.value)}
+              placeholder="e.g., Actual output missed target category; yield below threshold"
+              rows={4}
+              className="text-xs resize-none"
+              autoFocus
+            />
+            <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+              <span>
+                actor: <code className="font-mono">{REPLAN_ACTOR}</code>
+              </span>
+              <span
+                className={
+                  replanReason.trim().length >= REPLAN_REASON_MIN
+                    ? "text-emerald-600 dark:text-emerald-400"
+                    : "text-amber-600 dark:text-amber-400"
+                }
+              >
+                {replanReason.trim().length}/{REPLAN_REASON_MIN}+ chars
+              </span>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 text-xs"
+              onClick={cancelReplan}
+              disabled={replanMutation.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              className="h-8 text-xs text-amber-700 dark:text-amber-200 bg-amber-500 hover:bg-amber-600 dark:bg-amber-700 dark:hover:bg-amber-600 border-amber-500 dark:border-amber-700"
+              onClick={confirmReplan}
+              disabled={
+                replanMutation.isPending ||
+                replanReason.trim().length < REPLAN_REASON_MIN
+              }
+            >
+              {replanMutation.isPending ? (
+                <div className="h-3 w-3 border-2 border-white border-t-transparent rounded-full animate-spin mr-1.5" />
+              ) : (
+                <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+              )}
+              Confirm Replan
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -189,8 +189,10 @@ export function DataTable<T>({
                   key={idx}
                   onClick={() => onRowClick?.(row)}
                   className={cn(
-                    "border-b border-border/60 last:border-0 hover:bg-muted/40 transition-colors",
-                    onRowClick && "cursor-pointer",
+                    "border-b border-border/60 last:border-0 transition-colors",
+                    // zebra striping
+                    idx % 2 === 1 && !onRowClick && "bg-muted/20",
+                    onRowClick ? "cursor-pointer hover:bg-primary/5 hover:text-foreground" : "hover:bg-muted/40",
                     rowClassName?.(row)
                   )}
                 >

@@ -222,3 +222,149 @@ Priority recommendations for next phase:
 5. WebSocket notifications for real-time reservation/allocation conflicts
 6. More detailed styling polish on every view (sub-rows, expandable sections, sparklines)
 7. Additional features: customer reorder signals, yield prediction models, anomaly detection
+
+---
+Task ID: 2-A
+Agent: full-stack-developer (Priority Override UI)
+Task: Add Requirement Priority Override workflow UI to requirements-matrix-view
+
+Work Log:
+- Read /home/z/my-project/worklog.md to review prior agent context (Task 0 foundation + Tasks 1-A/1-B/1-C/1-D view batches + FINAL verification)
+- Read full existing `/home/z/my-project/src/components/diamond/views/requirements-matrix-view.tsx` (730 lines) to understand structure: RequirementRow/RequirementDetail interfaces, PRIORITIES const, PriorityBadge helper, KPI strip, filters Section, 27-col DataTable, server-side pagination, and the row-click detail Dialog with 4-numbers grid + Quantities breakdown + Context grid + Allocations table + Source records JSON + InfoBanner
+- Read `/home/z/my-project/src/components/diamond/views/approval-queue-view.tsx` as the reference pattern for `useMutation` + `useQueryClient` + toast usage in this codebase; also confirmed `sonner` toast is used in feature-flags-view & business-rules-view for one-shot success/error toasts
+- Verified the priority API route exists at `/home/z/my-project/src/app/api/requirements/[id]/priority/route.ts` with the documented contract (validates priority enum, reason >= 5 chars, actor required; writes AuditLog with before/after)
+- Updated imports: added `useMutation, useQueryClient` from `@tanstack/react-query`; `toast` from `sonner`; `apiPost` from `@/lib/api-client`; `Textarea` from `@/components/ui/textarea`; `Label` from `@/components/ui/label`; `Pencil, Loader2` icons from `lucide-react`
+- Added form state inside `RequirementsMatrixView`: `qc = useQueryClient()`, `showOverrideForm`, `newPriority` (default "NORMAL"), `overrideReason`
+- Added `overrideMutation` (useMutation) that POSTs `{ priority, reason, actor: "planner.user" }` to `/api/requirements/{id}/priority`; on success calls `toast.success("Priority overridden — audit logged")`, invalidates both the matrix list query (`[url]`) and the detail query (`["/api/requirements/{id}"]`), then resets the form; on error calls `toast.error` with the message
+- Added helpers: `resetOverrideForm`, `openOverrideForm` (pre-seeds newPriority from current detail.requirementPriority), `applyOverride` (trims reason, guards >=5 chars + non-empty priority)
+- Updated Dialog `onOpenChange` to also call `resetOverrideForm()` on close so opening a different row starts fresh
+- Added the override UI block inside `DialogContent`, between the 4-numbers KPI grid and the Quantities breakdown:
+  - Bordered container with `bg-muted/20 p-2.5` showing the current requirement priority via `PriorityBadge` + the current priorityReason (truncated with title tooltip) or an italic "no reason recorded" placeholder
+  - "Override Priority" outline button (small h-7 text-xs with Pencil icon) that toggles `showOverrideForm`
+  - When form is open: a warning `InfoBanner` with the verbatim audit/OPEN-rule text, a 2-column grid with `Label` + `Select` (5 PRIORITIES) for new priority and `Label` + `Textarea` for reason (with `aria-invalid` styling and a `N / 5+ chars` counter that surfaces "reason too short"), and a footer with Cancel (ghost) and Apply Override (default) buttons
+  - Apply button shows `Loader2` spinner + "Applying…" label while `overrideMutation.isPending`, and is disabled while pending or when `newPriority` is empty or `overrideReason.trim().length < 5`
+- Wrote agent work record to `/home/z/my-project/agent-ctx/2-A-priority-override-ui.md`
+- Verified `cd /home/z/my-project && bun run lint` exits 0 with no errors; dev server log shows clean `✓ Compiled` (no new compile errors)
+
+Stage Summary:
+- `requirements-matrix-view.tsx` now exposes a complete Requirement Priority Override workflow inside the existing detail dialog
+- Override button + inline form (not a nested dialog) appears directly below the four-requirement-numbers KPI grid, before the Quantities breakdown
+- Form POSTs to `POST /api/requirements/{id}/priority` with `{ priority, reason, actor: "planner.user" }` via `apiPost` + TanStack `useMutation`; on success invalidates both the matrix list and the detail query so the detail panel refetches and the new priority/reason render immediately
+- Toast feedback via `sonner`: `toast.success("Priority overridden — audit logged")` on success, `toast.error("Override failed: ...")` on failure — matching the codebase pattern from feature-flags-view & business-rules-view
+- Warning `InfoBanner` carries the verbatim BR-CUST-PRI-001 OPEN-rule notice so users know the override is audit-logged and business-owned (not algorithmic)
+- Apply button is properly guarded (disabled when reason < 5 chars or no priority selected) and shows a loading spinner during mutation
+- Form state resets on Cancel, on successful submit, and on dialog close (via `resetOverrideForm()` called in `onOpenChange`)
+- Lint passes cleanly (exit 0); no new ESLint errors introduced
+
+---
+Task ID: 2-B
+Agent: full-stack-developer (Replan Action UI)
+Task: Add Plan Replan action to approval-queue-view and planning-cases-view
+
+Work Log:
+- Read /home/z/my-project/worklog.md to understand prior agent work (Task 0 foundation, 1-A analysis, 1-B requirements+planning incl. the two target views, 1-C manufacturing+fantasy, 1-D admin, FINAL verification, and 2-A priority-override-ui sibling task)
+- Read both target view files in full: approval-queue-view.tsx (existing Approve/Reject pattern using useMutation + radix useToast + window.prompt + qc.invalidateQueries) and planning-cases-view.tsx (existing detail Sheet with rough/case-header/reservations/versions sections, opened via selectedId state)
+- Read /api/planning/cases/[id]/replan/route.ts to confirm exact contract: validates reason (>=5 chars) + actor (required), bumps currentVersion, sets status=REPLAN_REQUIRED, creates new DRAFT PlanVersion, writes AuditLog (PLAN_REPLAN, before/after JSON), returns { id, caseCode, status, currentVersion, auditLogged }
+- Confirmed api-client exports (useApi, apiPost) and that Sonner Toaster was NOT mounted in layout.tsx (only radix Toaster was mounted). Several existing views (feature-flags, business-rules, dashboard, fantasy-sync) call sonner `toast.*` but toasts would silently no-op without the Sonner Toaster mounted.
+- Mounted Sonner Toaster in src/app/layout.tsx (position="top-right", richColors, closeButton) so sonner toast.success/error actually displays. Both toasters (radix bottom-right default, sonner top-right) coexist without overlap.
+- Edited approval-queue-view.tsx:
+  - Added imports: RefreshCw (lucide), Dialog/DialogContent/DialogHeader/DialogTitle/DialogDescription/DialogFooter, Textarea, Label, toast (sonner), InfoBanner (shared)
+  - Added REPLAN_ACTOR="planner.user" + REPLAN_REASON_MIN=5 constants
+  - Added replanTarget/replanReason state
+  - Added replanMutation (useMutation): POSTs { reason, actor } to /api/planning/cases/{id}/replan; onSuccess shows toast.success("Marked for replan — new version created, audit logged"), invalidates /api/planning/approvals + /api/planning/cases + /api/planning/cases/{id}, closes dialog, clears reason; onError shows toast.error
+  - Added Replan button (amber/warning outline, RefreshCw icon, disabled while any mutation pending on that row) next to Approve/Reject in the actions column (widened column 180px → 250px)
+  - Added InfoBanner (variant="warning") above the DataTable explaining replan preserves historical evidence, new DRAFT version, previous superseded, audit-logged
+  - Added Replan Dialog (max-w-md) with case header (caseCode + stoneType + StatusBadge), reason Textarea (required, min 5 chars, placeholder "e.g., Actual output missed target category; yield below threshold"), live char counter (amber under min, emerald at min+), actor hint, Cancel + amber Confirm Replan buttons
+  - Updated "How approval works" Section to document the third action and its API contract
+- Edited planning-cases-view.tsx:
+  - Added imports: useMutation, useQueryClient, apiPost, RefreshCw (lucide), Dialog parts, Button, Textarea, Label, toast (sonner), InfoBanner (shared)
+  - Added REPLAN_ACTOR + REPLAN_REASON_MIN constants
+  - Added replanOpen/replanReason state and a replanMutation identical to the approval-queue one (but invalidates /api/planning/cases + /api/planning/approvals + /api/planning/cases/{detail.id})
+  - Added a "Plan versioning" amber-bordered action bar at the top of the detail Sheet content (inside the loaded branch, before the Rough Section) showing current v{currentVersion} · status {status} on the left and a "Mark for Replan" amber/warning outline button (RefreshCw icon) on the right, with an InfoBanner (variant="warning") below the button carrying the verbatim "Replanning preserves historical planning evidence…" hint
+  - Added a Replan Dialog (max-w-md) at the end of the component (outside the Sheet, inside the wrapper div) with case header (caseCode + stoneType + v{currentVersion} + StatusBadge), reason Textarea with same validation/placeholder/counter, Cancel + amber Confirm Replan buttons
+- Ran `bun run lint` — exits 0, no errors, no warnings
+- End-to-end verified the replan API via curl: POST /api/planning/cases/{id}/replan with valid body returns { id, caseCode, status:"REPLAN_REQUIRED", currentVersion:2, auditLogged:true } (version bumped 1→2); validation correctly returns 400 {"error":"Reason (min 5 chars) required"} for short reason and 400 {"error":"actor required"} for missing actor
+- Confirmed dev server compiles cleanly ("✓ Compiled in 152ms" / "✓ Compiled in 226ms" in dev.log, no errors)
+
+Stage Summary:
+- Both target views now expose the Plan Replan action with a proper Dialog + Textarea (replacing the window.prompt pattern used for Approve/Reject) and a sonner toast on success/error
+- approval-queue-view.tsx: Replan button in sticky-right actions column (next to Approve/Reject), amber warning InfoBanner above the table, compact max-w-md Dialog with reason textarea + char counter, mutation invalidates approvals + cases + case-detail queries
+- planning-cases-view.tsx: "Mark for Replan" button at the top of the detail Sheet (in a dedicated amber-bordered Plan-versioning action bar), with the verbatim "Replanning preserves historical planning evidence…" InfoBanner hint directly under the button; same Dialog pattern; mutation invalidates cases + approvals + case-detail queries
+- Sonner Toaster mounted globally in layout.tsx (position="top-right") so toast.success/error actually displays — also fixes the latent no-op toast issue in feature-flags-view, business-rules-view, dashboard-view, and fantasy-sync-view
+- Lint clean (0 errors, 0 warnings); dev server compiles cleanly; API end-to-end test passes (version increment, status change, audit log, validation)
+
+---
+Task ID: 2-FINAL
+Agent: main (cron-triggered webDevReview round 1)
+Task: QA assessment + bug fixes + styling enhancements + new features (priority override, replan, command palette, reorder signals, demand run trigger, live activity feed)
+
+## Current Project Status Assessment
+- Project was in stable state from previous builds (39 views, 20+ APIs, full schema + seed)
+- Lint was clean, dev server compiled successfully, no runtime errors
+- QA via agent-browser + VLM identified: (1) bug — CRITICAL/HIGH requirements always 0; (2) dashboard top-heavy with weak visual hierarchy; (3) DataTables lacked zebra striping; (4) missing features: command palette, demand run trigger, priority override, replan action, reorder signals, activity feed
+
+## Goals / Completed Modifications / Verification Results
+
+### Bugs Fixed
+1. **CRITICAL/HIGH requirements always 0** — Root cause: seed priority classification only triggered CRITICAL at shortage ≥ 8, but per-category shortages are typically 1-3. Fix: (a) improved multi-factor priority classification in seed (shortage + overdue + customer priority + type); (b) added 6 explicitly CRITICAL aggregate requirements (top customer orders with large qty + overdue); (c) added 4 HIGH priority requirements. Result: CRITICAL=6, HIGH=16, OVERDUE=45 (was 0/0/23).
+2. **DataTable visual noise** — NumberCell now supports `zeroAsDash` option to show "—" instead of "0" for zero values, reducing visual clutter.
+
+### Styling Enhancements
+1. **KpiCard completely redesigned** — gradient backgrounds with accent stripe, icon badges, larger bold values (text-2xl font-bold), SVG sparklines with gradient fills, hover lift effect (hover:shadow-md hover:-translate-y-0.5), trend indicators with icons. Added `KpiPill` compact variant for inline use.
+2. **DataTable zebra striping** — alternating row backgrounds (bg-muted/20 on odd rows) for improved readability; enhanced hover states (hover:bg-primary/5 for clickable rows).
+3. **Dashboard restructured into 3 grouped sections** with colored accent bars: Manufacturing Need (rose), Inventory & Operations (sky), Priority & Sync Health (emerald). Each section has a header with description.
+4. **Chart enhancements** — gradient fills on bar charts (linearGradient), rounded bar corners, improved tooltip styling (borderRadius: 8).
+5. **Sonner Toaster mounted** in layout.tsx alongside radix Toaster for proper toast rendering.
+
+### New Features Added
+1. **Cmd+K Command Palette** (`src/components/diamond/command-palette.tsx`) — 45 searchable nav items grouped by category, keyboard navigation (↑↓ Enter), Cmd+K/Ctrl+K toggle, ESC to close, hint button in topbar.
+2. **Demand Run Trigger** — `POST /api/demand/run` API recomputes 90-day demand per category using confirmed formula; dashboard "Run Demand Calc" button with loading state; audit logged.
+3. **Requirement Priority Override** — `POST /api/requirements/{id}/priority` API with validation (priority enum, reason ≥ 5 chars, actor); UI in requirements-matrix-view detail dialog with priority Select + reason Textarea + InfoBanner about OPEN rule BR-CUST-PRI-001; audit logged with before/after.
+4. **Plan Replan Action** — `POST /api/planning/cases/{id}/replan` API creates new plan version (currentVersion+1) in DRAFT status; UI in both approval-queue-view (Replan button next to Approve/Reject) and planning-cases-view (Mark for Replan button in detail Sheet); replan Dialog with reason textarea; audit logged.
+5. **Customer Reorder Signals view** (`src/components/diamond/views/reorder-signals-view.tsx`) — Data science advisory feature (spec section 64); analyzes historical repeat purchase intervals per customer; predicts likely reorder window, qty range, confidence; 4 KPIs (Predicted Soon/Later/Insufficient/Avg Confidence); sortable/filterable table with confidence progress bars; clearly labeled "PREDICTION — NOT confirmed demand".
+6. **Live Activity Feed on Dashboard** — `GET /api/audit/recent` API; dashboard section showing 10 most recent audit events with action-specific icons + colors, relative timestamps, auto-refresh every 30s.
+7. **Reorder Signals nav item** added to sidebar Analysis group + nav store ViewId type.
+
+### Verification Results
+- `bun run lint` → exit 0, zero errors/warnings
+- Dev server compiles cleanly (`✓ Compiled in 251ms` etc.)
+- agent-browser end-to-end testing confirmed:
+  - Dashboard shows grouped sections, CRITICAL=6/HIGH=16, Run Demand Calc button works (audit logged)
+  - Command palette opens with Cmd+K, filters by "reorder", navigates to Reorder Signals view
+  - Reorder Signals view loads with 12 PREDICTED_SOON customers, confidence bars, categories
+  - Requirements Matrix detail dialog shows Override Priority form with validation
+  - Approval Queue shows Replan button, replan dialog works, audit log confirms PLAN_REPLAN action
+  - No console errors, no runtime errors
+- VLM assessment of enhanced dashboard: **8.5/10 polish**, "enterprise-grade", "feels like a finished product rather than a wireframe", "superior to a flat grid", "high value" activity feed
+
+## Unresolved Issues / Risks / Priority Recommendations for Next Phase
+
+### Remaining items (lower priority)
+1. **Authentication + RBAC** — login/sessions/granular permission checks still not implemented (users-view is a stub)
+2. **Real Fantasy ERP adapter** — currently using local synced read model seeded with realistic data; real adapter needs credentials/API confirmation
+3. **Workbook (.xlsx) upload + parsing** — currently UI-only with mock validation; needs real xlsx parsing (e.g., sheetjs/exceljs)
+4. **Background job workers** — Fantasy sync, demand runs, forecast runs should be queued, not synchronous
+5. **WebSocket notifications** — real-time reservation/allocation conflicts should push to clients
+6. **More view-level styling polish** — apply KpiCard sparklines + grouped sections pattern to other views (Sales Analysis, Customers, etc.)
+7. **Sparkline data sources** — currently some sparklines use synthetic data; should be wired to real historical aggregates
+8. **Mobile responsive polish** — sidebar/topbar need better mobile behavior
+
+### Confirmed working features (regression-tested this round)
+- ✅ 90-day demand calculation with decimal-safe round-half-up
+- ✅ Lab normalization (GIA/GIA-Premium/GIA-Standard→GIA, blank→Non-Cert)
+- ✅ 24 confirmed weight bands, shape normalization, EMERALD 5STEP validation
+- ✅ Four requirement numbers (never collapsed)
+- ✅ Memo excluded from shortage; Excess does NOT change shortage formula
+- ✅ Concurrency-safe rough reservation (transactional, 409 on conflict)
+- ✅ Plan versioning + approval workflow + replan
+- ✅ Traceability bidirectional genealogy tree
+- ✅ Plan-vs-Actual reconciliation with yield variance
+- ✅ Audit log (append-only, all mutations logged)
+- ✅ OPEN rules clearly flagged, never hardcoded
+- ✅ Feature flags (Color/Clarity/Treatment dimensions OFF by default)
+- ✅ Cmd+K command palette
+- ✅ Demand run trigger
+- ✅ Requirement priority override (audit logged)
+- ✅ Plan replan action (audit logged, version bumped)
+- ✅ Customer reorder signals (advisory)
+- ✅ Live activity feed (auto-refresh)

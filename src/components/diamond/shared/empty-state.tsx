@@ -43,8 +43,9 @@ export function Metric({ label, value, intent }: { label: string; value: string 
   );
 }
 
-export function NumberCell({ value, intent }: { value: number | null | undefined; intent?: "default" | "critical" | "warning" | "success" | "info" }) {
-  if (value === null || value === undefined) return <span className="text-muted-foreground">—</span>;
+export function NumberCell({ value, intent, zeroAsDash = false, decimals }: { value: number | null | undefined; intent?: "default" | "critical" | "warning" | "success" | "info"; zeroAsDash?: boolean; decimals?: number }) {
+  if (value === null || value === undefined) return <span className="text-muted-foreground/50">—</span>;
+  if (zeroAsDash && value === 0) return <span className="text-muted-foreground/40">—</span>;
   const colors = {
     default: "",
     critical: "text-rose-600 dark:text-rose-400 font-medium",
@@ -52,7 +53,10 @@ export function NumberCell({ value, intent }: { value: number | null | undefined
     success: "text-emerald-600 dark:text-emerald-400 font-medium",
     info: "text-sky-600 dark:text-sky-400",
   };
-  const display = Number.isInteger(value) ? value.toString() : value.toFixed(2);
+  let display: string;
+  if (decimals !== undefined) display = value.toFixed(decimals);
+  else if (Number.isInteger(value)) display = value.toString();
+  else display = value.toFixed(2);
   return <span className={cn("tabular-nums", intent ? colors[intent] : colors.default)}>{display}</span>;
 }
 

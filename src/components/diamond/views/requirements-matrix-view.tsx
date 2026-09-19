@@ -1,13 +1,17 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useApi } from "@/lib/api-client";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { useApi, apiPost } from "@/lib/api-client";
 import { PageHeader, Section } from "@/components/diamond/shared/page-header";
 import { DataTable, type Column } from "@/components/diamond/shared/data-table";
 import { StatusBadge, Badge } from "@/components/diamond/shared/badges";
 import { KpiCard } from "@/components/diamond/shared/kpi-card";
 import { InfoBanner, NumberCell } from "@/components/diamond/shared/empty-state";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectTrigger,
@@ -23,7 +27,15 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { Search, ChevronLeft, ChevronRight, Filter, X } from "lucide-react";
+import {
+  Search,
+  ChevronLeft,
+  ChevronRight,
+  Filter,
+  X,
+  Pencil,
+  Loader2,
+} from "lucide-react";
 
 interface RequirementRow {
   id: string;
@@ -154,6 +166,7 @@ function fmtDate(iso: string | null): string {
 }
 
 export function RequirementsMatrixView() {
+  const qc = useQueryClient();
   const [filters, setFilters] = useState({
     type: "",
     status: "",
@@ -164,6 +177,11 @@ export function RequirementsMatrixView() {
   const [page, setPage] = useState(1);
   const pageSize = 100;
   const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  // Requirement Priority Override form state
+  const [showOverrideForm, setShowOverrideForm] = useState(false);
+  const [newPriority, setNewPriority] = useState<string>("NORMAL");
+  const [overrideReason, setOverrideReason] = useState<string>("");
 
   const qs = useMemo(() => {
     const parts: string[] = [`page=${page}`, `pageSize=${pageSize}`];
@@ -186,6 +204,54 @@ export function RequirementsMatrixView() {
   const { data: detail, isLoading: detailLoading } = useApi<RequirementDetail | null>(
     selectedId ? `/api/requirements/${selectedId}` : null
   );
+
+  // Requirement Priority Override mutation
+  const overrideMutation = useMutation({
+    mutationFn: async (vars: { id: string; priority: string; reason: string }) =>
+      apiPost<{
+        id: string;
+        requirementCode: string;
+        requirementPriority: string;
+        priorityReason: string;
+        auditLogged: true;
+      }>(`/api/requirements/${vars.id}/priority`, {
+        priority: vars.priority,
+        reason: vars.reason,
+        actor: "planner.user",
+      }),
+    onSuccess: (_data, vars) => {
+      toast.success("Priority overridden — audit logged");
+      // Invalidate the matrix list query (current page+filters) and the detail query so they refetch.
+      qc.invalidateQueries({ queryKey: [url] });
+      qc.invalidateQueries({ queryKey: [`/api/requirements/${vars.id}`] });
+      // Reset form
+      setShowOverrideForm(false);
+      setOverrideReason("");
+      setNewPriority("NORMAL");
+    },
+    onError: (e: Error) => {
+      toast.error(`Override failed: ${e.message}`);
+    },
+  });
+
+  const resetOverrideForm = () => {
+    setShowOverrideForm(false);
+    setOverrideReason("");
+    setNewPriority("NORMAL");
+  };
+
+  const openOverrideForm = () => {
+    setNewPriority(detail?.requirementPriority ?? "NORMAL");
+    setOverrideReason("");
+    setShowOverrideForm(true);
+  };
+
+  const applyOverride = () => {
+    if (!detail) return;
+    const reason = overrideReason.trim();
+    if (!newPriority || reason.length < 5) return;
+    overrideMutation.mutate({ id: detail.id, priority: newPriority, reason });
+  };
 
   const rows = data?.data ?? [];
   const total = data?.total ?? 0;
@@ -581,7 +647,15 @@ export function RequirementsMatrixView() {
       </div>
 
       {/* Detail dialog */}
-      <Dialog open={!!selectedId} onOpenChange={(o) => !o && setSelectedId(null)}>
+      <Dialog
+        open={!!selectedId}
+        onOpenChange={(o) => {
+          if (!o) {
+            setSelectedId(null);
+            resetOverrideForm();
+          }
+        }}
+      >
         <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-sm">
@@ -633,6 +707,131 @@ export function RequirementsMatrixView() {
                   intent="default"
                   hint="Advisory — NOT confirmed demand"
                 />
+              </div>
+
+              {/* Requirement Priority Override */}
+              <div className="rounded-md border border-border bg-muted/20 p-2.5 flex flex-col gap-2">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                      Current Requirement Priority
+                    </span>
+                    <PriorityBadge value={detail.requirementPriority} />
+                    {detail.priorityReason ? (
+                      <span
+                        className="text-[11px] text-muted-foreground truncate max-w-[320px]"
+                        title={detail.priorityReason}
+                      >
+                        {detail.priorityReason}
+                      </span>
+                    ) : (
+                      <span className="text-[11px] text-muted-foreground/70 italic">
+                        no reason recorded
+                      </span>
+                    )}
+                  </div>
+                  {!showOverrideForm && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-xs"
+                      onClick={openOverrideForm}
+                    >
+                      <Pencil className="h-3 w-3 mr-1" /> Override Priority
+                    </Button>
+                  )}
+                </div>
+
+                {showOverrideForm && (
+                  <div className="flex flex-col gap-2 mt-1 pt-2 border-t border-border/60">
+                    <InfoBanner variant="warning">
+                      Manual override is audit-logged. OPEN rule BR-CUST-PRI-001 — customer
+                      priority scoring formula is OPEN; this manual classification is
+                      business-owned.
+                    </InfoBanner>
+
+                    <div className="grid grid-cols-1 md:grid-cols-[200px_1fr] gap-2">
+                      <div className="flex flex-col gap-1">
+                        <Label
+                          htmlFor="override-priority"
+                          className="text-[10px] uppercase tracking-wide text-muted-foreground"
+                        >
+                          New Priority
+                        </Label>
+                        <Select value={newPriority} onValueChange={setNewPriority}>
+                          <SelectTrigger id="override-priority" size="sm" className="h-8 text-xs">
+                            <SelectValue placeholder="Select priority" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {PRIORITIES.map((p) => (
+                              <SelectItem key={p} value={p}>
+                                {p}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <Label
+                          htmlFor="override-reason"
+                          className="text-[10px] uppercase tracking-wide text-muted-foreground"
+                        >
+                          Reason{" "}
+                          <span className="text-rose-600 dark:text-rose-400">*</span>{" "}
+                          (min 5 chars, required for audit)
+                        </Label>
+                        <Textarea
+                          id="override-reason"
+                          value={overrideReason}
+                          onChange={(e) => setOverrideReason(e.target.value)}
+                          placeholder="e.g. VIP customer escalation per sales director request"
+                          className="min-h-[60px] text-xs"
+                          aria-invalid={
+                            overrideReason.length > 0 && overrideReason.trim().length < 5
+                          }
+                        />
+                        <span className="text-[10px] text-muted-foreground">
+                          {overrideReason.trim().length} / 5+ chars
+                          {overrideReason.length > 0 &&
+                            overrideReason.trim().length < 5 &&
+                            " — reason too short"}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-end gap-2">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 text-xs"
+                        onClick={resetOverrideForm}
+                        disabled={overrideMutation.isPending}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="default"
+                        className="h-7 text-xs"
+                        disabled={
+                          overrideMutation.isPending ||
+                          !newPriority ||
+                          overrideReason.trim().length < 5
+                        }
+                        onClick={applyOverride}
+                      >
+                        {overrideMutation.isPending ? (
+                          <>
+                            <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                            Applying…
+                          </>
+                        ) : (
+                          "Apply Override"
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Quantities breakdown */}

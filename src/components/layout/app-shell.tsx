@@ -9,7 +9,7 @@ import {
   FlaskConical, FileBarChart, Settings, ChevronDown, ChevronRight, Search,
   Bell, User, Database, Activity, Scale, Layers, Map, FileWarning,
   Workflow, ClipboardCheck, CalendarClock, Hash, RefreshCw, BookCheck, ClipboardList, Diamond,
-  Moon, Sun, Monitor
+  Moon, Sun, Monitor, Command as CommandIcon
 } from "lucide-react";
 import { ReactNode, useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/input";
 import { useTheme } from "next-themes";
 import { apiFetch } from "@/lib/api-client";
 import { useQuery } from "@tanstack/react-query";
+import { CommandPalette } from "@/components/diamond/command-palette";
 
 interface NavItem {
   id: ViewId;
@@ -57,6 +58,7 @@ const NAV: NavGroup[] = [
       { id: "analysis-stockout", label: "Stockout Risk", icon: <AlertTriangle className="h-3.5 w-3.5" /> },
       { id: "analysis-excess", label: "Excess Stock", icon: <Package className="h-3.5 w-3.5" /> },
       { id: "analysis-aging", label: "Stock Aging", icon: <CalendarClock className="h-3.5 w-3.5" /> },
+      { id: "analysis-reorder-signals", label: "Reorder Signals", icon: <Star className="h-3.5 w-3.5" /> },
     ],
   },
   {
@@ -381,6 +383,19 @@ export function AppShell({ children }: { children: ReactNode }) {
           <GlobalSearch />
         </div>
         <div className="flex items-center gap-1 ml-auto">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 gap-1.5 text-[11px] hidden lg:flex"
+            onClick={() => {
+              // Dispatch Cmd+K programmatically by toggling the palette via custom event
+              window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, ctrlKey: true }));
+            }}
+          >
+            <CommandIcon className="h-3 w-3" />
+            <span>Command</span>
+            <kbd className="font-mono text-[9px] bg-muted px-1 py-0.5 rounded border border-border">⌘K</kbd>
+          </Button>
           <ThemeToggle />
           <NotificationsBell />
           <div className="h-8 w-8 rounded-full bg-muted border border-border flex items-center justify-center">
@@ -423,6 +438,9 @@ export function AppShell({ children }: { children: ReactNode }) {
           <span>Current view: <span className="text-foreground font-medium">{view}</span></span>
         </div>
       </footer>
+
+      {/* Command palette (Cmd+K / Ctrl+K) */}
+      <CommandPalette />
     </div>
   );
 }

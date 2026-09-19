@@ -1,0 +1,638 @@
+     1→     1→"use client";
+     2→     2→
+     3→     3→import { useMemo, useState } from "react";
+     4→     4→import { useApi } from "@/lib/api-client";
+     5→     5→import { PageHeader, Section } from "@/components/diamond/shared/page-header";
+     6→     6→import { DataTable, type Column } from "@/components/diamond/shared/data-table";
+     7→     7→import { StatusBadge, Badge } from "@/components/diamond/shared/badges";
+     8→     8→import { KpiCard } from "@/components/diamond/shared/kpi-card";
+     9→     9→import { NumberCell, EmptyState } from "@/components/diamond/shared/empty-state";
+    10→    10→import {
+    11→    11→  Select,
+    12→    12→  SelectTrigger,
+    13→    13→  SelectValue,
+    14→    14→  SelectContent,
+    15→    15→  SelectItem,
+    16→    16→} from "@/components/ui/select";
+    17→    17→import {
+    18→    18→  Sheet,
+    19→    19→  SheetContent,
+    20→    20→  SheetHeader,
+    21→    21→  SheetTitle,
+    22→    22→  SheetDescription,
+    23→    23→} from "@/components/ui/sheet";
+    24→    24→import { useNavStore } from "@/stores/nav-store";
+    25→    25→import { Filter, X, FileText, Layers, GitBranch } from "lucide-react";
+    26→    26→
+    27→    27→interface CaseRow {
+    28→    28→  id: string;
+    29→    29→  caseCode: string;
+    30→    30→  roughId: string;
+    31→    31→  fantasyRoughId: string | null;
+    32→    32→  stoneName: string | null;
+    33→    33→  kapan: string | null;
+    34→    34→  packet: string | null;
+    35→    35→  signer: string | null;
+    36→    36→  originalRoughWeight: number;
+    37→    37→  stoneType: string;
+    38→    38→  planner: string;
+    39→    39→  planningDate: string;
+    40→    40→  status: string;
+    41→    41→  currentVersion: number;
+    42→    42→  selectedOptionCode: string | null;
+    43→    43→  approvedBy: string | null;
+    44→    44→  approvedAt: string | null;
+    45→    45→  approvalComment: string | null;
+    46→    46→  optionCount: number;
+    47→    47→  expectedPieces: number;
+    48→    48→  expectedYieldPct: number;
+    49→    49→  requirementCoveragePct: number;
+    50→    50→}
+    51→    51→
+    52→    52→interface CaseDetail {
+    53→    53→  id: string;
+    54→    54→  caseCode: string;
+    55→    55→  rough: {
+    56→    56→    id: string;
+    57→    57→    fantasyRoughId: string | null;
+    58→    58→    kapan: string | null;
+    59→    59→    packet: string | null;
+    60→    60→    stoneName: string | null;
+    61→    61→    signer: string | null;
+    62→    62→    stoneType: string;
+    63→    63→    roughWeight: number;
+    64→    64→    country: string | null;
+    65→    65→    branch: string | null;
+    66→    66→    fantasyStatus: string | null;
+    67→    67→    planningEligible: boolean;
+    68→    68→    planningStatus: string;
+    69→    69→  } | null;
+    70→    70→  stoneName: string | null;
+    71→    71→  kapan: string | null;
+    72→    72→  packet: string | null;
+    73→    73→  originalRoughWeight: number;
+    74→    74→  stoneType: string;
+    75→    75→  planner: string;
+    76→    76→  planningDate: string;
+    77→    77→  status: string;
+    78→    78→  currentVersion: number;
+    79→    79→  selectedOptionId: string | null;
+    80→    80→  sourceFile: string | null;
+    81→    81→  approvedBy: string | null;
+    82→    82→  approvedAt: string | null;
+    83→    83→  approvalComment: string | null;
+    84→    84→  requirementContext: unknown;
+    85→    85→  reservations: Array<{
+    86→    86→    id: string;
+    87→    87→    status: string;
+    88→    88→    reservedBy: string;
+    89→    89→    reservedAt: string;
+    90→    90→    releasedAt: string | null;
+    91→    91→  }>;
+    92→    92→  versions: Array<{
+    93→    93→    id: string;
+    94→    94→    versionNumber: number;
+    95→    95→    status: string;
+    96→    96→    reason: string | null;
+    97→    97→    createdBy: string;
+    98→    98→    createdAt: string;
+    99→    99→    supersededAt: string | null;
+   100→   100→    options: Array<{
+   101→   101→      id: string;
+   102→   102→      optionCode: string;
+   103→   103→      optionNumber: number;
+   104→   104→      expectedPieces: number;
+   105→   105→      expectedTotalWeight: number;
+   106→   106→      yieldPct: number;
+   107→   107→      matchingRequiredPieces: number;
+   108→   108→      requirementCoverage: number;
+   109→   109→      coveragePct: number;
+   110→   110→      nonRequiredPieces: number;
+   111→   111→      expectedColor: string | null;
+   112→   112→      expectedClarity: string | null;
+   113→   113→      certificationIntent: string | null;
+   114→   114→      potentialExcess: number;
+   115→   115→      validationWarnings: string | null;
+   116→   116→      selected: boolean;
+   117→   117→      selectedBy: string | null;
+   118→   118→      selectedAt: string | null;
+   119→   119→      approvalStatus: string | null;
+   120→   120→      approvedBy: string | null;
+   121→   121→      approvedAt: string | null;
+   122→   122→      pieces: Array<{
+   123→   123→        id: string;
+   124→   124→        pieceCode: string;
+   125→   125→        sequence: number;
+   126→   126→        expectedShape: string | null;
+   127→   127→        expectedWeight: number;
+   128→   128→        expectedColor: string | null;
+   129→   129→        expectedClarity: string | null;
+   130→   130→        expectedCategory: string | null;
+   131→   131→        certificationIntent: string | null;
+   132→   132→        fulfilled: boolean;
+   133→   133→        actualPolishedLotId: string | null;
+   134→   134→        fantasyChildId: string | null;
+   135→   135→      }>;
+   136→   136→    }>;
+   137→   137→  }>;
+   138→   138→}
+   139→   139→
+   140→   140→const STATUSES = [
+   141→   141→  "DRAFT",
+   142→   142→  "READY_FOR_REVIEW",
+   143→   143→  "SELECTED",
+   144→   144→  "APPROVAL_PENDING",
+   145→   145→  "APPROVED",
+   146→   146→  "REJECTED",
+   147→   147→  "REPLAN_REQUIRED",
+   148→   148→  "RELEASED_TO_MANUFACTURING",
+   149→   149→];
+   150→   150→const STONE_TYPES = ["WHITE", "BLUE"];
+   151→   151→const PLANNERS = [
+   152→   152→  "planner.alice",
+   153→   153→  "planner.bob",
+   154→   154→  "planner.carol",
+   155→   155→  "planner.dan",
+   156→   156→  "planner.eva",
+   157→   157→  "planner.frank",
+   158→   158→  "system.import",
+   159→   159→];
+   160→   160→
+   161→   161→const fmtDate = (iso: string | null): string => {
+   162→   162→  if (!iso) return "—";
+   163→   163→  try {
+   164→   164→    return new Date(iso).toISOString().slice(0, 10);
+   165→   165→  } catch {
+   166→   166→    return "—";
+   167→   167→  }
+   168→   168→};
+   169→   169→
+   170→   170→function WarningsCell({ value }: { value: string | null }) {
+   171→   171→  if (!value) return <span className="text-muted-foreground">—</span>;
+   172→   172→  let parsed: string[] = [];
+   173→   173→  try {
+   174→   174→    const j = JSON.parse(value);
+   175→   175→    if (Array.isArray(j)) parsed = j.map((s) => String(s));
+   176→   176→    else if (typeof j === "string") parsed = [j];
+   177→   177→    else parsed = [JSON.stringify(j)];
+   178→   178→  } catch {
+   179→   179→    parsed = [value];
+   180→   180→  }
+   181→   181→  if (parsed.length === 0) return <span className="text-muted-foreground">—</span>;
+   182→   182→  return (
+   183→   183→    <div className="flex flex-wrap gap-1">
+   184→   184→      {parsed.slice(0, 3).map((w, i) => (
+   185→   185→        <Badge key={i} variant="warning">{w}</Badge>
+   186→   186→      ))}
+   187→   187→      {parsed.length > 3 && (
+   188→   188→        <Badge variant="neutral">+{parsed.length - 3}</Badge>
+   189→   189→      )}
+   190→   190→    </div>
+   191→   191→  );
+   192→   192→}
+   193→   193→
+   194→   194→export function PlanningCasesView() {
+   195→   195→  const setView = useNavStore((s) => s.setView);
+   196→   196→  const [status, setStatus] = useState("");
+   197→   197→  const [planner, setPlanner] = useState("");
+   198→   198→  const [stoneType, setStoneType] = useState("");
+   199→   199→  const [selectedId, setSelectedId] = useState<string | null>(null);
+   200→   200→
+   201→   201→  const qs = useMemo(() => {
+   202→   202→    const parts: string[] = [];
+   203→   203→    if (status) parts.push(`status=${encodeURIComponent(status)}`);
+   204→   204→    if (planner) parts.push(`planner=${encodeURIComponent(planner)}`);
+   205→   205→    if (stoneType) parts.push(`stoneType=${encodeURIComponent(stoneType)}`);
+   206→   206→    return parts.length ? `?${parts.join("&")}` : "";
+   207→   207→  }, [status, planner, stoneType]);
+   208→   208→
+   209→   209→  const { data, isLoading } = useApi<{ rows: CaseRow[] }>(`/api/planning/cases${qs}`);
+   210→   210→  const rows = data?.rows ?? [];
+   211→   211→
+   212→   212→  const { data: detail, isLoading: detailLoading } = useApi<CaseDetail | null>(
+   213→   213→    selectedId ? `/api/planning/cases/${selectedId}` : null
+   214→   214→  );
+   215→   215→
+   216→   216→  const totalCases = rows.length;
+   217→   217→  const approved = rows.filter((r) => r.status === "APPROVED").length;
+   218→   218→  const pending = rows.filter((r) =>
+   219→   219→    ["READY_FOR_REVIEW", "SELECTED", "APPROVAL_PENDING"].includes(r.status)
+   220→   220→  ).length;
+   221→   221→  const draft = rows.filter((r) => r.status === "DRAFT").length;
+   222→   222→
+   223→   223→  const activeFilters = (status ? 1 : 0) + (planner ? 1 : 0) + (stoneType ? 1 : 0);
+   224→   224→  const clearFilters = () => {
+   225→   225→    setStatus("");
+   226→   226→    setPlanner("");
+   227→   227→    setStoneType("");
+   228→   228→  };
+   229→   229→
+   230→   230→  const columns: Column<CaseRow>[] = [
+   231→   231→    {
+   232→   232→      key: "caseCode",
+   233→   233→      header: "Case Code",
+   234→   234→      width: "140px",
+   235→   235→      sticky: "left",
+   236→   236→      sortable: true,
+   237→   237→      sortValue: (r) => r.caseCode,
+   238→   238→      cell: (r) => <span className="font-medium">{r.caseCode}</span>,
+   239→   239→    },
+   240→   240→    {
+   241→   241→      key: "stoneName",
+   242→   242→      header: "Stone Name",
+   243→   243→      width: "150px",
+   244→   244→      cell: (r) => r.stoneName ?? "—",
+   245→   245→    },
+   246→   246→    {
+   247→   247→      key: "kapan",
+   248→   248→      header: "Kapan",
+   249→   249→      width: "80px",
+   250→   250→      cell: (r) => r.kapan ?? "—",
+   251→   251→    },
+   252→   252→    {
+   253→   253→      key: "packet",
+   254→   254→      header: "Packet",
+   255→   255→      width: "70px",
+   256→   256→      cell: (r) => r.packet ?? "—",
+   257→   257→    },
+   258→   258→    {
+   259→   259→      key: "signer",
+   260→   260→      header: "Signer",
+   261→   261→      width: "70px",
+   262→   262→      cell: (r) => r.signer ?? "—",
+   263→   263→    },
+   264→   264→    {
+   265→   265→      key: "stoneType",
+   266→   266→      header: "Type",
+   267→   267→      width: "70px",
+   268→   268→      cell: (r) => (
+   269→   269→        <Badge variant={r.stoneType === "BLUE" ? "info" : "default"}>
+   270→   270→          {r.stoneType}
+   271→   271→        </Badge>
+   272→   272→      ),
+   273→   273→    },
+   274→   274→    {
+   275→   275→      key: "originalRoughWeight",
+   276→   276→      header: "Orig Wt",
+   277→   277→      width: "80px",
+   278→   278→      align: "right",
+   279→   279→      sortable: true,
+   280→   280→      sortValue: (r) => r.originalRoughWeight,
+   281→   281→      cell: (r) => <span className="tabular-nums">{r.originalRoughWeight.toFixed(3)}</span>,
+   282→   282→    },
+   283→   283→    {
+   284→   284→      key: "planner",
+   285→   285→      header: "Planner",
+   286→   286→      width: "120px",
+   287→   287→      cell: (r) => <span className="text-muted-foreground">{r.planner}</span>,
+   288→   288→    },
+   289→   289→    {
+   290→   290→      key: "planningDate",
+   291→   291→      header: "Plan Date",
+   292→   292→      width: "90px",
+   293→   293→      sortable: true,
+   294→   294→      sortValue: (r) => r.planningDate,
+   295→   295→      cell: (r) => fmtDate(r.planningDate),
+   296→   296→    },
+   297→   297→    {
+   298→   298→      key: "status",
+   299→   299→      header: "Status",
+   300→   300→      width: "130px",
+   301→   301→      cell: (r) => <StatusBadge status={r.status} />,
+   302→   302→    },
+   303→   303→    {
+   304→   304→      key: "currentVersion",
+   305→   305→      header: "Ver",
+   306→   306→      width: "50px",
+   307→   307→      align: "right",
+   308→   308→      cell: (r) => <NumberCell value={r.currentVersion} />,
+   309→   309→    },
+   310→   310→    {
+   311→   311→      key: "selectedOptionCode",
+   312→   312→      header: "Sel Opt",
+   313→   313→      width: "90px",
+   314→   314→      cell: (r) => r.selectedOptionCode ?? "—",
+   315→   315→    },
+   316→   316→    {
+   317→   317→      key: "optionCount",
+   318→   318→      header: "Opts",
+   319→   319→      width: "50px",
+   320→   320→      align: "right",
+   321→   321→      cell: (r) => <NumberCell value={r.optionCount} />,
+   322→   322→    },
+   323→   323→    {
+   324→   324→      key: "expectedPieces",
+   325→   325→      header: "Pieces",
+   326→   326→      width: "60px",
+   327→   327→      align: "right",
+   328→   328→      cell: (r) => <NumberCell value={r.expectedPieces} intent="info" />,
+   329→   329→    },
+   330→   330→    {
+   331→   331→      key: "expectedYieldPct",
+   332→   332→      header: "Yield %",
+   333→   333→      width: "70px",
+   334→   334→      align: "right",
+   335→   335→      sortable: true,
+   336→   336→      sortValue: (r) => r.expectedYieldPct,
+   337→   337→      cell: (r) => (
+   338→   338→        <span className="tabular-nums">{r.expectedYieldPct.toFixed(2)}%</span>
+   339→   339→      ),
+   340→   340→    },
+   341→   341→    {
+   342→   342→      key: "requirementCoveragePct",
+   343→   343→      header: "Cov %",
+   344→   344→      width: "70px",
+   345→   345→      align: "right",
+   346→   346→      sortable: true,
+   347→   347→      sortValue: (r) => r.requirementCoveragePct,
+   348→   348→      cell: (r) => (
+   349→   349→        <span
+   350→   350→          className={
+   351→   351→            r.requirementCoveragePct >= 100
+   352→   352→              ? "tabular-nums text-emerald-600 dark:text-emerald-400 font-medium"
+   353→   353→              : r.requirementCoveragePct > 0
+   354→   354→              ? "tabular-nums text-amber-600 dark:text-amber-400"
+   355→   355→              : "tabular-nums text-muted-foreground"
+   356→   356→          }
+   357→   357→        >
+   358→   358→          {r.requirementCoveragePct.toFixed(2)}%
+   359→   359→        </span>
+   360→   360→      ),
+   361→   361→    },
+   362→   362→  ];
+   363→   363→
+   364→   364→  return (
+   365→   365→    <div className="flex flex-col gap-3 p-3">
+   366→   366→      <PageHeader
+   367→   367→        title="Planning Cases"
+   368→   368→        subtitle="All planning cases across statuses · drill into versions, options and pieces"
+   369→   369→        meta={
+   370→   370→          <span className="text-[10px] text-muted-foreground">
+   371→   371→            {totalCases} cases · {approved} approved · {pending} pending review · {draft} draft
+   372→   372→          </span>
+   373→   373→        }
+   374→   374→      />
+   375→   375→
+   376→   376→      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+   377→   377→        <KpiCard label="Total Cases" value={totalCases} unit="cases" intent="default" onClick={() => setView("planning-cases")} />
+   378→   378→        <KpiCard label="Pending Review" value={pending} unit="cases" intent="warning" hint="READY_FOR_REVIEW + SELECTED + APPROVAL_PENDING" onClick={() => setView("planning-approval-queue")} />
+   379→   379→        <KpiCard label="Approved" value={approved} unit="cases" intent="success" onClick={() => setView("planning-cases")} />
+   380→   380→        <KpiCard label="Draft" value={draft} unit="cases" intent="info" onClick={() => setView("planning-workbench")} />
+   381→   381→      </div>
+   382→   382→
+   383→   383→      <Section
+   384→   384→        title="Filters"
+   385→   385→        description="status · planner · stoneType"
+   386→   386→        bodyClassName="p-2"
+   387→   387→        actions={
+   388→   388→          activeFilters > 0 ? (
+   389→   389→            <button onClick={clearFilters} className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground">
+   390→   390→              <X className="h-3 w-3" /> Clear ({activeFilters})
+   391→   391→            </button>
+   392→   392→          ) : null
+   393→   393→        }
+   394→   394→      >
+   395→   395→        <div className="flex items-center gap-2 flex-wrap">
+   396→   396→          <Filter className="h-3.5 w-3.5 text-muted-foreground" />
+   397→   397→          <Select value={status || "ALL"} onValueChange={(v) => setStatus(v === "ALL" ? "" : v)}>
+   398→   398→            <SelectTrigger size="sm" className="h-8 w-[200px] text-xs">
+   399→   399→              <SelectValue placeholder="All Statuses" />
+   400→   400→            </SelectTrigger>
+   401→   401→            <SelectContent>
+   402→   402→              <SelectItem value="ALL">All Statuses</SelectItem>
+   403→   403→              {STATUSES.map((s) => (
+   404→   404→                <SelectItem key={s} value={s}>
+   405→   405→                  {s.replace(/_/g, " ")}
+   406→   406→                </SelectItem>
+   407→   407→              ))}
+   408→   408→            </SelectContent>
+   409→   409→          </Select>
+   410→   410→
+   411→   411→          <Select value={planner || "ALL"} onValueChange={(v) => setPlanner(v === "ALL" ? "" : v)}>
+   412→   412→            <SelectTrigger size="sm" className="h-8 w-[160px] text-xs">
+   413→   413→              <SelectValue placeholder="All Planners" />
+   414→   414→            </SelectTrigger>
+   415→   415→            <SelectContent>
+   416→   416→              <SelectItem value="ALL">All Planners</SelectItem>
+   417→   417→              {PLANNERS.map((p) => (
+   418→   418→                <SelectItem key={p} value={p}>
+   419→   419→                  {p}
+   420→   420→                </SelectItem>
+   421→   421→              ))}
+   422→   422→            </SelectContent>
+   423→   423→          </Select>
+   424→   424→
+   425→   425→          <Select value={stoneType || "ALL"} onValueChange={(v) => setStoneType(v === "ALL" ? "" : v)}>
+   426→   426→            <SelectTrigger size="sm" className="h-8 w-[140px] text-xs">
+   427→   427→              <SelectValue placeholder="All Stone Types" />
+   428→   428→            </SelectTrigger>
+   429→   429→            <SelectContent>
+   430→   430→              <SelectItem value="ALL">All Stone Types</SelectItem>
+   431→   431→              {STONE_TYPES.map((t) => (
+   432→   432→                <SelectItem key={t} value={t}>
+   433→   433→                  {t}
+   434→   434→                </SelectItem>
+   435→   435→              ))}
+   436→   436→            </SelectContent>
+   437→   437→          </Select>
+   438→   438→        </div>
+   439→   439→      </Section>
+   440→   440→
+   441→   441→      <DataTable<CaseRow>
+   442→   442→        columns={columns}
+   443→   443→        rows={rows}
+   444→   444→        loading={isLoading}
+   445→   445→        emptyMessage="No planning cases match the current filters."
+   446→   446→        maxHeight="600px"
+   447→   447→        searchable
+   448→   448→        searchPlaceholder="Search by case code, stone name, kapan…"
+   449→   449→        searchFn={(r, q) => {
+   450→   450→          const s = q.toLowerCase();
+   451→   451→          return (
+   452→   452→            r.caseCode.toLowerCase().includes(s) ||
+   453→   453→            (r.stoneName ?? "").toLowerCase().includes(s) ||
+   454→   454→            (r.kapan ?? "").toLowerCase().includes(s) ||
+   455→   455→            (r.fantasyRoughId ?? "").toLowerCase().includes(s)
+   456→   456→          );
+   457→   457→        }}
+   458→   458→        exportable
+   459→   459→        exportFilename="planning-cases.csv"
+   460→   460→        pagination
+   461→   461→        pageSize={25}
+   462→   462→        onRowClick={(r) => setSelectedId(r.id)}
+   463→   463→        initialSortKey="planningDate"
+   464→   464→        initialSortDir="desc"
+   465→   465→      />
+   466→   466→
+   467→   467→      {/* Detail Sheet */}
+   468→   468→      <Sheet open={!!selectedId} onOpenChange={(o) => !o && setSelectedId(null)}>
+   469→   469→        <SheetContent side="right" className="sm:max-w-2xl w-full flex flex-col gap-3 overflow-y-auto p-4">
+   470→   470→          <SheetHeader>
+   471→   471→            <SheetTitle className="text-sm flex items-center gap-2">
+   472→   472→              <FileText className="h-4 w-4" />
+   473→   473→              {detail?.caseCode ?? "Loading…"}
+   474→   474→              {detail && <StatusBadge status={detail.status} />}
+   475→   475→              {detail && <Badge variant="info">{detail.stoneType}</Badge>}
+   476→   476→            </SheetTitle>
+   477→   477→            <SheetDescription className="text-[11px]">
+   478→   478→              Versions, options, pieces, reservations and validation warnings.
+   479→   479→            </SheetDescription>
+   480→   480→          </SheetHeader>
+   481→   481→
+   482→   482→          {detailLoading || !detail ? (
+   483→   483→            <div className="py-10 text-center text-xs text-muted-foreground">
+   484→   484→              <div className="inline-flex items-center gap-2">
+   485→   485→                <div className="h-3 w-3 border-2 border-muted-foreground border-t-transparent rounded-full animate-spin" />
+   486→   486→                Loading case detail…
+   487→   487→              </div>
+   488→   488→            </div>
+   489→   489→          ) : (
+   490→   490→            <div className="flex flex-col gap-3">
+   491→   491→              {/* Rough info */}
+   492→   492→              <Section title="Rough" bodyClassName="p-2">
+   493→   493→                {detail.rough ? (
+   494→   494→                  <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
+   495→   495→                    <div><span className="text-muted-foreground">Fantasy ID: </span>{detail.rough.fantasyRoughId ?? "—"}</div>
+   496→   496→                    <div><span className="text-muted-foreground">Stone Name: </span>{detail.rough.stoneName ?? "—"}</div>
+   497→   497→                    <div><span className="text-muted-foreground">Kapan/Packet: </span>{detail.rough.kapan ?? "—"} / {detail.rough.packet ?? "—"}</div>
+   498→   498→                    <div><span className="text-muted-foreground">Signer: </span>{detail.rough.signer ?? "—"}</div>
+   499→   499→                    <div><span className="text-muted-foreground">Weight: </span><span className="tabular-nums">{detail.rough.roughWeight.toFixed(3)} ct</span></div>
+   500→   500→                    <div><span className="text-muted-foreground">Country/Branch: </span>{detail.rough.country ?? "—"} / {detail.rough.branch ?? "—"}</div>
+   501→   501→                    <div><span className="text-muted-foreground">Fantasy Status: </span><Badge variant="neutral">{detail.rough.fantasyStatus ?? "—"}</Badge></div>
+   502→   502→                    <div><span className="text-muted-foreground">Planning Status: </span><StatusBadge status={detail.rough.planningStatus} /></div>
+   503→   503→                    <div><span className="text-muted-foreground">Eligible: </span>{detail.rough.planningEligible ? <Badge variant="success">YES</Badge> : <Badge variant="critical">NO</Badge>}</div>
+   504→   504→                  </div>
+   505→   505→                ) : (
+   506→   506→                  <EmptyState title="Rough not linked" message="This case is not bound to a rough stone." />
+   507→   507→                )}
+   508→   508→              </Section>
+   509→   509→
+   510→   510→              {/* Case header */}
+   511→   511→              <Section title="Case Header" bodyClassName="p-2">
+   512→   512→                <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]">
+   513→   513→                  <div><span className="text-muted-foreground">Case Code: </span>{detail.caseCode}</div>
+   514→   514→                  <div><span className="text-muted-foreground">Planner: </span>{detail.planner}</div>
+   515→   515→                  <div><span className="text-muted-foreground">Planning Date: </span>{fmtDate(detail.planningDate)}</div>
+   516→   516→                  <div><span className="text-muted-foreground">Current Version: </span>{detail.currentVersion}</div>
+   517→   517→                  <div><span className="text-muted-foreground">Source File: </span>{detail.sourceFile ?? "—"}</div>
+   518→   518→                  <div><span className="text-muted-foreground">Original Wt: </span><span className="tabular-nums">{detail.originalRoughWeight.toFixed(3)} ct</span></div>
+   519→   519→                  <div><span className="text-muted-foreground">Approved By: </span>{detail.approvedBy ?? "—"}</div>
+   520→   520→                  <div><span className="text-muted-foreground">Approved At: </span>{fmtDate(detail.approvedAt)}</div>
+   521→   521→                </div>
+   522→   522→              </Section>
+   523→   523→
+   524→   524→              {/* Reservations */}
+   525→   525→              <Section title={`Reservations (${detail.reservations.length})`} bodyClassName="p-2">
+   526→   526→                {detail.reservations.length === 0 ? (
+   527→   527→                  <p className="text-[11px] text-muted-foreground">No reservations.</p>
+   528→   528→                ) : (
+   529→   529→                  <table className="w-full text-[11px]">
+   530→   530→                    <thead className="text-[10px] uppercase text-muted-foreground">
+   531→   531→                      <tr>
+   532→   532→                        <th className="px-1 py-0.5 text-left">By</th>
+   533→   533→                        <th className="px-1 py-0.5 text-left">Status</th>
+   534→   534→                        <th className="px-1 py-0.5 text-left">Reserved At</th>
+   535→   535→                        <th className="px-1 py-0.5 text-left">Released At</th>
+   536→   536→                      </tr>
+   537→   537→                    </thead>
+   538→   538→                    <tbody>
+   539→   539→                      {detail.reservations.map((r) => (
+   540→   540→                        <tr key={r.id} className="border-t border-border/40">
+   541→   541→                          <td className="px-1 py-0.5">{r.reservedBy}</td>
+   542→   542→                          <td className="px-1 py-0.5"><StatusBadge status={r.status} /></td>
+   543→   543→                          <td className="px-1 py-0.5">{fmtDate(r.reservedAt)}</td>
+   544→   544→                          <td className="px-1 py-0.5">{fmtDate(r.releasedAt)}</td>
+   545→   545→                        </tr>
+   546→   546→                      ))}
+   547→   547→                    </tbody>
+   548→   548→                  </table>
+   549→   549→                )}
+   550→   550→              </Section>
+   551→   551→
+   552→   552→              {/* Versions */}
+   553→   553→              <Section
+   554→   554→                title={`Versions (${detail.versions.length})`}
+   555→   555→                description="Each version contains planning options; each option lists pieces"
+   556→   556→                bodyClassName="p-2"
+   557→   557→              >
+   558→   558→                <div className="flex flex-col gap-3">
+   559→   559→                  {detail.versions.map((v) => (
+   560→   560→                    <div key={v.id} className="rounded-md border border-border p-2 bg-muted/20">
+   561→   561→                      <div className="flex items-center gap-2 mb-2">
+   562→   562→                        <GitBranch className="h-3.5 w-3.5 text-muted-foreground" />
+   563→   563→                        <span className="text-[11px] font-medium">v{v.versionNumber}</span>
+   564→   564→                        <StatusBadge status={v.status} />
+   565→   565→                        <span className="text-[10px] text-muted-foreground">by {v.createdBy} · {fmtDate(v.createdAt)}</span>
+   566→   566→                        {v.reason && <span className="text-[10px] text-muted-foreground">· {v.reason}</span>}
+   567→   567→                      </div>
+   568→   568→
+   569→   569→                      <div className="flex flex-col gap-2">
+   570→   570→                        {v.options.map((o) => (
+   571→   571→                          <div key={o.id} className={`rounded-md border p-2 ${o.selected ? "border-sky-300 dark:border-sky-900 bg-sky-50/50 dark:bg-sky-950/30" : "border-border bg-card"}`}>
+   572→   572→                            <div className="flex items-center gap-2 mb-1">
+   573→   573→                              <Layers className="h-3 w-3 text-muted-foreground" />
+   574→   574→                              <span className="text-[11px] font-medium">{o.optionCode}</span>
+   575→   575→                              {o.selected && <Badge variant="info">SELECTED</Badge>}
+   576→   576→                              {o.approvalStatus && <StatusBadge status={o.approvalStatus} />}
+   577→   577→                              <span className="ml-auto text-[10px] text-muted-foreground">{o.pieces.length} pieces</span>
+   578→   578→                            </div>
+   579→   579→                            <div className="grid grid-cols-4 gap-1 text-[10px]">
+   580→   580→                              <div><span className="text-muted-foreground">Pieces: </span><span className="tabular-nums font-medium">{o.expectedPieces}</span></div>
+   581→   581→                              <div><span className="text-muted-foreground">Wt: </span><span className="tabular-nums">{o.expectedTotalWeight.toFixed(3)}</span></div>
+   582→   582→                              <div><span className="text-muted-foreground">Yield: </span><span className="tabular-nums">{o.yieldPct.toFixed(2)}%</span></div>
+   583→   583→                              <div><span className="text-muted-foreground">Coverage: </span><span className="tabular-nums">{o.coveragePct.toFixed(2)}%</span></div>
+   584→   584→                              <div><span className="text-muted-foreground">Match Req: </span><span className="tabular-nums">{o.matchingRequiredPieces}</span></div>
+   585→   585→                              <div><span className="text-muted-foreground">Non-Req: </span><span className="tabular-nums">{o.nonRequiredPieces}</span></div>
+   586→   586→                              <div><span className="text-muted-foreground">Excess: </span><span className="tabular-nums">{o.potentialExcess}</span></div>
+   587→   587→                              <div><span className="text-muted-foreground">Color/Clarity: </span>{o.expectedColor ?? "—"} / {o.expectedClarity ?? "—"}</div>
+   588→   588→                            </div>
+   589→   589→
+   590→   590→                            {o.validationWarnings && (
+   591→   591→                              <div className="mt-2 rounded border border-amber-300 dark:border-amber-900 bg-amber-50/60 dark:bg-amber-950/30 p-1.5">
+   592→   592→                                <div className="text-[10px] font-semibold text-amber-700 dark:text-amber-300 mb-1">Validation Warnings</div>
+   593→   593→                                <WarningsCell value={o.validationWarnings} />
+   594→   594→                              </div>
+   595→   595→                            )}
+   596→   596→
+   597→   597→                            {/* Pieces list */}
+   598→   598→                            <div className="mt-2 max-h-32 overflow-y-auto rounded border border-border/60 bg-background">
+   599→   599→                              <table className="w-full text-[10px]">
+   600→   600→                                <thead className="text-[9px] uppercase text-muted-foreground bg-muted/40 sticky top-0">
+   601→   601→                                  <tr>
+   602→   602→                                    <th className="px-1 py-0.5 text-left">Seq</th>
+   603→   603→                                    <th className="px-1 py-0.5 text-left">Piece Code</th>
+   604→   604→                                    <th className="px-1 py-0.5 text-left">Shape</th>
+   605→   605→                                    <th className="px-1 py-0.5 text-right">Wt</th>
+   606→   606→                                    <th className="px-1 py-0.5 text-left">Color/Clarity</th>
+   607→   607→                                    <th className="px-1 py-0.5 text-left">Cat</th>
+   608→   608→                                  </tr>
+   609→   609→                                </thead>
+   610→   610→                                <tbody>
+   611→   611→                                  {o.pieces.map((p) => (
+   612→   612→                                    <tr key={p.id} className="border-t border-border/40">
+   613→   613→                                      <td className="px-1 py-0.5 tabular-nums">{p.sequence}</td>
+   614→   614→                                      <td className="px-1 py-0.5">{p.pieceCode}</td>
+   615→   615→                                      <td className="px-1 py-0.5">{p.expectedShape ?? "—"}</td>
+   616→   616→                                      <td className="px-1 py-0.5 text-right tabular-nums">{p.expectedWeight.toFixed(3)}</td>
+   617→   617→                                      <td className="px-1 py-0.5">{p.expectedColor ?? "—"} / {p.expectedClarity ?? "—"}</td>
+   618→   618→                                      <td className="px-1 py-0.5">{p.expectedCategory ?? "—"}</td>
+   619→   619→                                    </tr>
+   620→   620→                                  ))}
+   621→   621→                                </tbody>
+   622→   622→                              </table>
+   623→   623→                            </div>
+   624→   624→                          </div>
+   625→   625→                        ))}
+   626→   626→                      </div>
+   627→   627→                    </div>
+   628→   628→                  ))}
+   629→   629→                </div>
+   630→   630→              </Section>
+   631→   631→            </div>
+   632→   632→          )}
+   633→   633→        </SheetContent>
+   634→   634→      </Sheet>
+   635→   635→    </div>
+   636→   636→  );
+   637→   637→}
+   638→   638→

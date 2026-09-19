@@ -424,9 +424,31 @@ async function main() {
     const remaining = Math.max(0, pipeline - planCov);
     const forecast = Math.round(sales90d * 0.15);
     const reqType = pick(["STOCK_REPLENISHMENT", "CUSTOMER_ORDER", "BACKORDER", "SPECIAL_REQUIREMENT", "MANUAL_APPROVED"]);
-    const priority = physicalShortage >= 8 ? "CRITICAL" : physicalShortage >= 4 ? "HIGH" : physicalShortage >= 1 ? "NORMAL" : "LOW";
-    const reqPriority = priority;
-    const orderPriority = pick(["CRITICAL", "HIGH", "NORMAL", "LOW", "WATCH"]);
+    const custPriority = pick(["Strategic", "Key", "Standard", "New", "Internal"]);
+    const daysOverdue = rand() < 0.25 ? randInt(1, 30) : 0;
+    // Multi-factor priority classification (shortage + overdue + customer priority + type)
+    // NOTE: Customer-priority weighting is OPEN rule BR-CUST-PRI-001; this seed classification
+    // is for realistic demo data only — production priority is set by an approved business rule.
+    let reqPriority: string;
+    const reasons: string[] = [];
+    if (physicalShortage >= 8 || (physicalShortage >= 4 && daysOverdue > 0)) {
+      reqPriority = "CRITICAL";
+      reasons.push(`Physical shortage ${physicalShortage} pcs`);
+      if (daysOverdue > 0) reasons.push(`${daysOverdue}d overdue`);
+    } else if (physicalShortage >= 4 || (physicalShortage >= 2 && (daysOverdue > 0 || custPriority === "Strategic"))) {
+      reqPriority = "HIGH";
+      reasons.push(`Physical shortage ${physicalShortage} pcs`);
+      if (custPriority === "Strategic") reasons.push("Strategic customer");
+    } else if (physicalShortage >= 1) {
+      reqPriority = "NORMAL";
+      reasons.push(`Physical shortage ${physicalShortage} pcs`);
+    } else {
+      reqPriority = "LOW";
+      reasons.push("No physical shortage (FULFILLED)");
+    }
+    if (reqType === "BACKORDER") reasons.push("Backorder demand");
+    if (reqType === "SPECIAL_REQUIREMENT") reasons.push("Special requirement");
+    const orderPriority = daysOverdue > 14 ? "CRITICAL" : daysOverdue > 0 ? "HIGH" : physicalShortage >= 4 ? "NORMAL" : "LOW";
     const country = pick(Array.from(agg.countries));
     const branch = pick(BRANCHES_BY_COUNTRY[country] || ["Main"]);
     const customerName = "Multiple";
@@ -456,14 +478,109 @@ async function main() {
         requiredBy: dayOffset(randInt(-30, 60)),
         ageDays: randInt(0, 120),
         daysRemaining: randInt(0, 60),
-        daysOverdue: rand() < 0.2 ? randInt(1, 30) : 0,
-        customerPriority: pick(["Strategic", "Key", "Standard", "New", "Internal"]),
+        daysOverdue,
+        customerPriority: custPriority,
         orderPriority,
         requirementPriority: reqPriority,
-        priorityReason: `Physical shortage ${physicalShortage} pcs; ${reqType} for ${lab} ${shape} ${bandLabel}`,
+        priorityReason: reasons.join("; "),
         calculationRunId: "SEED-RUN-001",
         businessRuleVersion: "DEMAND-V1",
         sourceRecords: JSON.stringify({ sales90d, monthlyAvg, unroundedTarget, roundedTarget, available, physicalShortage, excess }),
+        createdBy: "system-seed",
+        updatedBy: "system-seed",
+      },
+    });
+  }
+
+  // Add a few explicitly CRITICAL aggregate requirements (top customer orders with large qty)
+  console.log("Seeding critical aggregate requirements...");
+  const criticalReqs = [
+    { type: "CUSTOMER_ORDER", customer: "Brilliant Heritage NY", country: "US", branch: "New York", lab: "GIA", shape: "Round", bandLabel: "1.70-1.99", qty: 12, daysOverdue: 5, custPri: "Strategic", reason: "Strategic customer order; 5d overdue; 12 pcs required" },
+    { type: "BACKORDER", customer: "Pacific Diamond Traders", country: "HK", branch: "Central HK", lab: "GIA", shape: "Oval", bandLabel: "2.10-2.49", qty: 9, daysOverdue: 12, custPri: "Key", reason: "Backorder 12d overdue; 9 pcs committed" },
+    { type: "CUSTOMER_ORDER", customer: "EuroGem Geneva", country: "BE", branch: "Antwerp", lab: "GIA", shape: "Emerald", bandLabel: "3.00-3.09", qty: 8, daysOverdue: 0, custPri: "Strategic", reason: "Strategic customer order; 8 pcs; near-term due" },
+    { type: "SPECIAL_REQUIREMENT", customer: "Tokyo Lumière", country: "HK", branch: "Central HK", lab: "GIA", shape: "Pear", bandLabel: "1.50-1.59", qty: 10, daysOverdue: 3, custPri: "Key", reason: "Special program requirement; 3d overdue" },
+    { type: "BACKORDER", customer: "Mumbai Sparkle Co", country: "IN", branch: "Mumbai", lab: "Non-Cert", shape: "Princess", bandLabel: "1.00-1.09", qty: 14, daysOverdue: 21, custPri: "Standard", reason: "Backorder 21d overdue; 14 pcs" },
+    { type: "CUSTOMER_ORDER", customer: "Antwerp Cut House", country: "BE", branch: "Antwerp", lab: "GIA", shape: "Cushion", bandLabel: "2.50-2.59", qty: 7, daysOverdue: 0, custPri: "Strategic", reason: "Strategic customer; 7 pcs; immediate requirement" },
+  ];
+  for (const cr of criticalReqs) {
+    const band = await prisma.weightBand.findFirst({ where: { label: cr.bandLabel } });
+    await prisma.requirement.create({
+      data: {
+        requirementCode: `REQ-${String(reqCounter++).padStart(5, "0")}`,
+        type: cr.type,
+        status: "ACTIVE",
+        customerName: cr.customer,
+        groupCode: "GRP-01",
+        companyCode: cr.country === "HK" ? "FHK" : cr.country === "CA" ? "FCA" : cr.country === "IN" ? "FIN" : "FNY",
+        country: cr.country,
+        branch: cr.branch,
+        labNormalized: cr.lab,
+        shape: cr.shape,
+        weightBandId: band?.id,
+        requiredQty: cr.qty,
+        physicalStockQty: 0,
+        planningAvailableQty: 0,
+        memoQty: 0,
+        transferCoverage: 0,
+        wipCoverage: 0,
+        approvedPlanCoverage: 0,
+        actualCoverage: 0,
+        remainingUnplanned: cr.qty,
+        forecastQty: 0,
+        requiredBy: dayOffset(cr.daysOverdue > 0 ? -cr.daysOverdue : randInt(7, 30)),
+        ageDays: randInt(10, 90),
+        daysRemaining: cr.daysOverdue > 0 ? 0 : randInt(7, 30),
+        daysOverdue: cr.daysOverdue,
+        customerPriority: cr.custPri,
+        orderPriority: cr.daysOverdue > 7 ? "CRITICAL" : "HIGH",
+        requirementPriority: "CRITICAL",
+        priorityReason: cr.reason,
+        calculationRunId: "SEED-RUN-001",
+        businessRuleVersion: "DEMAND-V1",
+        sourceRecords: JSON.stringify({ aggregate: true, customer: cr.customer, type: cr.type, manualClassification: true }),
+        createdBy: "system-seed",
+        updatedBy: "system-seed",
+      },
+    });
+  }
+
+  // Add a few HIGH priority requirements
+  const highReqs = [
+    { type: "CUSTOMER_ORDER", customer: "Dubai Carat Exchange", country: "AE", branch: "Dubai", lab: "GIA", shape: "Radiant", bandLabel: "1.10-1.49", qty: 6, custPri: "Key" },
+    { type: "STOCK_REPLENISHMENT", customer: "Multiple", country: "US", branch: "New York", lab: "GIA", shape: "Round", bandLabel: "1.00-1.09", qty: 5, custPri: "Standard" },
+    { type: "CUSTOMER_ORDER", customer: "Singapore Star", country: "HK", branch: "Central HK", lab: "GIA", shape: "Marquise", bandLabel: "1.60-1.69", qty: 4, custPri: "Key" },
+    { type: "BACKORDER", customer: "London Crown Jewels", country: "BE", branch: "Antwerp", lab: "GIA", shape: "Asscher", bandLabel: "2.00-2.09", qty: 5, custPri: "Standard" },
+  ];
+  for (const hr of highReqs) {
+    const band = await prisma.weightBand.findFirst({ where: { label: hr.bandLabel } });
+    await prisma.requirement.create({
+      data: {
+        requirementCode: `REQ-${String(reqCounter++).padStart(5, "0")}`,
+        type: hr.type,
+        status: "ACTIVE",
+        customerName: hr.customer,
+        groupCode: "GRP-01",
+        companyCode: hr.country === "HK" ? "FHK" : hr.country === "CA" ? "FCA" : hr.country === "IN" ? "FIN" : "FNY",
+        country: hr.country,
+        branch: hr.branch,
+        labNormalized: hr.lab,
+        shape: hr.shape,
+        weightBandId: band?.id,
+        requiredQty: hr.qty,
+        physicalStockQty: 0,
+        planningAvailableQty: 0,
+        remainingUnplanned: hr.qty,
+        requiredBy: dayOffset(randInt(0, 14)),
+        ageDays: randInt(5, 60),
+        daysRemaining: randInt(0, 14),
+        daysOverdue: rand() < 0.5 ? randInt(1, 7) : 0,
+        customerPriority: hr.custPri,
+        orderPriority: "HIGH",
+        requirementPriority: "HIGH",
+        priorityReason: `Physical shortage ${hr.qty} pcs; ${hr.type} for ${hr.lab} ${hr.shape} ${hr.bandLabel}`,
+        calculationRunId: "SEED-RUN-001",
+        businessRuleVersion: "DEMAND-V1",
+        sourceRecords: JSON.stringify({ aggregate: true, type: hr.type }),
         createdBy: "system-seed",
         updatedBy: "system-seed",
       },
