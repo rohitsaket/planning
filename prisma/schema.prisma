@@ -1,0 +1,682 @@
+// ============================================================================
+// DIAMOND MANUFACTURING — ANALYSIS, REQUIREMENT, PLANNING & TRACEABILITY
+// Prisma schema (SQLite). Decimal-safe where weight/currency precision matters.
+// ============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// ORGANIZATION HIERARCHY
+// ---------------------------------------------------------------------------
+model Group {
+  id        String     @id @default(cuid())
+  code      String     @unique
+  name      String
+  createdAt DateTime   @default(now())
+  companies Company[]
+}
+
+model Company {
+  id        String     @id @default(cuid())
+  code      String     @unique
+  name      String
+  groupId   String
+  group     Group      @relation(fields: [groupId], references: [id])
+  countries Country[]
+  createdAt DateTime   @default(now())
+}
+
+model Country {
+  id          String    @id @default(cuid())
+  code        String    @unique
+  name        String
+  companyId   String
+  company     Company   @relation(fields: [companyId], references: [id])
+  branches    Branch[]
+  createdAt   DateTime  @default(now())
+}
+
+model Branch {
+  id         String    @id @default(cuid())
+  code       String    @unique
+  name       String
+  countryId  String
+  country    Country   @relation(fields: [countryId], references: [id])
+  offices    Office[]
+  createdAt  DateTime  @default(now())
+}
+
+model Office {
+  id         String    @id @default(cuid())
+  code       String    @unique
+  name       String
+  branchId   String
+  branch     Branch    @relation(fields: [branchId], references: [id])
+  createdAt  DateTime  @default(now())
+}
+
+// ---------------------------------------------------------------------------
+// FANTASY ERP — authoritative source-of-truth entities
+// ---------------------------------------------------------------------------
+model FantasyDepartment {
+  id            String   @id @default(cuid())
+  fantasyDeptId String   @unique
+  name          String
+  country       String
+  branch        String
+  type          String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  locations     FantasyLocation[]
+}
+
+model FantasyLocation {
+  id             String   @id @default(cuid())
+  fantasyLocId   String   @unique
+  name           String
+  departmentId   String?
+  department     FantasyDepartment? @relation(fields: [departmentId], references: [id])
+  country        String
+  branch         String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model FantasyStatusMapping {
+  id              String   @id @default(cuid())
+  fantasyStatus   String   @unique
+  planningClass   String   // PHYSICAL | PLANNING_AVAILABLE | RESERVED | HOLD | TRANSFER | MEMO | OTHER
+  countsAvailable Boolean  @default(false)
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+// ---------------------------------------------------------------------------
+// CUSTOMERS & SALES
+// ---------------------------------------------------------------------------
+model Customer {
+  id              String   @id @default(cuid())
+  customerCode    String   @unique
+  name            String
+  country         String
+  branch          String
+  accountOwner    String?
+  businessPriority String? // Strategic | Key | Standard | New | Internal
+  priorityReason  String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  salesRecords    SalesRecord[]
+  memoRecords     MemoRecord[]
+  salesOrders     SalesOrder[]
+}
+
+model SalesRecord {
+  id            String   @id @default(cuid())
+  lotId         String   @unique
+  docDate       DateTime
+  lotStatusDb   String   // Invoice | Memo | Stock
+  qty           Decimal  @default(1)
+  shape         String
+  weight        Decimal
+  weightBandId  String?
+  weightBand    WeightBand? @relation(fields: [weightBandId], references: [id])
+  color         String?
+  clarity       String?
+  labRaw        String?
+  labNormalized String?
+  certificate   String?
+  treatment     String? // HPHT | CVD | NULL
+  saleTotalUsd  Decimal?
+  customerId    String
+  customer      Customer @relation(fields: [customerId], references: [id])
+  country       String
+  branch        String
+  salesperson   String?
+  createdAt     DateTime @default(now())
+}
+
+model MemoRecord {
+  id            String   @id @default(cuid())
+  lotId         String   @unique
+  memoDate      DateTime
+  customerId    String
+  customer      Customer @relation(fields: [customerId], references: [id])
+  country       String
+  branch        String
+  shape         String
+  weight        Decimal
+  labNormalized String?
+  color         String?
+  clarity       String?
+  treatment     String?
+  memoValueUsd  Decimal?
+  status        String   @default("OPEN") // OPEN | RETURNED | INVOICED
+  memoAgeDays   Int?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model SalesOrder {
+  id            String   @id @default(cuid())
+  orderNumber   String   @unique
+  customerId    String
+  customer      Customer @relation(fields: [customerId], references: [id])
+  orderDate     DateTime
+  requiredDate  DateTime?
+  promisedDate  DateTime?
+  branch        String
+  country       String
+  status        String   @default("OPEN") // OPEN | PARTIAL | FULFILLED | CANCELLED
+  priority      String   @default("NORMAL") // CRITICAL | HIGH | NORMAL | LOW | WATCH
+  priorityReason String?
+  notes         String?
+  lines         SalesOrderLine[]
+  createdAt     DateTime @default(now())
+}
+
+model SalesOrderLine {
+  id             String   @id @default(cuid())
+  orderId        String
+  order          SalesOrder @relation(fields: [orderId], references: [id])
+  lineNo         Int
+  lab            String?
+  shape          String
+  weight         Decimal?
+  weightBandId   String?
+  weightBand     WeightBand? @relation(fields: [weightBandId], references: [id])
+  color          String?
+  clarity        String?
+  treatment      String?
+  qtyOrdered     Int
+  qtyAllocated   Int      @default(0)
+  qtyDelivered   Int      @default(0)
+  qtyOutstanding Int      @default(0)
+  backorderQty   Int      @default(0)
+  specialRequirement String?
+  createdAt      DateTime @default(now())
+}
+
+// ---------------------------------------------------------------------------
+// POLISHED & ROUGH INVENTORY (Fantasy authoritative)
+// ---------------------------------------------------------------------------
+model PolishedStone {
+  id                  String   @id @default(cuid())
+  fantasyLotId       String   @unique
+  fantasyDepartmentId String?
+  fantasyLocationId  String?
+  country            String
+  branch             String
+  fantasyStatus      String
+  labRaw             String?
+  labNormalized      String?
+  shape              String
+  shapeNormalized    String?
+  weight             Decimal
+  weightBandId       String?
+  weightBand         WeightBand? @relation(fields: [weightBandId], references: [id])
+  color              String?
+  clarity            String?
+  certificate        String?
+  treatment          String?
+  planningClass      String   @default("PHYSICAL")
+  lastUpdated        DateTime @default(now())
+  createdAt          DateTime @default(now())
+}
+
+model RoughStone {
+  id                  String   @id @default(cuid())
+  fantasyRoughId     String   @unique
+  kapan              String
+  packet              String
+  stoneName           String
+  signer              String?
+  stoneType           String   @default("WHITE") // WHITE | BLUE
+  roughWeight         Decimal
+  country             String
+  branch              String
+  fantasyDepartmentId String?
+  fantasyLocationId  String?
+  fantasyStatus       String
+  planningEligible    Boolean  @default(true)
+  planningStatus      String   @default("AVAILABLE")
+  // AVAILABLE | SOFT_RESERVED | UNDER_PLANNING | PLAN_APPROVED | RESERVED | RELEASED | CANCELLED | RELEASED
+  parentRoughId      String?
+  lastMovement        DateTime?
+  lastUpdated        DateTime @default(now())
+  createdAt          DateTime @default(now())
+
+  planningCases      PlanningCase[]
+  reservations       RoughReservation[]
+}
+
+model RoughReservation {
+  id            String   @id @default(cuid())
+  roughId       String
+  rough         RoughStone @relation(fields: [roughId], references: [id])
+  planningCaseId String?
+  planningCase  PlanningCase? @relation(fields: [planningCaseId], references: [id])
+  status        String   @default("SOFT_RESERVED")
+  reservedBy    String
+  reservedAt    DateTime @default(now())
+  releasedAt    DateTime?
+  notes         String?
+  createdAt     DateTime @default(now())
+}
+
+// ---------------------------------------------------------------------------
+// PLANNING CATEGORY, WEIGHT BANDS, MASTER MAPPINGS
+// ---------------------------------------------------------------------------
+model WeightBand {
+  id         String    @id @default(cuid())
+  code       String    @unique
+  label      String
+  minCt      Decimal
+  maxCt      Decimal
+  sortOrder  Int
+  active     Boolean   @default(true)
+  createdAt  DateTime  @default(now())
+
+  salesRecords      SalesRecord[]
+  polishedStones    PolishedStone[]
+  salesOrderLines   SalesOrderLine[]
+  requirements      Requirement[]
+  planningCategories PlanningCategory[]
+}
+
+model LabMapping {
+  id            String   @id @default(cuid())
+  rawLab        String   @unique
+  normalizedLab String   // GIA | Non-Cert | Other
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+}
+
+model ShapeMapping {
+  id               String   @id @default(cuid())
+  rawShape         String   @unique
+  normalizedShape  String
+  category         String?
+  active           Boolean  @default(true)
+  createdAt        DateTime  @default(now())
+}
+
+model PlanningCategory {
+  id            String   @id @default(cuid())
+  code          String   @unique
+  labNormalized String
+  shape         String
+  weightBandId  String
+  weightBand    WeightBand @relation(fields: [weightBandId], references: [id])
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+}
+
+// ---------------------------------------------------------------------------
+// DEMAND & REQUIREMENTS
+// ---------------------------------------------------------------------------
+model DemandRun {
+  id            String   @id @default(cuid())
+  runDate       DateTime @default(now())
+  windowDays    Int      @default(90)
+  ruleVersion   String
+  status        String   @default("COMPLETED")
+  totalShortage Int
+  totalExcess   Int
+  createdAt     DateTime @default(now())
+  metrics       DemandMetric[]
+}
+
+model DemandMetric {
+  id                 String   @id @default(cuid())
+  runId              String
+  run                DemandRun @relation(fields: [runId], references: [id])
+  planningCategory  String
+  sales90d           Int
+  monthlyAverage     Decimal
+  unroundedTarget    Decimal
+  roundedTarget      Int
+  availableStock     Int
+  memoQty            Int
+  physicalShortage   Int
+  excessStock        Int
+  wipCoverage        Int      @default(0)
+  pipelineNeed       Int
+  approvedPlanCoverage Int    @default(0)
+  remainingUnplanned Int
+  forecastSignal     Int      @default(0)
+  createdAt           DateTime @default(now())
+}
+
+model Requirement {
+  id                  String   @id @default(cuid())
+  requirementCode     String   @unique
+  type                String   // STOCK_REPLENISHMENT | CUSTOMER_ORDER | BACKORDER | SPECIAL_REQUIREMENT | FORECAST | MANUAL_APPROVED
+  status              String   @default("ACTIVE")
+  // DRAFT | ACTIVE | PARTIALLY_COVERED | FULLY_PLANNED | IN_MANUFACTURING | PARTIALLY_FULFILLED | FULFILLED | ON_HOLD | CANCELLED | EXPIRED
+  customerId          String?
+  customerName        String?
+  salesOrderId        String?
+  orderNumber         String?
+  groupCode           String
+  companyCode         String
+  country             String
+  branch              String
+  labNormalized       String?
+  shape               String?
+  weightBandId        String?
+  weightBand          WeightBand? @relation(fields: [weightBandId], references: [id])
+  colorGroup          String?
+  clarityGroup        String?
+  treatment           String?
+  requiredQty         Int
+  physicalStockQty    Int      @default(0)
+  planningAvailableQty Int     @default(0)
+  memoQty             Int      @default(0)
+  transferCoverage    Int      @default(0)
+  wipCoverage         Int      @default(0)
+  approvedPlanCoverage Int     @default(0)
+  actualCoverage      Int      @default(0)
+  remainingUnplanned  Int      @default(0)
+  forecastQty         Int      @default(0)
+  requiredBy          DateTime?
+  createdDate         DateTime @default(now())
+  ageDays             Int      @default(0)
+  daysRemaining       Int?
+  daysOverdue         Int?
+  customerPriority    String?
+  orderPriority       String?
+  requirementPriority String? // CRITICAL | HIGH | NORMAL | LOW | WATCH
+  priorityReason      String?
+  calculationRunId   String?
+  businessRuleVersion String?
+  sourceRecords       String? // JSON-serialized lineage
+  createdBy           String?
+  updatedBy           String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  allocations         RequirementAllocation[]
+}
+
+model RequirementAllocation {
+  id            String   @id @default(cuid())
+  requirementId String
+  requirement   Requirement @relation(fields: [requirementId], references: [id])
+  plannedPieceId String?
+  planOptionId  String?
+  planOption    PlanOption? @relation(fields: [planOptionId], references: [id])
+  allocatedQty  Int
+  allocatedBy   String
+  allocatedAt   DateTime @default(now())
+  status        String   @default("ALLOCATED")
+  createdAt     DateTime @default(now())
+}
+
+// ---------------------------------------------------------------------------
+// PLANNING CASES, VERSIONS, OPTIONS, PIECES
+// ---------------------------------------------------------------------------
+model PlanningCase {
+  id              String   @id @default(cuid())
+  caseCode        String   @unique
+  roughId         String
+  rough           RoughStone @relation(fields: [roughId], references: [id])
+  stoneName       String
+  kapan           String
+  packet          String
+  originalRoughWeight Decimal
+  stoneType       String   @default("WHITE")
+  planner         String
+  planningDate    DateTime @default(now())
+  status          String   @default("DRAFT")
+  // DRAFT | READY_FOR_REVIEW | SELECTED | APPROVAL_PENDING | APPROVED | RELEASED | REJECTED | CANCELLED | REPLAN_REQUIRED | SUPERSEDED
+  currentVersion  Int      @default(1)
+  requirementContext String?
+  sourceFile      String?
+  selectedOptionId String?
+  approvedBy      String?
+  approvedAt      DateTime?
+  approvalComment String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  versions        PlanVersion[]
+  reservations    RoughReservation[]
+}
+
+model PlanVersion {
+  id              String   @id @default(cuid())
+  planningCaseId  String
+  planningCase    PlanningCase @relation(fields: [planningCaseId], references: [id])
+  versionNumber   Int
+  previousVersionId String?
+  reason          String?
+  status          String   @default("DRAFT")
+  createdBy       String
+  createdAt       DateTime @default(now())
+  supersededAt    DateTime?
+  options         PlanOption[]
+}
+
+model PlanOption {
+  id                String   @id @default(cuid())
+  optionCode       String   @unique
+  versionId        String
+  version          PlanVersion @relation(fields: [versionId], references: [id])
+  optionNumber     Int
+  expectedPieces   Int
+  expectedTotalWeight Decimal
+  yieldPct         Decimal
+  matchingRequiredPieces Int @default(0)
+  requirementCoverage Int   @default(0)
+  coveragePct      Decimal  @default(0)
+  nonRequiredPieces Int    @default(0)
+  expectedColor    String?
+  expectedClarity  String?
+  certificationIntent String? // GIA | Non-Cert | Other | Undecided
+  potentialExcess  Int      @default(0)
+  validationWarnings String?
+  selected         Boolean  @default(false)
+  selectedBy       String?
+  selectedAt       DateTime?
+  approvalStatus   String   @default("DRAFT")
+  approvedBy       String?
+  approvedAt       DateTime?
+  createdAt        DateTime @default(now())
+
+  pieces           PlanOptionPiece[]
+  allocations      RequirementAllocation[]
+}
+
+model PlanOptionPiece {
+  id                String   @id @default(cuid())
+  pieceCode        String   @unique
+  planOptionId     String
+  planOption        PlanOption @relation(fields: [planOptionId], references: [id])
+  sequence         Int
+  expectedShape    String
+  expectedWeight   Decimal
+  expectedColor    String?
+  expectedClarity  String?
+  expectedCategory String?
+  requirementAllocationId String?
+  certificationIntent String?
+  fantasyChildId   String?
+  actualPolishedLotId String?
+  actualShape      String?
+  actualWeight     Decimal?
+  actualCategory   String?
+  fulfilled        Boolean  @default(false)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+// ---------------------------------------------------------------------------
+// ACTUAL OUTPUTS, RECONCILIATION, PLAN-VS-ACTUAL
+// ---------------------------------------------------------------------------
+model ActualPolishedLink {
+  id             String   @id @default(cuid())
+  plannedPieceId String?
+  fantasyPolishedLotId String
+  actualShape     String
+  actualWeight    Decimal
+  actualCategory  String?
+  actualYieldPct  Decimal?
+  linkedAt        DateTime @default(now())
+}
+
+model PlanActualReconciliation {
+  id                 String   @id @default(cuid())
+  planOptionId       String
+  expectedPieces     Int
+  actualPieces       Int      @default(0)
+  expectedTotalWeight Decimal
+  actualTotalWeight  Decimal  @default(0)
+  plannedYieldPct    Decimal
+  actualYieldPct     Decimal  @default(0)
+  yieldVariance      Decimal  @default(0)
+  expectedCoverage   Int
+  actualCoverage     Int      @default(0)
+  coverageVariance   Int      @default(0)
+  status             String   @default("OPEN")
+  reconciledAt       DateTime?
+  createdAt          DateTime @default(now())
+}
+
+// ---------------------------------------------------------------------------
+// FORECASTING & DATA SCIENCE
+// ---------------------------------------------------------------------------
+model ForecastRun {
+  id           String   @id @default(cuid())
+  modelVersion String
+  runDate      DateTime @default(now())
+  horizon30d   Int
+  horizon60d   Int
+  horizon90d   Int
+  metricsJson  String?
+  status       String  @default("COMPLETED")
+  createdAt    DateTime @default(now())
+  predictions  ForecastPrediction[]
+}
+
+model ForecastPrediction {
+  id            String   @id @default(cuid())
+  runId         String
+  run           ForecastRun @relation(fields: [runId], references: [id])
+  category      String
+  prediction30d Int
+  prediction60d Int
+  prediction90d Int
+  confidence    Decimal
+  trend         String   // Strong Growth | Growth | Stable | Declining | Strong Decline | New | Dormant | Volatile
+  stockoutRisk  String? // LOW | MEDIUM | HIGH | CRITICAL
+  stockoutDate  DateTime?
+  createdAt     DateTime @default(now())
+}
+
+model ModelVersion {
+  id              String   @id @default(cuid())
+  modelName       String   @unique
+  version         String
+  algorithm       String
+  trainingPeriod  String
+  validationPeriod String?
+  metricsJson     String?
+  publishedBy     String?
+  publishedAt     DateTime?
+  status          String   @default("DRAFT")
+  createdAt       DateTime @default(now())
+}
+
+// ---------------------------------------------------------------------------
+// BUSINESS RULES, FEATURE FLAGS, AUDIT, DATA QUALITY
+// ---------------------------------------------------------------------------
+model BusinessRule {
+  id            String   @id @default(cuid())
+  ruleId        String   @unique
+  domain        String
+  name          String
+  version       String
+  effectiveDate DateTime
+  status        String   @default("PROPOSED") // CONFIRMED | PROPOSED | OPEN | DEPRECATED
+  configuration String?  // JSON
+  approvedBy    String?
+  approvedAt    DateTime?
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model FeatureFlag {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  name        String
+  enabled     Boolean  @default(false)
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  actor     String
+  action    String
+  entity    String
+  entityId  String?
+  before    String?
+  after     String?
+  reason    String?
+  timestamp DateTime @default(now())
+  correlationId String?
+}
+
+model DataQualityIssue {
+  id          String   @id @default(cuid())
+  issueCode   String   @unique
+  source      String
+  entity      String
+  recordId    String?
+  rule        String
+  message     String
+  severity    String   // INFO | WARNING | ERROR | BLOCKING
+  status      String   @default("OPEN") // OPEN | IN_REVIEW | RESOLVED | IGNORED
+  detectedAt  DateTime @default(now())
+  assignedTo  String?
+  resolution  String?
+  resolvedBy  String?
+  resolvedAt  DateTime?
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  type      String
+  title     String
+  message   String
+  severity  String   @default("INFO")
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model IntegrationSyncRun {
+  id            String   @id @default(cuid())
+  source        String   // Fantasy
+  entity        String   // Department | Location | Rough | Polished | Movement
+  status        String   // RUNNING | SUCCESS | FAILED | PARTIAL
+  recordsFetched Int     @default(0)
+  recordsCreated Int     @default(0)
+  recordsUpdated Int     @default(0)
+  recordsSkipped Int     @default(0)
+  errorsJson    String?
+  durationMs    Int      @default(0)
+  startedAt     DateTime @default(now())
+  finishedAt    DateTime?
+  nextRunAt     DateTime?
+}

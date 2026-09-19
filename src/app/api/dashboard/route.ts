@@ -1,0 +1,105 @@
+import { db } from "@/lib/db";
+import { ok, num } from "@/lib/api-utils";
+
+// Executive Dashboard KPIs - all values drilldown to evidence
+export async function GET() {
+  // Aggregate from DemandMetric (latest run)
+  const latestRun = await db.demandRun.findFirst({
+    orderBy: { runDate: "desc" },
+    include: { metrics: true },
+  });
+
+  let physicalShortage = 0;
+  let pipelineAdjusted = 0;
+  let approvedPlanCoverage = 0;
+  let remainingUnplanned = 0;
+  let forecastRequirement = 0;
+
+  if (latestRun) {
+    for (const m of latestRun.metrics) {
+      physicalShortage += num(m.physicalShortage);
+      pipelineAdjusted += num(m.pipelineNeed);
+      approvedPlanCoverage += num(m.approvedPlanCoverage);
+      remainingUnplanned += num(m.remainingUnplanned);
+      forecastRequirement += num(m.forecastSignal);
+    }
+  }
+
+  const polishedStock = await db.polishedStone.count();
+  const roughAvailable = await db.roughStone.count({
+    where: { planningStatus: "AVAILABLE", planningEligible: true },
+  });
+  const roughReserved = await db.roughStone.count({
+    where: { planningStatus: { in: ["RESERVED", "PLAN_APPROVED", "RELEASED_TO_MANUFACTURING"] } },
+  });
+  const currentWip = await db.planOptionPiece.count({
+    where: {
+      planOption: {
+        approvalStatus: { in: ["APPROVED", "RELEASED"] },
+      },
+    },
+  });
+
+  const criticalRequirements = await db.requirement.count({
+    where: { requirementPriority: "CRITICAL", remainingUnplanned: { gt: 0 } },
+  });
+  const highRequirements = await db.requirement.count({
+    where: { requirementPriority: "HIGH", remainingUnplanned: { gt: 0 } },
+  });
+  const overdueRequirements = await db.requirement.count({
+    where: { daysOverdue: { gt: 0 } },
+  });
+  const openOrders = await db.salesOrder.count({ where: { status: { in: ["OPEN", "PARTIAL"] } } });
+  const backorders = await db.salesOrderLine.aggregate({
+    _sum: { backorderQty: true },
+  });
+  const memoExposure = await db.memoRecord.aggregate({
+    _sum: { memoValueUsd: true },
+    where: { status: "OPEN" },
+  });
+
+  // Sync health
+  const lastSyncs = await db.integrationSyncRun.findMany({
+    orderBy: { startedAt: "desc" },
+    take: 5,
+  });
+  const hasFailed = lastSyncs.some((s) => s.status === "FAILED");
+  const hasPartial = lastSyncs.some((s) => s.status === "PARTIAL");
+  const fantasySyncHealth = hasFailed ? "FAILED" : hasPartial ? "PARTIAL" : "HEALTHY";
+
+  // Yield variance
+  const reconciliations = await db.planActualReconciliation.findMany();
+  let plannedYield = 0;
+  let actualYield = 0;
+  let yieldVariance = 0;
+  if (reconciliations.length > 0) {
+    plannedYield = num(reconciliations.reduce((s, r) => s + num(r.plannedYieldPct), 0) / reconciliations.length);
+    actualYield = num(reconciliations.reduce((s, r) => s + num(r.actualYieldPct), 0) / reconciliations.length);
+    yieldVariance = num(reconciliations.reduce((s, r) => s + num(r.yieldVariance), 0) / reconciliations.length);
+  }
+
+  return ok({
+    physicalShortage,
+    pipelineAdjusted,
+    approvedPlanCoverage,
+    remainingUnplanned,
+    forecastRequirement,
+    polishedStock,
+    roughAvailable,
+    roughReserved,
+    currentWip,
+    criticalRequirements,
+    highRequirements,
+    overdueRequirements,
+    openOrders,
+    backorders: num(backorders._sum.backorderQty),
+    memoExposure: num(memoExposure._sum.memoValueUsd),
+    fantasySyncHealth,
+    plannedYield,
+    actualYield,
+    yieldVariance,
+    demandRunId: latestRun?.id ?? null,
+    demandRunDate: latestRun?.runDate?.toISOString() ?? null,
+    ruleVersion: latestRun?.ruleVersion ?? null,
+  });
+}

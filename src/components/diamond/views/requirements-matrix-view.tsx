@@ -1,0 +1,729 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import { useApi } from "@/lib/api-client";
+import { PageHeader, Section } from "@/components/diamond/shared/page-header";
+import { DataTable, type Column } from "@/components/diamond/shared/data-table";
+import { StatusBadge, Badge } from "@/components/diamond/shared/badges";
+import { KpiCard } from "@/components/diamond/shared/kpi-card";
+import { InfoBanner, NumberCell } from "@/components/diamond/shared/empty-state";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import { Search, ChevronLeft, ChevronRight, Filter, X } from "lucide-react";
+
+interface RequirementRow {
+  id: string;
+  requirementCode: string;
+  type: string;
+  status: string;
+  customerName: string | null;
+  orderNumber: string | null;
+  country: string | null;
+  branch: string | null;
+  lab: string | null;
+  shape: string | null;
+  weightBand: string | null;
+  requiredQty: number;
+  physicalStockQty: number;
+  planningAvailableQty: number;
+  memoQty: number;
+  transferCoverage: number;
+  wipCoverage: number;
+  approvedPlanCoverage: number;
+  actualCoverage: number;
+  remainingUnplanned: number;
+  forecastQty: number;
+  requiredBy: string | null;
+  ageDays: number;
+  daysRemaining: number | null;
+  daysOverdue: number;
+  customerPriority: string | null;
+  orderPriority: string | null;
+  requirementPriority: string | null;
+  priorityReason: string | null;
+}
+
+interface RequirementDetail {
+  id: string;
+  requirementCode: string;
+  type: string;
+  status: string;
+  customerName: string | null;
+  orderNumber: string | null;
+  country: string | null;
+  branch: string | null;
+  lab: string | null;
+  shape: string | null;
+  weightBand: string | null;
+  colorGroup: string | null;
+  clarityGroup: string | null;
+  treatment: string | null;
+  requiredQty: number;
+  physicalStockQty: number;
+  planningAvailableQty: number;
+  memoQty: number;
+  transferCoverage: number;
+  wipCoverage: number;
+  approvedPlanCoverage: number;
+  actualCoverage: number;
+  remainingUnplanned: number;
+  forecastQty: number;
+  requiredBy: string | null;
+  ageDays: number;
+  daysRemaining: number | null;
+  daysOverdue: number;
+  customerPriority: string | null;
+  orderPriority: string | null;
+  requirementPriority: string | null;
+  priorityReason: string | null;
+  sourceRecords: unknown;
+  allocations: Array<{
+    id: string;
+    allocatedQty: number;
+    allocatedBy: string;
+    allocatedAt: string;
+    status: string;
+    planOptionCode: string | null;
+  }>;
+  fourNumbers: {
+    physicalShortage: number;
+    pipelineAdjusted: number;
+    planningAdjusted: number;
+    forecastRequirement: number;
+  };
+}
+
+const TYPES = [
+  "SALES_ORDER",
+  "MEMO",
+  "FORECAST",
+  "STOCKOUT_REPLENISHMENT",
+  "SPECIAL",
+  "BACKORDER",
+];
+const STATUSES = [
+  "OPEN",
+  "PARTIALLY_COVERED",
+  "FULLY_PLANNED",
+  "PARTIALLY_FULFILLED",
+  "FULFILLED",
+  "IN_MANUFACTURING",
+  "EXPIRED",
+  "CANCELLED",
+];
+const COUNTRIES = ["USA", "India", "Belgium", "Israel", "HongKong", "UAE", "Botswana"];
+const PRIORITIES = ["CRITICAL", "HIGH", "NORMAL", "LOW", "WATCH"];
+
+function priorityVariant(
+  v: string | null
+): "default" | "critical" | "high" | "low" | "neutral" {
+  if (!v) return "default";
+  if (v === "CRITICAL") return "critical";
+  if (v === "HIGH") return "high";
+  if (v === "LOW") return "low";
+  if (v === "WATCH") return "neutral";
+  return "default";
+}
+
+function PriorityBadge({ value }: { value: string | null }) {
+  if (!value) return <span className="text-muted-foreground">—</span>;
+  return <Badge variant={priorityVariant(value)}>{value}</Badge>;
+}
+
+function fmtDate(iso: string | null): string {
+  if (!iso) return "—";
+  try {
+    return new Date(iso).toISOString().slice(0, 10);
+  } catch {
+    return "—";
+  }
+}
+
+export function RequirementsMatrixView() {
+  const [filters, setFilters] = useState({
+    type: "",
+    status: "",
+    country: "",
+    priority: "",
+    q: "",
+  });
+  const [page, setPage] = useState(1);
+  const pageSize = 100;
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  const qs = useMemo(() => {
+    const parts: string[] = [`page=${page}`, `pageSize=${pageSize}`];
+    if (filters.type) parts.push(`type=${encodeURIComponent(filters.type)}`);
+    if (filters.status) parts.push(`status=${encodeURIComponent(filters.status)}`);
+    if (filters.country) parts.push(`country=${encodeURIComponent(filters.country)}`);
+    if (filters.priority) parts.push(`priority=${encodeURIComponent(filters.priority)}`);
+    if (filters.q) parts.push(`q=${encodeURIComponent(filters.q)}`);
+    return parts.join("&");
+  }, [filters, page]);
+
+  const url = `/api/requirements?${qs}`;
+  const { data, isLoading } = useApi<{
+    data: RequirementRow[];
+    total: number;
+    page: number;
+    pageSize: number;
+  }>(url);
+
+  const { data: detail, isLoading: detailLoading } = useApi<RequirementDetail | null>(
+    selectedId ? `/api/requirements/${selectedId}` : null
+  );
+
+  const rows = data?.data ?? [];
+  const total = data?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+  const resetPage = () => setPage(1);
+
+  const updateFilter = (key: keyof typeof filters, value: string) => {
+    setFilters((f) => ({ ...f, [key]: value }));
+    resetPage();
+  };
+
+  const clearFilters = () => {
+    setFilters({ type: "", status: "", country: "", priority: "", q: "" });
+    resetPage();
+  };
+
+  const activeFilters = Object.values(filters).filter(Boolean).length;
+
+  const columns: Column<RequirementRow>[] = [
+    {
+      key: "requirementCode",
+      header: "Req. Code",
+      width: "150px",
+      sticky: "left",
+      sortable: true,
+      sortValue: (r) => r.requirementCode,
+      cell: (r) => (
+        <span className="font-medium text-foreground">{r.requirementCode}</span>
+      ),
+    },
+    {
+      key: "type",
+      header: "Type",
+      width: "120px",
+      cell: (r) => <Badge variant="info">{r.type.replace(/_/g, " ")}</Badge>,
+    },
+    {
+      key: "status",
+      header: "Status",
+      width: "120px",
+      cell: (r) => <StatusBadge status={r.status} />,
+    },
+    {
+      key: "customerName",
+      header: "Customer",
+      width: "140px",
+      cell: (r) => (
+        <span className="truncate">{r.customerName ?? "—"}</span>
+      ),
+    },
+    {
+      key: "orderNumber",
+      header: "Order #",
+      width: "120px",
+      cell: (r) => r.orderNumber ?? "—",
+    },
+    {
+      key: "country",
+      header: "Country",
+      width: "90px",
+      cell: (r) => r.country ?? "—",
+    },
+    {
+      key: "branch",
+      header: "Branch",
+      width: "90px",
+      cell: (r) => r.branch ?? "—",
+    },
+    {
+      key: "lab",
+      header: "Lab",
+      width: "80px",
+      cell: (r) => r.lab ?? "—",
+    },
+    {
+      key: "shape",
+      header: "Shape",
+      width: "90px",
+      cell: (r) => r.shape ?? "—",
+    },
+    {
+      key: "weightBand",
+      header: "Wt Band",
+      width: "110px",
+      cell: (r) => r.weightBand ?? "—",
+    },
+    {
+      key: "requiredQty",
+      header: "Req Qty",
+      width: "70px",
+      align: "right",
+      sortable: true,
+      sortValue: (r) => r.requiredQty,
+      cell: (r) => <NumberCell value={r.requiredQty} intent="info" />,
+    },
+    {
+      key: "physicalStockQty",
+      header: "Phys Stock",
+      width: "70px",
+      align: "right",
+      sortable: true,
+      sortValue: (r) => r.physicalStockQty,
+      cell: (r) => <NumberCell value={r.physicalStockQty} />,
+    },
+    {
+      key: "planningAvailableQty",
+      header: "Plan Avail",
+      width: "70px",
+      align: "right",
+      cell: (r) => <NumberCell value={r.planningAvailableQty} />,
+    },
+    {
+      key: "memoQty",
+      header: "Memo",
+      width: "60px",
+      align: "right",
+      cell: (r) => <NumberCell value={r.memoQty} intent="warning" />,
+    },
+    {
+      key: "transferCoverage",
+      header: "Trans Cov",
+      width: "70px",
+      align: "right",
+      cell: (r) => <NumberCell value={r.transferCoverage} />,
+    },
+    {
+      key: "wipCoverage",
+      header: "WIP Cov",
+      width: "70px",
+      align: "right",
+      cell: (r) => <NumberCell value={r.wipCoverage} intent="info" />,
+    },
+    {
+      key: "approvedPlanCoverage",
+      header: "Plan Cov",
+      width: "70px",
+      align: "right",
+      cell: (r) => <NumberCell value={r.approvedPlanCoverage} intent="success" />,
+    },
+    {
+      key: "actualCoverage",
+      header: "Act Cov",
+      width: "70px",
+      align: "right",
+      cell: (r) => <NumberCell value={r.actualCoverage} />,
+    },
+    {
+      key: "remainingUnplanned",
+      header: "Rem Unpl",
+      width: "75px",
+      align: "right",
+      sortable: true,
+      sortValue: (r) => r.remainingUnplanned,
+      cell: (r) => (
+        <NumberCell
+          value={r.remainingUnplanned}
+          intent={r.remainingUnplanned > 0 ? "critical" : "success"}
+        />
+      ),
+    },
+    {
+      key: "forecastQty",
+      header: "Forecast",
+      width: "70px",
+      align: "right",
+      cell: (r) => <NumberCell value={r.forecastQty} intent="info" />,
+    },
+    {
+      key: "requiredBy",
+      header: "Req By",
+      width: "90px",
+      cell: (r) => fmtDate(r.requiredBy),
+    },
+    {
+      key: "ageDays",
+      header: "Age",
+      width: "60px",
+      align: "right",
+      sortable: true,
+      sortValue: (r) => r.ageDays,
+      cell: (r) => <NumberCell value={r.ageDays} />,
+    },
+    {
+      key: "daysRemaining",
+      header: "Days Rem",
+      width: "70px",
+      align: "right",
+      cell: (r) => <NumberCell value={r.daysRemaining} />,
+    },
+    {
+      key: "daysOverdue",
+      header: "Days Over",
+      width: "70px",
+      align: "right",
+      sortable: true,
+      sortValue: (r) => r.daysOverdue,
+      cell: (r) => (
+        <NumberCell value={r.daysOverdue} intent={r.daysOverdue > 0 ? "critical" : "default"} />
+      ),
+    },
+    {
+      key: "customerPriority",
+      header: "Cust Pri",
+      width: "80px",
+      sticky: "left",
+      cell: (r) => <PriorityBadge value={r.customerPriority} />,
+    },
+    {
+      key: "orderPriority",
+      header: "Ord Pri",
+      width: "80px",
+      sticky: "left",
+      cell: (r) => <PriorityBadge value={r.orderPriority} />,
+    },
+    {
+      key: "requirementPriority",
+      header: "Req Pri",
+      width: "80px",
+      sticky: "left",
+      cell: (r) => <PriorityBadge value={r.requirementPriority} />,
+    },
+    {
+      key: "priorityReason",
+      header: "Reason",
+      width: "200px",
+      cell: (r) => (
+        <span className="text-muted-foreground truncate block max-w-[180px]" title={r.priorityReason ?? ""}>
+          {r.priorityReason ?? "—"}
+        </span>
+      ),
+    },
+  ];
+
+  // KPIs from current page (approximate)
+  const totalRemaining = rows.reduce((s, r) => s + r.remainingUnplanned, 0);
+  const totalOverdue = rows.filter((r) => r.daysOverdue > 0).length;
+  const totalCritical = rows.filter((r) => r.requirementPriority === "CRITICAL").length;
+
+  return (
+    <div className="flex flex-col gap-3 p-3">
+      <PageHeader
+        title="Requirements Matrix"
+        subtitle="High-density enterprise requirement grid · Physical Shortage → Pipeline-Adjusted → Plan Coverage → Remaining Unplanned · Filter, search and drill down to four-number evidence"
+        meta={
+          <span className="text-[10px] text-muted-foreground">
+            {total.toLocaleString()} total · Page {page} / {totalPages}
+          </span>
+        }
+      />
+
+      {/* KPI strip for current page */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+        <KpiCard label="Page Rows" value={rows.length} unit="reqs" intent="default" />
+        <KpiCard
+          label="Remaining Unplanned (page)"
+          value={totalRemaining}
+          unit="pcs"
+          intent="critical"
+          hint="Sum of remainingUnplanned on current page"
+        />
+        <KpiCard label="Overdue Rows" value={totalOverdue} unit="reqs" intent="warning" />
+        <KpiCard label="Critical Rows" value={totalCritical} unit="reqs" intent="critical" />
+      </div>
+
+      {/* Filter row */}
+      <Section
+        title="Filters"
+        description="Type, status, country, priority and free-text search"
+        bodyClassName="p-2"
+        actions={
+          activeFilters > 0 ? (
+            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={clearFilters}>
+              <X className="h-3 w-3 mr-1" /> Clear ({activeFilters})
+            </Button>
+          ) : null
+        }
+      >
+        <div className="flex items-center gap-2 flex-wrap">
+          <Filter className="h-3.5 w-3.5 text-muted-foreground" />
+          <Select value={filters.type || "ALL"} onValueChange={(v) => updateFilter("type", v === "ALL" ? "" : v)}>
+            <SelectTrigger size="sm" className="h-8 w-[160px] text-xs">
+              <SelectValue placeholder="All Types" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ALL">All Types</SelectItem>
+              {TYPES.map((t) => (
+                <SelectItem key={t} value={t}>
+                  {t.replace(/_/g, " ")}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select value={filters.status || "ALL"} onValueChange={(v) => updateFilter("status", v === "ALL" ? "" : v)}>
+            <SelectTrigger size="sm" className="h-8 w-[170px] text-xs">
+              <SelectValue placeholder="All Statuses" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ALL">All Statuses</SelectItem>
+              {STATUSES.map((s) => (
+                <SelectItem key={s} value={s}>
+                  {s.replace(/_/g, " ")}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select value={filters.country || "ALL"} onValueChange={(v) => updateFilter("country", v === "ALL" ? "" : v)}>
+            <SelectTrigger size="sm" className="h-8 w-[140px] text-xs">
+              <SelectValue placeholder="All Countries" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ALL">All Countries</SelectItem>
+              {COUNTRIES.map((c) => (
+                <SelectItem key={c} value={c}>
+                  {c}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select
+            value={filters.priority || "ALL"}
+            onValueChange={(v) => updateFilter("priority", v === "ALL" ? "" : v)}
+          >
+            <SelectTrigger size="sm" className="h-8 w-[140px] text-xs">
+              <SelectValue placeholder="All Priorities" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ALL">All Priorities</SelectItem>
+              {PRIORITIES.map((p) => (
+                <SelectItem key={p} value={p}>
+                  {p}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <div className="relative flex-1 min-w-[200px] max-w-sm">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+            <Input
+              value={filters.q}
+              onChange={(e) => updateFilter("q", e.target.value)}
+              placeholder="Search requirement code…"
+              className="h-8 pl-7 text-xs"
+            />
+          </div>
+        </div>
+      </Section>
+
+      {/* Main table */}
+      <DataTable<RequirementRow>
+        columns={columns}
+        rows={rows}
+        loading={isLoading}
+        emptyMessage="No requirements match the current filters."
+        maxHeight="640px"
+        onRowClick={(r) => setSelectedId(r.id)}
+        rowClassName={(r) => (r.remainingUnplanned > 0 ? "bg-rose-50/40 dark:bg-rose-950/10" : "")}
+        exportable
+        exportFilename={`requirements-page-${page}.csv`}
+      />
+
+      {/* Server-side pagination */}
+      <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+        <span>
+          Showing {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)} of {total.toLocaleString()}
+        </span>
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-xs"
+            disabled={page === 1}
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+          >
+            <ChevronLeft className="h-3 w-3 mr-1" /> Prev
+          </Button>
+          <span>
+            Page {page} / {totalPages}
+          </span>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-xs"
+            disabled={page >= totalPages}
+            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+          >
+            Next <ChevronRight className="h-3 w-3 ml-1" />
+          </Button>
+        </div>
+      </div>
+
+      {/* Detail dialog */}
+      <Dialog open={!!selectedId} onOpenChange={(o) => !o && setSelectedId(null)}>
+        <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-sm">
+              <span>{detail?.requirementCode ?? "Loading…"}</span>
+              {detail && <StatusBadge status={detail.status} />}
+              {detail && <Badge variant="info">{detail.type.replace(/_/g, " ")}</Badge>}
+            </DialogTitle>
+            <DialogDescription className="text-[11px]">
+              Four confirmed requirement numbers + source records + allocations. Each number drills down to its evidence.
+            </DialogDescription>
+          </DialogHeader>
+
+          {detailLoading || !detail ? (
+            <div className="py-10 text-center text-xs text-muted-foreground">
+              <div className="inline-flex items-center gap-2">
+                <div className="h-3 w-3 border-2 border-muted-foreground border-t-transparent rounded-full animate-spin" />
+                Loading requirement detail…
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {/* 4 numbers grid */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                <KpiCard
+                  label="1 · Physical Shortage"
+                  value={detail.fourNumbers.physicalShortage}
+                  unit="pcs"
+                  intent="critical"
+                  hint="MAX(0, RequiredQty − PlanningAvailableQty)"
+                />
+                <KpiCard
+                  label="2 · Pipeline-Adjusted"
+                  value={detail.fourNumbers.pipelineAdjusted}
+                  unit="pcs"
+                  intent="warning"
+                  hint="MAX(0, PhysicalShortage − WIP Coverage)"
+                />
+                <KpiCard
+                  label="3 · Planning-Adjusted"
+                  value={detail.fourNumbers.planningAdjusted}
+                  unit="pcs"
+                  intent="info"
+                  hint="MAX(0, PipelineAdjusted − ApprovedPlanCoverage)"
+                />
+                <KpiCard
+                  label="4 · Forecast Signal"
+                  value={detail.fourNumbers.forecastRequirement}
+                  unit="pcs"
+                  intent="default"
+                  hint="Advisory — NOT confirmed demand"
+                />
+              </div>
+
+              {/* Quantities breakdown */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[11px]">
+                <DataPair label="Required Qty" value={detail.requiredQty} />
+                <DataPair label="Physical Stock" value={detail.physicalStockQty} />
+                <DataPair label="Planning Available" value={detail.planningAvailableQty} />
+                <DataPair label="Memo Qty" value={detail.memoQty} />
+                <DataPair label="Transfer Coverage" value={detail.transferCoverage} />
+                <DataPair label="WIP Coverage" value={detail.wipCoverage} />
+                <DataPair label="Approved Plan Coverage" value={detail.approvedPlanCoverage} />
+                <DataPair label="Actual Coverage" value={detail.actualCoverage} />
+              </div>
+
+              {/* Context */}
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-[11px] rounded-md border border-border bg-muted/30 p-2">
+                <DataPair label="Customer" value={detail.customerName ?? "—"} />
+                <DataPair label="Order #" value={detail.orderNumber ?? "—"} />
+                <DataPair label="Country / Branch" value={`${detail.country ?? "—"} / ${detail.branch ?? "—"}`} />
+                <DataPair label="Shape" value={detail.shape ?? "—"} />
+                <DataPair label="Weight Band" value={detail.weightBand ?? "—"} />
+                <DataPair label="Lab" value={detail.lab ?? "—"} />
+                <DataPair label="Color / Clarity" value={`${detail.colorGroup ?? "—"} / ${detail.clarityGroup ?? "—"}`} />
+                <DataPair label="Treatment" value={detail.treatment ?? "—"} />
+                <DataPair label="Required By" value={fmtDate(detail.requiredBy)} />
+                <DataPair label="Age / Days Remaining / Days Overdue" value={`${detail.ageDays} / ${detail.daysRemaining ?? "—"} / ${detail.daysOverdue}`} />
+                <DataPair label="Customer Priority" value={detail.customerPriority ?? "—"} />
+                <DataPair label="Order Priority" value={detail.orderPriority ?? "—"} />
+                <DataPair label="Requirement Priority" value={detail.requirementPriority ?? "—"} />
+                <DataPair label="Priority Reason" value={detail.priorityReason ?? "—"} />
+              </div>
+
+              {/* Allocations */}
+              <div className="rounded-md border border-border overflow-hidden">
+                <div className="px-2 py-1.5 border-b border-border bg-muted/40 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Plan Allocations ({detail.allocations.length})
+                </div>
+                {detail.allocations.length === 0 ? (
+                  <div className="px-3 py-3 text-[11px] text-muted-foreground">No allocations yet.</div>
+                ) : (
+                  <table className="w-full text-[11px]">
+                    <thead className="bg-muted/30 text-[10px] uppercase text-muted-foreground">
+                      <tr>
+                        <th className="px-2 py-1 text-left">Option Code</th>
+                        <th className="px-2 py-1 text-right">Allocated Qty</th>
+                        <th className="px-2 py-1 text-left">By</th>
+                        <th className="px-2 py-1 text-left">At</th>
+                        <th className="px-2 py-1 text-left">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {detail.allocations.map((a) => (
+                        <tr key={a.id} className="border-t border-border/60">
+                          <td className="px-2 py-1 font-medium">{a.planOptionCode ?? "—"}</td>
+                          <td className="px-2 py-1 text-right tabular-nums">{a.allocatedQty}</td>
+                          <td className="px-2 py-1">{a.allocatedBy}</td>
+                          <td className="px-2 py-1">{fmtDate(a.allocatedAt)}</td>
+                          <td className="px-2 py-1"><StatusBadge status={a.status} /></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+
+              {/* Source records */}
+              <div className="rounded-md border border-border overflow-hidden">
+                <div className="px-2 py-1.5 border-b border-border bg-muted/40 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  Source Records (JSON)
+                </div>
+                <pre className="text-[10px] leading-relaxed p-2 overflow-x-auto max-h-48 bg-muted/20">
+                  {JSON.stringify(detail.sourceRecords, null, 2)}
+                </pre>
+              </div>
+
+              <InfoBanner variant="info">
+                Four numbers are computed via deterministic formulas with decimal-safe round-half-up. Each step is auditable.
+              </InfoBanner>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function DataPair({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="flex flex-col">
+      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</span>
+      <span className="text-[11px] font-medium text-foreground tabular-nums">{value}</span>
+    </div>
+  );
+}

@@ -1,0 +1,3535 @@
+MASTER PROMPT — BUILD THE COMPLETE ENTERPRISE DIAMOND MANUFACTURING ANALYSIS, REQUIREMENT, PLANNING & TRACEABILITY WEBSITE
+
+You are a Principal Full-Stack Engineer, Enterprise Software Architect, Database Architect, Integration Engineer, Data Engineer, Data Scientist, Manufacturing Systems Engineer, UI/UX Engineer, QA Engineer, Security Engineer, and DevOps Engineer.
+
+Your job is to BUILD THE ACTUAL WORKING APPLICATION CODE.
+
+DO NOT generate PRD.md, ARCHITECTURE.md, DATABASE.md, API.md, DESIGN.md, PHASES.md, planning documents, proposal documents, or theoretical reports unless an existing repository specifically requires an existing file to be updated.
+
+DO NOT stop after analysis.
+
+DO NOT give me only recommendations.
+
+DO NOT create mock-only pages.
+
+DO NOT create placeholder buttons.
+
+DO NOT implement fake API calls.
+
+DO NOT create disconnected frontend pages.
+
+DO NOT fabricate Fantasy ERP functionality.
+
+DO NOT invent unconfirmed diamond manufacturing business rules.
+
+INSPECT THE EXISTING PROJECT FIRST, understand its architecture and dependencies, and then implement the complete website directly in the repository.
+
+If an existing codebase exists:
+- preserve the existing architecture where sensible;
+- reuse existing components, authentication, database patterns, APIs, styles, utilities, and conventions;
+- do not rewrite the entire application unnecessarily;
+- inspect only the files/modules required for the current implementation first;
+- expand the inspection scope only when dependencies require it;
+- maintain backward compatibility unless a change is intentionally required;
+- run existing tests before and after major changes.
+
+If starting from an empty project, create a production-grade architecture described below.
+
+======================================================================
+1. PRODUCT TO BUILD
+======================================================================
+
+Build a complete multi-country enterprise:
+
+DIAMOND MANUFACTURING ANALYSIS,
+SALES INTELLIGENCE,
+DEMAND & REQUIREMENT ENGINE,
+ROUGH PLANNING,
+MANUFACTURING TRACEABILITY,
+PLAN-VS-ACTUAL,
+AND DATA SCIENCE PLATFORM.
+
+The application must connect:
+
+SALES
+→ CUSTOMERS
+→ ORDERS
+→ MEMO
+→ FANTASY POLISHED STOCK
+→ DEMAND ANALYSIS
+→ REQUIREMENT CALCULATION
+→ CUSTOMER/ORDER PRIORITY
+→ WIP COVERAGE
+→ FINAL MANUFACTURING REQUIREMENT
+→ FANTASY ROUGH STOCK
+→ ROUGH PLANNING
+→ PLAN OPTIONS
+→ REQUIREMENT COVERAGE
+→ PLAN APPROVAL
+→ ROUGH RESERVATION
+→ MANUFACTURING
+→ FANTASY DEPARTMENT / LOCATION TRACKING
+→ ACTUAL POLISHED OUTPUT
+→ FANTASY POLISHED STOCK
+→ PLAN VS ACTUAL
+→ REQUIREMENT RECALCULATION
+→ CONTINUOUS CLOSED LOOP.
+
+The website must support multiple:
+- groups;
+- companies;
+- countries;
+- manufacturing plants;
+- branches;
+- offices;
+- Fantasy departments;
+- Fantasy locations;
+- customers;
+- currencies if required by existing ERP data.
+
+Current known business locations include examples such as:
+- New York;
+- Hong Kong;
+- Canada;
+- manufacturing plant;
+but NEVER hardcode the architecture to those locations.
+
+Everything must work for future locations dynamically.
+
+======================================================================
+2. CORE SYSTEM OWNERSHIP
+======================================================================
+
+Fantasy ERP is the authoritative operational source of truth for data that Fantasy owns.
+
+Fantasy ERP owns:
+- rough stock;
+- polished stock;
+- department master;
+- location master;
+- current physical department;
+- current physical location;
+- physical inventory status;
+- physical movement history if exposed;
+- Fantasy rough IDs;
+- Fantasy polished Lot IDs;
+- parent/child rough identities if exposed;
+- current physical weight if exposed;
+- final physical polished inventory.
+
+The new Diamond Planning application must NOT create a competing Department Master or Location Master.
+
+Fantasy Department and Fantasy Location should be synchronized/read through the integration layer.
+
+The Planning application owns:
+- sales analysis;
+- customer analytics;
+- order analysis;
+- demand calculations;
+- target stock;
+- requirement calculations;
+- customer priority;
+- order priority;
+- requirement priority;
+- requirement source lineage;
+- WIP planning interpretation;
+- rough planning;
+- planning cases;
+- planning versions;
+- planning options;
+- requirement matching;
+- planned pieces;
+- requirement allocations;
+- planning-side rough reservations where necessary;
+- plan approvals;
+- plan-vs-actual;
+- forecasting;
+- decision-support analytics.
+
+======================================================================
+3. BUSINESS RULE GOVERNANCE — VERY IMPORTANT
+======================================================================
+
+There are CONFIRMED business rules and OPEN business rules.
+
+Never convert an open item into a hardcoded production rule.
+
+Create a configurable Business Rules / Configuration layer.
+
+Rule statuses:
+- CONFIRMED
+- PROPOSED
+- OPEN
+- DEPRECATED
+
+For every important rule preserve:
+- rule ID;
+- domain;
+- rule name;
+- rule version;
+- effective date;
+- status;
+- configuration;
+- approved by;
+- approved timestamp;
+- notes;
+- audit history.
+
+OPEN RULES THAT MUST NOT BE INVENTED:
+- exact manufacturing/WIP-stage contribution logic;
+- final automatic rough-plan commercial selection logic;
+- exact weighting between yield and requirement coverage;
+- cross-country transfer eligibility;
+- whether Color participates in the production requirement category;
+- whether Clarity participates in the production requirement category;
+- whether Treatment participates in the production requirement category;
+- customer priority scoring formula;
+- order priority scoring formula;
+- whether predicted future demand directly creates production orders;
+- exact certification/lab intention rules for unfinished rough;
+- confidence percentage for WIP stages;
+- final capacity scheduling rules unless real factory data/rules exist.
+
+Implement the software architecture to support those future rules without pretending they are confirmed today.
+
+======================================================================
+4. CONFIRMED DEMAND CALCULATION
+======================================================================
+
+The current deterministic sales calculation is authoritative.
+
+A stone qualifies for sales demand only when:
+
+Lot Status DB = Invoice
+
+AND its Doc Date is inside the inclusive rolling 90-day window.
+
+The window is:
+run date + previous 89 calendar dates.
+
+For each planning category:
+
+90-Day Sales Pieces
+=
+COUNT qualifying Invoice stones.
+
+Monthly Average
+=
+90-Day Sales Pieces / 3.
+
+Unrounded Target Stock
+=
+Monthly Average × 2.
+
+Target Stock:
+round conventionally to the nearest whole piece.
+
+Exact .5 rounds UP.
+
+Examples:
+5.33 → 5
+5.50 → 6
+5.67 → 6
+
+Do NOT use:
+- banker's rounding;
+- ceiling rounding;
+- JavaScript floating-point shortcuts that create boundary errors.
+
+Use deterministic decimal-safe logic.
+
+Available Finished Stock:
+count only qualifying polished Stock records according to the current confirmed rule.
+
+Initial Shortage:
+MAX(0, Target Stock - Available Finished Stock).
+
+Keep these fields separately:
+- 90-day sales;
+- monthly average;
+- unrounded target;
+- rounded target;
+- available stock;
+- physical shortage.
+
+Never hide the intermediate calculation.
+
+======================================================================
+5. CURRENT CATEGORY MODEL
+======================================================================
+
+Current confirmed planning category:
+
+Normalized Lab
++
+Shape
++
+Weight Category.
+
+Lab normalization:
+
+GIA           → GIA
+GIA-Premium   → GIA
+GIA-Standard  → GIA
+Blank / NULL  → Non-Cert
+
+Do NOT silently normalize unknown Lab values.
+
+Unknown Labs:
+- retain raw value;
+- flag validation warning/error;
+- allow admin mapping through controlled master data.
+
+Current Color and Clarity must be stored and analyzed but must NOT automatically become part of the core requirement category until enabled by approved business configuration.
+
+Treatment must also remain available for analysis.
+
+======================================================================
+6. CONFIRMED WEIGHT BANDS
+======================================================================
+
+Current confirmed analytical scope starts at 1.00 ct.
+
+Implement:
+
+1.00-1.09
+1.10-1.49
+1.50-1.59
+1.60-1.69
+1.70-1.99
+2.00-2.09
+2.10-2.49
+2.50-2.59
+2.60-2.99
+3.00-3.09
+3.10-3.49
+3.50-3.99
+4.00-4.09
+4.10-4.49
+4.50-4.99
+5.00-5.99
+6.00-6.99
+7.00-7.99
+8.00-8.99
+9.00-9.99
+10.00-14.99
+15.00-19.99
+20.00-24.99
+25+
+
+0.90-0.99 is not part of the current confirmed scope.
+
+Store weight bands in configurable database masters while seeding the confirmed values.
+
+Ensure:
+- inclusive boundaries;
+- no overlap;
+- no gaps for in-scope values;
+- decimal-safe comparison.
+
+======================================================================
+7. SOURCE DIAMOND DATA
+======================================================================
+
+Current conceptual data grain:
+
+1 unique Lot ID
+=
+1 diamond stone
+=
+Qty normally 1.
+
+Support source fields such as:
+
+Doc Date
+Lot ID
+Lot Status DB
+Qty
+Shape
+Weight
+Color
+Clarity
+Lab name
+Certificate
+Treatment
+Sale Total USD
+
+Doc Date meaning:
+
+Invoice → sales/invoice date
+Memo    → memo issue date
+Stock   → office stock receipt date
+
+Treatment:
+- HPHT
+- CVD
+- NULL
+
+NULL means missing/unknown.
+Never interpret NULL as untreated.
+
+======================================================================
+8. MEMO RULE
+======================================================================
+
+Current confirmed rule:
+
+Memo does NOT reduce shortage.
+
+Memo is separate decision context.
+
+Example:
+
+Target = 20
+Stock = 12
+Memo = 5
+
+Current confirmed shortage:
+20 - 12 = 8.
+
+NOT:
+20 - (12 + 5).
+
+Still provide full Memo analytics:
+- memo quantity;
+- memo customer;
+- branch;
+- country;
+- memo date;
+- memo age;
+- memo value;
+- current status;
+- eventual invoice conversion if historical data exists;
+- return behavior if available.
+
+======================================================================
+9. ANALYSIS DEPARTMENT — BUILD AS A FIRST-CLASS MODULE
+======================================================================
+
+Build a complete Analysis Department workspace.
+
+Its job:
+
+"What is selling?"
+"Who is buying?"
+"What is ordered?"
+"What is currently short?"
+"What is excess?"
+"What is on Memo?"
+"What is already in manufacturing?"
+"What is already planned?"
+"What is likely to become short?"
+"What should planning manufacture?"
+"Why?"
+"For whom?"
+"Where?"
+"By when?"
+"What priority?"
+
+Analysis modules:
+
+1. Executive Analysis
+2. Sales Analysis
+3. Sales Trends
+4. Customer Analysis
+5. Customer Priority
+6. Order Analysis
+7. Order Priority
+8. Country Analysis
+9. Branch Analysis
+10. Polished Stock Analysis
+11. Memo Analysis
+12. WIP Analysis
+13. Requirement Analysis
+14. Forecast Analysis
+15. Stockout Risk
+16. Excess Stock
+17. Slow-Moving Stock
+18. Planning Coverage
+19. Plan-vs-Actual Analysis
+20. Data Quality
+
+======================================================================
+10. SALES ANALYSIS
+======================================================================
+
+Support analytics for:
+
+7-day sales
+30-day sales
+60-day sales
+90-day sales
+180-day sales
+365-day sales
+
+Confirmed production calculation continues to use the 90-day rule unless business changes it.
+
+Analyze:
+
+sales by:
+- Lab;
+- Shape;
+- Weight Band;
+- Color;
+- Clarity;
+- Treatment;
+- Customer;
+- Country;
+- Branch;
+- Salesperson if available;
+- Month;
+- Quarter;
+- Year.
+
+Metrics:
+
+pieces;
+carats;
+sales value;
+average $/ct;
+average piece value;
+sales velocity;
+repeat frequency;
+trend.
+
+======================================================================
+11. SALES TREND ANALYSIS
+======================================================================
+
+Provide descriptive classifications such as:
+
+Strong Growth
+Growth
+Stable
+Declining
+Strong Decline
+New Demand
+Dormant
+Volatile
+
+BUT always expose the underlying numbers.
+
+Never rely only on visual status colors.
+
+Show:
+
+Previous 30D
+Middle 30D
+Latest 30D
+90D total
+180D trend
+365D context
+
+Provide drilldown to actual Invoice stones.
+
+======================================================================
+12. CUSTOMER ANALYSIS
+======================================================================
+
+Build Customer 360 pages.
+
+Fields and metrics:
+
+Customer ID
+Customer Code
+Customer Name
+Country
+Branch / Sales Office
+Account Owner
+
+Business priority
+Historical sales value
+Pieces
+Carats
+Average price/ct
+Average order quantity
+Average order value
+Order frequency
+Repeat cycle
+Last purchase
+Open orders
+Backorders
+Memo exposure
+
+Customer preferences:
+Lab
+Shape
+Weight
+Color
+Clarity
+Treatment
+
+Show:
+- top purchased categories;
+- buying trends;
+- seasonality where sufficient data exists;
+- repeat intervals;
+- order fulfillment;
+- memo conversion;
+- current outstanding requirement.
+
+======================================================================
+13. CUSTOMER PRIORITY
+======================================================================
+
+Customer priority must be configurable and business-owned.
+
+Possible initial labels:
+- Strategic
+- Key
+- Standard
+- New
+- Internal
+
+Do NOT automatically assign customer importance without an approved rule.
+
+Support:
+- manual business classification;
+- configurable rule assistance;
+- override;
+- reason;
+- effective date;
+- history;
+- approver.
+
+Every displayed priority must include an explainable reason.
+
+======================================================================
+14. ORDER MODULE
+======================================================================
+
+Support:
+
+Sales Order
+Order Line
+Customer
+Order Date
+Required Date
+Promised Date
+Branch
+Country
+Lab
+Shape
+Weight
+Color
+Clarity
+Qty Ordered
+Qty Allocated
+Qty Delivered
+Qty Outstanding
+Backorder Qty
+Status
+Priority
+Notes
+Special Requirement
+
+Keep order demand separate from historical replenishment demand.
+
+======================================================================
+15. ORDER PRIORITY
+======================================================================
+
+Order Priority ≠ Customer Priority.
+
+Order priority may use approved signals such as:
+
+Confirmed Order
+Backorder
+Required Date
+Days Remaining
+Days Overdue
+Partial Delivery
+Committed Delivery
+Special Program
+Customer Priority
+Current Stock
+WIP Availability
+Manufacturing Lead Time
+
+Initial transparent priority values:
+
+CRITICAL
+HIGH
+NORMAL
+LOW
+WATCH
+
+Every priority must show:
+- reason;
+- triggering conditions;
+- manual override if authorized;
+- override reason;
+- audit.
+
+======================================================================
+16. REQUIREMENT TYPES
+======================================================================
+
+Create distinct requirement types:
+
+STOCK_REPLENISHMENT
+CUSTOMER_ORDER
+BACKORDER
+SPECIAL_REQUIREMENT
+FORECAST
+MANUAL_APPROVED
+
+Never collapse all demand sources into one anonymous number.
+
+======================================================================
+17. MULTI-COUNTRY / MULTI-BRANCH ANALYSIS
+======================================================================
+
+Support:
+
+Local Sales
+Local Target
+Local Stock
+Local Memo
+Local WIP
+Local Shortage
+Local Excess
+
+Global Sales
+Global Target
+Global Stock
+Global WIP
+Global Shortage
+Global Excess
+
+Potential Transfer Coverage
+Transfer-Adjusted Requirement
+
+Do NOT automatically treat all global stock as transferable.
+
+Build configurable transfer eligibility.
+
+Possible inputs:
+- from company;
+- to company;
+- from country;
+- to country;
+- Fantasy stock status;
+- certification;
+- customer allocation;
+- minimum local stock;
+- transfer lead time;
+- transfer cost;
+- legal/customs restriction;
+- required-by date.
+
+Until business approves rules, display potential transfer candidates separately from confirmed manufacturing requirement.
+
+======================================================================
+18. POLISHED STOCK
+======================================================================
+
+Sync polished stock from Fantasy.
+
+Preserve:
+
+Fantasy Lot ID
+Fantasy Department ID
+Fantasy Location ID
+Country
+Branch
+Fantasy Status
+Lab
+Shape
+Weight
+Weight Band
+Color
+Clarity
+Certificate
+Treatment
+Last Updated
+
+Create planning-side classifications without replacing Fantasy:
+
+Physical Stock
+Planning-Available Stock
+Reserved
+Hold
+Transfer
+Memo
+Other / Unmapped
+
+Fantasy status → planning availability mappings must be configurable.
+
+======================================================================
+19. EXCESS STOCK
+======================================================================
+
+Current shortage:
+MAX(0, Target - Available)
+
+Also calculate for analytics:
+
+Excess Stock
+=
+MAX(0, Available - Target).
+
+Show:
+- excess category;
+- excess quantity;
+- country;
+- branch;
+- stock age;
+- value;
+- transfer candidates;
+- manufacturing warning.
+
+Do NOT use excess formula to change the confirmed shortage formula.
+
+======================================================================
+20. STOCK AGING
+======================================================================
+
+Where source dates support it:
+
+0-30 days
+31-60
+61-90
+91-180
+181-365
+365+
+
+Analyze:
+- slow-moving stock;
+- aged inventory;
+- excess aged stock;
+- branch imbalance;
+- high-value aged inventory.
+
+======================================================================
+21. MANUFACTURING / WIP ANALYSIS
+======================================================================
+
+Fantasy already owns Department and Location.
+
+Use Fantasy's actual Department and Location.
+
+Do NOT create invented diamond-process department names.
+
+Build a configurable WIP interpretation layer.
+
+For each Fantasy Department / manufacturing status allow:
+
+Counts Toward Requirement? yes/no
+Expected Qty Reliable? yes/no
+Expected Shape Reliable? yes/no
+Expected Weight Reliable? yes/no
+Expected Color Reliable? yes/no
+Expected Clarity Reliable? yes/no
+Expected Completion Available? yes/no
+
+Current conceptual future formula:
+
+Final Pipeline Shortage
+=
+Target Stock
+-
+Available Finished Stock
+-
+Relevant Expected Manufacturing Contribution.
+
+BUT the exact contribution rule remains OPEN.
+
+Build the engine but do not activate unvalidated assumptions.
+
+======================================================================
+22. FOUR REQUIREMENT NUMBERS
+======================================================================
+
+Never create a single ambiguous "Requirement" number.
+
+Maintain separately:
+
+1. PHYSICAL SHORTAGE
+
+2. PIPELINE-ADJUSTED REQUIREMENT
+
+3. PLANNING-ADJUSTED REQUIREMENT
+
+4. FORECAST REQUIREMENT
+
+Conceptually:
+
+Physical Shortage
+=
+Target / committed demand
+-
+Planning-available finished supply.
+
+Pipeline Requirement
+=
+Physical Shortage
+-
+Eligible WIP Coverage.
+
+Planning Requirement
+=
+Pipeline Requirement
+-
+Approved Rough Plan Coverage.
+
+Forecast Requirement
+=
+Predicted future demand signal.
+
+Display them separately.
+
+Example:
+
+Physical Shortage = 12
+WIP Coverage = 4
+Pipeline Requirement = 8
+Approved Plan Coverage = 3
+Confirmed Unplanned Need = 5
+Forecast Signal = 4
+
+DO NOT automatically make manufacturing need = 9.
+
+======================================================================
+23. REQUIREMENT ENGINE
+======================================================================
+
+Build a central Requirement Engine.
+
+Conceptual future model:
+
+Historical Stock Replenishment
+
++
+Confirmed Customer Orders
+
++
+Backorders
+
++
+Approved Special Requirements
+
+-
+Planning-Available Finished Stock
+
+-
+Approved Transfer Coverage
+
+-
+Eligible WIP Coverage
+
+=
+Confirmed Gross Manufacturing Requirement.
+
+Then:
+
+Gross Manufacturing Requirement
+-
+Approved Rough Plan Coverage
+
+=
+Confirmed Unplanned Manufacturing Requirement.
+
+Forecast remains separate.
+
+Prevent demand double-counting.
+
+Store exact requirement source lineage.
+
+======================================================================
+24. REQUIREMENT RECORD
+======================================================================
+
+Every requirement must support:
+
+Requirement ID
+Requirement Type
+Status
+
+Customer
+Sales Order
+Order Line
+
+Group
+Company
+Country
+Branch
+
+Lab
+Shape
+Weight Band
+Optional Color Group
+Optional Clarity Group
+Optional Treatment
+
+Required Qty
+Physical Stock Qty
+Planning-Available Qty
+Memo Qty
+Transfer Coverage
+WIP Coverage
+Approved Plan Coverage
+Actual Coverage
+Remaining Unplanned Qty
+Forecast Qty
+
+Required By
+Created Date
+Age
+Days Remaining
+Days Overdue
+
+Customer Priority
+Order Priority
+Requirement Priority
+Priority Reason
+
+Calculation Run
+Business Rule Version
+Source Records
+
+Created By
+Updated By
+Audit metadata
+
+======================================================================
+25. REQUIREMENT STATUS
+======================================================================
+
+Support:
+
+DRAFT
+ACTIVE
+PARTIALLY_COVERED
+FULLY_PLANNED
+IN_MANUFACTURING
+PARTIALLY_FULFILLED
+FULFILLED
+ON_HOLD
+CANCELLED
+EXPIRED
+
+Use server-controlled status transitions.
+
+Audit every transition.
+
+======================================================================
+26. REQUIREMENT MATRIX UI
+======================================================================
+
+Build a high-density enterprise grid.
+
+Columns:
+
+Priority
+Requirement ID
+Type
+Customer
+Order
+Country
+Branch
+Lab
+Shape
+Size
+Color
+Clarity
+
+90D Sales
+Monthly Avg
+Target
+
+Physical Stock
+Planning Available
+Memo
+Transfer Coverage
+WIP Coverage
+
+Physical Shortage
+Pipeline Need
+Plan Coverage
+Actual Coverage
+Remaining Need
+
+Forecast Signal
+Required Date
+Age
+Status
+
+Support:
+- sort;
+- filter;
+- group;
+- pivot-like views where practical;
+- saved views;
+- column chooser;
+- sticky columns;
+- resize;
+- export;
+- drilldown;
+- keyboard navigation;
+- server-side pagination.
+
+======================================================================
+27. FANTASY ROUGH STOCK
+======================================================================
+
+Fantasy ERP is authoritative.
+
+Sync:
+
+Fantasy Rough ID
+Kapan
+Packet
+Stone Name
+Rough Weight
+Fantasy Status
+Fantasy Department
+Fantasy Location
+Country
+Branch
+Availability
+Parent Rough ID if available
+Child IDs if available
+Current Weight if available
+Last Movement
+Last Updated
+
+Never assume every rough in physical stock is planning-eligible.
+
+Create configurable Fantasy Status → Planning Eligibility mapping.
+
+======================================================================
+28. ROUGH RESERVATION
+======================================================================
+
+Prevent duplicate use of the same rough.
+
+Support planning-side statuses such as:
+
+AVAILABLE
+SOFT_RESERVED
+UNDER_PLANNING
+PLAN_APPROVED
+RESERVED
+RELEASED_TO_MANUFACTURING
+CANCELLED
+RELEASED
+
+If Fantasy provides equivalent reservation/write functionality, integrate it.
+
+Otherwise maintain an internal planning reservation linked to Fantasy Rough ID.
+
+Concurrency must be enforced server-side/database-side.
+
+Two planners selecting the same rough simultaneously:
+exactly one final reservation should succeed.
+
+======================================================================
+29. PLANNING CASE
+======================================================================
+
+Create Planning Case:
+
+Planning Case ID
+Fantasy Rough ID
+Stone Name
+Kapan
+Packet
+Original Rough Weight
+Stone Type
+Planner
+Planning Date
+Status
+Current Version
+Requirement Context
+Source File
+Created At
+Updated At
+
+Never identify a planning case only using display text.
+
+Use durable IDs.
+
+======================================================================
+30. PLAN VERSIONING
+======================================================================
+
+Never overwrite historical plans.
+
+Support:
+
+Plan V1
+Plan V2
+Plan V3
+...
+
+Store:
+Version ID
+Planning Case
+Previous Version
+Version Number
+Created By
+Created At
+Reason
+Status
+Selected Option
+Approved By
+Approved At
+Superseded At
+
+Replanning must preserve historical planning evidence.
+
+======================================================================
+31. PLANNING WORKBOOK IMPORT
+======================================================================
+
+Implement current confirmed workbook contract.
+
+Input:
+.xlsx
+
+Read first worksheet.
+
+Future files may not include header row.
+
+A legacy header can be detected/skipped.
+
+Interpret only first 11 physical columns:
+
+1 [STONE.Name]
+2 [RESULT.1.Rough Cut]
+3 [RESULT.1.ShapeName]
+4 [Result.1.PolishWeight]
+5 [RESULT.CUR.Clarity]
+6 [RESULT.CUR.COLOR]
+7 [RESULT.CUR.TotalDepth_%]
+8 [RESULT.CUR.Ratio]
+9 [RESULT.CUR.Length]
+10 [RESULT.CUR.Width]
+11 [RESULT.CUR.TotalDepth_mm]
+
+Columns after 11:
+ignore for calculation but report warning.
+
+Filename must NEVER drive business logic.
+
+======================================================================
+32. BLUE STONE NAME PARSING
+======================================================================
+
+Example:
+
+670D-764_E+pv
+
+Parse:
+
+Kapan = everything before first hyphen:
+670D
+
+Packet = value between hyphen and underscore:
+764
+
+Signer = everything after plus:
+pv
+
+Preserve signer capitalization.
+
+_E is unresolved.
+Do NOT apply business logic to it.
+
+======================================================================
+33. WHITE STONE NAME PARSING
+======================================================================
+
+Example:
+
+2501-001 HA
+
+Parse:
+
+Kapan = before hyphen:
+2501
+
+Packet = complete numeric value between hyphen and following space:
+001
+
+Signer = rightmost value after space:
+HA
+
+Packet length is variable.
+
+Preserve leading zeros.
+
+All identical Stone Name rows form one planning block.
+
+Rough Weight must remain consistent within the block.
+
+======================================================================
+34. PLANNING SOURCE ORDER
+======================================================================
+
+Never sort or reorder planning rows.
+
+Preserve exact source sequence.
+
+Do NOT sort by:
+- Est. Weight;
+- Shape;
+- Yield;
+- Color;
+- Clarity;
+- Ratio;
+- anything else.
+
+Stone Name blocks retain order of first appearance.
+
+Do not insert blank separator rows.
+
+======================================================================
+35. PLANNING OUTPUT
+======================================================================
+
+Output sequence:
+
+A NO.
+B DATE
+C SIGNER NAME
+D NO.
+E KAPAN
+F Packet
+G Rough Weight
+H Blank / N Pcs group label
+I Shape
+J Est. Weight
+K Clarity
+L Color
+M Depth %
+N Ratio
+O Width
+P Length
+Q MM
+R Yield %
+
+======================================================================
+36. BLUE / WHITE MAIN PLAN LIMITS
+======================================================================
+
+Plan numbering restarts from 1 per Stone Name.
+
+Blue Stones:
+Plans 1-17 = Main Plans.
+Plan 18+ = Additional Plans.
+
+White Stones:
+Plans 1-32 = Main Plans.
+Plan 33+ = Additional Plans.
+
+Main Plan Yield:
+
+Yield
+=
+Est. Weight / Rough Weight.
+
+Display to 2 decimal places.
+
+Store enough precision internally.
+
+======================================================================
+37. ADDITIONAL PLAN GROUPING
+======================================================================
+
+Additional rows stay in source order.
+
+For group boundary comparison only:
+
+conventionally round Current Est. Weight to 2 decimals;
+conventionally round Previous Est. Weight to 2 decimals.
+
+If:
+Current <= Previous
+→ same group.
+
+If:
+Current > Previous
+→ new group.
+
+Third-decimal differences must NOT create a new group.
+
+Never sort rows.
+
+Use original full-precision weight for yield.
+
+======================================================================
+38. ADDITIONAL GROUP YIELD
+======================================================================
+
+Additional Group Yield:
+
+SUM(original Est. Weight of rows in group)
+/
+Original Rough Weight.
+
+Column H:
+vertically merge group rows;
+display:
+"N Pcs"
+
+Column R:
+vertically merge same group;
+display combined Yield once.
+
+Group can contain any positive number of rows.
+
+Do NOT assume group size 4 or any other fixed number.
+
+======================================================================
+39. ESTIMATED WEIGHT DISPLAY
+======================================================================
+
+Display exactly 3 decimal places.
+
+Examples:
+
+1 → 1.000
+0.02 → 0.020
+0.024 → 0.024
+
+Do NOT change underlying numeric precision.
+
+Grouping still compares conventional 2-decimal values only.
+
+======================================================================
+40. SHAPE NORMALIZATION
+======================================================================
+
+Seed and use approved mapping:
+
+ROUND → Round
+OLD ROUND → Old European Brilliant
+LIYO MQ → Marquise
+MQ_21 → Antique Marquise
+LeoPear11 → Pear
+LeoOval22 → Oval
+KRISS 3-STEP → Radiant Modified
+RAD4(1) → Radiant
+SQ.BE.CUS → Square Cushion Brilliant
+SQ_CU → Square Cushion Modified
+BE.CU.LONG → Cushion Brilliant
+CU.LONG → Cushion Modified
+SQ.ANTIK.CUS → Square Antique Cushion
+ANTIK-CU-LONG → Antique Cushion
+BEZEL PRINCESS → Princess
+S.HEART → Heart
+KRISS OVAL → KRISS OVAL
+STEP MQ → Step Marquise
+ANT-OVAL → Antique Oval
+Moval → Moval
+FABRIZIO → Febrizio
+LOZENGES-2 → Lozenge Step Cut
+Kite_V2 → Kite
+TREGAL(1) → Triangle
+CAD → Cadillacs
+TAPERED-BG-LW → Trapper Baguette
+TRAP50 → Trapezoid
+BE-TRA → BRILLANT TRAPEZOID
+HALF_MOON → Moon Half
+BAGUETTE-LW → Baguette
+
+Compare trimmed raw shape case-insensitively.
+
+Unknown shape:
+preserve original;
+create validation warning.
+
+======================================================================
+41. EMERALD 5STEP
+======================================================================
+
+If raw Shape = EMERALD 5STEP:
+
+Ratio 1.00-1.03 inclusive:
+→ Asscher.
+
+Ratio >= 1.40:
+→ Emerald.
+
+Ratio:
+missing,
+non-numeric,
+below 1.00,
+greater than 1.03 and below 1.40
+
+→ blocking validation issue.
+
+Do not allow final export until corrected.
+
+======================================================================
+42. OPTION HIGHLIGHTING
+======================================================================
+
+Only Additional Groups receive option highlighting.
+
+Apply fill to:
+H-Q.
+
+Exclude:
+R.
+
+Use a fixed sequence of 10 light pastel shades.
+
+Restart sequence for every Stone Name.
+
+If more than 10 groups:
+repeat sequence.
+
+======================================================================
+43. TOP-THREE YIELD DISPLAY
+======================================================================
+
+Within each Stone Name compare:
+
+all Main Plan individual yields
++
+all Additional Group combined yields.
+
+Highlight only Yield cells in column R for:
+Rank 1
+Rank 2
+Rank 3.
+
+Keep the three rankings visually distinct.
+
+Important:
+
+Highest Yield ≠ automatically best commercial plan.
+
+======================================================================
+44. REQUIREMENT MATCHING
+======================================================================
+
+Map every expected planned polished piece to the current planning category.
+
+Example:
+
+Requirement:
+GIA + Round + 1.00-1.09
+Remaining = 4.
+
+Plan outputs:
+
+Round 1.05 → possible requirement match
+Round 1.03 → possible requirement match
+Pear 0.81 → no match.
+
+Store matching at PIECE LEVEL.
+
+Do not store only:
+plan_match = true.
+
+Store:
+Expected Pieces
+Matching Pieces
+Non-Matching Pieces
+Requirement IDs
+Allocated Qty
+Remaining Requirement.
+
+======================================================================
+45. CERTIFICATION / LAB INTENTION
+======================================================================
+
+Rough is not yet GIA certified.
+
+Create explicit planning concept:
+
+Certification Intent.
+
+Configurable examples:
+GIA
+Non-Cert
+Other
+Undecided
+
+Do NOT claim that an unfinished rough covers a GIA-specific requirement unless the approved certification-intent rule permits it.
+
+======================================================================
+46. COLOR / CLARITY / TREATMENT FLEXIBILITY
+======================================================================
+
+Current core requirement category is:
+Lab + Shape + Weight.
+
+Still store and analyze:
+Color
+Clarity
+Treatment.
+
+Build feature/config flags so business can later enable:
+Color Group
+Clarity Group
+Treatment
+
+as additional requirement dimensions.
+
+Do NOT enable automatically.
+
+======================================================================
+47. PLAN COMPARISON
+======================================================================
+
+Create a rich comparison UI.
+
+For each option show:
+
+Plan/Option ID
+Plan Version
+Expected Pieces
+Expected Total Weight
+Yield
+Matching Required Pieces
+Requirement Coverage
+Coverage %
+Non-required Pieces
+Expected Color
+Expected Clarity
+Certification Intent
+Potential Excess Created
+Validation Warnings
+Expected Commercial Value if available
+Estimated Risk if later enabled
+Selected status
+Approval status
+
+Do not make the planner inspect Excel manually to compare everything.
+
+======================================================================
+48. PLAN SELECTION
+======================================================================
+
+Do NOT automatically choose highest Yield.
+
+Open business issue:
+
+High Yield may create unneeded goods.
+
+Lower Yield may create urgently required goods.
+
+Initially:
+show both dimensions;
+let authorized planner select.
+
+Never invent hidden score.
+
+Future architecture may support configurable criteria:
+Yield
+Requirement Coverage
+Priority
+Customer Commitment
+Required Date
+Sales Velocity
+Expected Value
+Rough Cost
+Manufacturing Cost
+Margin
+Side-stone Value
+Excess Created
+Lead Time
+Risk.
+
+But do not activate scoring unless approved.
+
+======================================================================
+49. PLAN APPROVAL WORKFLOW
+======================================================================
+
+Suggested workflow:
+
+DRAFT
+→ READY_FOR_REVIEW
+→ SELECTED
+→ APPROVAL_PENDING
+→ APPROVED
+→ RELEASED_TO_MANUFACTURING
+
+Additional:
+REJECTED
+CANCELLED
+REPLAN_REQUIRED
+SUPERSEDED
+
+Store:
+Selected By
+Selected At
+Approved By
+Approved At
+Approval Comment
+Selection Reason
+Requirement IDs
+Rule Version.
+
+Configure whether planner can approve own plan.
+
+======================================================================
+50. REQUIREMENT ALLOCATION
+======================================================================
+
+When a plan is APPROVED, immediately allocate expected matching pieces against active requirements.
+
+Example:
+
+Requirement = 5.
+Approved Plan Coverage = 3.
+
+Store/display:
+
+Physical Shortage = 5
+Planned Coverage = 3
+Remaining Unplanned = 2.
+
+Prevent another planner from planning against the full 5.
+
+Use transactions / locking.
+
+Never trust frontend-only quantities.
+
+======================================================================
+51. PLANNED PIECES
+======================================================================
+
+Create stable Planned Piece IDs.
+
+Example:
+
+PP-000123-01
+PP-000123-02
+PP-000123-03
+
+Each stores:
+
+Planning Case
+Plan Version
+Plan Option
+Sequence
+Expected Shape
+Expected Weight
+Expected Color
+Expected Clarity
+Expected Category
+Requirement Allocation
+Certification Intent
+Fantasy Physical Child ID if later mapped
+Actual Polished Lot ID if later mapped.
+
+======================================================================
+52. FANTASY CHILD MAPPING
+======================================================================
+
+If Fantasy creates a physical child identity after rough splitting:
+
+DO NOT invent another parallel physical child identity.
+
+Map:
+
+Planned Piece
+↔
+Fantasy Child ID.
+
+Maintain:
+Fantasy Rough Parent
+→ Fantasy Child
+→ Final Fantasy Polished Lot.
+
+======================================================================
+53. DEPARTMENT / LOCATION TRACKING
+======================================================================
+
+Fantasy Department Master and Location Master already exist.
+
+Use Fantasy IDs.
+
+Do not create duplicate masters.
+
+The Planning system tracking page should combine:
+
+PLANNING CONTEXT:
+- Requirement;
+- Customer;
+- Order;
+- Selected Plan;
+- Expected output;
+- Expected Yield;
+- Expected coverage.
+
+PHYSICAL FANTASY CONTEXT:
+- Current Fantasy Department;
+- Current Fantasy Location;
+- Fantasy status;
+- current weight if available;
+- last movement;
+- last sync.
+
+======================================================================
+54. MOVEMENT HISTORY
+======================================================================
+
+If Fantasy exposes real movement history:
+use it.
+
+If Fantasy only provides current state:
+store synchronized snapshots.
+
+When observed state changes:
+
+Previous:
+Department A.
+
+Current:
+Department B.
+
+Create derived tracking event:
+
+Department A → Department B.
+
+Mark source:
+DERIVED_FROM_SYNC.
+
+Never label derived events as native Fantasy movement events.
+
+======================================================================
+55. TRACEABILITY
+======================================================================
+
+Build full rough-to-polished traceability.
+
+Search by:
+
+Fantasy Rough ID
+Kapan
+Packet
+Stone Name
+Planning Case
+Plan
+Planned Piece
+Fantasy Child
+Fantasy Polished Lot
+Requirement
+Order
+Customer
+Certificate.
+
+Display:
+
+ROUGH
+Fantasy identity
+Kapan
+Packet
+Original Weight
+
+REQUIREMENT
+Requirement ID
+Type
+Customer
+Order
+Country
+Priority
+Required date
+
+PLAN
+Version
+Option
+Expected output
+Expected Yield
+Requirement coverage
+
+FANTASY CURRENT POSITION
+Department
+Location
+Status
+Current Weight
+Last Movement
+
+PIECES
+Planned Pieces
+Fantasy Child IDs
+Final Polished Lots
+
+TIMELINE
+Plan creation
+Selection
+Approval
+Reservation
+Fantasy movements
+Replanning
+Actual output
+Completion
+
+PLAN VS ACTUAL.
+
+======================================================================
+56. ROUGH-TO-POLISHED GENEALOGY
+======================================================================
+
+Support both directions:
+
+Fantasy Rough
+→ Planning Case
+→ Selected Plan
+→ Planned Pieces
+→ Fantasy Children
+→ Final Fantasy Polished Lots.
+
+AND:
+
+Fantasy Polished Lot
+→ Planned Piece
+→ Plan
+→ Source Rough.
+
+This must be searchable and auditable.
+
+======================================================================
+57. ACTUAL POLISHED OUTPUT
+======================================================================
+
+Actual result may differ from plan.
+
+Example:
+
+Expected:
+Round 1.020.
+
+Actual:
+Round 0.990.
+
+Do NOT assume actual piece still covers the same requirement.
+
+Recalculate category from actual:
+Lab
+Shape
+Weight
+and future enabled dimensions.
+
+======================================================================
+58. ACTUAL YIELD
+======================================================================
+
+Calculate:
+
+Actual Yield %
+=
+Actual Total Final Polished Weight
+/
+Original Rough Weight
+× 100.
+
+Keep:
+
+Planned Yield
+Actual Yield
+Yield Variance.
+
+Never overwrite planned values with actual values.
+
+======================================================================
+59. PLAN-VS-ACTUAL ANALYSIS
+======================================================================
+
+Compare:
+
+Expected Pieces vs Actual Pieces
+Expected Shape vs Actual Shape
+Expected Weight vs Actual Weight
+Expected Total Weight vs Actual
+Expected Color vs Actual
+Expected Clarity vs Actual
+Expected Yield vs Actual Yield
+Expected Requirement Coverage vs Actual Qualified Coverage
+Expected Completion vs Actual Completion if available.
+
+Store permanent reconciliation records.
+
+======================================================================
+60. REQUIREMENT RECONCILIATION
+======================================================================
+
+Maintain:
+
+Physical Shortage
+Eligible WIP Coverage
+Approved Plan Coverage
+Actual Qualified Coverage
+Remaining Requirement.
+
+Planned coverage does NOT equal final physical coverage.
+
+Only actual qualifying polished supply can finally satisfy physical availability.
+
+Reopen/increase requirement when actual result misses the expected category.
+
+======================================================================
+61. DATA SCIENCE MODULE
+======================================================================
+
+Data Science is advisory initially.
+
+Do NOT replace deterministic calculations.
+
+Build infrastructure for:
+
+Sales Prediction
+Customer Reorder Prediction
+Stockout Prediction
+WIP Completion Prediction
+Yield Prediction
+Planning Accuracy Models
+Anomaly Detection
+Future Plan Decision Support.
+
+======================================================================
+62. SALES PREDICTION
+======================================================================
+
+Potential features:
+
+Historical Sales
+Country
+Branch
+Customer
+Lab
+Shape
+Weight
+Color
+Clarity
+Treatment
+Month
+Season
+Open Orders
+Customer Programs
+Current Inventory
+Stockout History
+Memo
+Market/business events if available.
+
+Outputs:
+
+30-Day Forecast
+60-Day Forecast
+90-Day Forecast
+Prediction Interval
+Confidence
+Trend
+Stockout Risk.
+
+Forecast must remain separate from confirmed current manufacturing requirement.
+
+======================================================================
+63. FORECAST MODEL GOVERNANCE
+======================================================================
+
+Start with baselines:
+
+Naive Last Period
+Moving Average
+Seasonal Naive
+Exponential Smoothing where appropriate.
+
+Compare more advanced models only after sufficient data:
+
+Gradient Boosting
+Tree Models
+Time-Series Models
+Hierarchical Forecasting
+Customer/Category Models.
+
+Use time-aware validation.
+
+Never random-split time series.
+
+Metrics:
+MAE
+WAPE
+RMSE
+Bias
+Prediction Coverage.
+
+Store model:
+Version
+Training Period
+Validation Period
+Features
+Metrics
+Published By
+Published At
+Status.
+
+Support rollback.
+
+======================================================================
+64. CUSTOMER REORDER SIGNAL
+======================================================================
+
+Future advisory feature:
+
+Customer XYZ
+Typical repeat interval = X days
+Typical category = ...
+Likely reorder window = ...
+Likely quantity range = ...
+
+Clearly label:
+PREDICTION.
+
+Never convert prediction into confirmed order.
+
+======================================================================
+65. STOCKOUT RISK
+======================================================================
+
+Projected Position:
+
+Planning-Available Stock
++
+Expected Eligible WIP
+-
+Predicted Demand.
+
+Show:
+30D projected balance
+60D projected balance
+90D projected balance
+Estimated stockout date
+Risk level.
+
+======================================================================
+66. FRONTEND STACK
+======================================================================
+
+If existing project has a good established stack, preserve it.
+
+Otherwise use:
+
+React
+TypeScript
+Vite
+React Router
+TanStack Query
+Zustand where appropriate
+Tailwind CSS
+accessible UI primitives
+enterprise data grid
+charting library
+Zod or equivalent frontend schema validation.
+
+Do NOT put core business logic inside React components.
+
+======================================================================
+67. FRONTEND DESIGN
+======================================================================
+
+Use professional enterprise ERP design.
+
+Requirements:
+
+dense
+clean
+compact
+fast
+minimal
+data-oriented
+
+Use:
+sticky table headers
+frozen columns
+row virtualization
+server pagination
+filter panels
+saved views
+column chooser
+keyboard navigation
+resizable columns
+drilldowns
+compact dialogs
+responsive desktop/tablet/mobile.
+
+Avoid:
+giant cards;
+huge popup dialogs;
+excessive empty space;
+decorative-only dashboards;
+fake actions;
+huge fonts;
+gradients everywhere.
+
+Operational tables are more important than decorative UI.
+
+======================================================================
+68. APPLICATION NAVIGATION
+======================================================================
+
+Build navigation:
+
+DASHBOARD
+
+ANALYSIS
+- Executive
+- Sales
+- Sales Trends
+- Customers
+- Orders
+- Country / Branch
+- Polished Inventory
+- Memo
+- WIP
+- Forecast
+- Stockout
+- Excess / Aging
+
+REQUIREMENTS
+- Requirement Matrix
+- Customer Orders
+- Replenishment
+- Backorders
+- Special Requirements
+- Forecast Signals
+- Allocation
+- Priority Queue
+
+PLANNING
+- Rough Availability
+- Planning Cases
+- Workbook Import
+- Planning Workbench
+- Plan Comparison
+- Approval Queue
+- Planned Pieces
+- Rough Reservations
+
+MANUFACTURING
+- Fantasy Tracking
+- Department View
+- Location View
+- WIP
+- Rough Traceability
+- Plan vs Actual
+
+FANTASY ERP
+- Sync Dashboard
+- Rough
+- Polished
+- Departments
+- Locations
+- Status Mapping
+- Reconciliation
+- Errors
+
+DATA QUALITY
+- Issues
+- Unmapped Labs
+- Unmapped Shapes
+- Invalid Records
+- Reconciliation Issues
+
+DATA SCIENCE
+- Forecast
+- Models
+- Prediction Monitoring
+- Forecast Accuracy
+
+REPORTS
+
+ADMINISTRATION
+- Users
+- Roles
+- Permissions
+- Business Rules
+- Lab Mapping
+- Weight Bands
+- Shape Mapping
+- Priority Rules
+- WIP Rules
+- Transfer Rules
+- Requirement Dimensions
+- Feature Flags
+- Integrations
+- Audit Log.
+
+======================================================================
+69. EXECUTIVE DASHBOARD
+======================================================================
+
+Display:
+
+Confirmed Manufacturing Need
+Physical Shortage
+Pipeline-Adjusted Need
+Approved Plan Coverage
+Remaining Unplanned Need
+Forecast Need
+
+Polished Stock
+Rough Available
+Rough Reserved
+Current WIP
+
+Critical Requirements
+High Requirements
+Overdue Requirements
+
+Country Shortage
+Top Short Categories
+Top Excess Categories
+Fast-Growing Categories
+
+Open Orders
+Backorders
+Memo Exposure
+Fantasy Sync Health
+
+Planned Yield
+Actual Yield
+Yield Variance
+Requirement Coverage Accuracy.
+
+All values must drill down to evidence.
+
+======================================================================
+70. PLANNING WORKBENCH
+======================================================================
+
+Create a high-productivity planning workbench.
+
+Suggested layout:
+
+LEFT:
+Priority Requirement Queue.
+
+CENTER:
+Fantasy Available Rough.
+
+RIGHT:
+Selected Rough + Plan Possibilities.
+
+Allow planner to see:
+
+Requirement:
+category
+customer/order
+priority
+need date
+remaining qty.
+
+Rough:
+Fantasy ID
+Kapan
+Packet
+Weight
+location
+department
+availability.
+
+Plan:
+option
+yield
+pieces
+matching pieces
+coverage
+warnings
+validation
+side outputs.
+
+Do not hide information in many modal windows.
+
+======================================================================
+71. BACKEND STACK
+======================================================================
+
+If existing repository has a suitable backend:
+preserve it.
+
+Otherwise build structured modular backend with:
+
+Node.js
+TypeScript
+NestJS preferred
+PostgreSQL
+Redis
+Background Workers
+Queue system
+OpenAPI
+SSE/WebSocket only where useful
+Object Storage.
+
+Use modular monolith first.
+
+Do not prematurely create dozens of microservices.
+
+======================================================================
+72. BACKEND MODULES
+======================================================================
+
+Create clear modules:
+
+Auth
+Users
+RBAC
+Organizations
+
+Fantasy Integration
+Fantasy Departments
+Fantasy Locations
+Fantasy Rough
+Fantasy Polished
+Fantasy Sync
+
+Customers
+Sales
+Orders
+Memo
+
+Normalization
+Categories
+
+Demand
+Inventory Analysis
+WIP Analysis
+
+Requirements
+Priorities
+Allocations
+
+Planning Cases
+Workbook Import
+Plan Versions
+Plan Options
+Plan Pieces
+Plan Approval
+Rough Reservations
+
+Traceability
+Manufacturing Tracking
+Actual Outputs
+Reconciliation
+
+Forecasting
+Model Registry
+
+Reports
+Notifications
+Data Quality
+Business Rules
+Feature Flags
+Audit.
+
+======================================================================
+73. DATABASE
+======================================================================
+
+Use PostgreSQL.
+
+Use:
+UUID internal PKs
+external IDs for Fantasy/source systems
+NUMERIC/DECIMAL for carat/currency
+TIMESTAMPTZ
+foreign keys
+unique constraints
+check constraints
+indexes
+optimistic versioning
+JSONB only where justified.
+
+Do NOT use JS/DB FLOAT for critical diamond weight calculations.
+
+======================================================================
+74. DATABASE TABLES
+======================================================================
+
+Create/refine tables such as:
+
+organizations
+companies
+countries
+branches
+
+users
+roles
+permissions
+user_roles
+role_permissions
+
+fantasy_departments
+fantasy_locations
+fantasy_status_mappings
+
+customers
+customer_priorities
+
+sales_records
+memo_records
+
+sales_orders
+sales_order_lines
+
+polished_stones
+polished_inventory_snapshots
+
+rough_stones
+rough_inventory_snapshots
+
+manufacturing_snapshots
+manufacturing_movements
+
+lab_mappings
+shape_mappings
+weight_bands
+planning_categories
+
+demand_runs
+demand_metrics
+
+requirements
+requirement_sources
+requirement_priorities
+requirement_allocations
+
+planning_cases
+plan_versions
+plan_options
+plan_option_pieces
+plan_requirement_matches
+
+rough_reservations
+
+planned_piece_fantasy_mappings
+actual_polished_links
+plan_actual_reconciliations
+
+forecast_runs
+forecast_predictions
+model_versions
+
+business_rules
+feature_flags
+
+integration_sync_runs
+integration_raw_records
+integration_errors
+
+data_quality_issues
+
+notifications
+attachments
+audit_logs.
+
+Adapt names to repository conventions.
+
+======================================================================
+75. REQUIREMENT SOURCE LINEAGE
+======================================================================
+
+Every requirement quantity must be explainable.
+
+Store sources such as:
+
+Historical Replenishment
+Customer Order
+Backorder
+Special Requirement
+Manual Approved Requirement
+Forecast.
+
+Do not lose source IDs.
+
+Provide "Why?" drilldown.
+
+======================================================================
+76. RAW INTEGRATION DATA
+======================================================================
+
+Preserve:
+
+Source System
+Source Entity
+Source ID
+Raw Payload
+Normalized Payload
+Schema Version
+Received At
+Processed At
+Hash
+Processing Status.
+
+This is important for audit/reconciliation.
+
+======================================================================
+77. FANTASY INTEGRATION ADAPTER
+======================================================================
+
+Exact Fantasy API may vary.
+
+Implement adapter architecture.
+
+Support:
+authentication
+pagination
+incremental sync
+updated-since
+full reconciliation
+timeouts
+retry
+exponential backoff
+rate limits
+idempotency
+schema validation
+raw payload retention
+integration errors
+last-successful-sync timestamps.
+
+Do NOT fabricate Fantasy endpoints.
+
+Keep API URLs, schemas, credentials and mappings configurable.
+
+If Fantasy documentation/API samples exist in the repo, use them as authoritative.
+
+======================================================================
+78. FANTASY SYNC JOBS
+======================================================================
+
+Implement independently where supported:
+
+Department Sync
+Location Sync
+Rough Stock Sync
+Polished Stock Sync
+Current Position Sync
+Movement History Sync
+Parent/Child Sync
+Final Polished Link Sync.
+
+Expose:
+running
+successful
+failed
+partial
+records fetched
+created
+updated
+skipped
+errors
+duration
+next run.
+
+======================================================================
+79. FANTASY RECONCILIATION
+======================================================================
+
+Build UI comparing:
+
+Fantasy Count
+Local Read Model Count
+Missing Fantasy IDs
+Local Missing in Fantasy
+Duplicate IDs
+Stale Records
+Unmapped Status
+Unmapped Department
+Unmapped Location
+Changed Physical Attributes.
+
+No silent integration failures.
+
+======================================================================
+80. API
+======================================================================
+
+Build versioned REST APIs.
+
+Example:
+
+/api/v1/analysis/...
+/api/v1/customers/...
+/api/v1/orders/...
+/api/v1/requirements/...
+/api/v1/rough/...
+/api/v1/planning/...
+/api/v1/traceability/...
+/api/v1/fantasy/...
+/api/v1/forecast/...
+/api/v1/reports/...
+
+Generate OpenAPI.
+
+Use consistent:
+pagination;
+filter;
+sort;
+error model;
+correlation ID;
+validation.
+
+======================================================================
+81. AUTHENTICATION
+======================================================================
+
+Implement secure:
+
+login
+logout
+password hashing
+password reset
+session/token management
+short-lived access tokens if token-based
+secure refresh mechanism
+secure cookie approach where appropriate
+account lockout
+rate limiting
+session/device revocation.
+
+Make architecture SSO/OIDC/SAML-ready.
+
+======================================================================
+82. RBAC
+======================================================================
+
+Suggested roles:
+
+Super Admin
+Admin
+Analysis Manager
+Data Analyst
+Data Scientist
+Planning Manager
+Planner
+Planning Viewer
+Manufacturing Manager
+Manufacturing Viewer
+Sales Manager
+Sales Viewer
+Fantasy Integration Service
+Auditor
+Viewer.
+
+Use granular permissions:
+
+requirement.read
+requirement.create
+requirement.override
+requirement.priority.manage
+
+plan.create
+plan.select
+plan.approve
+plan.replan
+
+rough.reserve
+rough.release
+
+forecast.run
+forecast.publish
+
+fantasy.sync
+fantasy.mapping.manage
+
+business_rule.manage
+audit.read
+etc.
+
+Enforce permissions backend-side.
+
+======================================================================
+83. AUDIT
+======================================================================
+
+Append-only audit trail.
+
+Audit:
+
+Authentication events
+Fantasy Sync
+Rule Changes
+Mapping Changes
+Priority Changes
+Requirement Overrides
+Plan Creation
+Plan Selection
+Approval
+Rejection
+Replan
+Reservation
+Release
+Actual Mapping
+Manual Reconciliation
+Forecast Publication.
+
+Store:
+
+Actor
+Action
+Entity
+Entity ID
+Before
+After
+Reason
+Timestamp
+Correlation ID
+Session / IP where appropriate.
+
+======================================================================
+84. DATA VALIDATION
+======================================================================
+
+Validate:
+
+Lot ID uniqueness
+Qty normally 1
+Weight positive numeric
+Doc Date valid
+Future dates
+Lot Status recognized
+Shape present
+Lab known / mapped
+Treatment valid
+Certificate uniqueness when relevant
+Sale Total numeric
+Weight band mapping.
+
+Planning validations:
+
+Stone Name delimiters
+Rough Weight consistent
+Shape present
+Est Weight numeric/nonnegative
+EMERALD 5STEP Ratio rule
+Unknown shapes
+Unknown Labs
+Duplicate rough import
+Duplicate plan
+Invalid requirement category
+Missing Fantasy mapping.
+
+======================================================================
+85. DATA QUALITY CENTER
+======================================================================
+
+Severity:
+
+INFO
+WARNING
+ERROR
+BLOCKING.
+
+Issue record:
+
+Issue ID
+Source
+Entity
+Record ID
+Rule
+Message
+Severity
+Detected At
+Assigned To
+Status
+Resolution
+Resolved By
+Resolved At.
+
+Blocking issues must prevent the relevant operation.
+
+======================================================================
+86. BACKGROUND JOBS
+======================================================================
+
+Use workers for:
+
+Fantasy sync
+Demand runs
+Large imports
+Large exports
+Requirement recalculation
+Data quality scans
+Fantasy reconciliation
+Forecast runs
+Report generation
+Notification delivery.
+
+Never block HTTP requests with huge processing.
+
+======================================================================
+87. NOTIFICATIONS
+======================================================================
+
+Support:
+
+Critical requirement
+High requirement
+Requirement overdue
+Customer order approaching due date
+Backorder
+No planning coverage
+No eligible rough
+Plan approval pending
+Rough reservation conflict
+Fantasy sync failure
+Stale Fantasy data
+Blocking planning validation
+Replan required
+Actual output misses requirement
+Predicted stockout.
+
+Channels:
+in-app
+email optional
+webhook optional.
+
+======================================================================
+88. GLOBAL SEARCH
+======================================================================
+
+Search:
+
+Lot ID
+Fantasy Rough ID
+Fantasy Polished Lot
+Kapan
+Packet
+Stone Name
+Certificate
+Customer
+Order
+Requirement
+Planning Case
+Plan
+Planned Piece
+Country
+Department
+Location.
+
+======================================================================
+89. PERFORMANCE
+======================================================================
+
+Build for enterprise data volume.
+
+Use:
+
+server-side pagination
+server-side filtering
+correct indexes
+virtualized tables
+batch imports
+batch updates
+incremental analytics
+summary/materialized tables where justified
+Redis cache
+streaming exports
+background reports.
+
+Do not fetch millions of records into browser memory.
+
+======================================================================
+90. CONCURRENCY
+======================================================================
+
+Critical workflows must be transactional:
+
+Rough Reservation
+Requirement Allocation
+Plan Approval
+Plan Superseding
+Actual Fulfillment.
+
+Use:
+optimistic versioning
+and/or row locks
+where needed.
+
+Handle 409 conflict cleanly.
+
+======================================================================
+91. SECURITY
+======================================================================
+
+Implement:
+
+OWASP protections
+input validation
+SQL injection defense
+XSS defense
+CSRF where relevant
+secure CORS
+secure cookies
+rate limiting
+brute-force protection
+RBAC
+least privilege
+secrets management
+TLS
+sensitive logging redaction
+upload validation
+file size limits
+MIME validation
+malware scanning integration point
+security headers.
+
+Fantasy credentials must never be exposed to browser.
+
+======================================================================
+92. XLSX SECURITY
+======================================================================
+
+Planning workbook uploads:
+
+allow .xlsx only
+validate MIME/signature
+limit file size
+generate safe storage filename
+store original display name separately
+do not execute macros
+sanitize content
+scan file
+calculate checksum
+record uploader
+record uploaded timestamp.
+
+======================================================================
+93. OBSERVABILITY
+======================================================================
+
+Add:
+
+structured logs
+correlation IDs
+error monitoring
+metrics
+health endpoints
+readiness
+liveness
+DB metrics
+Redis metrics
+queue metrics
+Fantasy sync lag
+Fantasy sync errors
+API latency
+import durations
+requirement run duration
+forecast duration.
+
+======================================================================
+94. REPORTING
+======================================================================
+
+Build reports:
+
+Sales by Category
+Sales by Customer
+Sales by Country
+Demand vs Stock
+Requirement Matrix
+Critical Requirements
+Backorders
+Orders
+Customer Priority
+Order Priority
+Polished Inventory
+Rough Inventory
+Memo Exposure
+WIP
+Planning Coverage
+Selected Plans
+Rough Planning
+Requirement Fulfillment
+Traceability
+Plan vs Actual
+Yield Variance
+Inventory Aging
+Excess Stock
+Slow Moving
+Forecast Accuracy
+Fantasy Reconciliation
+Data Quality.
+
+Exports:
+XLSX
+CSV
+PDF where meaningful.
+
+======================================================================
+95. TESTING
+======================================================================
+
+Build:
+
+Unit Tests
+Integration Tests
+API Tests
+Database Tests
+Fantasy Adapter Tests
+Contract Tests
+E2E Tests
+UI Tests
+Accessibility Tests
+Concurrency Tests
+Security Tests
+Performance Tests
+Regression Tests
+Golden Workbook Tests
+Calculation Tests.
+
+======================================================================
+96. CRITICAL BUSINESS TESTS
+======================================================================
+
+Test:
+
+Rolling 90-day boundary
+today included
+89 preceding days included
+outside excluded
+
+Rounding:
+5.49
+5.50
+5.51
+
+All weight-band boundaries
+
+Memo excluded from shortage
+
+Stock < Target
+Stock = Target
+Stock > Target
+
+GIA normalization
+
+Non-Cert blank mapping
+
+Treatment NULL preservation.
+
+======================================================================
+97. WORKBOOK GOLDEN TESTS
+======================================================================
+
+Test:
+
+Blue <=17 plans
+Blue >17
+White <=32
+White >32
+
+Additional grouping boundaries
+Third decimal differences
+Single-row groups
+Multiple groups
+
+White leading-zero Packet
+Malformed Stone Name
+Rough Weight mismatch
+
+EMERALD 5STEP:
+Asscher
+Emerald
+Invalid Ratio
+
+Unknown shape
+
+3-decimal Est Weight
+2-decimal Yield
+Top-3 Yield highlighting
+Source-order preservation.
+
+======================================================================
+98. RESERVATION TESTS
+======================================================================
+
+Simulate:
+
+Planner A reserves Rough X.
+Planner B simultaneously reserves Rough X.
+
+Only one succeeds.
+
+Simulate:
+
+Requirement has remaining 3 pieces.
+
+Planner A allocates 2.
+Planner B simultaneously tries 3.
+
+Never allow total approved allocation > valid remaining requirement unless explicit authorized override workflow exists.
+
+======================================================================
+99. DEVELOPMENT PROCESS
+======================================================================
+
+FIRST:
+inspect existing repository.
+
+Identify:
+frontend
+backend
+database
+auth
+routes
+API
+existing Fantasy integrations
+existing planning code
+existing sales code
+existing data models
+existing tests
+existing lint/type errors.
+
+DO NOT blindly rewrite.
+
+Then implement incrementally.
+
+Run tests after each major module.
+
+======================================================================
+100. IMPLEMENTATION PHASE ORDER
+======================================================================
+
+PHASE 0
+Repository audit + exact integration/business-rule discovery.
+
+PHASE 1
+Foundation:
+Auth
+RBAC
+Database
+Organization
+Audit
+Feature Flags
+Business Rules
+UI shell.
+
+PHASE 2
+Fantasy:
+Departments
+Locations
+Rough
+Polished
+Sync
+Reconciliation.
+
+PHASE 3
+Analysis:
+Normalization
+90-day demand
+Sales
+Target Stock
+Stock
+Memo
+Country/Branch
+Customer
+Orders
+Trends.
+
+PHASE 4
+Requirements:
+Requirement Sources
+Priority
+Physical Shortage
+Order Demand
+Backorders
+WIP framework
+Requirement Matrix.
+
+PHASE 5
+Rough Planning:
+Workbook Import
+Blue/White Rules
+Grouping
+Yield
+Shape Normalization
+Planning Cases
+Plan Options
+Requirement Matching.
+
+PHASE 6
+Allocation:
+Plan Approval
+Requirement Allocation
+Rough Reservation
+Concurrency
+Plan Versioning
+Replanning.
+
+PHASE 7
+Traceability:
+Fantasy Department/Location
+Movement History
+Planned Piece Mapping
+Fantasy Child Mapping
+Rough-to-Polished Genealogy.
+
+PHASE 8
+Actual:
+Actual Output
+Actual Yield
+Plan-vs-Actual
+Requirement Reconciliation.
+
+PHASE 9
+Data Science:
+Forecasting
+Customer Reorder
+Stockout Risk
+Yield Prediction
+Model Governance.
+
+PHASE 10
+Production Hardening:
+Security
+Performance
+Backups
+Monitoring
+CI/CD
+Load Tests.
+
+======================================================================
+101. CODE QUALITY
+======================================================================
+
+Use:
+
+Strict TypeScript
+central schemas
+domain services
+one authoritative implementation per calculation
+no duplicate formulas
+no business logic duplicated across frontend/backend
+no uncontrolled "any"
+no dead code
+no unused functions
+no console debug code in production
+no giant god components
+no giant god services
+no circular dependencies
+no hardcoded IDs
+no hardcoded countries
+no hardcoded Fantasy credentials.
+
+======================================================================
+102. USER ACTION RULE
+======================================================================
+
+EVERY visible button must:
+
+perform a real action,
+open a real workflow,
+or be clearly disabled with a valid reason.
+
+Never ship:
+placeholder button;
+"Coming soon" button inside an allegedly completed module;
+toast-only fake operation;
+dead dropdown item.
+
+======================================================================
+103. NO MOCK PRODUCTION DATA
+======================================================================
+
+Mock data may be used only in tests/dev fixtures.
+
+Production pages must load through real APIs/database/integration adapters.
+
+If Fantasy credentials/API are unavailable:
+implement the real adapter interfaces and configuration;
+use an explicit development mock adapter;
+clearly separate it from production.
+
+Do not pretend development mock data came from Fantasy.
+
+======================================================================
+104. DATA TRANSPARENCY
+======================================================================
+
+Every important calculation page must expose:
+
+source
+input
+calculation
+output
+rule version.
+
+Example requirement drilldown:
+
+90D Sales = 30
+Monthly Avg = 10
+Target = 20
+Stock = 12
+Physical Shortage = 8
+WIP Coverage = 3
+Pipeline Need = 5
+Approved Plan = 2
+Remaining Unplanned = 3.
+
+Never show only:
+"Need = 3"
+without explanation.
+
+======================================================================
+105. EXPLAINABILITY
+======================================================================
+
+Every requirement:
+WHY does it exist?
+
+Every customer priority:
+WHY?
+
+Every order priority:
+WHY?
+
+Every plan match:
+WHY?
+
+Every plan allocation:
+WHICH pieces cover WHICH requirement?
+
+Every forecast:
+THIS IS A PREDICTION, not confirmed demand.
+
+======================================================================
+106. FINAL CLOSED LOOP
+======================================================================
+
+The completed application must support:
+
+Sales
+↓
+Analysis
+↓
+Demand
+↓
+Target Stock
+↓
+Fantasy Polished Stock
+↓
+Shortage
+↓
+Orders / Priority
+↓
+WIP
+↓
+Final Requirement
+↓
+Fantasy Rough
+↓
+Rough Planning
+↓
+Requirement Matching
+↓
+Plan Approval
+↓
+Requirement Allocation
+↓
+Rough Reservation
+↓
+Fantasy Manufacturing Tracking
+↓
+Actual Polished
+↓
+Fantasy Polished Stock
+↓
+Plan-vs-Actual
+↓
+Requirement Recalculation
+↓
+New Analysis.
+
+======================================================================
+107. COMPLETION GATE
+======================================================================
+
+Do not report the implementation as complete until:
+
+- frontend builds successfully;
+- backend builds successfully;
+- database migrations work;
+- authentication works;
+- RBAC works;
+- Fantasy adapter architecture works;
+- Fantasy departments/locations are not duplicated manually;
+- rough sync works against configured adapter;
+- polished sync works against configured adapter;
+- sales calculation passes tests;
+- lab normalization passes;
+- weight bands pass boundaries;
+- Memo rule passes;
+- requirement calculations are explainable;
+- customer analysis works;
+- order analysis works;
+- priority workflow works;
+- requirement source lineage works;
+- requirements cannot be overallocated;
+- rough cannot be double-reserved;
+- planning workbook import works;
+- Blue Stone rules work;
+- White Stone rules work;
+- additional groups work;
+- shape normalization works;
+- EMERALD 5STEP validation works;
+- Yield works;
+- plan comparison works;
+- plan selection/approval works;
+- planned-piece mapping works;
+- Fantasy department/location tracking works;
+- traceability works;
+- rough-to-polished genealogy works;
+- actual output is reconciled;
+- actual output recalculates requirements;
+- forecast is clearly separate from confirmed demand;
+- audit works;
+- data quality works;
+- security tests pass;
+- lint/typecheck passes;
+- critical tests pass;
+- production build succeeds.
+
+======================================================================
+108. FINAL EXECUTION INSTRUCTION
+======================================================================
+
+START NOW.
+
+Do not produce a theoretical architecture response.
+
+Do not create documentation instead of code.
+
+Do not stop after an audit.
+
+Perform the following:
+
+1. Inspect the current repository and identify existing architecture.
+2. Identify already-existing modules that should be reused.
+3. Identify gaps against this prompt.
+4. Implement the application phase-by-phase directly in the codebase.
+5. Create/update database migrations.
+6. Create backend APIs/services.
+7. Create frontend routes/pages/components.
+8. Connect frontend to backend.
+9. Implement Fantasy integration adapters.
+10. Implement analysis and requirement calculations.
+11. Implement rough planning.
+12. Implement allocations/reservations.
+13. Implement traceability.
+14. Implement plan-vs-actual.
+15. Add data science infrastructure only after deterministic functionality is stable.
+16. Add tests throughout.
+17. Run lint, typecheck, tests and production builds.
+18. Fix errors caused by this implementation.
+19. Do not hide pre-existing failures; report them separately.
+20. Finish with a concise implementation report containing:
+    - implemented modules;
+    - changed files;
+    - migrations;
+    - routes/APIs;
+    - tests executed;
+    - test results;
+    - unresolved OPEN business rules;
+    - Fantasy integration items requiring real credentials/API confirmation;
+    - remaining blockers.
+
+THE FINAL RESULT MUST BE A REAL, WORKING, PRODUCTION-QUALITY FULL-STACK WEBSITE, NOT A DESIGN EXERCISE.
