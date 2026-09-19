@@ -30,6 +30,7 @@ import { PlannedPiecesView } from "@/components/diamond/views/planned-pieces-vie
 import { ReservationsView } from "@/components/diamond/views/reservations-view";
 import { PlanComparisonView } from "@/components/diamond/views/plan-comparison-view";
 import { AnomalyDetectionView } from "@/components/diamond/views/anomaly-detection-view";
+import { YieldPredictionView } from "@/components/diamond/views/yield-prediction-view";
 import { FantasySyncView } from "@/components/diamond/views/fantasy-sync-view";
 import { FantasyRoughView } from "@/components/diamond/views/fantasy-rough-view";
 import { FantasyPolishedView } from "@/components/diamond/views/fantasy-polished-view";
@@ -98,6 +99,7 @@ const VIEW_REGISTRY: Record<string, React.ComponentType> = {
   "data-quality-unmapped-labs": LabMappingsView,
   "data-quality-unmapped-shapes": ShapeMappingsView,
   "data-science-anomaly-detection": AnomalyDetectionView,
+  "data-science-yield-prediction": YieldPredictionView,
   "data-science-forecast": ForecastView,
   "data-science-models": ForecastModelsView,
   "data-science-prediction-monitoring": ForecastView,

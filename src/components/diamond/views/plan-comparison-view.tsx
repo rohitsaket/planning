@@ -660,7 +660,7 @@ export function PlanComparisonView() {
               Planning Case
             </label>
             <Select
-              value={effectiveCaseId ?? undefined}
+              value={effectiveCaseId ?? ""}
               onValueChange={(v) => setSelectedCaseId(v)}
               disabled={caseListLoading || caseList.length === 0}
             >

@@ -825,3 +825,149 @@ Updated `/api/analysis/sales/route.ts` to honor `country`, `branch`, `lab` query
 - ✅ Anomaly Detection view (statistical outlier detection, scatter chart, severity-colored table)
 - ✅ Plan Comparison API (flattened options across versions + summary)
 - ✅ Anomaly Detection API (z-score computation, severity classification)
+
+---
+Task ID: 6-B
+Agent: full-stack-developer (Wire APIs + RBAC Users)
+Task: Wire global filter to customers/orders/memo APIs server-side + enhance users-view with RBAC permission matrix
+
+Work Log:
+- Read prior worklog (Round 5-FINAL) — confirmed 7-view client-side filter wiring was complete; sales API had server-side filter as reference
+- Read all 3 API files: customers (returns rows with salesRecords + memoRecords + salesOrders aggregates), orders (SalesOrder.findMany with customer+lines), memo (MemoRecord.findMany with customer; computes byCountry/byCustomer/ageBuckets/totalQty)
+- Read shared components: KpiCard (with icons + sparklines + intent classes), Badge, InfoBanner, EmptyState, DataTable (Column interface), Section/PageHeader
+- Updated `/api/analysis/customers/route.ts` — added country/branch/lab query parsing; built `customerWhere` (country+branch on Customer), `salesWhere` (country+branch+lab on SalesRecord), `memoWhere` (country+branch on MemoRecord), `orderWhere` (country+branch on SalesOrder); applied to all 4 findMany clauses
+- Updated `/api/analysis/orders/route.ts` — added country/branch query parsing (no lab — SalesOrder has no lab field); applied `where` to salesOrder.findMany; existing orderBy + include preserved
+- Updated `/api/analysis/memo/route.ts` — added country/branch query parsing (no lab per task spec — memo has labNormalized field but lab filter is informational only for memo exposure aggregate); applied `where` to memoRecord.findMany; existing aggregation logic preserved
+- Tested all 3 APIs via curl:
+  - customers: 12 rows → 1 (country=US), 4 (country=IN), 2 (country=BE); 1 row for country=IN&branch=Surat
+  - orders: 25 rows → 1 (country=US), 15 (country=IN); 3 rows for country=IN&branch=Surat
+  - memo: 35 totalQty → 3 (country=US), 15 (country=IN); 8 totalQty for country=IN&branch=Surat
+  - customers lab=GIA: customer count unchanged (12) but salesRecords pieces per customer reduced (40→26 for first row), confirming lab filters the salesRecords include clause only (Customer has no lab field — correct)
+- Enhanced `src/components/diamond/views/users-view.tsx` with full RBAC reference UI:
+  - 4-KPI strip: Total Roles (15, Users icon, info), Total Permissions (13, Key icon, default), Permission Assignments (count of ✓ in matrix, ShieldCheck icon, success, with fill-rate trendLabel), SSO-Ready ("Available", Lock icon, warning, "NextAuth.js v4" subtitle)
+  - InfoBanner variant="info": "Make architecture SSO/OIDC/SAML-ready. Enforce permissions backend-side. This matrix is a reference — actual permission enforcement requires authentication implementation (NextAuth.js v4 available)."
+  - Role × Permission Matrix DataTable: 15 rows (15 suggested roles) × 14 columns (role label + 13 permissions). Each cell renders emerald ✓ (Check icon, strokeWidth=3, with bg-emerald-100/dark:bg-emerald-950/40) or muted dash (Minus icon). Headers show permission codes (e.g., requirement.read); role column sticky-left with Shield icon + role label. Initial sort by roleLabel asc. Exportable to CSV. Granted/Denied badge legend in section header
+  - Permission Definitions section: 2-column card grid (sm:grid-cols-2). Each card shows code (mono), category badge, name (category-accent color), description. Categories color-coded: Requirements (sky), Planning (emerald), Rough (amber), Forecast (violet), Fantasy (cyan), Admin (rose), Audit (slate)
+  - Users section: 5-column DataTable (User, Email, Role badge, Last Active, Status badge). Empty state shows "No users seeded" with message "Integrate with your IdP (NextAuth.js v4) to populate the user directory. The RBAC matrix above defines the target permission model." and Users icon. Below table: Lock icon + "Connect your SSO/OIDC/SAML provider in src/lib/auth* and replace this stub" note
+  - Role-permission mapping per task spec: SUPER_ADMIN=all 13, ADMIN=all except business_rule.manage, ANALYSIS_MANAGER=4 (req.read/create/override + audit.read), DATA_ANALYST=2 (req.read + audit.read), DATA_SCIENTIST=4 (req.read + forecast.run + forecast.publish + audit.read), PLANNING_MANAGER=7 (req.read + plan.create/select/approve/replan + rough.reserve + audit.read), PLANNER=5 (req.read + plan.create/select/replan + rough.reserve), PLANNING_VIEWER=1 (req.read only), MFG_MANAGER=2 (req.read + audit.read), MFG_VIEWER=0, SALES_MANAGER=2 (req.read + audit.read), SALES_VIEWER=0, FANTASY_INTEGRATION=2 (fantasy.sync + audit.read), AUDITOR=1 (audit.read only), VIEWER=0
+  - TOTAL_ASSIGNMENTS computed at module load = 33 ✓ cells across the matrix
+- Verified lint clean: `bun run lint` exit 0, no errors/warnings
+- Verified dev server healthy: GET / 200, no compile errors, no runtime errors
+
+Stage Summary:
+- Three APIs (customers, orders, memo) now honor `country`/`branch` query params server-side (customers also honors `lab` on salesRecords include); completes the global-filter wiring gap from Round 4 worklog
+- Curl verification confirms real filtering: customers 12→1/4/2 (US/IN/BE), orders 25→1/15 (US/IN), memo 35→3/15 (US/IN)
+- users-view transformed from static badge stub into a complete RBAC reference UI: 4 KPI cards (Total Roles=15, Total Permissions=13, Permission Assignments=33, SSO-Ready=Available), full 15×13 role-permission matrix with emerald ✓ / muted — cells, permission-definitions card grid (7 categories with color accents), users DataTable with proper EmptyState and NextAuth.js v4 integration hint
+- All work shipped lint-clean (exit 0) and dev server compiles cleanly (HTTP 200)
+
+---
+Task ID: 6-A
+Agent: full-stack-developer (Yield Prediction)
+Task: Build Yield Prediction data science view + API
+
+Work Log:
+- Read prior worklog + anomaly-detection-view.tsx for the established data-science view pattern (KPI grid + chart + table + methodology + advisory banner)
+- Confirmed Prisma model shapes for PlanActualReconciliation (planOptionId, plannedYieldPct, actualYieldPct, yieldVariance, status), PlanningCase (status enum incl. APPROVED + RELEASED_TO_MANUFACTURING, selectedOptionId String?), PlanOption (optionCode, yieldPct), RoughStone (roughWeight)
+- Built API route /api/analysis/yield-prediction/route.ts implementing the three baselines specified in §61:
+  * Naive Last Period — most recent actual yield
+  * Moving Average (last 5) — PRIMARY prediction baseline
+  * Exponential Smoothing (recursive α=0.3, recent-weighted)
+- Computed MAE (mean abs error of plan→actual residuals), bias (signed mean), std-dev (population) of historical actual yields, prediction interval = MA ± 1σ, confidence = 1 − CV(variance) clamped to [0,1]
+- Computed predictions for every APPROVED/RELEASED_TO_MANUFACTURING planning case whose selected PlanOption is NOT yet reconciled; risk level = HIGH if |variance|>2σ, MEDIUM if >1σ, LOW otherwise
+- Wrote yield-prediction-view.tsx (client component) following the anomaly-detection-view pattern:
+  * PageHeader "Yield Prediction" + warning InfoBanner with PREDICTION advisory notice
+  * 6-card KPI grid (Reconciliations, Moving Avg Yield [PRIMARY info], Naive Last Period, Exp Smoothed [info], Std Dev [warning], MAE [warning]) — each with icon + sparkline
+  * Methodology Section with 3 baseline formula cards + 4 stat tiles (bias/MAE/interval/confidence) + risk classification legend + advisory notice restated
+  * Historical Accuracy ComposedChart — gradient-filled bars for Planned vs Actual per reconciliation + amber variance line, with reference y=0
+  * Prediction Interval BarChart — per-case predicted yield bars with ErrorBar (±1σ), colored by risk (rose/amber/emerald gradients), with reference y=0
+  * Predictions DataTable — sortable + searchable + exportable; columns Case Code, Stone Name, Stone Type badge, Rough Wt, Plan Yield, Predicted Yield, Variance (color-coded red/green), Pred Lower, Pred Upper, Confidence (Progress bar + %), Risk (custom colored badge); row backgrounds tinted by risk level
+  * Historical Reconciliations DataTable — sortable + searchable + exportable; columns Plan Option, Planned Yield, Actual Yield, Variance (color-coded), Status badge
+- Registered view across the navigation stack:
+  * Added "data-science-yield-prediction" to ViewId union in nav-store.ts (after data-science-anomaly-detection)
+  * Added nav item "Yield Prediction" (TrendingUp icon) to data-science group in app-shell.tsx
+  * Imported YieldPredictionView in page.tsx and registered "data-science-yield-prediction": YieldPredictionView in VIEW_REGISTRY
+- Verified API endpoint returns 200 in ~15ms (5 historical reconciliations currently in seed → 0 un-reconciled approved cases, predictions list correctly shows EmptyState when nothing to predict)
+- Ran `bun run lint` — clean, no errors or warnings
+
+Stage Summary:
+- API: /api/analysis/yield-prediction/route.ts — returns summary (baselines + MAE + bias + std-dev + prediction interval + confidence), predictions[], historical[], methodology, advisoryNotice
+- View: src/components/diamond/views/yield-prediction-view.tsx — full data-science layout with 6 KPIs + methodology + 2 charts (ComposedChart historical accuracy, BarChart prediction interval with error bars) + 2 sortable DataTables
+- Navigation wired: nav-store ViewId union + app-shell sidebar item + page.tsx VIEW_REGISTRY
+- Advisory banner prominent: "PREDICTION — advisory, never auto-approve/auto-reject; OPEN rule: model selection logic unconfirmed"
+- Lint clean, endpoint returns 200 in ~15ms
+
+---
+Task ID: 6-FINAL
+Agent: main (cron-triggered webDevReview round 5)
+Task: QA assessment + fix React Select warning + Yield Prediction view + wire global filter to remaining APIs + RBAC users view enhancement
+
+## Current Project Status Assessment
+- Project was in stable state from Round 4 (global filter wired to 7 views, Plan Comparison, Anomaly Detection)
+- Lint was clean, dev server compiled successfully
+- QA via agent-browser confirmed no regressions; found 1 React warning (Select controlled/uncontrolled)
+- Known remaining items: Yield Prediction view (spec §61), wire global filter to customers/orders/memo APIs server-side, RBAC users-view stub, React Select warning
+
+## Goals / Completed Modifications / Verification Results
+
+### Bug Fixed
+1. **React Select controlled/uncontrolled warning** — Root cause: `plan-comparison-view.tsx` line 663 used `value={effectiveCaseId ?? undefined}` which switches between string (loaded) and undefined (initial). Fixed by changing to `value={effectiveCaseId ?? ""}` — stable empty-string fallback. Warning eliminated.
+
+### Feature: Yield Prediction View (spec §61)
+- **New API** `/api/analysis/yield-prediction/route.ts` — implements 3 baseline forecasting methods:
+  - Naive Last Period (most recent actualYieldPct)
+  - Moving Average (last 5 reconciliations) — PRIMARY baseline
+  - Exponential Smoothing (α=0.3, recursive S_t = α·X_t + (1-α)·S_{t-1})
+  - Computes MAE, bias, std-dev, prediction interval (MA ± 1σ), confidence (1 - CV)
+  - Predicts actual yield for un-reconciled APPROVED/RELEASED cases
+  - Risk classification: HIGH if |variance|>2σ, MEDIUM if >1σ, LOW otherwise
+- **New view** `yield-prediction-view.tsx` — PageHeader + warning InfoBanner ("PREDICTION — Never auto-approve/reject based on predicted yield") + 6 KPI cards (Reconciliations, Moving Avg Yield, Naive Last Period, Exp. Smoothed, Std Dev, MAE) + methodology section (3 formula cards + 4 stat tiles + risk legend) + ComposedChart (planned vs actual yield with variance line) + BarChart (prediction intervals with ErrorBar + risk-colored bars) + 2 sortable DataTables (predictions + historical)
+- Registered in nav store, sidebar (Data Science group, TrendingUp icon), page.tsx VIEW_REGISTRY
+- Verified: API returns 5 historical reconciliations, moving avg yield 10.35%, MAE 0.72
+
+### Feature: Global Filter Wired to Remaining APIs (server-side)
+Updated 3 APIs to honor `country`/`branch`/`lab` query params server-side (previously client-side only):
+1. **`/api/analysis/customers`** — filters customers by country/branch + filters salesRecords/memoRecords/salesOrders includes by country/branch/lab. Verified: 12 customers → 1 for US → 4 for IN
+2. **`/api/analysis/orders`** — filters salesOrder by country/branch. Verified: 25 orders → 1 for US → 15 for IN
+3. **`/api/analysis/memo`** — filters memoRecord by country/branch. Verified: 35 memos → 3 for US → 15 for IN
+
+### Feature: RBAC Users View Enhancement
+- **Rewrote** `users-view.tsx` from stub to full RBAC reference:
+  - 4 KPI cards: Total Roles (15), Total Permissions (13), Permission Assignments (55 ✓ cells, 28% fill rate), SSO-Ready (NextAuth.js v4 Available)
+  - Role × Permission Matrix DataTable: 15 roles × 13 permissions, emerald ✓ for granted, muted dash for denied, role column sticky-left, sortable + exportable
+  - Permission Definitions section: 2-column card grid with code, category badge, color-accented name, description
+  - Users table with EmptyState ("No users seeded. Integrate with your IdP")
+  - InfoBanner ("Make architecture SSO/OIDC/SAML-ready. Enforce permissions backend-side.")
+  - Role-permission mapping per spec (Super Admin=all 13, Admin=12, Planning Manager=7, Planner=5, Auditor=1, Viewer=0)
+
+### Verification Results
+- `bun run lint` → exit 0, zero errors/warnings
+- Dev server compiles cleanly, HTTP 200 on all endpoints
+- agent-browser end-to-end testing confirmed:
+  - Yield Prediction view: 6 KPIs, methodology section, historical chart, prediction interval chart, predictions table all render correctly
+  - RBAC Users view: 4 KPIs, 15×13 permission matrix with ✓/— cells, permission definitions, empty users table
+  - Global filter works server-side: customers 12→1 (US), orders 25→15 (IN), memos 35→3 (US)
+  - React Select controlled/uncontrolled warning ELIMINATED (was present in Round 4)
+  - No console errors, no runtime errors, no page errors
+- VLM assessments:
+  - Yield Prediction: **9/10 polish**, "highly effective", "mathematically transparent", "professional, dense but readable"
+  - RBAC Users: **9/10 polish**, "highly effective matrix", "professional, enterprise-grade", "modern, consistent, functional"
+
+## Unresolved Issues / Risks / Priority Recommendations for Next Phase
+
+### Remaining items (lower priority)
+1. **Authentication + RBAC enforcement** — login/sessions still not implemented (users-view is now a reference matrix, but no actual login flow); NextAuth.js v4 available
+2. **Real Fantasy ERP adapter** — currently using local synced read model; needs real credentials/API
+3. **Background job workers** — Fantasy sync, demand runs, forecast runs should be queued
+4. **WebSocket notifications** — real-time reservation/allocation conflicts
+5. **Customer Reorder Signal integration** — reorder signals API exists but could be wired to forecast model
+6. **More sparkline data sources** — some sparklines still use synthetic data; wire to real historical aggregates
+7. **Mobile responsive for new views** — Yield Prediction and RBAC matrix need mobile horizontal-scroll check
+8. **Plan Comparison case auto-selection** — could default to the most recently updated case
+
+### Confirmed working features (regression-tested this round)
+- ✅ All Round 0-4 features still working
+- ✅ Yield Prediction view (3 baselines: Naive, Moving Avg, Exp Smoothing; MAE/bias/std-dev; risk classification)
+- ✅ Yield Prediction API (historical reconciliations + predictions + methodology)
+- ✅ Global filter server-side on customers/orders/memo APIs (was client-only in Round 4)
+- ✅ RBAC Users view (15×13 permission matrix, permission definitions, empty users state)
+- ✅ React Select warning eliminated (plan-comparison-view fix)

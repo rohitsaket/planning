@@ -2,8 +2,18 @@ import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
 
 // Order Analysis — list sales orders with line aggregates
+// Honors global filter params: country, branch (no lab — SalesOrder has no lab field)
 export async function GET(req: Request) {
+  const url = new URL(req.url);
+  const country = url.searchParams.get("country");
+  const branch = url.searchParams.get("branch");
+
+  const where: Record<string, unknown> = {};
+  if (country) where.country = country;
+  if (branch) where.branch = branch;
+
   const orders = await db.salesOrder.findMany({
+    where,
     include: {
       customer: true,
       lines: true,

@@ -52,6 +52,7 @@ export type ViewId =
   | "data-quality-unmapped-labs"
   | "data-quality-unmapped-shapes"
   | "data-science-anomaly-detection"
+  | "data-science-yield-prediction"
   | "data-science-forecast"
   | "data-science-models"
   | "data-science-prediction-monitoring"

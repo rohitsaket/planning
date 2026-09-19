@@ -2,16 +2,47 @@ import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
 
 // Customer 360 — list customers with sales aggregates
+// Honors global filter params: country, branch, lab
 export async function GET(req: Request) {
   const url = new URL(req.url);
+  const country = url.searchParams.get("country");
+  const branch = url.searchParams.get("branch");
+  const lab = url.searchParams.get("lab");
+
   const since = new Date();
   since.setDate(since.getDate() - 365);
 
+  // Sales records filter: by status + date window + global filter
+  const salesWhere: Record<string, unknown> = {
+    lotStatusDb: "Invoice",
+    docDate: { gte: since },
+  };
+  if (country) salesWhere.country = country;
+  if (branch) salesWhere.branch = branch;
+  if (lab) salesWhere.labNormalized = lab;
+
+  // Customer-level filter — customers themselves are filtered by country/branch
+  const customerWhere: Record<string, unknown> = {};
+  if (country) customerWhere.country = country;
+  if (branch) customerWhere.branch = branch;
+
+  // Memo records filter (no lab — memo has labNormalized but the lab filter is
+  // not relevant for the memo exposure aggregate; keep parity with sales)
+  const memoWhere: Record<string, unknown> = { status: "OPEN" };
+  if (country) memoWhere.country = country;
+  if (branch) memoWhere.branch = branch;
+
+  // Sales orders filter (no lab — SalesOrder has no lab field)
+  const orderWhere: Record<string, unknown> = { status: { in: ["OPEN", "PARTIAL"] } };
+  if (country) orderWhere.country = country;
+  if (branch) orderWhere.branch = branch;
+
   const customers = await db.customer.findMany({
+    where: customerWhere,
     include: {
-      salesRecords: { where: { lotStatusDb: "Invoice", docDate: { gte: since } } },
-      memoRecords: { where: { status: "OPEN" } },
-      salesOrders: { where: { status: { in: ["OPEN", "PARTIAL"] } } },
+      salesRecords: { where: salesWhere },
+      memoRecords: { where: memoWhere },
+      salesOrders: { where: orderWhere },
     },
   });
 

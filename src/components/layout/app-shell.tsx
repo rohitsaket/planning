@@ -136,6 +136,7 @@ const NAV: NavGroup[] = [
     icon: <FlaskConical className="h-4 w-4" />,
     items: [
       { id: "data-science-anomaly-detection", label: "Anomaly Detection", icon: <AlertTriangle className="h-3.5 w-3.5" /> },
+      { id: "data-science-yield-prediction", label: "Yield Prediction", icon: <TrendingUp className="h-3.5 w-3.5" /> },
       { id: "data-science-forecast", label: "Forecast", icon: <TrendingUp className="h-3.5 w-3.5" /> },
       { id: "data-science-models", label: "Models", icon: <Layers className="h-3.5 w-3.5" /> },
       { id: "data-science-prediction-monitoring", label: "Prediction Monitoring", icon: <Activity className="h-3.5 w-3.5" /> },
