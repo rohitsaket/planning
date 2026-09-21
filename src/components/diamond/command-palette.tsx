@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useNavStore, ViewId } from "@/stores/nav-store";
+import { useAuthStore } from "@/stores/auth-store";
+import { isViewAuthorized } from "@/lib/auth/view-permissions";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
@@ -12,7 +14,8 @@ import {
   FileText, Package, Boxes, Factory, GitBranch, ShieldCheck, AlertTriangle,
   FlaskConical, FileBarChart, Settings, Search, Diamond, Activity, Scale, Layers,
   Map, FileWarning, Workflow, ClipboardCheck, CalendarClock, Hash, RefreshCw,
-  BookCheck, ClipboardList, Star, CornerDownLeft, UserPlus,
+  BookCheck, ClipboardList, Star, CornerDownLeft, UserPlus, Lock, HardDrive,
+  Calculator, ArrowLeftRight
 } from "lucide-react";
 import { ReactNode } from "react";
 
@@ -22,56 +25,63 @@ interface PaletteItem {
   group: string;
   icon: ReactNode;
   keywords: string[];
+  advisory?: boolean;
 }
 
 const ITEMS: PaletteItem[] = [
-  { id: "dashboard", label: "Executive Dashboard", group: "Overview", icon: <LayoutDashboard className="h-4 w-4" />, keywords: ["home", "main", "overview", "kpi"] },
-  { id: "analysis-executive", label: "Executive Analysis", group: "Analysis", icon: <Activity className="h-4 w-4" />, keywords: ["exec", "summary"] },
-  { id: "analysis-sales", label: "Sales Analysis", group: "Analysis", icon: <ShoppingCart className="h-4 w-4" />, keywords: ["revenue", "invoice", "by dimension"] },
-  { id: "analysis-sales-trends", label: "Sales Trends", group: "Analysis", icon: <TrendingUp className="h-4 w-4" />, keywords: ["trend", "growth", "30d"] },
-  { id: "analysis-customers", label: "Customers", group: "Analysis", icon: <Users className="h-4 w-4" />, keywords: ["customer", "360", "buyer"] },
-  { id: "analysis-orders", label: "Orders", group: "Analysis", icon: <FileText className="h-4 w-4" />, keywords: ["order", "so", "backorder"] },
-  { id: "analysis-country", label: "Country / Branch", group: "Analysis", icon: <Globe className="h-4 w-4" />, keywords: ["country", "branch", "geography"] },
-  { id: "analysis-polished", label: "Polished Inventory", group: "Analysis", icon: <Gem className="h-4 w-4" />, keywords: ["polished", "stock", "inventory"] },
-  { id: "analysis-memo", label: "Memo Analysis", group: "Analysis", icon: <FileText className="h-4 w-4" />, keywords: ["memo", "consignment"] },
-  { id: "analysis-wip", label: "WIP Analysis", group: "Analysis", icon: <Boxes className="h-4 w-4" />, keywords: ["wip", "work in progress"] },
-  { id: "analysis-forecast", label: "Forecast", group: "Analysis", icon: <TrendingUp className="h-4 w-4" />, keywords: ["forecast", "prediction"] },
-  { id: "analysis-stockout", label: "Stockout Risk", group: "Analysis", icon: <AlertTriangle className="h-4 w-4" />, keywords: ["stockout", "risk", "shortage"] },
-  { id: "analysis-excess", label: "Excess Stock", group: "Analysis", icon: <Package className="h-4 w-4" />, keywords: ["excess", "overstock"] },
-  { id: "analysis-aging", label: "Stock Aging", group: "Analysis", icon: <CalendarClock className="h-4 w-4" />, keywords: ["aging", "old", "slow"] },
-  { id: "analysis-reorder-signals", label: "Customer Reorder Signals", group: "Analysis", icon: <Star className="h-4 w-4" />, keywords: ["reorder", "repeat", "prediction"] },
-  { id: "requirements-matrix", label: "Requirement Matrix", group: "Requirements", icon: <Hash className="h-4 w-4" />, keywords: ["requirement", "matrix", "demand"] },
-  { id: "requirements-priority-queue", label: "Priority Queue", group: "Requirements", icon: <AlertTriangle className="h-4 w-4" />, keywords: ["priority", "critical", "high"] },
-  { id: "requirements-orders", label: "Customer Orders", group: "Requirements", icon: <FileText className="h-4 w-4" />, keywords: ["order"] },
-  { id: "requirements-backorders", label: "Backorders", group: "Requirements", icon: <FileWarning className="h-4 w-4" />, keywords: ["backorder"] },
-  { id: "requirements-special", label: "Special Requirements", group: "Requirements", icon: <Star className="h-4 w-4" />, keywords: ["special"] },
-  { id: "planning-rough-availability", label: "Rough Availability", group: "Planning", icon: <Gem className="h-4 w-4" />, keywords: ["rough", "available"] },
-  { id: "planning-cases", label: "Planning Cases", group: "Planning", icon: <ClipboardList className="h-4 w-4" />, keywords: ["case", "plan"] },
-  { id: "planning-workbook-import", label: "Workbook Import", group: "Planning", icon: <FileText className="h-4 w-4" />, keywords: ["workbook", "import", "xlsx"] },
-  { id: "planning-workbench", label: "Planning Workbench", group: "Planning", icon: <LayoutDashboard className="h-4 w-4" />, keywords: ["workbench", "planner"] },
-  { id: "planning-approval-queue", label: "Approval Queue", group: "Planning", icon: <BookCheck className="h-4 w-4" />, keywords: ["approval", "queue"] },
-  { id: "planning-planned-pieces", label: "Planned Pieces", group: "Planning", icon: <Layers className="h-4 w-4" />, keywords: ["piece", "planned"] },
-  { id: "planning-reservations", label: "Rough Reservations", group: "Planning", icon: <ShieldCheck className="h-4 w-4" />, keywords: ["reservation", "rough"] },
-  { id: "manufacturing-tracking", label: "Fantasy Tracking", group: "Manufacturing", icon: <Activity className="h-4 w-4" />, keywords: ["tracking"] },
-  { id: "manufacturing-traceability", label: "Traceability", group: "Manufacturing", icon: <GitBranch className="h-4 w-4" />, keywords: ["trace", "genealogy"] },
-  { id: "manufacturing-plan-vs-actual", label: "Plan vs Actual", group: "Manufacturing", icon: <Scale className="h-4 w-4" />, keywords: ["actual", "variance", "yield"] },
-  { id: "fantasy-sync", label: "Fantasy Sync Dashboard", group: "Fantasy ERP", icon: <RefreshCw className="h-4 w-4" />, keywords: ["sync", "fantasy"] },
-  { id: "fantasy-rough", label: "Fantasy Rough Stock", group: "Fantasy ERP", icon: <Gem className="h-4 w-4" />, keywords: ["rough"] },
-  { id: "fantasy-polished", label: "Fantasy Polished Stock", group: "Fantasy ERP", icon: <Diamond className="h-4 w-4" />, keywords: ["polished"] },
-  { id: "fantasy-departments", label: "Fantasy Departments", group: "Fantasy ERP", icon: <Boxes className="h-4 w-4" />, keywords: ["department"] },
-  { id: "fantasy-locations", label: "Fantasy Locations", group: "Fantasy ERP", icon: <Map className="h-4 w-4" />, keywords: ["location"] },
-  { id: "data-quality-issues", label: "Data Quality Issues", group: "Data Quality", icon: <AlertTriangle className="h-4 w-4" />, keywords: ["quality", "issue"] },
-  { id: "data-science-forecast", label: "Forecast", group: "Data Science", icon: <TrendingUp className="h-4 w-4" />, keywords: ["forecast"] },
-  { id: "data-science-models", label: "Models", group: "Data Science", icon: <Layers className="h-4 w-4" />, keywords: ["model"] },
-  { id: "reports", label: "Reports Library", group: "Reports", icon: <FileBarChart className="h-4 w-4" />, keywords: ["report"] },
-  { id: "admin-business-rules", label: "Business Rules", group: "Admin", icon: <ShieldCheck className="h-4 w-4" />, keywords: ["rule", "business"] },
-  { id: "admin-weight-bands", label: "Weight Bands", group: "Admin", icon: <Scale className="h-4 w-4" />, keywords: ["weight", "band"] },
-  { id: "admin-lab-mappings", label: "Lab Mapping", group: "Admin", icon: <Gem className="h-4 w-4" />, keywords: ["lab", "mapping"] },
-  { id: "admin-shape-mappings", label: "Shape Mapping", group: "Admin", icon: <Diamond className="h-4 w-4" />, keywords: ["shape", "mapping"] },
-  { id: "admin-feature-flags", label: "Feature Flags", group: "Admin", icon: <Workflow className="h-4 w-4" />, keywords: ["flag", "feature"] },
-  { id: "admin-audit-log", label: "Audit Log", group: "Admin", icon: <ClipboardList className="h-4 w-4" />, keywords: ["audit", "log"] },
-  { id: "admin-users", label: "Users & Roles", group: "Admin", icon: <Users className="h-4 w-4" />, keywords: ["user", "role", "rbac"] },
-  { id: "admin-access-requests", label: "Access Requests", group: "Admin", icon: <UserPlus className="h-4 w-4" />, keywords: ["access", "request", "registration", "signup", "approve"] },
+  // 1. Dashboard
+  { id: "dashboard", label: "Executive Dashboard", group: "Dashboard", icon: <LayoutDashboard className="h-4 w-4" />, keywords: ["home", "main", "overview", "kpi", "executive"] },
+
+  // 2. Fantasy ERP
+  { id: "fantasy-live", label: "Live Data", group: "Fantasy ERP", icon: <Boxes className="h-4 w-4" />, keywords: ["rough stock", "polished stock", "departments", "locations", "erp", "live"] },
+  { id: "fantasy-sync", label: "Sync Monitor", group: "Fantasy ERP", icon: <RefreshCw className="h-4 w-4" />, keywords: ["sync", "reconciliation", "monitor", "integration", "dashboard"] },
+
+  // 3. Overall Data
+  { id: "overall-data", label: "Overall Data", group: "Overall Data", icon: <HardDrive className="h-4 w-4" />, keywords: ["historical", "archive", "lots", "permanent", "records"] },
+
+  // 4. Data Quality
+  { id: "data-quality-issues", label: "Data Quality Issues", group: "Data Quality", icon: <AlertTriangle className="h-4 w-4" />, keywords: ["quality", "unmapped", "labs", "shapes", "issues", "anomalies"] },
+
+  // 5. Demand and Inventory
+  { id: "demand-overview", label: "Demand Overview", group: "Demand and Inventory", icon: <Activity className="h-4 w-4" />, keywords: ["executive analysis", "sales analysis", "sales trends", "demand run history"] },
+  { id: "inventory-position", label: "Inventory Position", group: "Demand and Inventory", icon: <Package className="h-4 w-4" />, keywords: ["polished inventory", "memo analysis", "wip analysis", "stockout risk", "excess stock"] },
+  { id: "customers-orders", label: "Customers and Orders", group: "Demand and Inventory", icon: <Users className="h-4 w-4" />, keywords: ["customers", "orders", "country", "branch", "buyer", "geography"] },
+  { id: "demand-trace", label: "Demand Trace", group: "Demand and Inventory", icon: <Calculator className="h-4 w-4" />, keywords: ["trace", "calculation", "formula", "engine", "breakdown"] },
+  { id: "stock-strategy", label: "Stock Strategy", group: "Demand and Inventory", icon: <ArrowLeftRight className="h-4 w-4" />, keywords: ["stock aging", "aging dashboard", "reorder signals", "transfer analyzer"] },
+
+  // 6. Requirements and Priority
+  { id: "requirements-matrix", label: "Requirement Matrix", group: "Requirements and Priority", icon: <Hash className="h-4 w-4" />, keywords: ["requirement", "matrix", "demand", "target", "carat"] },
+  { id: "requirements-priority-queue", label: "Priority Queue", group: "Requirements and Priority", icon: <AlertTriangle className="h-4 w-4" />, keywords: ["priority", "critical", "high", "ranking", "urgent"] },
+  { id: "orders-exceptions", label: "Orders and Exceptions", group: "Requirements and Priority", icon: <FileText className="h-4 w-4" />, keywords: ["customer orders", "backorders", "special requirements", "exceptions"] },
+  { id: "replenishment-allocation", label: "Replenishment and Allocation", group: "Requirements and Priority", icon: <Workflow className="h-4 w-4" />, keywords: ["replenishment", "allocation", "stock replenishment", "reserve"] },
+
+  // 7. Planning
+  { id: "planning-rough-availability", label: "Rough Availability", group: "Planning", icon: <Gem className="h-4 w-4" />, keywords: ["rough inventory", "rough reservations", "available stones", "kapan"] },
+  { id: "planning-workbook-import", label: "Workbook Import", group: "Planning", icon: <FileText className="h-4 w-4" />, keywords: ["workbook", "import", "xlsx", "excel", "upload"] },
+  { id: "planning-workbench", label: "Planning Workbench", group: "Planning", icon: <LayoutDashboard className="h-4 w-4" />, keywords: ["planning cases", "planned pieces", "workbench", "planner"] },
+  { id: "planning-comparison", label: "Plan Comparison", group: "Planning", icon: <Scale className="h-4 w-4" />, keywords: ["plan comparison", "evaluate", "versions", "side by side"] },
+  { id: "planning-approval-queue", label: "Approval Queue", group: "Planning", icon: <BookCheck className="h-4 w-4" />, keywords: ["approval", "queue", "signoff", "manager approval"] },
+
+  // 8. Manufacturing
+  { id: "manufacturing-overview", label: "Manufacturing Overview", group: "Manufacturing", icon: <Boxes className="h-4 w-4" />, keywords: ["fantasy tracking", "department view", "location view", "wip"] },
+  { id: "manufacturing-traceability", label: "Traceability", group: "Manufacturing", icon: <GitBranch className="h-4 w-4" />, keywords: ["trace", "genealogy", "stone history", "parent rough"] },
+
+  // 9. Evaluation and Reconciliation
+  { id: "plan-vs-actual", label: "Plan vs Actual", group: "Evaluation and Reconciliation", icon: <Scale className="h-4 w-4" />, keywords: ["plan vs actual", "fantasy reconciliation", "yield variance", "reconciliation"] },
+
+  // 10. Data Science (Advisory / Future)
+  { id: "data-science-forecasting", label: "Forecasting", group: "Data Science", icon: <TrendingUp className="h-4 w-4" />, advisory: true, keywords: ["operational forecast", "predictive forecast", "forecast accuracy", "future"] },
+  { id: "data-science-predictive-models", label: "Predictive Models", group: "Data Science", icon: <Layers className="h-4 w-4" />, advisory: true, keywords: ["anomaly detection", "yield prediction", "models", "advisory"] },
+  { id: "data-science-prediction-monitoring", label: "Model Monitoring", group: "Data Science", icon: <Activity className="h-4 w-4" />, advisory: true, keywords: ["prediction monitoring", "drift", "metrics", "monitoring"] },
+
+  // 11. Reports
+  { id: "reports", label: "Reports Library", group: "Reports", icon: <FileBarChart className="h-4 w-4" />, keywords: ["reports", "export", "pdf", "excel", "summary"] },
+
+  // 12. Administration
+  { id: "admin-users-access", label: "Users and Access", group: "Administration", icon: <Users className="h-4 w-4" />, keywords: ["users and roles", "access requests", "rbac", "permissions"] },
+  { id: "admin-rules-mappings", label: "Business Rules and Mappings", group: "Administration", icon: <ShieldCheck className="h-4 w-4" />, keywords: ["business rules", "weight bands", "lab mapping", "shape mapping", "status mapping"] },
+  { id: "admin-system-settings", label: "System Settings", group: "Administration", icon: <Settings className="h-4 w-4" />, keywords: ["feature flags", "system settings", "integrations", "config"] },
+  { id: "admin-audit-log", label: "Audit Log", group: "Administration", icon: <ClipboardList className="h-4 w-4" />, keywords: ["audit log", "security", "activity trail", "events"] },
 ];
 
 export function CommandPalette() {
@@ -79,6 +89,7 @@ export function CommandPalette() {
   const [query, setQuery] = useState("");
   const [activeIdx, setActiveIdx] = useState(0);
   const setView = useNavStore((s) => s.setView);
+  const perms = useAuthStore((s) => s.user?.permissions);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -93,7 +104,6 @@ export function CommandPalette() {
     return () => window.removeEventListener("keydown", handler);
   }, [open]);
 
-  // Reset query/activeIdx when opening (not via effect to avoid cascading renders)
   const handleOpenChange = (next: boolean) => {
     if (!next) {
       setQuery("");
@@ -157,6 +167,7 @@ export function CommandPalette() {
               {items.map((item) => {
                 const idx = flatFiltered.indexOf(item);
                 const active = idx === activeIdx;
+                const authorized = isViewAuthorized(perms, item.id);
                 return (
                   <button
                     key={item.id}
@@ -164,11 +175,23 @@ export function CommandPalette() {
                     onClick={() => selectItem(item)}
                     className={cn(
                       "w-full flex items-center gap-3 px-3 py-2 text-left text-sm transition-colors",
-                      active ? "bg-primary/10 text-foreground" : "hover:bg-muted/50"
+                      active ? "bg-primary/10 text-foreground" : "hover:bg-muted/50",
+                      !authorized && !active && "text-muted-foreground/70"
                     )}
                   >
                     <span className={cn("text-muted-foreground", active && "text-primary")}>{item.icon}</span>
                     <span className="flex-1 truncate">{item.label}</span>
+                    {item.advisory && (
+                      <span className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-violet-500/10 text-violet-600 dark:text-violet-400 border border-violet-500/20">
+                        Advisory
+                      </span>
+                    )}
+                    {!authorized && (
+                      <span className="flex items-center gap-1 text-[10px] font-medium text-amber-600 dark:text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20">
+                        <Lock className="h-3 w-3" />
+                        Locked
+                      </span>
+                    )}
                     {active && <CornerDownLeft className="h-3 w-3 text-muted-foreground" />}
                   </button>
                 );

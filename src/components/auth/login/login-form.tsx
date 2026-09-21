@@ -30,9 +30,9 @@ function writeRemembered(value: string | null) {
 }
 
 export function LoginForm({ onAuthenticated, onRequestAccess }: { onAuthenticated: (user: SessionUser) => void; onRequestAccess: () => void }) {
-  const [username, setUsername] = useState("");
+  const [username, setUsername] = useState(() => (typeof window !== "undefined" ? readRemembered() ?? "" : ""));
   const [password, setPassword] = useState("");
-  const [remember, setRemember] = useState(false);
+  const [remember, setRemember] = useState(() => (typeof window !== "undefined" ? !!readRemembered() : false));
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -40,14 +40,6 @@ export function LoginForm({ onAuthenticated, onRequestAccess }: { onAuthenticate
   const [showRecovery, setShowRecovery] = useState(false);
   const usernameRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    const saved = readRemembered();
-    if (saved) {
-      setUsername(saved);
-      setRemember(true);
-    }
-  }, []);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();

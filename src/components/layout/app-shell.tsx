@@ -2,19 +2,19 @@
 
 import { UserMenu } from "@/components/auth/auth-gate";
 import { useAuthStore } from "@/stores/auth-store";
-import { viewPermission } from "@/lib/auth/view-permissions";
+import { isViewAuthorized } from "@/lib/auth/view-permissions";
 import { useNavStore, ViewId } from "@/stores/nav-store";
 import { cn } from "@/lib/utils";
-import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, BarChart3, TrendingUp, Users, ShoppingCart, Globe, Gem,
   FileText, Package, Boxes, Factory, GitBranch, ShieldCheck, AlertTriangle,
   FlaskConical, FileBarChart, Settings, ChevronDown, ChevronRight, Search,
   Bell, User, Database, Activity, Scale, Layers, Map, FileWarning,
   Workflow, ClipboardCheck, CalendarClock, Hash, RefreshCw, BookCheck, ClipboardList, Diamond,
-  Moon, Sun, Monitor, Command as CommandIcon, History, Calculator, ArrowLeftRight, UserPlus
+  Moon, Sun, Monitor, Command as CommandIcon, History, Calculator, ArrowLeftRight, UserPlus,
+  Lock, HardDrive
 } from "lucide-react";
-import { ReactNode, useState, useEffect } from "react";
+import { ReactNode, useState, useEffect, useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useTheme } from "next-themes";
@@ -25,207 +25,235 @@ import { GlobalFilterBar } from "@/components/diamond/global-filter-bar";
 import { DiamondMark } from "@/components/brand/diamond-mark";
 import { useRealtimeStore } from "@/stores/realtime-store";
 
-interface NavItem {
+export interface NavItem {
   id: ViewId;
   label: string;
   icon: ReactNode;
+  advisory?: boolean;
 }
-interface NavGroup {
+
+export interface NavGroup {
   id: string;
   label: string;
   icon: ReactNode;
+  advisory?: boolean;
   items: NavItem[];
 }
 
-const NAV: NavGroup[] = [
+export const NAV: NavGroup[] = [
+  // 1. Dashboard (Landing)
   {
-    id: "top",
-    label: "Overview",
+    id: "dashboard-group",
+    label: "Dashboard",
     icon: <LayoutDashboard className="h-4 w-4" />,
     items: [
       { id: "dashboard", label: "Executive Dashboard", icon: <LayoutDashboard className="h-3.5 w-3.5" /> },
     ],
   },
+  // 2. Fantasy ERP (Source)
   {
-    id: "analysis",
-    label: "Analysis",
-    icon: <BarChart3 className="h-4 w-4" />,
+    id: "fantasy-group",
+    label: "Fantasy ERP",
+    icon: <Database className="h-4 w-4" />,
     items: [
-      { id: "analysis-executive", label: "Executive Analysis", icon: <Activity className="h-3.5 w-3.5" /> },
-      { id: "analysis-sales", label: "Sales Analysis", icon: <ShoppingCart className="h-3.5 w-3.5" /> },
-      { id: "analysis-sales-trends", label: "Sales Trends", icon: <TrendingUp className="h-3.5 w-3.5" /> },
-      { id: "analysis-customers", label: "Customers", icon: <Users className="h-3.5 w-3.5" /> },
-      { id: "analysis-orders", label: "Orders", icon: <FileText className="h-3.5 w-3.5" /> },
-      { id: "analysis-country", label: "Country / Branch", icon: <Globe className="h-3.5 w-3.5" /> },
-      { id: "analysis-polished", label: "Polished Inventory", icon: <Gem className="h-3.5 w-3.5" /> },
-      { id: "analysis-memo", label: "Memo Analysis", icon: <FileText className="h-3.5 w-3.5" /> },
-      { id: "analysis-wip", label: "WIP Analysis", icon: <Boxes className="h-3.5 w-3.5" /> },
-      { id: "analysis-forecast", label: "Forecast", icon: <TrendingUp className="h-3.5 w-3.5" /> },
-      { id: "analysis-stockout", label: "Stockout Risk", icon: <AlertTriangle className="h-3.5 w-3.5" /> },
-      { id: "analysis-excess", label: "Excess Stock", icon: <Package className="h-3.5 w-3.5" /> },
-      { id: "analysis-aging", label: "Stock Aging", icon: <CalendarClock className="h-3.5 w-3.5" /> },
-      { id: "analysis-reorder-signals", label: "Reorder Signals", icon: <Star className="h-3.5 w-3.5" /> },
-      { id: "demand-history", label: "Demand Run History", icon: <History className="h-3.5 w-3.5" /> },
-      { id: "demand-trace", label: "Demand Trace", icon: <Calculator className="h-3.5 w-3.5" /> },
-      { id: "transfer-analyzer", label: "Transfer Analyzer", icon: <ArrowLeftRight className="h-3.5 w-3.5" /> },
-      { id: "aging-dashboard", label: "Aging Dashboard", icon: <CalendarClock className="h-3.5 w-3.5" /> },
+      { id: "fantasy-live", label: "Live Data", icon: <Boxes className="h-3.5 w-3.5" /> },
+      { id: "fantasy-sync", label: "Sync Monitor", icon: <RefreshCw className="h-3.5 w-3.5" /> },
     ],
   },
+  // 3. Overall Data (Permanent Archive)
   {
-    id: "requirements",
-    label: "Requirements",
+    id: "overall-data-group",
+    label: "Overall Data",
+    icon: <HardDrive className="h-4 w-4" />,
+    items: [
+      { id: "overall-data", label: "Overall Data", icon: <HardDrive className="h-3.5 w-3.5" /> },
+    ],
+  },
+  // 4. Data Quality (Integrity)
+  {
+    id: "data-quality-group",
+    label: "Data Quality",
+    icon: <FileWarning className="h-4 w-4" />,
+    items: [
+      { id: "data-quality-issues", label: "Data Quality Issues", icon: <AlertTriangle className="h-3.5 w-3.5" /> },
+    ],
+  },
+  // 5. Demand and Inventory (Market & Position)
+  {
+    id: "demand-inventory-group",
+    label: "Demand and Inventory",
+    icon: <BarChart3 className="h-4 w-4" />,
+    items: [
+      { id: "demand-overview", label: "Demand Overview", icon: <Activity className="h-3.5 w-3.5" /> },
+      { id: "inventory-position", label: "Inventory Position", icon: <Package className="h-3.5 w-3.5" /> },
+      { id: "customers-orders", label: "Customers and Orders", icon: <Users className="h-3.5 w-3.5" /> },
+      { id: "demand-trace", label: "Demand Trace", icon: <Calculator className="h-3.5 w-3.5" /> },
+      { id: "stock-strategy", label: "Stock Strategy", icon: <ArrowLeftRight className="h-3.5 w-3.5" /> },
+    ],
+  },
+  // 6. Requirements and Priority (Demand Translation)
+  {
+    id: "requirements-group",
+    label: "Requirements and Priority",
     icon: <ClipboardList className="h-4 w-4" />,
     items: [
       { id: "requirements-matrix", label: "Requirement Matrix", icon: <Hash className="h-3.5 w-3.5" /> },
       { id: "requirements-priority-queue", label: "Priority Queue", icon: <AlertTriangle className="h-3.5 w-3.5" /> },
-      { id: "requirements-orders", label: "Customer Orders", icon: <FileText className="h-3.5 w-3.5" /> },
-      { id: "requirements-replenishment", label: "Replenishment", icon: <RefreshCw className="h-3.5 w-3.5" /> },
-      { id: "requirements-backorders", label: "Backorders", icon: <FileWarning className="h-3.5 w-3.5" /> },
-      { id: "requirements-special", label: "Special Requirements", icon: <Star className="h-3.5 w-3.5" /> },
-      { id: "requirements-forecast-signals", label: "Forecast Signals", icon: <TrendingUp className="h-3.5 w-3.5" /> },
-      { id: "requirements-allocation", label: "Allocation", icon: <Workflow className="h-3.5 w-3.5" /> },
+      { id: "orders-exceptions", label: "Orders and Exceptions", icon: <FileText className="h-3.5 w-3.5" /> },
+      { id: "replenishment-allocation", label: "Replenishment and Allocation", icon: <Workflow className="h-3.5 w-3.5" /> },
     ],
   },
+  // 7. Planning (Rough Optimization)
   {
-    id: "planning",
+    id: "planning-group",
     label: "Planning",
     icon: <Diamond className="h-4 w-4" />,
     items: [
       { id: "planning-rough-availability", label: "Rough Availability", icon: <Gem className="h-3.5 w-3.5" /> },
-      { id: "planning-cases", label: "Planning Cases", icon: <ClipboardList className="h-3.5 w-3.5" /> },
-      { id: "planning-comparison", label: "Plan Comparison", icon: <Scale className="h-3.5 w-3.5" /> },
       { id: "planning-workbook-import", label: "Workbook Import", icon: <FileText className="h-3.5 w-3.5" /> },
       { id: "planning-workbench", label: "Planning Workbench", icon: <LayoutDashboard className="h-3.5 w-3.5" /> },
+      { id: "planning-comparison", label: "Plan Comparison", icon: <Scale className="h-3.5 w-3.5" /> },
       { id: "planning-approval-queue", label: "Approval Queue", icon: <BookCheck className="h-3.5 w-3.5" /> },
-      { id: "planning-planned-pieces", label: "Planned Pieces", icon: <Layers className="h-3.5 w-3.5" /> },
-      { id: "planning-reservations", label: "Rough Reservations", icon: <ShieldCheck className="h-3.5 w-3.5" /> },
     ],
   },
+  // 8. Manufacturing (Execution)
   {
-    id: "manufacturing",
+    id: "manufacturing-group",
     label: "Manufacturing",
     icon: <Factory className="h-4 w-4" />,
     items: [
-      { id: "manufacturing-tracking", label: "Fantasy Tracking", icon: <Activity className="h-3.5 w-3.5" /> },
-      { id: "manufacturing-departments", label: "Department View", icon: <Boxes className="h-3.5 w-3.5" /> },
-      { id: "manufacturing-locations", label: "Location View", icon: <Map className="h-3.5 w-3.5" /> },
-      { id: "manufacturing-wip", label: "WIP", icon: <Boxes className="h-3.5 w-3.5" /> },
+      { id: "manufacturing-overview", label: "Manufacturing Overview", icon: <Boxes className="h-3.5 w-3.5" /> },
       { id: "manufacturing-traceability", label: "Traceability", icon: <GitBranch className="h-3.5 w-3.5" /> },
-      { id: "manufacturing-plan-vs-actual", label: "Plan vs Actual", icon: <Scale className="h-3.5 w-3.5" /> },
     ],
   },
+  // 9. Evaluation and Reconciliation (Plan vs Actual)
   {
-    id: "fantasy",
-    label: "Fantasy ERP",
-    icon: <Database className="h-4 w-4" />,
+    id: "evaluation-group",
+    label: "Evaluation and Reconciliation",
+    icon: <Scale className="h-4 w-4" />,
     items: [
-      { id: "fantasy-sync", label: "Sync Dashboard", icon: <RefreshCw className="h-3.5 w-3.5" /> },
-      { id: "fantasy-rough", label: "Rough Stock", icon: <Gem className="h-3.5 w-3.5" /> },
-      { id: "fantasy-polished", label: "Polished Stock", icon: <Diamond className="h-3.5 w-3.5" /> },
-      { id: "fantasy-departments", label: "Departments", icon: <Boxes className="h-3.5 w-3.5" /> },
-      { id: "fantasy-locations", label: "Locations", icon: <Map className="h-3.5 w-3.5" /> },
-      { id: "fantasy-status-mapping", label: "Status Mapping", icon: <Workflow className="h-3.5 w-3.5" /> },
-      { id: "fantasy-reconciliation", label: "Reconciliation", icon: <ClipboardCheck className="h-3.5 w-3.5" /> },
+      { id: "plan-vs-actual", label: "Plan vs Actual", icon: <ClipboardCheck className="h-3.5 w-3.5" /> },
     ],
   },
+  // 10. Data Science (Advisory / Future)
   {
-    id: "data-quality",
-    label: "Data Quality",
-    icon: <FileWarning className="h-4 w-4" />,
-    items: [
-      { id: "data-quality-issues", label: "Issues", icon: <AlertTriangle className="h-3.5 w-3.5" /> },
-      { id: "data-quality-unmapped-labs", label: "Unmapped Labs", icon: <FileWarning className="h-3.5 w-3.5" /> },
-      { id: "data-quality-unmapped-shapes", label: "Unmapped Shapes", icon: <FileWarning className="h-3.5 w-3.5" /> },
-    ],
-  },
-  {
-    id: "data-science",
+    id: "data-science-group",
     label: "Data Science",
     icon: <FlaskConical className="h-4 w-4" />,
+    advisory: true,
     items: [
-      { id: "data-science-anomaly-detection", label: "Anomaly Detection", icon: <AlertTriangle className="h-3.5 w-3.5" /> },
-      { id: "data-science-yield-prediction", label: "Yield Prediction", icon: <TrendingUp className="h-3.5 w-3.5" /> },
-      { id: "data-science-forecast", label: "Forecast", icon: <TrendingUp className="h-3.5 w-3.5" /> },
-      { id: "data-science-models", label: "Models", icon: <Layers className="h-3.5 w-3.5" /> },
-      { id: "data-science-prediction-monitoring", label: "Prediction Monitoring", icon: <Activity className="h-3.5 w-3.5" /> },
-      { id: "data-science-forecast-accuracy", label: "Forecast Accuracy", icon: <BarChart3 className="h-3.5 w-3.5" /> },
+      { id: "data-science-forecasting", label: "Forecasting", icon: <TrendingUp className="h-3.5 w-3.5" />, advisory: true },
+      { id: "data-science-predictive-models", label: "Predictive Models", icon: <Layers className="h-3.5 w-3.5" />, advisory: true },
+      { id: "data-science-prediction-monitoring", label: "Model Monitoring", icon: <Activity className="h-3.5 w-3.5" />, advisory: true },
     ],
   },
+  // 11. Reports
   {
-    id: "reports",
+    id: "reports-group",
     label: "Reports",
     icon: <FileBarChart className="h-4 w-4" />,
     items: [
       { id: "reports", label: "Reports Library", icon: <FileBarChart className="h-3.5 w-3.5" /> },
     ],
   },
+  // 12. Administration
   {
-    id: "admin",
+    id: "admin-group",
     label: "Administration",
     icon: <Settings className="h-4 w-4" />,
     items: [
-      { id: "admin-business-rules", label: "Business Rules", icon: <ShieldCheck className="h-3.5 w-3.5" /> },
-      { id: "admin-weight-bands", label: "Weight Bands", icon: <Scale className="h-3.5 w-3.5" /> },
-      { id: "admin-lab-mappings", label: "Lab Mapping", icon: <Gem className="h-3.5 w-3.5" /> },
-      { id: "admin-shape-mappings", label: "Shape Mapping", icon: <Diamond className="h-3.5 w-3.5" /> },
-      { id: "admin-feature-flags", label: "Feature Flags", icon: <Workflow className="h-3.5 w-3.5" /> },
+      { id: "admin-users-access", label: "Users and Access", icon: <Users className="h-3.5 w-3.5" /> },
+      { id: "admin-rules-mappings", label: "Business Rules and Mappings", icon: <ShieldCheck className="h-3.5 w-3.5" /> },
+      { id: "admin-system-settings", label: "System Settings", icon: <Settings className="h-3.5 w-3.5" /> },
       { id: "admin-audit-log", label: "Audit Log", icon: <ClipboardList className="h-3.5 w-3.5" /> },
-      { id: "admin-users", label: "Users & Roles", icon: <Users className="h-3.5 w-3.5" /> },
-      { id: "admin-access-requests", label: "Access Requests", icon: <UserPlus className="h-3.5 w-3.5" /> },
     ],
   },
 ];
 
-function Star({ className }: { className?: string }) {
-  return <span className={cn("inline-block", className)}>★</span>;
-}
-
-function NavGroupItem({ group: fullGroup }: { group: NavGroup }) {
-  // Hide screens the signed-in role cannot use (UX only — the API enforces permissions).
+function NavGroupItem({ group }: { group: NavGroup }) {
   const perms = useAuthStore((s) => s.user?.permissions);
-  const group = { ...fullGroup, items: fullGroup.items.filter((i) => !!perms?.includes(viewPermission(i.id))) };
   const collapsed = useNavStore((s) => s.collapsedGroups[group.id]);
   const toggleGroup = useNavStore((s) => s.toggleGroup);
   const view = useNavStore((s) => s.view);
   const setView = useNavStore((s) => s.setView);
-  const hasActive = group.items.some((i) => i.id === view) || group.id === "top" && view === "dashboard";
+  const setSidebarOpen = useNavStore((s) => s.setSidebarOpen);
+
+  const hasActive = group.items.some((i) => i.id === view);
+  const isSingleItem = group.items.length === 1;
+
+  const handleGroupHeaderClick = () => {
+    if (isSingleItem) {
+      setView(group.items[0].id);
+      if (typeof window !== "undefined" && window.innerWidth < 768) {
+        setSidebarOpen(false);
+      }
+    } else {
+      toggleGroup(group.id);
+    }
+  };
+
+  const handleItemClick = (id: ViewId) => {
+    setView(id);
+    if (typeof window !== "undefined" && window.innerWidth < 768) {
+      setSidebarOpen(false);
+    }
+  };
 
   return (
     <div className="border-b border-sidebar-border/40 last:border-0">
       <button
         type="button"
-        onClick={() => toggleGroup(group.id)}
+        onClick={handleGroupHeaderClick}
         className={cn(
-          "w-full flex items-center gap-2 px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-sidebar-foreground/80 hover:bg-sidebar-accent/60 transition-colors",
-          hasActive && "text-sidebar-foreground"
+          "w-full flex items-center gap-2 px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide transition-colors",
+          hasActive
+            ? "text-sidebar-foreground bg-sidebar-accent/40"
+            : "text-sidebar-foreground/80 hover:bg-sidebar-accent/50"
         )}
       >
         <span className="text-sidebar-foreground/70">{group.icon}</span>
         <span className="flex-1 truncate">{group.label}</span>
-        {group.id !== "top" && (
-          <span className="text-muted-foreground">
+        {group.advisory && (
+          <span className="text-[9px] font-semibold px-1.5 py-0.2 rounded bg-violet-500/10 text-violet-600 dark:text-violet-400 border border-violet-500/20 lowercase tracking-normal">
+            Advisory
+          </span>
+        )}
+        {!isSingleItem && (
+          <span className="text-muted-foreground ml-1">
             {collapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
           </span>
         )}
       </button>
-      {(!collapsed || group.id === "top") && (
+
+      {(!collapsed || isSingleItem) && (
         <ul className="space-y-0.5 pb-1">
           {group.items.map((item) => {
             const active = view === item.id;
+            const authorized = isViewAuthorized(perms, item.id);
             return (
               <li key={item.id}>
                 <button
                   type="button"
-                  onClick={() => setView(item.id)}
+                  onClick={() => handleItemClick(item.id)}
+                  title={!authorized ? "Access Restricted — Click to view requirements" : item.label}
                   className={cn(
-                    "w-full flex items-center gap-2 pl-5 pr-3 py-1.5 text-left text-[12px] text-sidebar-foreground/80 hover:bg-sidebar-accent/70 hover:text-sidebar-foreground transition-colors border-l-2",
+                    "w-full flex items-center gap-2 pl-5 pr-3 py-1.5 text-left text-[12px] transition-colors border-l-2",
                     active
                       ? "border-sidebar-primary bg-sidebar-accent text-sidebar-foreground font-medium"
-                      : "border-transparent"
+                      : "border-transparent text-sidebar-foreground/80 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
+                    !authorized && !active && "text-sidebar-foreground/50 hover:text-sidebar-foreground/70"
                   )}
                 >
-                  <span className="text-muted-foreground">{item.icon}</span>
+                  <span className="text-muted-foreground/80">{item.icon}</span>
                   <span className="flex-1 truncate">{item.label}</span>
+                  {item.advisory && (
+                    <span className="text-[8px] font-medium px-1 rounded bg-violet-500/10 text-violet-500 dark:text-violet-400">
+                      Adv
+                    </span>
+                  )}
+                  {!authorized && (
+                    <Lock className="h-3 w-3 text-muted-foreground/60 shrink-0 ml-auto" aria-label="Restricted Access" />
+                  )}
                 </button>
               </li>
             );
@@ -236,10 +264,7 @@ function NavGroupItem({ group: fullGroup }: { group: NavGroup }) {
   );
 }
 
-// Collapsed state on desktop: a narrow rail of group icons instead of nothing,
-// so the nav stays discoverable and one click is enough to get back to it.
-// Hidden below md, where the sidebar is an overlay drawer and the space is
-// better given to content.
+// Collapsed state on desktop: a narrow rail of group icons instead of nothing.
 function NavRail() {
   const perms = useAuthStore((s) => s.user?.permissions);
   const view = useNavStore((s) => s.view);
@@ -247,10 +272,7 @@ function NavRail() {
   const toggleGroup = useNavStore((s) => s.toggleGroup);
   const collapsedGroups = useNavStore((s) => s.collapsedGroups);
 
-  const groups = NAV.filter((g) => g.items.some((i) => perms?.includes(viewPermission(i.id))));
-
   const openGroup = (groupId: string) => {
-    // Expand the group the user pointed at, so the panel opens showing it.
     if (collapsedGroups[groupId]) toggleGroup(groupId);
     setSidebarOpen(true);
   };
@@ -258,25 +280,29 @@ function NavRail() {
   return (
     <aside className="hidden md:flex md:w-14 md:flex-shrink-0 md:min-h-0 md:flex-col overflow-y-auto border-r border-sidebar-border bg-sidebar">
       <nav className="flex flex-col items-center gap-0.5 py-2">
-        {groups.map((g) => {
+        {NAV.map((g) => {
           const active = g.items.some((i) => i.id === view);
+          const allRestricted = g.items.every((i) => !isViewAuthorized(perms, i.id));
           return (
             <button
               key={g.id}
               type="button"
               onClick={() => openGroup(g.id)}
-              title={g.label}
+              title={`${g.label}${allRestricted ? " (Restricted)" : ""}`}
               aria-label={`${g.label} — expand sidebar`}
               className={cn(
                 "relative flex h-9 w-9 items-center justify-center rounded-md transition-colors",
                 active
                   ? "bg-sidebar-accent text-sidebar-foreground"
                   : "text-sidebar-foreground/70 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
+                allRestricted && !active && "opacity-50"
               )}
             >
-              {/* Same active marker the expanded list uses. */}
               {active && <span className="absolute left-0 h-5 w-0.5 rounded-r bg-sidebar-primary" />}
               {g.icon}
+              {allRestricted && (
+                <span className="absolute bottom-1 right-1 h-1.5 w-1.5 rounded-full bg-amber-500/70" />
+              )}
             </button>
           );
         })}
@@ -294,7 +320,6 @@ function GlobalSearch() {
     queryKey: ["global-search", query],
     queryFn: async () => {
       if (!query || query.length < 2) return null;
-      // Search across rough, polished, requirements, cases
       try {
         const [roughRes, polishedRes, reqRes] = await Promise.all([
           apiFetch<{ rows: Array<{ id: string; fantasyRoughId: string; stoneName: string; kapan: string }> }>(`/api/planning/rough?q=${encodeURIComponent(query)}`).catch(() => null),
@@ -327,7 +352,7 @@ function GlobalSearch() {
             <div className="p-2">
               <p className="text-[10px] uppercase tracking-wide text-muted-foreground px-1 mb-1">Rough Stones</p>
               {searchResults.rough.map((r) => (
-                <button key={r.id} onClick={() => { setView("fantasy-rough"); setOpen(false); }} className="w-full flex items-center gap-2 px-2 py-1 text-xs hover:bg-muted rounded text-left">
+                <button key={r.id} onClick={() => { setView("fantasy-live", "rough"); setOpen(false); }} className="w-full flex items-center gap-2 px-2 py-1 text-xs hover:bg-muted rounded text-left">
                   <Gem className="h-3 w-3 text-muted-foreground" />
                   <span className="font-medium">{r.fantasyRoughId}</span>
                   <span className="text-muted-foreground truncate">{r.stoneName}</span>
@@ -339,7 +364,7 @@ function GlobalSearch() {
             <div className="p-2 border-t border-border">
               <p className="text-[10px] uppercase tracking-wide text-muted-foreground px-1 mb-1">Polished Lots</p>
               {searchResults.polished.map((p) => (
-                <button key={p.id} onClick={() => { setView("fantasy-polished"); setOpen(false); }} className="w-full flex items-center gap-2 px-2 py-1 text-xs hover:bg-muted rounded text-left">
+                <button key={p.id} onClick={() => { setView("fantasy-live", "polished"); setOpen(false); }} className="w-full flex items-center gap-2 px-2 py-1 text-xs hover:bg-muted rounded text-left">
                   <Diamond className="h-3 w-3 text-muted-foreground" />
                   <span className="font-medium">{p.fantasyLotId}</span>
                   <span className="text-muted-foreground">{p.shape} {p.weight}ct</span>
@@ -365,11 +390,15 @@ function GlobalSearch() {
   );
 }
 
+const emptySubscribe = () => () => {};
+
 function ThemeToggle() {
   const { theme, setTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => setMounted(true), []);
+  const mounted = useSyncExternalStore(
+    emptySubscribe,
+    () => true,
+    () => false
+  );
   if (!mounted) return <div className="h-8 w-8" />;
   return (
     <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>
@@ -386,7 +415,6 @@ function NotificationsBell() {
   });
   const unread = data?.rows.filter((n) => !n.read).length ?? 0;
   const [open, setOpen] = useState(false);
-  // Realtime notifications
   const realtimeEvents = useRealtimeStore((s) => s.events);
   const realtimeConnected = useRealtimeStore((s) => s.connected);
   const realtimeUnread = useRealtimeStore((s) => s.unreadCount);
@@ -413,7 +441,6 @@ function NotificationsBell() {
     <div className="relative">
       <Button variant="ghost" size="icon" className="h-8 w-8 relative" onClick={handleToggle}>
         <Bell className="h-4 w-4" />
-        {/* Live indicator when connected */}
         {realtimeConnected && (
           <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-emerald-500 ring-2 ring-card animate-pulse" title="Live — connected to realtime service" />
         )}
@@ -434,7 +461,6 @@ function NotificationsBell() {
             </span>
           </div>
           <div className="max-h-80 overflow-y-auto">
-            {/* Realtime events first */}
             {realtimeEvents.length > 0 && (
               <>
                 <div className="px-3 py-1.5 bg-sky-50/50 dark:bg-sky-950/20 border-b border-border/50">
@@ -461,7 +487,6 @@ function NotificationsBell() {
                 ))}
               </>
             )}
-            {/* Static notifications */}
             {data && data.rows.length > 0 && (
               <>
                 <div className="px-3 py-1.5 bg-muted/30 border-b border-border/50">
@@ -495,7 +520,6 @@ function NotificationsBell() {
 }
 
 export function AppShell({ children }: { children: ReactNode }) {
-  const userPerms = useAuthStore((s) => s.user?.permissions);
   const sidebarOpen = useNavStore((s) => s.sidebarOpen);
   const setSidebarOpen = useNavStore((s) => s.setSidebarOpen);
   const view = useNavStore((s) => s.view);
@@ -617,14 +641,16 @@ export function AppShell({ children }: { children: ReactNode }) {
               // Mobile: fixed drawer overlay below header
               "fixed inset-y-0 left-0 top-12 bottom-0 w-72 max-w-[85vw] shadow-2xl z-50",
               // Desktop: inline flex-shrink-0 full-height scroll
-              "md:static md:w-60 md:max-w-none md:flex-shrink-0 md:h-full md:z-20 md:shadow-none"
+              "md:static md:w-64 md:max-w-none md:flex-shrink-0 md:h-full md:z-20 md:shadow-none"
             )}
           >
             <nav className="py-1">
-              {NAV.filter((g) => g.items.some((i) => userPerms?.includes(viewPermission(i.id)))).map((g) => <NavGroupItem key={g.id} group={g} />)}
+              {NAV.map((g) => (
+                <NavGroupItem key={g.id} group={g} />
+              ))}
             </nav>
             <div className="px-3 py-2 text-[9px] text-muted-foreground/60 border-t border-sidebar-border/40">
-              <p>v1.0 · Demand rule v1 · {new Date().getFullYear()}</p>
+              <p>Source-to-Decision · Demand rule v1 · {new Date().getFullYear()}</p>
             </div>
           </aside>
         )}
