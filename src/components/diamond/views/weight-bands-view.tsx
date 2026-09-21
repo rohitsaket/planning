@@ -28,15 +28,16 @@ const columns: Column<WeightBandRow>[] = [
   {
     key: "range",
     header: "Range",
+    align: "center",
     cell: (r) => (
-      <div className="relative w-[140px] h-1.5 bg-muted rounded-full overflow-hidden">
+      <div className="relative w-[140px] h-1.5 bg-muted rounded-full overflow-hidden mx-auto">
         <div className="absolute h-full bg-emerald-500/70" style={{ width: "100%" }} />
         <span className="absolute -top-3 right-0 text-[9px] text-muted-foreground">{r.maxCt.toFixed(2)}</span>
         <span className="absolute -top-3 left-0 text-[9px] text-muted-foreground">{r.minCt.toFixed(2)}</span>
       </div>
     ),
   },
-  { key: "active", header: "Active", cell: (r) => <Badge variant={r.active ? "success" : "neutral"}>{r.active ? "ACTIVE" : "INACTIVE"}</Badge> },
+  { key: "active", header: "Active", align: "center", cell: (r) => <Badge variant={r.active ? "success" : "neutral"}>{r.active ? "ACTIVE" : "INACTIVE"}</Badge> },
 ];
 
 export function WeightBandsView() {

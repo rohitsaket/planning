@@ -329,6 +329,7 @@ export function PlanningCasesView() {
     {
       key: "stoneType",
       header: "Type",
+      align: "center",
       width: "70px",
       cell: (r) => (
         <Badge variant={r.stoneType === "BLUE" ? "info" : "default"}>
@@ -362,6 +363,7 @@ export function PlanningCasesView() {
     {
       key: "status",
       header: "Status",
+      align: "center",
       width: "130px",
       cell: (r) => <StatusBadge status={r.status} />,
     },
@@ -375,6 +377,7 @@ export function PlanningCasesView() {
     {
       key: "selectedOptionCode",
       header: "Sel Opt",
+      align: "center",
       width: "90px",
       cell: (r) => r.selectedOptionCode ?? "—",
     },

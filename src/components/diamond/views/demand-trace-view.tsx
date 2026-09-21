@@ -800,8 +800,8 @@ export function DemandTraceView() {
                           <td className="p-2 font-mono font-medium">{s.lotId}</td>
                           <td className="p-2">{s.docDate ? new Date(s.docDate).toLocaleDateString() : "—"}</td>
                           <td className="p-2">{s.customerName || "—"}</td>
-                          <td className="p-2 text-right">{s.weight.toFixed(2)}</td>
-                          <td className="p-2 text-right">{s.saleTotalUsd ? `$${s.saleTotalUsd.toLocaleString()}` : "—"}</td>
+                          <td className="p-2 text-right tabular-nums">{s.weight.toFixed(2)}</td>
+                          <td className="p-2 text-right tabular-nums">{s.saleTotalUsd ? `$${s.saleTotalUsd.toLocaleString()}` : "—"}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -835,7 +835,7 @@ export function DemandTraceView() {
                           <td className="p-2 font-mono font-medium">{s.lotId}</td>
                           <td className="p-2">{s.color || "—"} / {s.clarity || "—"}</td>
                           <td className="p-2">{s.locationName || "Main Vault"}</td>
-                          <td className="p-2 text-right">{s.weight.toFixed(2)}</td>
+                          <td className="p-2 text-right tabular-nums">{s.weight.toFixed(2)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -869,7 +869,7 @@ export function DemandTraceView() {
                           <td className="p-2 font-mono font-medium">{m.lotId}</td>
                           <td className="p-2">{m.customerName || "—"}</td>
                           <td className="p-2">{m.docDate ? new Date(m.docDate).toLocaleDateString() : "—"}</td>
-                          <td className="p-2 text-right">{m.weight.toFixed(2)}</td>
+                          <td className="p-2 text-right tabular-nums">{m.weight.toFixed(2)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -903,7 +903,7 @@ export function DemandTraceView() {
                           <td className="p-2 font-mono font-medium">{w.lotId}</td>
                           <td className="p-2">{w.wipStage || "POLISHING"}</td>
                           <td className="p-2">{w.kapan || "—"}</td>
-                          <td className="p-2 text-right">{w.weight.toFixed(2)}</td>
+                          <td className="p-2 text-right tabular-nums">{w.weight.toFixed(2)}</td>
                         </tr>
                       ))}
                     </tbody>

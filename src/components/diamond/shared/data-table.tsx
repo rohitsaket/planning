@@ -172,16 +172,22 @@ export function DataTable<T>({
                     key={c.key}
                     onClick={() => handleSort(c)}
                     className={cn(
-                      "px-2 py-2 text-left font-semibold text-muted-foreground uppercase tracking-wide text-[10px] whitespace-nowrap",
-                      c.align === "right" && "text-right",
-                      c.align === "center" && "text-center",
-                      c.sortable && "cursor-pointer hover:bg-muted",
+                      "px-2 py-2 font-semibold text-muted-foreground uppercase tracking-wide text-[10px] whitespace-nowrap",
+                      c.align === "right" ? "text-right" : c.align === "center" ? "text-center" : "text-left",
+                      c.sortable && "cursor-pointer hover:bg-muted select-none",
                       c.sticky === "left" && "sticky left-0 bg-muted/80 z-20 border-r",
                       c.sticky === "right" && "sticky right-0 bg-muted/80 z-20 border-l"
                     )}
                     style={c.width ? { width: c.width } : undefined}
                   >
-                    <div className="flex items-center gap-1">
+                    <div
+                      className={cn(
+                        "flex items-center gap-1",
+                        c.align === "right" && "justify-end text-right",
+                        c.align === "center" && "justify-center text-center",
+                        (!c.align || c.align === "left") && "justify-start text-left"
+                      )}
+                    >
                       <span>{c.header}</span>
                       {sortKey === c.key && (
                         <span className="text-[8px]">{sortDir === "asc" ? "▲" : "▼"}</span>
@@ -223,9 +229,10 @@ export function DataTable<T>({
                     <td
                       key={c.key}
                       className={cn(
-                        "px-2 py-1.5 align-top",
+                        "px-2 py-1.5 align-middle",
                         c.align === "right" && "text-right tabular-nums",
                         c.align === "center" && "text-center",
+                        (!c.align || c.align === "left") && "text-left",
                         c.sticky === "left" && "sticky left-0 bg-card z-10 border-r",
                         c.sticky === "right" && "sticky right-0 bg-card z-10 border-l"
                       )}

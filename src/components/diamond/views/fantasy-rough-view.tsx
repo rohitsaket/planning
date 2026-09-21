@@ -77,7 +77,7 @@ export function FantasyRoughView() {
     { key: "stoneName", header: "Stone Name", sortable: true, sortValue: (r) => r.stoneName, cell: (r) => <span className="font-medium">{r.stoneName}</span> },
     { key: "signer", header: "Signer", cell: (r) => <span className="text-muted-foreground">{r.signer ?? "—"}</span> },
     {
-      key: "stoneType", header: "Stone Type",
+      key: "stoneType", header: "Stone Type", align: "center",
       cell: (r) => <Badge variant={r.stoneType === "BLUE" ? "info" : "neutral"}>{r.stoneType}</Badge>,
     },
     {
@@ -89,15 +89,15 @@ export function FantasyRoughView() {
     { key: "fantasyDepartmentId", header: "Dept ID", cell: (r) => <span className="text-muted-foreground">{r.fantasyDepartmentId ?? "—"}</span> },
     { key: "fantasyLocationId", header: "Loc ID", cell: (r) => <span className="text-muted-foreground">{r.fantasyLocationId ?? "—"}</span> },
     {
-      key: "fantasyStatus", header: "Fantasy Status",
+      key: "fantasyStatus", header: "Fantasy Status", align: "center",
       cell: (r) => <StatusBadge status={r.fantasyStatus} />,
     },
     {
-      key: "planningEligible", header: "Plan Eligible",
+      key: "planningEligible", header: "Plan Eligible", align: "center",
       cell: (r) => <Badge variant={r.planningEligible ? "success" : "neutral"}>{r.planningEligible ? "Yes" : "No"}</Badge>,
     },
     {
-      key: "planningStatus", header: "Plan Status",
+      key: "planningStatus", header: "Plan Status", align: "center",
       cell: (r) => <StatusBadge status={r.planningStatus} />,
     },
     { key: "parentRoughId", header: "Parent Rough", cell: (r) => <span className="text-muted-foreground">{r.parentRoughId ?? "—"}</span> },

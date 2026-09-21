@@ -177,6 +177,7 @@ const userColumns: Column<StubUserRow>[] = [
   {
     key: "role",
     header: "Role",
+    align: "center",
     cell: (r) => <Badge variant={roleVariant(r.role)}>{r.role}</Badge>,
   },
   {
@@ -191,6 +192,7 @@ const userColumns: Column<StubUserRow>[] = [
   {
     key: "status",
     header: "Status",
+    align: "center",
     cell: (r) => <Badge variant={r.status === "ACTIVE" ? "success" : "neutral"}>{r.status}</Badge>,
   },
 ];

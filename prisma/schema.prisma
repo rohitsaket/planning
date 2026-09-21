@@ -328,44 +328,57 @@ model PlanningCategory {
 // DEMAND & REQUIREMENTS
 // ---------------------------------------------------------------------------
 model DemandCalculationLock {
-  id        String    @id @default("DEMAND_CALCULATION")
-  isLocked  Boolean   @default(false)
-  lockedAt  DateTime?
-  lockedBy  String?
-  runId     String?
-  updatedAt DateTime  @updatedAt
+  id               String    @id @default("DEMAND_CALCULATION")
+  isLocked         Boolean   @default(false)
+  lockToken        String?
+  lockedAt         DateTime?
+  lockedBy         String?
+  lockedByUserId   String?
+  runId            String?
+  previousOwner    String?
+  previousRunId    String?
+  previousLockedAt DateTime?
+  unlockReason     String?
+  unlockedBy       String?
+  unlockedAt       DateTime?
+  updatedAt        DateTime  @updatedAt
 }
 
 model DemandRun {
-  id               String         @id @default(cuid())
-  runDate          DateTime       @default(now())
-  windowDays       Int            @default(90)
-  ruleVersion      String         @default("DEMAND-V1")
-  status           String         @default("COMPLETED") // RUNNING | COMPLETED | FAILED | PARTIAL
-  totalShortage    Int            @default(0)
-  totalExcess      Int            @default(0)
-  startedAt        DateTime       @default(now())
-  finishedAt       DateTime?
-  businessDateIst  String?
-  lookbackStart    DateTime?
-  lookbackEnd      DateTime?
-  mappingVersion   String?
-  sourceMode       String         @default("FIXTURE") // FIXTURE | FILE_IMPORT | FANTASY_API
-  isSimulated      Boolean        @default(true)
-  checkpoint       Int            @default(0)
-  lastBatchId      String?
-  sourceCutoff     DateTime?
-  salesCount       Int            @default(0)
-  inventoryCount   Int            @default(0)
-  wipCount         Int            @default(0)
-  excludedCount    Int            @default(0)
-  actor            String?
-  actorUserId      String?
-  errorSummary     String?
-  durationMs       Int            @default(0)
-  createdAt        DateTime       @default(now())
+  id                 String                  @id @default(cuid())
+  runDate            DateTime                @default(now())
+  windowDays         Int                     @default(90)
+  ruleVersion        String                  @default("DEMAND-V1")
+  status             String                  @default("COMPLETED") // RUNNING | COMPLETED | FAILED | PARTIAL | REVIEW_REQUIRED | BLOCKED_BY_DATA_QUALITY
+  sourcePolicy       String                  @default("CANONICAL_FANTASY") // CANONICAL_FANTASY | LEGACY_SALES
+  totalShortage      Int                     @default(0)
+  totalExcess        Int                     @default(0)
+  startedAt          DateTime                @default(now())
+  finishedAt         DateTime?
+  businessDateIst    String?
+  lookbackStart      DateTime?
+  lookbackEnd        DateTime?
+  mappingVersion     String?
+  mappingFingerprint String?
+  lockToken          String?
+  sourceMode         String                  @default("FIXTURE") // FIXTURE | FILE_IMPORT | FANTASY_API
+  isSimulated        Boolean                 @default(true)
+  checkpoint         Int                     @default(0)
+  lastBatchId        String?
+  sourceCutoff       DateTime?
+  salesCount         Int                     @default(0)
+  inventoryCount     Int                     @default(0)
+  wipCount           Int                     @default(0)
+  planCount          Int                     @default(0)
+  excludedCount      Int                     @default(0)
+  actor              String?
+  actorUserId        String?
+  errorSummary       String?
+  durationMs         Int                     @default(0)
+  createdAt          DateTime                @default(now())
 
-  metrics          DemandMetric[]
+  metrics            DemandMetric[]
+  traceItems         DemandMetricTraceItem[]
 
   @@index([runDate])
   @@index([status])
@@ -396,12 +409,44 @@ model DemandMetric {
   approvedPlanCoverage Int        @default(0)
   remainingUnplanned   Int
   forecastSignal       Int        @default(0)
-  status               String     @default("COMPLETED") // COMPLETED | REVIEW_REQUIRED | BLOCKED
-  traceJson            String?    // JSON with contributing lot IDs, events, and exclusions
+  status               String     @default("COMPLETED") // COMPLETED | REVIEW_REQUIRED | BLOCKED_BY_DATA_QUALITY
+  traceJson            String?    // Legacy JSON support
   createdAt            DateTime   @default(now())
 
   @@index([runId])
   @@index([planningCategory])
+}
+
+model DemandMetricTraceItem {
+  id               String     @id @default(cuid())
+  runId            String
+  run              DemandRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
+  demandMetricId   String?
+  planningCategory String
+  traceType        String     // SALE | STOCK | MEMO | RESERVED | BLOCKED | WIP_ELIGIBLE | WIP_UNALLOCATED | PLAN_APPROVED | EXCLUSION
+  lotId            String?
+  sourceRecordId   String?
+  eventKey         String?
+  quantity         Decimal    @default(1)
+  weight           Decimal?
+  lab              String?
+  shape            String?
+  weightBand       String?
+  wipStage         String?
+  customerName     String?
+  saleTotalUsd     Decimal?
+  docDate          DateTime?
+  reason           String?
+  isIncluded       Boolean    @default(true)
+  checkpoint       Int?
+  batchId          String?
+  metadataJson     String?
+  createdAt        DateTime   @default(now())
+
+  @@index([runId, planningCategory])
+  @@index([runId, traceType])
+  @@index([lotId])
+  @@index([eventKey])
 }
 
 model Requirement {

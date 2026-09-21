@@ -59,6 +59,7 @@ function buildCols(priorityLabel: string): Column<ReqRow>[] {
     {
       key: "type",
       header: "Type",
+      align: "center",
       width: "120px",
       cell: (r) => <Badge variant="info">{r.type.replace(/_/g, " ")}</Badge>,
     },

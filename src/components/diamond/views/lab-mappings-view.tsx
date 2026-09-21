@@ -18,7 +18,7 @@ interface LabMappingsData {
 
 const columns: Column<LabMappingRow>[] = [
   { key: "rawLab", header: "Raw Lab", cell: (r) => <span className="font-mono text-[10px] font-medium">{r.rawLab || "(blank)"}</span>, sortable: true, sortValue: (r) => r.rawLab, sticky: "left" },
-  { key: "normalizedLab", header: "Normalized Lab", cell: (r) => <Badge variant="info">{r.normalizedLab}</Badge> },
+  { key: "normalizedLab", header: "Normalized Lab", align: "center", cell: (r) => <Badge variant="info">{r.normalizedLab}</Badge> },
   {
     key: "mapping",
     header: "Mapping",
@@ -30,7 +30,7 @@ const columns: Column<LabMappingRow>[] = [
       </span>
     ),
   },
-  { key: "active", header: "Active", cell: (r) => <Badge variant={r.active ? "success" : "neutral"}>{r.active ? "ACTIVE" : "INACTIVE"}</Badge> },
+  { key: "active", header: "Active", align: "center", cell: (r) => <Badge variant={r.active ? "success" : "neutral"}>{r.active ? "ACTIVE" : "INACTIVE"}</Badge> },
 ];
 
 export function LabMappingsView() {

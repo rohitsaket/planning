@@ -645,6 +645,7 @@ export function PlanComparisonView() {
     {
       key: "approvalStatus",
       header: "Approval",
+      align: "center",
       cell: (r) => <StatusBadge status={r.approvalStatus} />,
     },
   ];

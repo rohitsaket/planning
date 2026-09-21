@@ -80,12 +80,12 @@ export function FantasyPolishedView() {
     { key: "country", header: "Country", cell: (r) => <span>{r.country}</span> },
     { key: "branch", header: "Branch", cell: (r) => <span>{r.branch}</span> },
     {
-      key: "fantasyStatus", header: "Fantasy Status",
+      key: "fantasyStatus", header: "Fantasy Status", align: "center",
       cell: (r) => <StatusBadge status={r.fantasyStatus} />,
     },
     { key: "labRaw", header: "Lab (raw)", cell: (r) => <span className="text-muted-foreground">{r.labRaw ?? "—"}</span> },
     {
-      key: "labNormalized", header: "Lab (norm)",
+      key: "labNormalized", header: "Lab (norm)", align: "center",
       cell: (r) => <Badge variant={r.labNormalized === "GIA" ? "info" : "neutral"}>{r.labNormalized ?? "Non-Cert"}</Badge>,
     },
     { key: "shape", header: "Shape", cell: (r) => <span>{r.shape}</span> },
@@ -100,7 +100,7 @@ export function FantasyPolishedView() {
     { key: "certificate", header: "Certificate", cell: (r) => <span className="text-muted-foreground text-[10px]">{r.certificate ?? "—"}</span> },
     { key: "treatment", header: "Treatment", cell: (r) => <span className="text-muted-foreground">{r.treatment ?? "—"}</span> },
     {
-      key: "planningClass", header: "Plan Class",
+      key: "planningClass", header: "Plan Class", align: "center",
       cell: (r) => <StatusBadge status={r.planningClass} />,
     },
     { key: "lastUpdated", header: "Last Updated", sortable: true, sortValue: (r) => r.lastUpdated, cell: (r) => <span className="text-muted-foreground">{fmtDate(r.lastUpdated)}</span> },

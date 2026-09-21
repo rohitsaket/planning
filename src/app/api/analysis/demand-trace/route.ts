@@ -1,17 +1,21 @@
 import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
-import { withApi, qStr } from "@/lib/api/with-api";
+import { withApi, qStr, qInt } from "@/lib/api/with-api";
 import { getFantasyConfig } from "@/lib/fantasy/config";
 import { formatIST } from "@/lib/fantasy/time";
 
 // Demand Calculation Trace — exposes every intermediate calculation step,
 // confirmed sale events, finished inventory lots, memo consignments, WIP lots,
 // exclusions, and exact formula reconciliations per planning category.
-export const GET = withApi({ permission: "analysis.read" }, async (req: Request) => {
+export const GET = withApi({ permission: "analysis.read" }, async (req: Request, _ctx, { principal }) => {
   const url = new URL(req.url);
   const config = getFantasyConfig();
   const runIdParam = qStr(url, "runId");
   const selectedCategoryParam = qStr(url, "category");
+  const traceTypeParam = qStr(url, "traceType");
+  const page = qInt(url, "page", { def: 1, min: 1, max: 10000 });
+  const pageSize = qInt(url, "pageSize", { def: 50, min: 1, max: 500 });
+  const hasTracePermission = principal.permissions.includes("demand.trace");
 
   // 1. Fetch latest or specified demand run
   const whereRun = runIdParam ? { id: runIdParam } : { status: "COMPLETED" };
@@ -39,7 +43,15 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request)
       windowDays: 90,
       checkpoint: 0,
       lastBatchId: null,
+      sourceCutoff: null,
+      sourcePolicy: "CANONICAL_FANTASY",
+      mappingFingerprint: null,
+      hasTracePermission,
       categories: [],
+      traceItems: [],
+      traceItemsTotal: 0,
+      page,
+      pageSize,
       summary: {
         totalCategories: 0,
         totalShortage: 0,
@@ -53,6 +65,69 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request)
         totalRemainingUnplanned: 0,
       },
     });
+  }
+
+  // Fetch paginated trace items if caller has demand.trace permission
+  let traceItems: Array<{
+    id: string;
+    planningCategory: string;
+    traceType: string;
+    lotId: string | null;
+    sourceRecordId: string | null;
+    eventKey: string | null;
+    quantity: number;
+    weight: number | null;
+    lab: string | null;
+    shape: string | null;
+    weightBand: string | null;
+    wipStage: string | null;
+    customerName: string | null;
+    saleTotalUsd: number | null;
+    docDate: string | null;
+    reason: string | null;
+    isIncluded: boolean;
+  }> = [];
+  let traceItemsTotal = 0;
+
+  if (hasTracePermission) {
+    const traceWhere: Record<string, unknown> = { runId: targetRun.id };
+    if (selectedCategoryParam) {
+      traceWhere.planningCategory = selectedCategoryParam;
+    }
+    if (traceTypeParam) {
+      traceWhere.traceType = traceTypeParam;
+    }
+
+    const [items, total] = await Promise.all([
+      db.demandMetricTraceItem.findMany({
+        where: traceWhere,
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        orderBy: [{ planningCategory: "asc" }, { createdAt: "asc" }],
+      }),
+      db.demandMetricTraceItem.count({ where: traceWhere }),
+    ]);
+
+    traceItemsTotal = total;
+    traceItems = items.map((item) => ({
+      id: item.id,
+      planningCategory: item.planningCategory,
+      traceType: item.traceType,
+      lotId: item.lotId,
+      sourceRecordId: item.sourceRecordId,
+      eventKey: item.eventKey,
+      quantity: num(item.quantity),
+      weight: item.weight ? num(item.weight) : null,
+      lab: item.lab,
+      shape: item.shape,
+      weightBand: item.weightBand,
+      wipStage: item.wipStage,
+      customerName: item.customerName,
+      saleTotalUsd: item.saleTotalUsd ? num(item.saleTotalUsd) : null,
+      docDate: item.docDate?.toISOString() ?? null,
+      reason: item.reason,
+      isIncluded: item.isIncluded,
+    }));
   }
 
   // 2. Map metrics into full trace objects
@@ -112,7 +187,7 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request)
       }>,
     };
 
-    if (m.traceJson) {
+    if (hasTracePermission && m.traceJson) {
       try {
         traceDetails = JSON.parse(m.traceJson);
       } catch {
@@ -130,8 +205,8 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request)
         step: 1,
         label: "90-Day Confirmed Sales (IST Lookback Window)",
         value: sales90d,
-        formula: `COUNT(LotMasterRecord/SalesRecord WHERE status IN ['SOLD','INVOICE'] AND docDate BETWEEN ${targetRun.businessDateIst ? `${targetRun.businessDateIst} - 90d` : 'Window'} AND category matches)`,
-        source: "Canonical Fantasy Sales & Invoices",
+        formula: `COUNT(LotHistoryRecord WHERE status IN ['SOLD','INVOICE','EXPLICIT_SALE'] AND docDate BETWEEN ${targetRun.businessDateIst ? `${targetRun.businessDateIst} - 90d` : 'Window'} AND category matches)`,
+        source: targetRun.sourcePolicy === "LEGACY_SALES" ? "Legacy Sales Records" : "Canonical Fantasy Sales History (Deduplicated Lifecycles)",
         contributingLotsCount: traceDetails.contributingSalesLots.length,
       },
       {
@@ -159,8 +234,8 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request)
         step: 5,
         label: "Physical Available Finished Stock",
         value: availableStock,
-        formula: "COUNT(LotMasterRecord WHERE isCurrent=true AND status='STOCK' AND roughOrPolished='POLISHED')",
-        source: "Authoritative Polished Stock",
+        formula: "COUNT(PolishedStone WHERE isCurrent=true AND status='STOCK' AND planningClass IN ['PHYSICAL','PLANNING_AVAILABLE'])",
+        source: "Authoritative Operational Polished Stock",
         contributingLotsCount: traceDetails.physicalStockLots.length,
       },
       {
@@ -175,7 +250,7 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request)
         step: 7,
         label: "Memo Consignment Stock (NOT Deducted)",
         value: memoQty,
-        formula: "COUNT(LotMasterRecord WHERE isCurrent=true AND status='MEMO') — Memo stock is NOT deducted from shortage",
+        formula: "COUNT(PolishedStone WHERE isCurrent=true AND planningClass='MEMO') — Memo stock is NOT deducted from shortage",
         source: "Memo Consignment Mirror",
         tone: "advisory",
         contributingLotsCount: traceDetails.memoLots.length,
@@ -184,8 +259,8 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request)
         step: 8,
         label: "Eligible Manufacturing WIP Coverage",
         value: wipCoverage,
-        formula: "COUNT(LotMasterRecord WHERE isCurrent=true AND roughOrPolished='WIP' AND category matches)",
-        source: "Manufacturing WIP Section",
+        formula: "COUNT(LotMasterRecord WHERE isCurrent=true AND roughOrPolished='WIP' AND wipStage IN eligibleStages AND category matches)",
+        source: "Eligible Manufacturing WIP (Approved Stages Only)",
         tone: wipCoverage > 0 ? "coverage" : "neutral",
         contributingLotsCount: traceDetails.eligibleWipLots.length,
       },
@@ -201,7 +276,7 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request)
         step: 10,
         label: "Approved Plan Coverage",
         value: approvedPlanCoverage,
-        formula: "SUM(PlanOptionPiece WHERE approvalStatus='APPROVED' AND category matches)",
+        formula: "SUM(PlanOptionPiece WHERE planOption.isApproved=true AND piece.approvalStatus='APPROVED' AND not double-counted with WIP)",
         source: "Approved Rough Production Plans",
         tone: approvedPlanCoverage > 0 ? "coverage" : "neutral",
       },
@@ -252,8 +327,10 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request)
       approvedPlanCoverage,
       remainingUnplanned,
       forecastSignal,
+      status: m.status,
       steps,
-      traceDetails,
+      traceDetails: hasTracePermission ? traceDetails : undefined,
+      traceAccessRestricted: !hasTracePermission,
       fourNumbers: {
         physicalShortage,
         pipelineAdjusted: pipelineNeed,
@@ -279,6 +356,10 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request)
     sourceMode: targetRun.sourceMode,
     isSimulated: targetRun.isSimulated,
     ruleVersion: targetRun.ruleVersion,
+    sourcePolicy: targetRun.sourcePolicy,
+    mappingFingerprint: targetRun.mappingFingerprint,
+    mappingVersion: targetRun.mappingVersion,
+    status: targetRun.status,
     runId: targetRun.id,
     runDate: targetRun.runDate.toISOString(),
     runDateIST: formatIST(targetRun.runDate),
@@ -288,10 +369,17 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request)
     windowDays: targetRun.windowDays,
     checkpoint: targetRun.checkpoint,
     lastBatchId: targetRun.lastBatchId,
+    sourceCutoff: targetRun.sourceCutoff?.toISOString() ?? null,
     salesCount: targetRun.salesCount,
     inventoryCount: targetRun.inventoryCount,
     wipCount: targetRun.wipCount,
+    planCount: targetRun.planCount,
     excludedCount: targetRun.excludedCount,
+    hasTracePermission,
+    page,
+    pageSize,
+    traceItemsTotal,
+    traceItems,
     categories,
     selectedCategory: selectedCategoryParam
       ? categories.find((c) => c.category === selectedCategoryParam) ?? null

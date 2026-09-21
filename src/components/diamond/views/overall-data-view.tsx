@@ -174,10 +174,11 @@ export function OverallDataView() {
     {
       key: "status",
       header: "Status",
+      align: "center",
       sortable: true,
       sortValue: (r) => r.currentStatus,
       cell: (r) => (
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center justify-center gap-1.5">
           <StatusBadge status={r.currentStatus} />
           {r.isCurrent ? (
             <span className="text-[9px] px-1 py-0.2 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-medium">
@@ -241,6 +242,7 @@ export function OverallDataView() {
     {
       key: "removalReason",
       header: "Removal / Disappearance",
+      align: "center",
       cell: (r) => {
         if (r.isCurrent) return <span className="text-xs text-muted-foreground">—</span>;
         if (r.removalReason === "SOURCE_DISAPPEARANCE_UNKNOWN") {

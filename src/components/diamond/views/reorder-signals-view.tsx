@@ -53,6 +53,7 @@ export function ReorderSignalsView() {
     {
       key: "signal",
       header: "Signal",
+      align: "center",
       sortable: true,
       sortValue: (r) => r.signal,
       cell: (r) => <Badge variant={signalVariant[r.signal]}>{r.signal.replace(/_/g, " ")}</Badge>,
@@ -72,6 +73,7 @@ export function ReorderSignalsView() {
     {
       key: "businessPriority",
       header: "Priority",
+      align: "center",
       cell: (r) => r.businessPriority ? <Badge variant={r.businessPriority === "Strategic" ? "critical" : r.businessPriority === "Key" ? "warning" : "neutral"}>{r.businessPriority}</Badge> : <span className="text-muted-foreground/50">—</span>,
     },
     {

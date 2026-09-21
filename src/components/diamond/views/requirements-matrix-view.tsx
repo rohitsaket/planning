@@ -340,12 +340,14 @@ export function RequirementsMatrixView() {
     {
       key: "type",
       header: "Type",
+      align: "center",
       width: "120px",
       cell: (r) => <Badge variant="info">{r.type.replace(/_/g, " ")}</Badge>,
     },
     {
       key: "status",
       header: "Status",
+      align: "center",
       width: "120px",
       cell: (r) => <StatusBadge status={r.status} />,
     },
@@ -510,6 +512,7 @@ export function RequirementsMatrixView() {
     {
       key: "customerPriority",
       header: "Cust Pri",
+      align: "center",
       width: "80px",
       sticky: "left",
       cell: (r) => <PriorityBadge value={r.customerPriority} />,
@@ -517,6 +520,7 @@ export function RequirementsMatrixView() {
     {
       key: "orderPriority",
       header: "Ord Pri",
+      align: "center",
       width: "80px",
       sticky: "left",
       cell: (r) => <PriorityBadge value={r.orderPriority} />,
@@ -524,6 +528,7 @@ export function RequirementsMatrixView() {
     {
       key: "requirementPriority",
       header: "Req Pri",
+      align: "center",
       width: "80px",
       sticky: "left",
       cell: (r) => <PriorityBadge value={r.requirementPriority} />,

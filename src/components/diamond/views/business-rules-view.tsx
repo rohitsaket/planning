@@ -123,16 +123,16 @@ export function BusinessRulesView() {
 
   const columns: Column<RuleRow>[] = [
     { key: "ruleId", header: "Rule ID", cell: (r) => <span className="font-mono text-[10px] font-medium">{r.ruleId}</span>, sortable: true, sortValue: (r) => r.ruleId, sticky: "left" },
-    { key: "domain", header: "Domain", cell: (r) => <Badge variant={domainVariant(r.domain)}>{r.domain}</Badge> },
+    { key: "domain", header: "Domain", align: "center", cell: (r) => <Badge variant={domainVariant(r.domain)}>{r.domain}</Badge> },
     { key: "name", header: "Name", cell: (r) => <span className="text-[10px] font-medium">{r.name}</span> },
     { key: "version", header: "Version", cell: (r) => <span className="font-mono text-[10px]">{r.version}</span> },
     { key: "effectiveDate", header: "Effective", cell: (r) => <span className="tabular-nums text-[10px]">{new Date(r.effectiveDate).toLocaleDateString()}</span> },
-    { key: "status", header: "Status", cell: (r) => <StatusBadge status={r.status} />, sortable: true, sortValue: (r) => r.status },
+    { key: "status", header: "Status", align: "center", cell: (r) => <StatusBadge status={r.status} />, sortable: true, sortValue: (r) => r.status },
     { key: "configuration", header: "Configuration", cell: (r) => <pre className="text-[9px] font-mono whitespace-pre-wrap max-w-[280px] max-h-[80px] overflow-auto rounded bg-muted/40 p-1.5">{formatConfig(r.configuration)}</pre> },
     { key: "approvedBy", header: "Approved By", cell: (r) => <span className="text-[10px]">{r.approvedBy ?? "—"}</span> },
     { key: "approvedAt", header: "Approved At", cell: (r) => <span className="tabular-nums text-[10px]">{r.approvedAt ? new Date(r.approvedAt).toLocaleString() : "—"}</span> },
     { key: "notes", header: "Notes", cell: (r) => <span className="text-[10px]">{r.notes ?? "—"}</span> },
-    { key: "action", header: "Status Change", cell: (r) => <StatusChangeForm row={r} /> },
+    { key: "action", header: "Status Change", align: "center", cell: (r) => <StatusChangeForm row={r} /> },
   ];
 
   return (

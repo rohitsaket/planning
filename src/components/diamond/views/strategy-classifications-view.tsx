@@ -167,6 +167,7 @@ export function StrategyClassificationsView() {
     {
       key: "classification",
       header: "Strategic Posture",
+      align: "center",
       sortable: true,
       sortValue: (r) => r.classification,
       width: "180px",

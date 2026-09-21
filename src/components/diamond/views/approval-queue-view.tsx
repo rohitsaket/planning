@@ -199,6 +199,7 @@ export function ApprovalQueueView() {
     {
       key: "stoneType",
       header: "Type",
+      align: "center",
       width: "70px",
       cell: (r) => (
         <Badge variant={r.stoneType === "BLUE" ? "info" : "default"}>{r.stoneType}</Badge>
@@ -228,12 +229,14 @@ export function ApprovalQueueView() {
     {
       key: "status",
       header: "Status",
+      align: "center",
       width: "140px",
       cell: (r) => <StatusBadge status={r.status} />,
     },
     {
       key: "selectedOptionCode",
       header: "Sel Opt",
+      align: "center",
       width: "90px",
       cell: (r) => r.selectedOptionCode ?? "—",
     },

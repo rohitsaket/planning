@@ -81,10 +81,10 @@ const stockoutColumns: Column<StockoutRow>[] = [
   { key: "projected30d", header: "Proj 30D", cell: (r) => <NumberCell value={r.projected30d} intent={projIntent(r.projected30d)} />, align: "right", sortable: true, sortValue: (r) => r.projected30d },
   { key: "projected60d", header: "Proj 60D", cell: (r) => <NumberCell value={r.projected60d} intent={projIntent(r.projected60d)} />, align: "right", sortable: true, sortValue: (r) => r.projected60d },
   { key: "projected90d", header: "Proj 90D", cell: (r) => <NumberCell value={r.projected90d} intent={projIntent(r.projected90d)} />, align: "right", sortable: true, sortValue: (r) => r.projected90d },
-  { key: "stockoutRisk", header: "Stockout Risk", cell: (r) => (r.stockoutRisk ? <StatusBadge status={r.stockoutRisk} /> : <span className="text-muted-foreground">—</span>) },
-  { key: "stockoutDate", header: "Stockout Date", cell: (r) => (r.stockoutDate ? <span className="tabular-nums">{new Date(r.stockoutDate).toLocaleDateString()}</span> : <span className="text-muted-foreground">—</span>) },
+  { key: "stockoutRisk", header: "Stockout Risk", align: "center", cell: (r) => (r.stockoutRisk ? <StatusBadge status={r.stockoutRisk} /> : <span className="text-muted-foreground">—</span>) },
+  { key: "stockoutDate", header: "Stockout Date", align: "center", cell: (r) => (r.stockoutDate ? <span className="tabular-nums">{new Date(r.stockoutDate).toLocaleDateString()}</span> : <span className="text-muted-foreground">—</span>) },
   { key: "confidence", header: "Confidence", cell: (r) => <span className="tabular-nums text-[10px]">{(r.confidence * 100).toFixed(0)}%</span>, align: "right", sortable: true, sortValue: (r) => r.confidence },
-  { key: "trend", header: "Trend", cell: (r) => <Badge variant={trendVariant[r.trend] ?? "default"}>{r.trend.replace(/_/g, " ")}</Badge> },
+  { key: "trend", header: "Trend", align: "center", cell: (r) => <Badge variant={trendVariant[r.trend] ?? "default"}>{r.trend.replace(/_/g, " ")}</Badge> },
 ];
 
 // Risk ordering — higher risk first

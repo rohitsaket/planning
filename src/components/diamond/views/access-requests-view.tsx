@@ -79,13 +79,14 @@ export function AccessRequestsView() {
       { key: "email", header: "Email", cell: (r) => <span className="text-[11px]">{r.email ?? "—"}</span> },
       { key: "department", header: "Department", cell: (r) => <span className="text-[11px]">{r.department ?? "—"}</span> },
       { key: "justification", header: "Justification", cell: (r) => <span className="text-[11px] line-clamp-2">{r.justification}</span>, width: "320px" },
-      { key: "status", header: "Status", cell: (r) => <StatusBadge status={r.status} />, sortable: true, sortValue: (r) => r.status },
+      { key: "status", header: "Status", align: "center", cell: (r) => <StatusBadge status={r.status} />, sortable: true, sortValue: (r) => r.status },
       { key: "createdAt", header: "Requested", cell: (r) => <span className="tabular-nums text-[10px]">{fmtDate(r.createdAt)}</span>, sortable: true, sortValue: (r) => r.createdAt },
       { key: "reviewedBy", header: "Reviewed By", cell: (r) => <span className="text-[10px]">{r.reviewedBy ?? "—"}</span> },
       { key: "reviewedAt", header: "Reviewed", cell: (r) => <span className="tabular-nums text-[10px]">{fmtDate(r.reviewedAt)}</span> },
       {
         key: "actions",
         header: "Review",
+        align: "center",
         sticky: "right",
         cell: (r) =>
           r.status === "PENDING" ? (

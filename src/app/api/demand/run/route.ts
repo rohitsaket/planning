@@ -7,6 +7,7 @@ import { runDemandCalculation } from "@/lib/demand/demand-service";
 
 const triggerSchema = z.object({
   windowDays: z.number().int().min(1).max(365).optional(),
+  sourcePolicy: z.enum(["CANONICAL_FANTASY", "LEGACY_SALES"]).optional(),
 });
 
 // Trigger a new authoritative demand calculation run.
@@ -21,6 +22,7 @@ export const POST = withApi({
     actor: principal.username,
     actorUserId: principal.userId,
     windowDays: body?.windowDays ?? 90,
+    sourcePolicy: body?.sourcePolicy ?? "CANONICAL_FANTASY",
   });
 
   await audit(db, {

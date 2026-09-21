@@ -171,6 +171,7 @@ export function PlanningWorkbenchView() {
     {
       key: "requirementPriority",
       header: "Pri",
+      align: "center",
       width: "70px",
       cell: (r) => <Badge variant={r.requirementPriority === "CRITICAL" ? "critical" : r.requirementPriority === "HIGH" ? "high" : "default"}>{r.requirementPriority ?? "—"}</Badge>,
     },
@@ -199,6 +200,7 @@ export function PlanningWorkbenchView() {
     {
       key: "stoneType",
       header: "Type",
+      align: "center",
       width: "60px",
       cell: (r) => (
         <Badge variant={r.stoneType === "BLUE" ? "info" : "default"}>{r.stoneType ?? "—"}</Badge>

@@ -104,6 +104,7 @@ export function PlannedPiecesView() {
     {
       key: "caseStatus",
       header: "Case Status",
+      align: "center",
       width: "120px",
       cell: (r) => <StatusBadge status={r.caseStatus} />,
     },
@@ -143,12 +144,14 @@ export function PlannedPiecesView() {
     {
       key: "expectedCategory",
       header: "Exp Cat",
+      align: "center",
       width: "110px",
       cell: (r) => <Badge variant="neutral">{r.expectedCategory ?? "—"}</Badge>,
     },
     {
       key: "certificationIntent",
       header: "Cert",
+      align: "center",
       width: "90px",
       cell: (r) =>
         r.certificationIntent ? (
@@ -192,6 +195,7 @@ export function PlannedPiecesView() {
     {
       key: "actualCategory",
       header: "Act Cat",
+      align: "center",
       width: "110px",
       cell: (r) =>
         r.actualCategory ? (

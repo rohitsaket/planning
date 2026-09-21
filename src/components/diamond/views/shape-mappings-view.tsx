@@ -27,8 +27,8 @@ const categoryVariant = (c: string): "info" | "warning" | "success" | "neutral" 
 
 const columns: Column<ShapeMappingRow>[] = [
   { key: "rawShape", header: "Raw Shape", cell: (r) => <span className="font-mono text-[10px] font-medium">{r.rawShape}</span>, sortable: true, sortValue: (r) => r.rawShape, sticky: "left" },
-  { key: "normalizedShape", header: "Normalized Shape", cell: (r) => <Badge variant="info">{r.normalizedShape}</Badge> },
-  { key: "category", header: "Category", cell: (r) => <Badge variant={categoryVariant(r.category)}>{r.category || "—"}</Badge> },
+  { key: "normalizedShape", header: "Normalized Shape", align: "center", cell: (r) => <Badge variant="info">{r.normalizedShape}</Badge> },
+  { key: "category", header: "Category", align: "center", cell: (r) => <Badge variant={categoryVariant(r.category)}>{r.category || "—"}</Badge> },
   {
     key: "mapping",
     header: "Mapping",
@@ -42,7 +42,7 @@ const columns: Column<ShapeMappingRow>[] = [
       </span>
     ),
   },
-  { key: "active", header: "Active", cell: (r) => <Badge variant={r.active ? "success" : "neutral"}>{r.active ? "ACTIVE" : "INACTIVE"}</Badge> },
+  { key: "active", header: "Active", align: "center", cell: (r) => <Badge variant={r.active ? "success" : "neutral"}>{r.active ? "ACTIVE" : "INACTIVE"}</Badge> },
 ];
 
 export function ShapeMappingsView() {

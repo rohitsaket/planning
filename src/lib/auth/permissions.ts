@@ -17,6 +17,9 @@ export const PERMISSIONS = [
   "rough.read",
   "rough.reserve",
   "demand.run",
+  "demand.unlock",
+  "demand.trace",
+  "demand.export",
   "forecast.run",
   "forecast.publish",
   "fantasy.read",
@@ -65,14 +68,15 @@ const COMMERCIAL_READ: Permission[] = ["sales.read", "customers.read", "orders.r
 
 export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   SUPER_ADMIN: ALL,
-  // ADMIN has administrative powers but must NOT automatically receive planning approval (plan.approve),
-  // rule management (business_rule.manage), or feature flag management (feature_flag.manage).
+  // ADMIN has administrative and operational powers (including demand.run, demand.unlock, demand.trace, demand.export)
+  // but must NOT automatically receive planning approval (plan.approve), rule management (business_rule.manage),
+  // or feature flag management (feature_flag.manage).
   ADMIN: ALL.filter((p) => p !== "business_rule.manage" && p !== "feature_flag.manage" && p !== "plan.approve"),
-  ANALYSIS_MANAGER: [...BASE, ...PLANNING_READ, ...COMMERCIAL_READ, "requirement.create", "requirement.override", "demand.run", "overall.export", "data_quality.manage", "business_rule.read", "audit.read"],
-  DATA_ANALYST: [...BASE, ...PLANNING_READ, ...COMMERCIAL_READ, "overall.export", "data_quality.read", "audit.read"],
-  DATA_SCIENTIST: [...BASE, ...PLANNING_READ, "sales.read", "forecast.run", "forecast.publish", "overall.export", "data_quality.read", "audit.read"],
+  ANALYSIS_MANAGER: [...BASE, ...PLANNING_READ, ...COMMERCIAL_READ, "requirement.create", "requirement.override", "demand.run", "demand.trace", "demand.export", "overall.export", "data_quality.manage", "business_rule.read", "audit.read"],
+  DATA_ANALYST: [...BASE, ...PLANNING_READ, ...COMMERCIAL_READ, "demand.trace", "demand.export", "overall.export", "data_quality.read", "audit.read"],
+  DATA_SCIENTIST: [...BASE, ...PLANNING_READ, "sales.read", "demand.trace", "demand.export", "forecast.run", "forecast.publish", "overall.export", "data_quality.read", "audit.read"],
   // Explicitly authorized planning approval authority
-  PLANNING_MANAGER: [...BASE, ...PLANNING_READ, "orders.read", "plan.create", "plan.select", "plan.approve", "plan.replan", "rough.reserve", "overall.export", "business_rule.read", "audit.read"],
+  PLANNING_MANAGER: [...BASE, ...PLANNING_READ, "orders.read", "demand.trace", "plan.create", "plan.select", "plan.approve", "plan.replan", "rough.reserve", "overall.export", "business_rule.read", "audit.read"],
   PLANNER: [...BASE, ...PLANNING_READ, "orders.read", "plan.create", "plan.select", "plan.replan", "rough.reserve"],
   PLANNING_VIEWER: [...BASE, ...PLANNING_READ],
   MFG_MANAGER: [...BASE, ...PLANNING_READ, "audit.read"],

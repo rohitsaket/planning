@@ -49,7 +49,7 @@ const columns: Column<FlagRow>[] = [
   { key: "code", header: "Code", cell: (r) => <span className="font-mono text-[10px] font-medium">{r.code}</span>, sortable: true, sortValue: (r) => r.code, sticky: "left" },
   { key: "name", header: "Name", cell: (r) => <span className="text-[10px] font-medium">{r.name}</span> },
   { key: "description", header: "Description", cell: (r) => <span className="text-[10px] text-muted-foreground">{r.description ?? "—"}</span> },
-  { key: "state", header: "State", cell: (r) => <Badge variant={r.enabled ? "success" : "neutral"}>{r.enabled ? "ENABLED" : "DISABLED"}</Badge> },
+  { key: "state", header: "State", align: "center", cell: (r) => <Badge variant={r.enabled ? "success" : "neutral"}>{r.enabled ? "ENABLED" : "DISABLED"}</Badge> },
   { key: "toggle", header: "Toggle", cell: (r) => <ToggleCell row={r} />, align: "center" },
 ];
 

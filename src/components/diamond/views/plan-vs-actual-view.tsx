@@ -112,7 +112,7 @@ export function PlanVsActualView() {
       ),
     },
     {
-      key: "status", header: "Status",
+      key: "status", header: "Status", align: "center",
       cell: (r) => <StatusBadge status={r.status} />,
     },
   ];
