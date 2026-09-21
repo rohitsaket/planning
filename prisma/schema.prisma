@@ -327,37 +327,81 @@ model PlanningCategory {
 // ---------------------------------------------------------------------------
 // DEMAND & REQUIREMENTS
 // ---------------------------------------------------------------------------
+model DemandCalculationLock {
+  id        String    @id @default("DEMAND_CALCULATION")
+  isLocked  Boolean   @default(false)
+  lockedAt  DateTime?
+  lockedBy  String?
+  runId     String?
+  updatedAt DateTime  @updatedAt
+}
+
 model DemandRun {
-  id            String   @id @default(cuid())
-  runDate       DateTime @default(now())
-  windowDays    Int      @default(90)
-  ruleVersion   String
-  status        String   @default("COMPLETED")
-  totalShortage Int
-  totalExcess   Int
-  createdAt     DateTime @default(now())
-  metrics       DemandMetric[]
+  id               String         @id @default(cuid())
+  runDate          DateTime       @default(now())
+  windowDays       Int            @default(90)
+  ruleVersion      String         @default("DEMAND-V1")
+  status           String         @default("COMPLETED") // RUNNING | COMPLETED | FAILED | PARTIAL
+  totalShortage    Int            @default(0)
+  totalExcess      Int            @default(0)
+  startedAt        DateTime       @default(now())
+  finishedAt       DateTime?
+  businessDateIst  String?
+  lookbackStart    DateTime?
+  lookbackEnd      DateTime?
+  mappingVersion   String?
+  sourceMode       String         @default("FIXTURE") // FIXTURE | FILE_IMPORT | FANTASY_API
+  isSimulated      Boolean        @default(true)
+  checkpoint       Int            @default(0)
+  lastBatchId      String?
+  sourceCutoff     DateTime?
+  salesCount       Int            @default(0)
+  inventoryCount   Int            @default(0)
+  wipCount         Int            @default(0)
+  excludedCount    Int            @default(0)
+  actor            String?
+  actorUserId      String?
+  errorSummary     String?
+  durationMs       Int            @default(0)
+  createdAt        DateTime       @default(now())
+
+  metrics          DemandMetric[]
+
+  @@index([runDate])
+  @@index([status])
 }
 
 model DemandMetric {
-  id                 String   @id @default(cuid())
-  runId              String
-  run                DemandRun @relation(fields: [runId], references: [id])
-  planningCategory  String
-  sales90d           Int
-  monthlyAverage     Decimal
-  unroundedTarget    Decimal
-  roundedTarget      Int
-  availableStock     Int
-  memoQty            Int
-  physicalShortage   Int
-  excessStock        Int
-  wipCoverage        Int      @default(0)
-  pipelineNeed       Int
-  approvedPlanCoverage Int    @default(0)
-  remainingUnplanned Int
-  forecastSignal     Int      @default(0)
-  createdAt           DateTime @default(now())
+  id                   String     @id @default(cuid())
+  runId                String
+  run                  DemandRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
+  planningCategory     String
+  labNormalized        String?
+  shapeNormalized      String?
+  weightBandCode       String?
+  weightBandLabel      String?
+  sales90d             Int
+  monthlyAverage       Decimal
+  unroundedTarget      Decimal
+  roundedTarget        Int
+  availableStock       Int
+  memoQty              Int        @default(0)
+  reservedQty          Int        @default(0)
+  blockedQty           Int        @default(0)
+  physicalShortage     Int
+  excessStock          Int
+  wipCoverage          Int        @default(0)
+  unallocatedWip       Int        @default(0)
+  pipelineNeed         Int
+  approvedPlanCoverage Int        @default(0)
+  remainingUnplanned   Int
+  forecastSignal       Int        @default(0)
+  status               String     @default("COMPLETED") // COMPLETED | REVIEW_REQUIRED | BLOCKED
+  traceJson            String?    // JSON with contributing lot IDs, events, and exclusions
+  createdAt            DateTime   @default(now())
+
+  @@index([runId])
+  @@index([planningCategory])
 }
 
 model Requirement {

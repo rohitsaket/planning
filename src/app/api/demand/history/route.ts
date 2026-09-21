@@ -1,63 +1,48 @@
 import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
-import { withApi, SCAN_MAX, scanned } from "@/lib/api/with-api";
+import { withApi } from "@/lib/api/with-api";
+import { getFantasyConfig } from "@/lib/fantasy/config";
 
-// Demand Run History — list all past demand runs (most recent first).
-// Joins AuditLog to surface the actor who triggered each run.
+// Demand Run History — list all past demand runs (most recent first)
 export const GET = withApi({ permission: "analysis.read" }, async () => {
+  const config = getFantasyConfig();
+
   const runs = await db.demandRun.findMany({
     orderBy: { runDate: "desc" },
-    take: 200,
+    take: 100,
+    include: {
+      _count: {
+        select: { metrics: true },
+      },
+    },
   });
 
-  // Resolve actor per run via the AuditLog join (entity=DemandRun, entityId=run.id)
-  const runIds = runs.map((r) => r.id);
-  const auditLogs = runIds.length
-    ? await db.auditLog.findMany({ take: SCAN_MAX,
-        where: { entity: "DemandRun", entityId: { in: runIds } },
-        orderBy: { timestamp: "desc" },
-      }).then(scanned)
-    : [];
-
-  // Map runId -> first actor found (audit is ordered desc, so the first match
-  // is the most recent audit log for that run — typically the trigger event)
-  const actorByRun = new Map<string, { actor: string; reason: string | null }>();
-  for (const log of auditLogs) {
-    if (log.entityId && !actorByRun.has(log.entityId)) {
-      actorByRun.set(log.entityId, { actor: log.actor, reason: log.reason });
-    }
-  }
-
-  // Metric counts per run
-  const metricCounts = runIds.length
-    ? await db.demandMetric.groupBy({
-        by: ["runId"],
-        where: { runId: { in: runIds } },
-        _count: { _all: true },
-      })
-    : [];
-  const countByRun = new Map<string, number>();
-  for (const m of metricCounts) {
-    countByRun.set(m.runId, m._count._all);
-  }
-
-  const rows = runs.map((r) => {
-    const actorInfo = actorByRun.get(r.id);
-    return {
-      id: r.id,
-      runDate: r.runDate.toISOString(),
-      windowDays: r.windowDays,
-      ruleVersion: r.ruleVersion,
-      status: r.status,
-      totalShortage: r.totalShortage,
-      totalExcess: r.totalExcess,
-      metricCount: countByRun.get(r.id) ?? 0,
-      actor: actorInfo?.actor ?? "system",
-      reason: actorInfo?.reason ?? null,
-    };
+  const lock = await db.demandCalculationLock.findUnique({
+    where: { id: "DEMAND_CALCULATION" },
   });
 
-  // Aggregate KPIs across the history
+  const rows = runs.map((r) => ({
+    id: r.id,
+    runDate: r.runDate.toISOString(),
+    businessDateIst: r.businessDateIst,
+    windowDays: r.windowDays,
+    ruleVersion: r.ruleVersion,
+    status: r.status,
+    totalShortage: r.totalShortage,
+    totalExcess: r.totalExcess,
+    salesCount: r.salesCount,
+    inventoryCount: r.inventoryCount,
+    wipCount: r.wipCount,
+    excludedCount: r.excludedCount,
+    checkpoint: r.checkpoint,
+    lastBatchId: r.lastBatchId,
+    isSimulated: r.isSimulated,
+    actor: r.actor || "system",
+    durationMs: r.durationMs,
+    metricCount: r._count.metrics,
+    errorSummary: r.errorSummary,
+  }));
+
   const totalRuns = rows.length;
   const avgShortage = totalRuns > 0
     ? num(rows.reduce((s, r) => s + r.totalShortage, 0) / totalRuns)
@@ -65,21 +50,26 @@ export const GET = withApi({ permission: "analysis.read" }, async () => {
   const avgExcess = totalRuns > 0
     ? num(rows.reduce((s, r) => s + r.totalExcess, 0) / totalRuns)
     : 0;
-  const lastRunDate = rows.length > 0 ? rows[0].runDate : null;
-  const lastShortage = rows.length > 0 ? rows[0].totalShortage : 0;
-  const lastExcess = rows.length > 0 ? rows[0].totalExcess : 0;
-  const lastMetricCount = rows.length > 0 ? rows[0].metricCount : 0;
+  const lastRun = rows.length > 0 ? rows[0] : null;
 
   return ok({
+    sourceMode: config.sourceMode,
+    isSimulated: config.isSimulation,
+    isLocked: lock?.isLocked ?? false,
+    lockedAt: lock?.lockedAt?.toISOString() ?? null,
+    lockedBy: lock?.lockedBy ?? null,
+    hasEverRun: totalRuns > 0,
     rows,
     summary: {
       totalRuns,
       avgShortage,
       avgExcess,
-      lastRunDate,
-      lastShortage,
-      lastExcess,
-      lastMetricCount,
+      lastRunDate: lastRun?.runDate ?? null,
+      lastBusinessDateIst: lastRun?.businessDateIst ?? null,
+      lastShortage: lastRun?.totalShortage ?? 0,
+      lastExcess: lastRun?.totalExcess ?? 0,
+      lastMetricCount: lastRun?.metricCount ?? 0,
+      lastCheckpoint: lastRun?.checkpoint ?? 0,
     },
   });
 });

@@ -1,131 +1,44 @@
 import { db } from "@/lib/db";
-import { ok, num } from "@/lib/api-utils";
+import { ok } from "@/lib/api-utils";
 import { z } from "zod";
-import { withApi, SCAN_MAX, scanned } from "@/lib/api/with-api";
-import { conflict } from "@/lib/api/errors";
+import { withApi } from "@/lib/api/with-api";
 import { LIMITS } from "@/lib/api/rate-limit";
-import { classifyWeightBand, normalizeLab, roundHalfUpInt } from "@/lib/domain/diamond-rules";
+import { runDemandCalculation } from "@/lib/demand/demand-service";
 
-// Trigger a new demand calculation run.
-// Recomputes 90-day sales aggregates per planning category (Lab + Shape + Weight Band),
-// applies the confirmed demand formula, and updates demand metrics + requirement quantities.
-let running = false;
-
-// Single-flight guard + the calculation itself. The demand formula is unchanged.
-export const POST = withApi({ permission: "demand.run", body: z.object({}), rateLimit: LIMITS.batch }, async (_req, _ctx, api) => {
-  if (running) throw conflict("DEMAND_RUN_IN_PROGRESS", "A demand run is already in progress.");
-  running = true;
-  try {
-    return await runDemand(api);
-  } finally {
-    running = false;
-  }
+const triggerSchema = z.object({
+  windowDays: z.number().int().min(1).max(365).optional(),
 });
 
-async function runDemand(api: { audit: (client: typeof db, input: { action: string; entity: string; entityId: string; reason: string }) => Promise<void> }) {
-  const windowDays = 90;
-  const now = new Date();
-  const since = new Date(now);
-  since.setDate(since.getDate() - windowDays);
+// Trigger a new authoritative demand calculation run.
+// Recomputes 90-day sales aggregates per planning category (Lab + Shape + Weight Band),
+// applies the confirmed demand formula, and creates an immutable snapshot.
+export const POST = withApi({
+  permission: "demand.run",
+  body: triggerSchema,
+  rateLimit: LIMITS.batch,
+}, async (_req, _ctx, { principal, body, audit }) => {
+  const result = await runDemandCalculation({
+    actor: principal.username,
+    actorUserId: principal.userId,
+    windowDays: body?.windowDays ?? 90,
+  });
 
-  // Fetch all invoice sales in 90-day window
-  const records = await db.salesRecord.findMany({
-    where: { lotStatusDb: "Invoice", docDate: { gte: since } },
-    include: { weightBand: true },
-    take: SCAN_MAX,
-  }).then(scanned);
-
-  // Aggregate by planning category = lab | shape | weightBand.label
-  const agg = new Map<string, { count: number }>();
-  for (const r of records) {
-    const cat = `${r.labNormalized ?? "Non-Cert"}|${r.shape}|${r.weightBand?.label ?? "Unmapped"}`;
-    const cur = agg.get(cat) ?? { count: 0 };
-    cur.count += 1;
-    agg.set(cat, cur);
-  }
-
-  // Create new demand run
-  const run = await db.demandRun.create({
-    data: {
-      runDate: now,
-      windowDays,
-      ruleVersion: "DEMAND-V1",
-      status: "COMPLETED",
-      totalShortage: 0,
-      totalExcess: 0,
+  await audit(db, {
+    action: "DEMAND_CALCULATION_RUN",
+    entity: "DemandRun",
+    entityId: result.runId,
+    reason: `Recalculated ${result.windowDays}-day demand: ${result.totalCategories} categories, ${result.salesCount} sales records, shortage=${result.totalShortage}, excess=${result.totalExcess}`,
+    after: {
+      runId: result.runId,
+      runDate: result.runDate,
+      totalShortage: result.totalShortage,
+      totalExcess: result.totalExcess,
+      totalTarget: result.totalTarget,
+      totalPhysicalStock: result.totalPhysicalStock,
+      totalPipelineNeed: result.totalPipelineNeed,
+      checkpoint: result.checkpoint,
     },
   });
 
-  let totalShortage = 0;
-  let totalExcess = 0;
-  const metricsCreated: string[] = [];
-
-  for (const [cat, v] of agg.entries()) {
-    const [lab, shape, bandLabel] = cat.split("|");
-    const band = await db.weightBand.findFirst({ where: { label: bandLabel } });
-    const sales90d = v.count;
-    const monthlyAvg = sales90d / 3;
-    const unroundedTarget = monthlyAvg * 2;
-    const roundedTarget = roundHalfUpInt(unroundedTarget);
-    const available = await db.polishedStone.count({
-      where: {
-        labNormalized: lab,
-        shape,
-        weightBand: { label: bandLabel },
-        planningClass: { in: ["PHYSICAL", "PLANNING_AVAILABLE"] },
-      },
-    });
-    const shortage = Math.max(0, roundedTarget - available);
-    const excess = Math.max(0, available - roundedTarget);
-    const wip = 0; // OPEN rule — do not auto-apply
-    const planCov = 0;
-    const pipeline = Math.max(0, shortage - wip);
-    const remaining = Math.max(0, pipeline - planCov);
-    totalShortage += shortage;
-    totalExcess += excess;
-
-    const m = await db.demandMetric.create({
-      data: {
-        runId: run.id,
-        planningCategory: cat,
-        sales90d,
-        monthlyAverage: monthlyAvg,
-        unroundedTarget,
-        roundedTarget,
-        availableStock: available,
-        memoQty: 0,
-        physicalShortage: shortage,
-        excessStock: excess,
-        wipCoverage: wip,
-        pipelineNeed: pipeline,
-        approvedPlanCoverage: planCov,
-        remainingUnplanned: remaining,
-        forecastSignal: Math.round(sales90d * 0.15),
-      },
-    });
-    metricsCreated.push(m.id);
-  }
-
-  await db.demandRun.update({
-    where: { id: run.id },
-    data: { totalShortage, totalExcess },
-  });
-
-  await api.audit(db, {
-    action: "DEMAND_RUN",
-    entity: "DemandRun",
-    entityId: run.id,
-    reason: `Recalculated 90-day demand: ${agg.size} categories, ${records.length} invoice records, shortage=${totalShortage}, excess=${totalExcess}`,
-  });
-
-  return ok({
-    runId: run.id,
-    runDate: now.toISOString(),
-    windowDays,
-    categoriesProcessed: agg.size,
-    recordsProcessed: records.length,
-    totalShortage,
-    totalExcess,
-    ruleVersion: "DEMAND-V1",
-  });
-}
+  return ok(result);
+});

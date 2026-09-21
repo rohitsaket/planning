@@ -17,7 +17,7 @@ import { cn } from "@/lib/utils";
 import {
   Calculator, Layers, AlertTriangle, Package, Boxes, Target,
   ShieldCheck, GitBranch, Wrench, FileWarning, Sparkles,
-  ChevronDown, ChevronUp,
+  ChevronDown, ChevronUp, FileText, CheckCircle2, XCircle, Info,
   type LucideIcon,
 } from "lucide-react";
 
@@ -30,7 +30,48 @@ interface TraceStep {
   value: number;
   formula: string;
   source: string;
-  tone?: "shortage" | "coverage" | "advisory";
+  tone?: "shortage" | "coverage" | "advisory" | "neutral";
+  contributingLotsCount?: number;
+}
+
+interface ContributingSalesLot {
+  lotId: string;
+  sourceRecordId?: string | null;
+  docDate: string;
+  saleTotalUsd?: number | null;
+  customerName?: string | null;
+  shape: string;
+  weight: number;
+  lab: string;
+}
+
+interface PhysicalStockLot {
+  lotId: string;
+  sourceRecordId?: string | null;
+  shape: string;
+  weight: number;
+  color?: string | null;
+  clarity?: string | null;
+  locationName?: string | null;
+}
+
+interface MemoLot {
+  lotId: string;
+  customerName?: string | null;
+  weight: number;
+  docDate: string;
+}
+
+interface EligibleWipLot {
+  lotId: string;
+  wipStage?: string | null;
+  weight: number;
+  kapan?: string | null;
+}
+
+interface ExcludedLot {
+  lotId: string;
+  reason: string;
 }
 
 interface TraceCategory {
@@ -38,7 +79,30 @@ interface TraceCategory {
   lab: string;
   shape: string;
   weightBand: string;
+  sales90d: number;
+  monthlyAverage: number;
+  unroundedTarget: number;
+  roundedTarget: number;
+  availableStock: number;
+  memoQty: number;
+  reservedQty: number;
+  blockedQty: number;
+  physicalShortage: number;
+  excessStock: number;
+  wipCoverage: number;
+  unallocatedWip: number;
+  pipelineNeed: number;
+  approvedPlanCoverage: number;
+  remainingUnplanned: number;
+  forecastSignal: number;
   steps: TraceStep[];
+  traceDetails?: {
+    contributingSalesLots: ContributingSalesLot[];
+    physicalStockLots: PhysicalStockLot[];
+    memoLots: MemoLot[];
+    eligibleWipLots: EligibleWipLot[];
+    excludedLots: ExcludedLot[];
+  };
   fourNumbers: {
     physicalShortage: number;
     pipelineAdjusted: number;
@@ -51,14 +115,35 @@ interface TraceSummary {
   totalCategories: number;
   totalShortage: number;
   totalExcess: number;
+  totalTarget: number;
+  totalPhysicalStock: number;
+  totalMemo: number;
+  totalWipCoverage: number;
+  totalPipelineNeed: number;
+  totalApprovedPlanCoverage: number;
+  totalRemainingUnplanned: number;
   categoriesWithShortage: number;
   categoriesWithExcess: number;
 }
 
 interface DemandTraceResponse {
+  hasEverRun: boolean;
+  sourceMode: string;
+  isSimulated: boolean;
   ruleVersion: string;
+  runId: string | null;
   runDate: string | null;
+  runDateIST: string | null;
+  businessDateIst: string | null;
+  lookbackStart: string | null;
+  lookbackEnd: string | null;
   windowDays: number;
+  checkpoint: number;
+  lastBatchId: string | null;
+  salesCount: number;
+  inventoryCount: number;
+  wipCount: number;
+  excludedCount: number;
   forecastRunVersion: string | null;
   categories: TraceCategory[];
   summary: TraceSummary;
@@ -68,7 +153,7 @@ interface DemandTraceResponse {
 // Per-step styling palette
 // ---------------------------------------------------------------------------
 const TONE_STYLES: Record<
-  NonNullable<TraceStep["tone"]>,
+  string,
   { border: string; dot: string; bg: string; value: string; label: string }
 > = {
   shortage: {
@@ -92,15 +177,16 @@ const TONE_STYLES: Record<
     value: "text-amber-700 dark:text-amber-300",
     label: "Advisory",
   },
+  neutral: {
+    border: "border-border",
+    dot: "bg-muted-foreground/70 text-white",
+    bg: "bg-card",
+    value: "text-foreground",
+    label: "Input",
+  },
 };
 
-const DEFAULT_TONE = {
-  border: "border-border",
-  dot: "bg-muted-foreground/70 text-white",
-  bg: "bg-card",
-  value: "text-foreground",
-  label: "Input",
-};
+const DEFAULT_TONE = TONE_STYLES.neutral;
 
 function fmtRunDate(iso: string | null): string {
   if (!iso) return "—";
@@ -119,17 +205,15 @@ function formatNum(v: number): string {
 // Single step card in the vertical timeline
 // ---------------------------------------------------------------------------
 function StepCard({ step, isLast }: { step: TraceStep; isLast: boolean }) {
-  const tone = step.tone ? TONE_STYLES[step.tone] : DEFAULT_TONE;
+  const tone = (step.tone && TONE_STYLES[step.tone]) ? TONE_STYLES[step.tone] : DEFAULT_TONE;
   return (
     <div className="relative pl-9">
-      {/* Vertical connector */}
       {!isLast && (
         <span
           aria-hidden
           className="absolute left-[14px] top-7 bottom-0 w-px bg-border"
         />
       )}
-      {/* Step number badge */}
       <span
         className={cn(
           "absolute left-0 top-1.5 h-7 w-7 rounded-full flex items-center justify-center text-[11px] font-bold shadow-sm ring-2 ring-background",
@@ -152,9 +236,14 @@ function StepCard({ step, isLast }: { step: TraceStep; isLast: boolean }) {
               <span className="text-xs font-semibold text-foreground">
                 {step.label}
               </span>
-              {step.tone && (
+              {step.tone && step.tone !== "neutral" && (
                 <Badge variant={step.tone === "shortage" ? "critical" : step.tone === "coverage" ? "success" : "warning"}>
-                  {TONE_STYLES[step.tone].label}
+                  {tone.label}
+                </Badge>
+              )}
+              {step.contributingLotsCount !== undefined && (
+                <Badge variant="neutral" className="text-[10px]">
+                  {step.contributingLotsCount} {step.contributingLotsCount === 1 ? "lot" : "lots"}
                 </Badge>
               )}
             </div>
@@ -227,11 +316,10 @@ export function DemandTraceView() {
   const categories = data?.categories ?? [];
   const summary = data?.summary;
   const ruleVersion = data?.ruleVersion ?? "DEMAND-V1";
-  const runDate = fmtRunDate(data?.runDate ?? null);
+  const runDate = data?.runDateIST ?? fmtRunDate(data?.runDate ?? null);
   const windowDays = data?.windowDays ?? 90;
   const forecastVersion = data?.forecastRunVersion ?? null;
 
-  // Selected category — default to first category with shortage > 0
   const defaultCatId = useMemo(() => {
     const withShortage = categories.find((c) => c.fourNumbers.physicalShortage > 0);
     return withShortage?.category ?? categories[0]?.category ?? null;
@@ -239,12 +327,11 @@ export function DemandTraceView() {
 
   const [selectedCat, setSelectedCat] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [lotsTab, setLotsTab] = useState<"sales" | "stock" | "memo" | "wip" | "excluded">("sales");
 
-  // Mobile collapsibles — InfoBanner rule text + 13-step timeline
   const [showFullRule, setShowFullRule] = useState(false);
   const [showAllSteps, setShowAllSteps] = useState(false);
 
-  // Detect desktop (md+) — on desktop, always show all 13 steps (no collapse)
   const [isDesktop, setIsDesktop] = useState(false);
   useEffect(() => {
     const mq = window.matchMedia("(min-width: 768px)");
@@ -254,15 +341,12 @@ export function DemandTraceView() {
     return () => mq.removeEventListener("change", update);
   }, []);
 
-  const fullRuleText = `90-day rolling invoice window. Monthly Average = 90D/3. Target = Monthly Avg × 2 (round-half-up). Shortage = MAX(0, Target − Available). Memo excluded per BR-MEMO-001. WIP contribution is OPEN (BR-WIP-001). Forecast signal is advisory only — NOT confirmed demand.${forecastVersion ? ` Forecast model: ${forecastVersion}.` : ""}`;
+  const fullRuleText = `90-day rolling invoice window (IST boundaries). Monthly Average = 90D/3. Target = Monthly Avg × 2 (round-half-up). Shortage = MAX(0, Target − Physical Stock). Memo excluded per BR-MEMO-001. WIP contribution is OPEN (BR-WIP-001). Forecast signal is advisory only — NOT confirmed demand.`;
   const shortRuleText = `${fullRuleText.split(".")[0]}.`;
 
   const activeCat =
     categories.find((c) => c.category === (selectedCat ?? defaultCatId)) ?? null;
 
-  // ---------------------------------------------------------------------------
-  // All-categories table rows (one per planning category)
-  // ---------------------------------------------------------------------------
   interface RowShape {
     category: string;
     lab: string;
@@ -302,7 +386,6 @@ export function DemandTraceView() {
     });
   }, [categories]);
 
-  // Filter categories for the Select dropdown (search-filtered)
   const filteredCategories = useMemo(() => {
     if (!search.trim()) return categories;
     const q = search.toLowerCase();
@@ -372,7 +455,6 @@ export function DemandTraceView() {
     },
   ];
 
-  // ---------------------------------------------------------------------------
   if (isLoading && !data) {
     return (
       <div className="flex flex-col gap-3 p-3">
@@ -394,40 +476,62 @@ export function DemandTraceView() {
         />
         <EmptyState
           title="No demand run found"
-          message="Trigger a demand calculation from the Executive Dashboard to populate the trace."
+          message="Trigger a demand calculation from the Demand Overview or Executive Dashboard to populate the trace."
           icon={<Calculator className="h-8 w-8" />}
         />
       </div>
     );
   }
 
+  const contributingSales = activeCat?.traceDetails?.contributingSalesLots ?? [];
+  const physicalStock = activeCat?.traceDetails?.physicalStockLots ?? [];
+  const memoStock = activeCat?.traceDetails?.memoLots ?? [];
+  const wipStock = activeCat?.traceDetails?.eligibleWipLots ?? [];
+  const excludedLots = activeCat?.traceDetails?.excludedLots ?? [];
+
   return (
     <div className="flex flex-col gap-3 p-3">
+      {/* Simulation Watermark & Snapshot Header */}
+      <div className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg border border-border bg-card text-xs flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Badge variant={data.isSimulated ? "warning" : "success"}>
+            {data.isSimulated ? "Simulated Mode" : "Live Mode"}
+          </Badge>
+          <span className="font-semibold text-foreground">Checkpoint #{data.checkpoint}</span>
+          {data.businessDateIst && (
+            <span className="text-muted-foreground text-[11px]">
+              IST Business Date: <strong className="text-foreground">{data.businessDateIst}</strong>
+            </span>
+          )}
+          {data.lastBatchId && (
+            <span className="text-muted-foreground text-[11px] font-mono">
+              Batch: {data.lastBatchId}
+            </span>
+          )}
+          {data.runId && (
+            <span className="text-muted-foreground text-[11px] font-mono">
+              Run: {data.runId}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-1.5">
+          <Badge variant="info">Rule {ruleVersion}</Badge>
+          <Badge variant="neutral">{windowDays}d IST Window</Badge>
+          <span className="text-[10px] text-muted-foreground tabular-nums">
+            {runDate}
+          </span>
+        </div>
+      </div>
+
       <PageHeader
         title="Demand Calculation Trace"
-        subtitle="Step-by-step breakdown of the confirmed 90-day demand rule — source, input, calculation, output"
-        meta={
-          <div className="flex items-center gap-2 flex-wrap">
-            <Badge variant="info" className="gap-1">
-              <Calculator className="h-2.5 w-2.5" />
-              {ruleVersion}
-            </Badge>
-            <Badge variant="neutral" className="gap-1">
-              <span className="text-muted-foreground">Window</span>
-              <span className="font-semibold">{windowDays}d</span>
-            </Badge>
-            <span className="text-[10px] text-muted-foreground">
-              Run: <span className="tabular-nums">{runDate}</span>
-            </span>
-          </div>
-        }
+        subtitle="Full provenance & step-by-step breakdown: confirmed sales, finished stock, memo, WIP, formulas & lot reconciliations"
       />
 
-      {/* Confirmed-rule banner — collapsible on mobile, full text on desktop */}
+      {/* Confirmed-rule banner */}
       <InfoBanner variant="info">
         <div className="flex flex-col gap-0.5">
           <span className="font-semibold">CONFIRMED rule {ruleVersion}.</span>
-          {/* Mobile: short text + Show more/less toggle */}
           <span className="md:hidden">
             {showFullRule ? fullRuleText : shortRuleText}{" "}
             <button
@@ -438,12 +542,11 @@ export function DemandTraceView() {
               {showFullRule ? "Show less" : "Show more"}
             </button>
           </span>
-          {/* Desktop: always show full text */}
           <span className="hidden md:inline">{fullRuleText}</span>
         </div>
       </InfoBanner>
 
-      {/* Summary KPI grid (5 cards) — single column on phones */}
+      {/* Summary KPI grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-2">
         <KpiCard
           label="Total Categories"
@@ -550,7 +653,7 @@ export function DemandTraceView() {
               </span>
             </div>
 
-            {/* Vertical timeline — first 4 steps on mobile, all 13 on desktop */}
+            {/* Vertical timeline */}
             <div className="flex flex-col gap-2.5 mt-1">
               {(isDesktop || showAllSteps ? activeCat.steps : activeCat.steps.slice(0, 4)).map((s, i, arr) => (
                 <StepCard
@@ -561,7 +664,6 @@ export function DemandTraceView() {
               ))}
             </div>
 
-            {/* Show-all toggle — mobile only */}
             {!isDesktop && activeCat.steps.length > 4 && (
               <Button
                 variant="outline"
@@ -584,7 +686,7 @@ export function DemandTraceView() {
         )}
       </Section>
 
-      {/* Four requirement numbers — 2 cols on phones, 4 on desktop */}
+      {/* Four requirement numbers */}
       {activeCat && (
         <Section
           title="Four Requirement Numbers"
@@ -620,6 +722,226 @@ export function DemandTraceView() {
               intent="info"
             />
           </div>
+        </Section>
+      )}
+
+      {/* Category Contributing Lots Drawer / Section */}
+      {activeCat && (
+        <Section
+          title={`Contributing Inventory & Sales Lots (${activeCat.lab} · ${activeCat.shape} · ${activeCat.weightBand})`}
+          description="Direct provenance and lot-level reconciliation for this category's demand, stock, memo, WIP, and exclusions."
+          actions={
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <Button
+                size="sm"
+                variant={lotsTab === "sales" ? "default" : "outline"}
+                className="h-7 text-xs"
+                onClick={() => setLotsTab("sales")}
+              >
+                Sales Lots ({contributingSales.length})
+              </Button>
+              <Button
+                size="sm"
+                variant={lotsTab === "stock" ? "default" : "outline"}
+                className="h-7 text-xs"
+                onClick={() => setLotsTab("stock")}
+              >
+                Stock Lots ({physicalStock.length})
+              </Button>
+              <Button
+                size="sm"
+                variant={lotsTab === "memo" ? "default" : "outline"}
+                className="h-7 text-xs"
+                onClick={() => setLotsTab("memo")}
+              >
+                Memo Lots ({memoStock.length})
+              </Button>
+              <Button
+                size="sm"
+                variant={lotsTab === "wip" ? "default" : "outline"}
+                className="h-7 text-xs"
+                onClick={() => setLotsTab("wip")}
+              >
+                WIP Lots ({wipStock.length})
+              </Button>
+              <Button
+                size="sm"
+                variant={lotsTab === "excluded" ? "default" : "outline"}
+                className="h-7 text-xs"
+                onClick={() => setLotsTab("excluded")}
+              >
+                Excluded ({excludedLots.length})
+              </Button>
+            </div>
+          }
+        >
+          {lotsTab === "sales" && (
+            <div className="space-y-2">
+              <div className="text-xs text-muted-foreground">
+                Confirmed sale events in the 90-day IST window that contribute to <strong>Sales90d = {activeCat.sales90d}</strong>.
+              </div>
+              {contributingSales.length === 0 ? (
+                <div className="py-6 text-center text-xs text-muted-foreground">No confirmed sales in this 90-day window.</div>
+              ) : (
+                <div className="max-h-60 overflow-y-auto rounded border">
+                  <table className="w-full text-xs text-left">
+                    <thead className="bg-muted/50 text-[11px] uppercase border-b sticky top-0">
+                      <tr>
+                        <th className="p-2">Lot ID</th>
+                        <th className="p-2">Doc Date</th>
+                        <th className="p-2">Customer</th>
+                        <th className="p-2 text-right">Carats</th>
+                        <th className="p-2 text-right">USD</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {contributingSales.map((s, idx) => (
+                        <tr key={idx} className="hover:bg-muted/30">
+                          <td className="p-2 font-mono font-medium">{s.lotId}</td>
+                          <td className="p-2">{s.docDate ? new Date(s.docDate).toLocaleDateString() : "—"}</td>
+                          <td className="p-2">{s.customerName || "—"}</td>
+                          <td className="p-2 text-right">{s.weight.toFixed(2)}</td>
+                          <td className="p-2 text-right">{s.saleTotalUsd ? `$${s.saleTotalUsd.toLocaleString()}` : "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {lotsTab === "stock" && (
+            <div className="space-y-2">
+              <div className="text-xs text-muted-foreground">
+                Current finished polished stock contributing to <strong>PhysicalAvailable = {activeCat.availableStock}</strong>.
+              </div>
+              {physicalStock.length === 0 ? (
+                <div className="py-6 text-center text-xs text-muted-foreground">No physical stock currently available in this category.</div>
+              ) : (
+                <div className="max-h-60 overflow-y-auto rounded border">
+                  <table className="w-full text-xs text-left">
+                    <thead className="bg-muted/50 text-[11px] uppercase border-b sticky top-0">
+                      <tr>
+                        <th className="p-2">Lot ID</th>
+                        <th className="p-2">Color / Clarity</th>
+                        <th className="p-2">Location</th>
+                        <th className="p-2 text-right">Carats</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {physicalStock.map((s, idx) => (
+                        <tr key={idx} className="hover:bg-muted/30">
+                          <td className="p-2 font-mono font-medium">{s.lotId}</td>
+                          <td className="p-2">{s.color || "—"} / {s.clarity || "—"}</td>
+                          <td className="p-2">{s.locationName || "Main Vault"}</td>
+                          <td className="p-2 text-right">{s.weight.toFixed(2)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {lotsTab === "memo" && (
+            <div className="space-y-2">
+              <div className="text-xs text-muted-foreground">
+                Active memo consignments: <strong>{activeCat.memoQty} pcs</strong>. <span className="text-amber-600 dark:text-amber-400 font-medium">Notice: Memo stock is NOT deducted from physical shortage.</span>
+              </div>
+              {memoStock.length === 0 ? (
+                <div className="py-6 text-center text-xs text-muted-foreground">No active memo consignments in this category.</div>
+              ) : (
+                <div className="max-h-60 overflow-y-auto rounded border">
+                  <table className="w-full text-xs text-left">
+                    <thead className="bg-muted/50 text-[11px] uppercase border-b sticky top-0">
+                      <tr>
+                        <th className="p-2">Lot ID</th>
+                        <th className="p-2">Customer</th>
+                        <th className="p-2">Memo Date</th>
+                        <th className="p-2 text-right">Carats</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {memoStock.map((m, idx) => (
+                        <tr key={idx} className="hover:bg-muted/30">
+                          <td className="p-2 font-mono font-medium">{m.lotId}</td>
+                          <td className="p-2">{m.customerName || "—"}</td>
+                          <td className="p-2">{m.docDate ? new Date(m.docDate).toLocaleDateString() : "—"}</td>
+                          <td className="p-2 text-right">{m.weight.toFixed(2)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {lotsTab === "wip" && (
+            <div className="space-y-2">
+              <div className="text-xs text-muted-foreground">
+                Manufacturing WIP lots matching this planning category: <strong>{activeCat.wipCoverage} pcs</strong>.
+              </div>
+              {wipStock.length === 0 ? (
+                <div className="py-6 text-center text-xs text-muted-foreground">No manufacturing WIP currently active for this category.</div>
+              ) : (
+                <div className="max-h-60 overflow-y-auto rounded border">
+                  <table className="w-full text-xs text-left">
+                    <thead className="bg-muted/50 text-[11px] uppercase border-b sticky top-0">
+                      <tr>
+                        <th className="p-2">Lot ID</th>
+                        <th className="p-2">Stage</th>
+                        <th className="p-2">Kapan</th>
+                        <th className="p-2 text-right">Carats</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {wipStock.map((w, idx) => (
+                        <tr key={idx} className="hover:bg-muted/30">
+                          <td className="p-2 font-mono font-medium">{w.lotId}</td>
+                          <td className="p-2">{w.wipStage || "POLISHING"}</td>
+                          <td className="p-2">{w.kapan || "—"}</td>
+                          <td className="p-2 text-right">{w.weight.toFixed(2)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {lotsTab === "excluded" && (
+            <div className="space-y-2">
+              <div className="text-xs text-muted-foreground">
+                Records excluded from automated calculation due to missing mappings, unknown disappearance, or data quality flags.
+              </div>
+              {excludedLots.length === 0 ? (
+                <div className="py-6 text-center text-xs text-muted-foreground">No excluded lots for this category.</div>
+              ) : (
+                <div className="max-h-60 overflow-y-auto rounded border">
+                  <table className="w-full text-xs text-left">
+                    <thead className="bg-muted/50 text-[11px] uppercase border-b sticky top-0">
+                      <tr>
+                        <th className="p-2">Lot ID</th>
+                        <th className="p-2">Exclusion Reason</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {excludedLots.map((e, idx) => (
+                        <tr key={idx} className="hover:bg-muted/30">
+                          <td className="p-2 font-mono font-medium">{e.lotId}</td>
+                          <td className="p-2 text-rose-600 dark:text-rose-400 font-medium">{e.reason}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
         </Section>
       )}
 

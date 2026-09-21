@@ -1,189 +1,259 @@
 import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
-import { withApi, SCAN_MAX, scanned } from "@/lib/api/with-api";
+import { withApi, qStr } from "@/lib/api/with-api";
+import { getFantasyConfig } from "@/lib/fantasy/config";
+import { formatIST } from "@/lib/fantasy/time";
 
-// ============================================================================
-// Demand Calculation Trace — exposes every intermediate step of the
-// confirmed DEMAND-V1 90-day demand rule (section 4 + section 104).
-// Each step shows: step#, label, value, formula, source.
-// Categories come from the latest DemandRun's DemandMetric rows.
-// ============================================================================
-export const GET = withApi({ permission: "analysis.read" }, async () => {
-  // 1. Latest confirmed demand run
-  const latestRun = await db.demandRun.findFirst({
+// Demand Calculation Trace — exposes every intermediate calculation step,
+// confirmed sale events, finished inventory lots, memo consignments, WIP lots,
+// exclusions, and exact formula reconciliations per planning category.
+export const GET = withApi({ permission: "analysis.read" }, async (req: Request) => {
+  const url = new URL(req.url);
+  const config = getFantasyConfig();
+  const runIdParam = qStr(url, "runId");
+  const selectedCategoryParam = qStr(url, "category");
+
+  // 1. Fetch latest or specified demand run
+  const whereRun = runIdParam ? { id: runIdParam } : { status: "COMPLETED" };
+  const targetRun = await db.demandRun.findFirst({
+    where: whereRun,
     orderBy: { runDate: "desc" },
-    include: { metrics: true },
+    include: {
+      metrics: {
+        orderBy: { planningCategory: "asc" },
+      },
+    },
   });
-  if (!latestRun) {
+
+  if (!targetRun) {
     return ok({
+      hasEverRun: false,
+      sourceMode: config.sourceMode,
+      isSimulated: config.isSimulation,
       ruleVersion: "DEMAND-V1",
+      runId: null,
       runDate: null,
+      businessDateIst: null,
+      lookbackStart: null,
+      lookbackEnd: null,
       windowDays: 90,
+      checkpoint: 0,
+      lastBatchId: null,
       categories: [],
       summary: {
         totalCategories: 0,
         totalShortage: 0,
         totalExcess: 0,
-        categoriesWithShortage: 0,
-        categoriesWithExcess: 0,
+        totalTarget: 0,
+        totalPhysicalStock: 0,
+        totalMemo: 0,
+        totalWipCoverage: 0,
+        totalPipelineNeed: 0,
+        totalApprovedPlanCoverage: 0,
+        totalRemainingUnplanned: 0,
       },
     });
   }
 
-  // 2. Latest forecast run predictions joined for the Forecast Signal source line
-  const latestForecastRun = await db.forecastRun.findFirst({
-    orderBy: { runDate: "desc" },
-    select: { id: true, modelVersion: true, horizon90d: true },
-  });
-  const forecastByCategory = new Map<string, number>();
-  if (latestForecastRun) {
-    const preds = await db.forecastPrediction.findMany({ take: SCAN_MAX,
-      where: { runId: latestForecastRun.id },
-      select: { category: true, prediction90d: true },
-    }).then(scanned);
-    for (const p of preds) {
-      forecastByCategory.set(p.category, num(p.prediction90d));
-    }
-  }
-
-  // 3. Build per-category trace
-  const categories = latestRun.metrics.map((m) => {
+  // 2. Map metrics into full trace objects
+  const categories = targetRun.metrics.map((m) => {
     const sales90d = num(m.sales90d);
     const monthlyAverage = num(m.monthlyAverage);
     const unroundedTarget = num(m.unroundedTarget);
     const roundedTarget = num(m.roundedTarget);
     const availableStock = num(m.availableStock);
     const memoQty = num(m.memoQty);
+    const reservedQty = num(m.reservedQty);
+    const blockedQty = num(m.blockedQty);
     const physicalShortage = num(m.physicalShortage);
     const excessStock = num(m.excessStock);
     const wipCoverage = num(m.wipCoverage);
+    const unallocatedWip = num(m.unallocatedWip);
     const pipelineNeed = num(m.pipelineNeed);
     const approvedPlanCoverage = num(m.approvedPlanCoverage);
     const remainingUnplanned = num(m.remainingUnplanned);
     const forecastSignal = num(m.forecastSignal);
-    // Prefer the freshly-fetched prediction if present (proves lineage to
-    // the ForecastPrediction table); fall back to the stored metric value.
-    const forecastSource = forecastByCategory.has(m.planningCategory)
-      ? `ForecastPrediction table (run ${latestForecastRun?.modelVersion ?? "—"} · horizon 90d)`
-      : `DemandMetric.forecastSignal (no live prediction found for this category)`;
 
-    // Split planningCategory (Lab|Shape|WeightBand) — defaults to "—"
+    let traceDetails = {
+      contributingSalesLots: [] as Array<{
+        lotId: string;
+        sourceRecordId?: string | null;
+        docDate: string;
+        saleTotalUsd?: number | null;
+        customerName?: string | null;
+        shape: string;
+        weight: number;
+        lab: string;
+      }>,
+      physicalStockLots: [] as Array<{
+        lotId: string;
+        sourceRecordId?: string | null;
+        shape: string;
+        weight: number;
+        color?: string | null;
+        clarity?: string | null;
+        locationName?: string | null;
+      }>,
+      memoLots: [] as Array<{
+        lotId: string;
+        customerName?: string | null;
+        weight: number;
+        docDate: string;
+      }>,
+      eligibleWipLots: [] as Array<{
+        lotId: string;
+        wipStage?: string | null;
+        weight: number;
+        kapan?: string | null;
+      }>,
+      excludedLots: [] as Array<{
+        lotId: string;
+        reason: string;
+      }>,
+    };
+
+    if (m.traceJson) {
+      try {
+        traceDetails = JSON.parse(m.traceJson);
+      } catch {
+        // Fallback to empty trace structures
+      }
+    }
+
     const parts = m.planningCategory.split("|");
-    const lab = parts[0] ?? "—";
-    const shape = parts[1] ?? "—";
-    const weightBand = parts.slice(2).join("|") || "—";
+    const lab = m.labNormalized || parts[0] || "—";
+    const shape = m.shapeNormalized || parts[1] || "—";
+    const weightBand = m.weightBandLabel || parts.slice(2).join("|") || "—";
+
+    const steps = [
+      {
+        step: 1,
+        label: "90-Day Confirmed Sales (IST Lookback Window)",
+        value: sales90d,
+        formula: `COUNT(LotMasterRecord/SalesRecord WHERE status IN ['SOLD','INVOICE'] AND docDate BETWEEN ${targetRun.businessDateIst ? `${targetRun.businessDateIst} - 90d` : 'Window'} AND category matches)`,
+        source: "Canonical Fantasy Sales & Invoices",
+        contributingLotsCount: traceDetails.contributingSalesLots.length,
+      },
+      {
+        step: 2,
+        label: "Monthly Average Sales",
+        value: monthlyAverage,
+        formula: "Sales90d / 3",
+        source: "Step 1 / 3",
+      },
+      {
+        step: 3,
+        label: "Unrounded 2-Month Target Quantity",
+        value: unroundedTarget,
+        formula: "Monthly Average × 2",
+        source: "Step 2 × 2",
+      },
+      {
+        step: 4,
+        label: "Target Stock Quantity (Rounded)",
+        value: roundedTarget,
+        formula: "round_half_up(Unrounded Target)",
+        source: "Step 3 (conventional rounding, 0.5 rounds up)",
+      },
+      {
+        step: 5,
+        label: "Physical Available Finished Stock",
+        value: availableStock,
+        formula: "COUNT(LotMasterRecord WHERE isCurrent=true AND status='STOCK' AND roughOrPolished='POLISHED')",
+        source: "Authoritative Polished Stock",
+        contributingLotsCount: traceDetails.physicalStockLots.length,
+      },
+      {
+        step: 6,
+        label: "Physical Shortage",
+        value: physicalShortage,
+        formula: "MAX(0, Target Stock - Physical Available)",
+        source: "MAX(0, Step 4 - Step 5)",
+        tone: physicalShortage > 0 ? "shortage" : "neutral",
+      },
+      {
+        step: 7,
+        label: "Memo Consignment Stock (NOT Deducted)",
+        value: memoQty,
+        formula: "COUNT(LotMasterRecord WHERE isCurrent=true AND status='MEMO') — Memo stock is NOT deducted from shortage",
+        source: "Memo Consignment Mirror",
+        tone: "advisory",
+        contributingLotsCount: traceDetails.memoLots.length,
+      },
+      {
+        step: 8,
+        label: "Eligible Manufacturing WIP Coverage",
+        value: wipCoverage,
+        formula: "COUNT(LotMasterRecord WHERE isCurrent=true AND roughOrPolished='WIP' AND category matches)",
+        source: "Manufacturing WIP Section",
+        tone: wipCoverage > 0 ? "coverage" : "neutral",
+        contributingLotsCount: traceDetails.eligibleWipLots.length,
+      },
+      {
+        step: 9,
+        label: "Pipeline-Adjusted Requirement",
+        value: pipelineNeed,
+        formula: "MAX(0, Physical Shortage - Eligible WIP Coverage)",
+        source: "MAX(0, Step 6 - Step 8)",
+        tone: pipelineNeed > 0 ? "shortage" : "neutral",
+      },
+      {
+        step: 10,
+        label: "Approved Plan Coverage",
+        value: approvedPlanCoverage,
+        formula: "SUM(PlanOptionPiece WHERE approvalStatus='APPROVED' AND category matches)",
+        source: "Approved Rough Production Plans",
+        tone: approvedPlanCoverage > 0 ? "coverage" : "neutral",
+      },
+      {
+        step: 11,
+        label: "Remaining Planning Requirement",
+        value: remainingUnplanned,
+        formula: "MAX(0, Pipeline Need - Approved Plan Coverage)",
+        source: "MAX(0, Step 9 - Step 10)",
+        tone: remainingUnplanned > 0 ? "shortage" : "neutral",
+      },
+      {
+        step: 12,
+        label: "Excess Finished Stock",
+        value: excessStock,
+        formula: "MAX(0, Physical Available - Target Stock)",
+        source: "MAX(0, Step 5 - Step 4)",
+        tone: excessStock > 0 ? "excess" : "neutral",
+      },
+      {
+        step: 13,
+        label: "Forecast Signal (Advisory Only)",
+        value: forecastSignal,
+        formula: "Advisory heuristic signal (NOT deducted from operational shortage)",
+        source: "Demand calculation advisory model",
+        tone: "advisory",
+      },
+    ];
 
     return {
       category: m.planningCategory,
       lab,
       shape,
       weightBand,
-      steps: [
-        {
-          step: 1,
-          label: "90-Day Sales (Invoice lots in window)",
-          value: sales90d,
-          formula:
-            "COUNT(SalesRecord WHERE lotStatusDb='Invoice' AND docDate >= runDate-90d AND category matches)",
-          source: "SalesRecord table",
-        },
-        {
-          step: 2,
-          label: "Monthly Average",
-          value: round2(monthlyAverage),
-          formula: "90D Sales / 3",
-          source: "Step 1 / 3",
-        },
-        {
-          step: 3,
-          label: "Unrounded Target Stock",
-          value: round2(unroundedTarget),
-          formula: "Monthly Average × 2",
-          source: "Step 2 × 2",
-        },
-        {
-          step: 4,
-          label: "Rounded Target Stock",
-          value: roundedTarget,
-          formula: "round_half_up(Unrounded Target)",
-          source: "Step 3 (conventional rounding, .5 rounds up)",
-        },
-        {
-          step: 5,
-          label: "Available Finished Stock",
-          value: availableStock,
-          formula:
-            "COUNT(PolishedStone WHERE planningClass IN ['PHYSICAL','PLANNING_AVAILABLE'] AND category matches)",
-          source: "PolishedStone table",
-        },
-        {
-          step: 6,
-          label: "Physical Shortage",
-          value: physicalShortage,
-          formula: "MAX(0, Target Stock - Available)",
-          source: "Step 4 - Step 5",
-          tone: "shortage",
-        },
-        {
-          step: 7,
-          label: "Memo Qty (NOT reducing shortage)",
-          value: memoQty,
-          formula:
-            "COUNT(MemoRecord WHERE category matches) — excluded per BR-MEMO-001",
-          source: "MemoRecord table (advisory only)",
-          tone: "advisory",
-        },
-        {
-          step: 8,
-          label: "WIP Coverage (OPEN rule)",
-          value: wipCoverage,
-          formula: "OPEN — BR-WIP-001 not confirmed. Currently 0.",
-          source: "Configurable (OPEN)",
-          tone: "advisory",
-        },
-        {
-          step: 9,
-          label: "Pipeline-Adjusted Need",
-          value: pipelineNeed,
-          formula: "MAX(0, Physical Shortage - Eligible WIP)",
-          source: "Step 6 - Step 8",
-          tone: "shortage",
-        },
-        {
-          step: 10,
-          label: "Approved Plan Coverage",
-          value: approvedPlanCoverage,
-          formula:
-            "SUM(PlanOption.expectedPieces WHERE approvalStatus='APPROVED' AND category matches)",
-          source: "PlanOption table",
-          tone: "coverage",
-        },
-        {
-          step: 11,
-          label: "Remaining Unplanned Need",
-          value: remainingUnplanned,
-          formula: "MAX(0, Pipeline Need - Approved Plan Coverage)",
-          source: "Step 9 - Step 10",
-          tone: "shortage",
-        },
-        {
-          step: 12,
-          label: "Excess Stock",
-          value: excessStock,
-          formula:
-            "MAX(0, Available - Target) — advisory only, does NOT change shortage",
-          source: "Step 5 - Step 4 (if positive)",
-          tone: "advisory",
-        },
-        {
-          step: 13,
-          label: "Forecast Signal",
-          value: forecastSignal,
-          formula: "PREDICTION — advisory only, NOT confirmed demand",
-          source: forecastSource,
-          tone: "advisory",
-        },
-      ],
+      sales90d,
+      monthlyAverage,
+      unroundedTarget,
+      roundedTarget,
+      availableStock,
+      memoQty,
+      reservedQty,
+      blockedQty,
+      physicalShortage,
+      excessStock,
+      wipCoverage,
+      unallocatedWip,
+      pipelineNeed,
+      approvedPlanCoverage,
+      remainingUnplanned,
+      forecastSignal,
+      steps,
+      traceDetails,
       fourNumbers: {
         physicalShortage,
         pipelineAdjusted: pipelineNeed,
@@ -193,42 +263,52 @@ export const GET = withApi({ permission: "analysis.read" }, async () => {
     };
   });
 
-  // 4. Summary — totalExcess / categoriesWithExcess use step 12 value
   const totalCategories = categories.length;
-  const totalShortage = categories.reduce(
-    (s, c) => s + c.fourNumbers.physicalShortage,
-    0,
-  );
-  let totalExcess = 0;
-  let categoriesWithExcess = 0;
-  for (const c of categories) {
-    const excessVal = c.steps.find((st) => st.step === 12)?.value ?? 0;
-    if (excessVal > 0) {
-      totalExcess += excessVal;
-      categoriesWithExcess += 1;
-    }
-  }
-  const categoriesWithShortage = categories.filter(
-    (c) => c.fourNumbers.physicalShortage > 0,
-  ).length;
+  const totalShortage = categories.reduce((s, c) => s + c.physicalShortage, 0);
+  const totalExcess = categories.reduce((s, c) => s + c.excessStock, 0);
+  const totalTarget = categories.reduce((s, c) => s + c.roundedTarget, 0);
+  const totalPhysicalStock = categories.reduce((s, c) => s + c.availableStock, 0);
+  const totalMemo = categories.reduce((s, c) => s + c.memoQty, 0);
+  const totalWipCoverage = categories.reduce((s, c) => s + c.wipCoverage, 0);
+  const totalPipelineNeed = categories.reduce((s, c) => s + c.pipelineNeed, 0);
+  const totalApprovedPlanCoverage = categories.reduce((s, c) => s + c.approvedPlanCoverage, 0);
+  const totalRemainingUnplanned = categories.reduce((s, c) => s + c.remainingUnplanned, 0);
 
   return ok({
-    ruleVersion: latestRun.ruleVersion,
-    runDate: latestRun.runDate.toISOString(),
-    windowDays: latestRun.windowDays,
-    forecastRunVersion: latestForecastRun?.modelVersion ?? null,
+    hasEverRun: true,
+    sourceMode: targetRun.sourceMode,
+    isSimulated: targetRun.isSimulated,
+    ruleVersion: targetRun.ruleVersion,
+    runId: targetRun.id,
+    runDate: targetRun.runDate.toISOString(),
+    runDateIST: formatIST(targetRun.runDate),
+    businessDateIst: targetRun.businessDateIst,
+    lookbackStart: targetRun.lookbackStart?.toISOString() ?? null,
+    lookbackEnd: targetRun.lookbackEnd?.toISOString() ?? null,
+    windowDays: targetRun.windowDays,
+    checkpoint: targetRun.checkpoint,
+    lastBatchId: targetRun.lastBatchId,
+    salesCount: targetRun.salesCount,
+    inventoryCount: targetRun.inventoryCount,
+    wipCount: targetRun.wipCount,
+    excludedCount: targetRun.excludedCount,
     categories,
+    selectedCategory: selectedCategoryParam
+      ? categories.find((c) => c.category === selectedCategoryParam) ?? null
+      : null,
     summary: {
       totalCategories,
       totalShortage,
       totalExcess,
-      categoriesWithShortage,
-      categoriesWithExcess,
+      totalTarget,
+      totalPhysicalStock,
+      totalMemo,
+      totalWipCoverage,
+      totalPipelineNeed,
+      totalApprovedPlanCoverage,
+      totalRemainingUnplanned,
+      categoriesWithShortage: categories.filter((c) => c.physicalShortage > 0).length,
+      categoriesWithExcess: categories.filter((c) => c.excessStock > 0).length,
     },
   });
 });
-
-function round2(v: number): number {
-  if (!Number.isFinite(v)) return 0;
-  return Math.round(v * 100) / 100;
-}

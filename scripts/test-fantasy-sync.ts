@@ -58,6 +58,8 @@ async function main() {
   await db.polishedStone.deleteMany({});
   await db.lotHistoryRecord.deleteMany({});
   await db.lotMasterRecord.deleteMany({});
+  await db.labMapping.deleteMany({});
+  await db.shapeMapping.deleteMany({});
   await db.integrationSyncRun.deleteMany({ where: { source: { in: ["FANTASY", "Fantasy"] } } });
   await db.syncCheckpoint.upsert({
     where: { source: "FANTASY" },
