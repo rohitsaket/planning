@@ -22,9 +22,14 @@ export const metadata: Metadata = {
   description: "Enterprise diamond manufacturing analysis, sales intelligence, demand & requirement engine, rough planning, manufacturing traceability, plan-vs-actual and data science platform.",
   keywords: ["diamond", "manufacturing", "ERP", "planning", "traceability", "requirement", "yield"],
   authors: [{ name: "Fantasy Diamond Holdings" }],
-  // Icons come from the app/ file convention (favicon.ico, icon.svg,
-  // apple-icon.png) — Next emits the <link> tags, so declaring them here too
-  // would duplicate and override them.
+  icons: {
+    icon: [
+      { url: "/favicon.svg", type: "image/svg+xml" },
+      { url: "/logo.svg", type: "image/svg+xml" },
+    ],
+    shortcut: "/favicon.svg",
+    apple: "/favicon.svg",
+  },
 };
 
 export default async function RootLayout({
@@ -35,9 +40,9 @@ export default async function RootLayout({
   // Reading the per-request nonce makes the page dynamic, which the nonce-based CSP requires.
   const nonce = (await headers()).get("x-nonce") ?? undefined;
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning className="h-full overflow-hidden">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
+        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground h-full overflow-hidden`}
       >
         <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false} nonce={nonce}>
           <RealtimeProvider>{children}</RealtimeProvider>

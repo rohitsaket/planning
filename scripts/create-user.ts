@@ -23,22 +23,25 @@ if (!isRole(role)) throw new Error(`role must be one of: ${ROLES.join(", ")}`);
 const password = generate ? randomBytes(18).toString("base64url") : process.env.NEW_USER_PASSWORD;
 if (!password || password.length < PASSWORD_MIN_LENGTH) throw new Error(`Set NEW_USER_PASSWORD (min ${PASSWORD_MIN_LENGTH} chars) or pass --generate`);
 
-async function run() {
+async function main() {
   const db = new PrismaClient();
-  const passwordHash = await hashPassword(password!);
-  const user = await db.user.upsert({
-    where: { username },
-    create: { username, role, displayName, email: email || null, passwordHash },
-    update: { role, displayName, email: email || null, passwordHash, status: "ACTIVE", failedLoginCount: 0, lockedUntil: null },
-  });
-  await db.session.updateMany({ where: { userId: user.id, revokedAt: null }, data: { revokedAt: new Date() } });
-  await db.auditLog.create({ data: { actor: "cli", action: "USER_UPSERT_CLI", entity: "User", entityId: user.id, after: JSON.stringify({ username, role }) } });
-  console.log(`user ${username} (${role}) ready`);
-  if (generate) console.log(`generated password (shown once): ${password}`);
-  await db.$disconnect();
+  try {
+    const passwordHash = await hashPassword(password!);
+    const user = await db.user.upsert({
+      where: { username },
+      create: { username, role, displayName, email: email || null, passwordHash },
+      update: { role, displayName, email: email || null, passwordHash, status: "ACTIVE", failedLoginCount: 0, lockedUntil: null },
+    });
+    await db.session.updateMany({ where: { userId: user.id, revokedAt: null }, data: { revokedAt: new Date() } });
+    await db.auditLog.create({ data: { actor: "cli", action: "USER_UPSERT_CLI", entity: "User", entityId: user.id, after: JSON.stringify({ username, role }) } });
+    console.log(`user ${username} (${role}) ready`);
+    if (generate) console.log(`generated password (shown once): ${password}`);
+  } finally {
+    await db.$disconnect();
+  }
 }
 
-run().catch((err) => {
+main().catch((err) => {
   console.error(err);
   process.exit(1);
 });

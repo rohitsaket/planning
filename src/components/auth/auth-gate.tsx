@@ -74,21 +74,21 @@ export function AuthGate({ children }: { children: ReactNode }) {
   if (status === "signed-in") return <>{children}</>;
   if (status === "loading") {
     return (
-      <div className="flex min-h-dvh items-center justify-center bg-[#F3F7FC] text-sm text-slate-500 dark:bg-slate-950 dark:text-slate-400">
+      <div className="flex h-full w-full items-center justify-center bg-[#F3F7FC] text-sm text-slate-500 dark:bg-slate-950 dark:text-slate-400">
         Loading…
       </div>
     );
   }
 
   return (
-    <main className="min-h-dvh bg-white lg:grid lg:grid-cols-[52%_48%] dark:bg-slate-950">
+    <main className="h-full w-full overflow-y-auto bg-white lg:grid lg:grid-cols-[52%_48%] dark:bg-slate-950">
       {/* Branding: a full column on desktop, hidden on small screens where the
           compact motivation strip below the form carries it instead. */}
-      <div className="hidden lg:block">
+      <div className="hidden lg:block h-full">
         <BrandingPanel brand={ctx.branding} modules={ctx.modules} motivation={motivation} version={ctx.version} />
       </div>
 
-      <div className="flex min-h-dvh flex-col justify-center px-5 py-10 sm:px-10 lg:min-h-0 lg:px-14">
+      <div className="flex min-h-full flex-col justify-center px-5 py-10 sm:px-10 lg:px-14 overflow-y-auto">
         {/* Mobile/tablet brand lockup — the desktop panel is hidden there. */}
         <header className="mb-8 lg:hidden">
           <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-50">

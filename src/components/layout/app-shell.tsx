@@ -530,13 +530,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [setSidebarOpen]);
 
   return (
-    // Fixed frame exactly one viewport tall, so <main> owns the only scrollbar;
-    // previously the shell outgrew 100vh and the document painted a second one.
-    // dvh, not vh: mobile 100vh counts the collapsing URL bar. data-app-shell
-    // lets the print stylesheet unlock the frame so pages can flow onto paper.
-    <div data-app-shell className="h-dvh overflow-hidden flex flex-col bg-background text-foreground">
-      {/* Top bar */}
-      <header className="h-12 border-b border-border bg-card/80 backdrop-blur-sm flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 sticky top-0 z-40">
+    <div data-app-shell className="h-screen max-h-screen w-full flex flex-col bg-background text-foreground overflow-hidden">
+      {/* Pinned Top bar */}
+      <header className="h-12 border-b border-border bg-card/95 backdrop-blur-sm flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 flex-shrink-0 z-40">
         {/* Hamburger / collapse toggle */}
         <Button
           variant="ghost"
@@ -552,8 +548,6 @@ export function AppShell({ children }: { children: ReactNode }) {
           )}
         </Button>
         <div className="flex items-center gap-2 mr-1 sm:mr-2 flex-shrink-0">
-          {/* Brand lockup — the brilliant-cut mark, matching the favicon.
-              Elsewhere in the nav, lucide's generic Diamond stays as a list icon. */}
           <div className="h-6 w-6 rounded bg-gradient-to-br from-primary/80 to-primary flex items-center justify-center">
             <DiamondMark className="h-3.5 w-3.5 text-primary-foreground" />
           </div>
@@ -603,14 +597,15 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
       </header>
 
-      {/* Global filter bar (sticky below topbar) */}
-      <GlobalFilterBar className="sticky top-12 z-30" />
+      {/* Pinned Global filter bar */}
+      <GlobalFilterBar className="flex-shrink-0 z-30" />
 
-      <div className="flex flex-1 min-h-0 relative">
+      {/* Center workspace: Middle area flex container */}
+      <div className="flex flex-1 min-h-0 min-w-0 overflow-hidden relative">
         {/* Mobile backdrop when sidebar open */}
         {sidebarOpen && (
           <div
-            className="md:hidden fixed inset-0 top-12 bg-black/40 z-30 backdrop-blur-sm"
+            className="md:hidden fixed inset-0 top-12 bg-black/50 z-40 backdrop-blur-xs"
             onClick={() => setSidebarOpen(false)}
           />
         )}
@@ -618,13 +613,11 @@ export function AppShell({ children }: { children: ReactNode }) {
         {sidebarOpen && (
           <aside
             className={cn(
-              "border-r border-sidebar-border bg-sidebar overflow-y-auto z-40",
-              // Mobile: fixed drawer overlay
-              "fixed inset-y-0 left-0 top-12 w-72 max-w-[85vw] shadow-xl md:shadow-none",
-              // Desktop: inline column. The frame gives the row a definite height,
-              // so the sidebar stretches to fill it and scrolls on its own — no
-              // sticky positioning or hard-coded max-height needed.
-              "md:static md:w-60 md:max-w-none md:flex-shrink-0 md:z-auto md:min-h-0"
+              "border-r border-sidebar-border bg-sidebar overflow-y-auto",
+              // Mobile: fixed drawer overlay below header
+              "fixed inset-y-0 left-0 top-12 bottom-0 w-72 max-w-[85vw] shadow-2xl z-50",
+              // Desktop: inline flex-shrink-0 full-height scroll
+              "md:static md:w-60 md:max-w-none md:flex-shrink-0 md:h-full md:z-20 md:shadow-none"
             )}
           >
             <nav className="py-1">
@@ -638,17 +631,14 @@ export function AppShell({ children }: { children: ReactNode }) {
         {/* Collapsed: icon rail on desktop, nothing on mobile. */}
         {!sidebarOpen && <NavRail />}
 
-        {/* Main content */}
-        {/* The single scroll container. `min-h-0` lets this flex child shrink
-            below its content so overflow-y-auto actually engages; the height is
-            whatever the frame leaves over, so no hard-coded chrome maths. */}
-        <main className="flex-1 min-w-0 min-h-0 overflow-y-auto">
+        {/* Scrollable Center Main Content */}
+        <main className="flex-1 min-w-0 h-full overflow-y-auto overflow-x-hidden">
           {children}
         </main>
       </div>
 
-      {/* Sticky footer */}
-      <footer className="mt-auto border-t border-border bg-card/60 px-2 sm:px-3 py-1.5 flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
+      {/* Pinned Bottom Footer */}
+      <footer className="h-8 border-t border-border bg-card/90 backdrop-blur-sm px-2 sm:px-3 flex items-center justify-between gap-2 text-[10px] text-muted-foreground flex-shrink-0 z-30 select-none">
         <div className="flex items-center gap-2 sm:gap-3 min-w-0">
           <span className="flex items-center gap-1 flex-shrink-0">
             <ShieldCheck className="h-3 w-3" /> Fantasy

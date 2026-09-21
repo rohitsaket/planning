@@ -13,8 +13,8 @@ interface PageHeaderProps {
 
 export function PageHeader({ title, subtitle, actions, meta, className }: PageHeaderProps) {
   return (
-    <div className={cn("border-b border-border bg-card/40 px-4 py-3", className)}>
-      <div className="flex items-start justify-between gap-3 flex-wrap">
+    <div className={cn("sticky top-0 z-20 -mx-3 -mt-3 mb-1 border-b border-border bg-card/95 backdrop-blur-md px-4 py-3 shadow-xs", className)}>
+      <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="min-w-0">
           <h1 className="text-base font-semibold tracking-tight text-foreground truncate">{title}</h1>
           {subtitle && <p className="text-[11px] text-muted-foreground mt-0.5">{subtitle}</p>}
