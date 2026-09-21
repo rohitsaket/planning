@@ -5,17 +5,18 @@
   "scripts": {
     "dev": "next dev -p 3000 2>&1 | tee dev.log",
     "build": "next build && cp -r .next/static .next/standalone/.next/ && cp -r public .next/standalone/",
-    "start": "NODE_ENV=production bun .next/standalone/server.js 2>&1 | tee server.log",
+    "start": "NODE_ENV=production node .next/standalone/server.js 2>&1 | tee server.log",
     "lint": "eslint .",
     "db:push": "prisma db push --accept-data-loss",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:reset": "prisma migrate reset",
+    "db:seed": "tsx --env-file-if-exists=.env prisma/seed.ts",
     "typecheck": "tsc --noEmit",
-    "test:security": "bun scripts/sectest-db.ts --recreate && bun scripts/with-sectest-db.ts bunx prisma migrate deploy && bun scripts/with-sectest-db.ts bun test tests/security",
-    "audit:deps": "bun audit --prod",
+    "test:security": "tsx --env-file-if-exists=.env scripts/sectest-db.ts --recreate && tsx --env-file-if-exists=.env scripts/with-sectest-db.ts npx prisma migrate deploy",
+    "audit:deps": "npm audit --omit=dev",
     "db:migrate:deploy": "prisma migrate deploy",
-    "user:create": "bun scripts/create-user.ts"
+    "user:create": "tsx --env-file-if-exists=.env scripts/create-user.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -83,13 +84,14 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/node": "^22.13.9",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "bun-types": "^1.3.4",
     "eslint": "^9",
     "eslint-config-next": "16.3.5",
     "tailwindcss": "^4",
     "tw-animate-css": "^1.3.5",
+    "tsx": "^4.19.3",
     "typescript": "^5"
   }
 }

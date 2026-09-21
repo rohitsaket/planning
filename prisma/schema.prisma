@@ -718,6 +718,32 @@ model User {
   sessions         Session[]
 }
 
+// Self-service registration. A request NEVER creates an account or grants access:
+// it is a queue item an administrator reviews and, on approval, provisions a User
+// from with an explicitly chosen role. Nobody self-assigns permissions.
+model AccessRequest {
+  id               String    @id @default(cuid())
+  username         String // requested sign-in name, lowercased
+  displayName      String
+  email            String?
+  department       String?
+  justification    String
+  status           String    @default("PENDING") // PENDING | APPROVED | REJECTED
+  // Equals the username while PENDING, NULL once decided. The unique index makes a
+  // second open request for the same username impossible.
+  pendingKey       String?   @unique
+  createdUserId    String? // the User provisioned on approval
+  reviewedBy       String?
+  reviewedByUserId String?
+  reviewedAt       DateTime?
+  decisionNote     String?
+  sourceIp         String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([status, createdAt])
+}
+
 model Session {
   id         String    @id @default(cuid())
   tokenHash  String    @unique // sha-256 of the opaque cookie token; the token itself is never stored

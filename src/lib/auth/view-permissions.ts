@@ -16,6 +16,7 @@ const EXACT: Record<string, string> = {
   "admin-feature-flags": "feature_flag.read",
   "admin-audit-log": "audit.read",
   "admin-users": "user.manage",
+  "admin-access-requests": "user.manage",
   "admin-weight-bands": "config.read",
   "admin-lab-mappings": "config.read",
   "admin-shape-mappings": "config.read",

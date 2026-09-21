@@ -141,6 +141,14 @@
     display: none !important;
   }
 
+  /* Unlock the fixed app frame: on screen it is exactly 100vh with overflow
+     hidden so main owns the only scrollbar, but for paper the whole document
+     must be free to flow across pages. */
+  [data-app-shell] {
+    height: auto !important;
+    overflow: visible !important;
+  }
+
   /* Show only the main content, full width, page-break-friendly */
   main {
     max-height: none !important;

@@ -1,21 +1,34 @@
 "use client";
 
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { useAuthStore, type SessionUser } from "@/stores/auth-store";
+import { erpBrand, erpModules, type ErpBrand } from "@/lib/branding";
+import { DEFAULT_MOTIVATION, type DailyMotivationPayload, MOTIVATION_TITLE } from "@/lib/motivation";
+import { BrandingPanel } from "@/components/auth/login/branding-panel";
+import { DailyMotivation, type DailyMotivationProps } from "@/components/auth/login/daily-motivation";
+import { LoginForm } from "@/components/auth/login/login-form";
+import { AccessRequestForm } from "@/components/auth/login/access-request-form";
 
-// Shows the sign-in form until the server confirms a session. This is a UX gate only:
-// the API rejects every unauthenticated or unauthorized request on its own.
+interface LoginContext {
+  branding: ErpBrand;
+  modules: readonly string[];
+  version: string;
+}
+
+// Rendered immediately so the panel has content on first paint; both API
+// responses replace it without changing any element's size.
+const INITIAL: LoginContext = { branding: erpBrand, modules: erpModules, version: "" };
+
+// Shows the sign-in screen until the server confirms a session. This is a UX gate
+// only: the API rejects every unauthenticated or unauthorized request on its own.
 export function AuthGate({ children }: { children: ReactNode }) {
   const { status, setUser } = useAuthStore();
   const queryClient = useQueryClient();
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [ctx, setCtx] = useState<LoginContext>(INITIAL);
+  const [motivation, setMotivation] = useState<DailyMotivationProps>(DEFAULT_MOTIVATION);
+  const [mode, setMode] = useState<"signin" | "request">("signin");
 
   useEffect(() => {
     fetch("/api/auth/me", { credentials: "same-origin" })
@@ -27,53 +40,83 @@ export function AuthGate({ children }: { children: ReactNode }) {
     if (status === "signed-out") queryClient.clear(); // drop cached data from the previous session
   }, [status, queryClient]);
 
-  if (status === "signed-in") return <>{children}</>;
-  if (status === "loading") return <div className="min-h-screen flex items-center justify-center text-sm text-muted-foreground">Loading…</div>;
+  // Branding and the day's quote. Both are public, cacheable and non-blocking:
+  // they are fetched in parallel after the screen has already painted, and a
+  // failure of either just leaves the built-in fallback on screen. Sign-in never
+  // waits on them.
+  useEffect(() => {
+    if (status !== "signed-out") return;
+    let cancelled = false;
+    const json = (url: string) =>
+      fetch(url, { credentials: "same-origin" })
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null);
 
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "same-origin",
-        body: JSON.stringify({ username, password }),
+    json("/api/public/login-context").then((d: LoginContext | null) => {
+      if (d && !cancelled) setCtx((prev) => ({ ...prev, ...d }));
+    });
+
+    json("/api/public/daily-motivation").then((d: DailyMotivationPayload | null) => {
+      if (!d?.quote || cancelled) return;
+      setMotivation({
+        title: MOTIVATION_TITLE,
+        quote: d.quote,
+        author: d.author && d.author !== "Unknown" ? d.author : undefined,
+        attribution: d.attribution ?? null,
       });
-      const data = await res.json().catch(() => null);
-      if (!res.ok) {
-        setError(data?.error?.message ?? "Sign-in failed.");
-        return;
-      }
-      setPassword("");
-      setUser(data.user as SessionUser);
-    } catch {
-      setError("Could not reach the server.");
-    } finally {
-      setBusy(false);
-    }
-  };
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [status]);
+
+  if (status === "signed-in") return <>{children}</>;
+  if (status === "loading") {
+    return (
+      <div className="flex min-h-dvh items-center justify-center bg-[#F3F7FC] text-sm text-slate-500 dark:bg-slate-950 dark:text-slate-400">
+        Loading…
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background px-4">
-      <form onSubmit={submit} className="w-full max-w-sm space-y-4 rounded-lg border border-border bg-card p-6 shadow-sm">
-        <div>
-          <h1 className="text-lg font-semibold">Sign in</h1>
-          <p className="text-xs text-muted-foreground">Diamond Manufacturing ERP</p>
+    <main className="min-h-dvh bg-white lg:grid lg:grid-cols-[52%_48%] dark:bg-slate-950">
+      {/* Branding: a full column on desktop, hidden on small screens where the
+          compact motivation strip below the form carries it instead. */}
+      <div className="hidden lg:block">
+        <BrandingPanel brand={ctx.branding} modules={ctx.modules} motivation={motivation} version={ctx.version} />
+      </div>
+
+      <div className="flex min-h-dvh flex-col justify-center px-5 py-10 sm:px-10 lg:min-h-0 lg:px-14">
+        {/* Mobile/tablet brand lockup — the desktop panel is hidden there. */}
+        <header className="mb-8 lg:hidden">
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-50">
+            {ctx.branding.name.split(" ").slice(0, -1).join(" ")}{" "}
+            <span className="text-blue-600 dark:text-blue-400">{ctx.branding.name.split(" ").slice(-1)}</span>
+          </h1>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{ctx.branding.tagline}</p>
+        </header>
+
+        <div className="flex justify-center lg:justify-start">
+          {mode === "signin" ? (
+            <LoginForm onAuthenticated={setUser} onRequestAccess={() => setMode("request")} />
+          ) : (
+            <AccessRequestForm onBack={() => setMode("signin")} />
+          )}
         </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="username">Username</Label>
-          <Input id="username" autoComplete="username" value={username} onChange={(e) => setUsername(e.target.value)} required maxLength={100} />
+
+        {/* Motivation follows the form on small screens so the primary action
+            stays above the fold. */}
+        <div className="mx-auto mt-10 w-full max-w-[520px] lg:hidden">
+          <DailyMotivation {...motivation} />
+          <p className="mt-6 text-center text-xs text-slate-400 dark:text-slate-500">
+            © {new Date().getFullYear()} {ctx.branding.name}
+            {ctx.version && <span className="tabular-nums"> · v{ctx.version}</span>}
+          </p>
         </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="password">Password</Label>
-          <Input id="password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required maxLength={200} />
-        </div>
-        {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
-        <Button type="submit" className="w-full" disabled={busy}>{busy ? "Signing in…" : "Sign in"}</Button>
-      </form>
-    </div>
+      </div>
+    </main>
   );
 }
 

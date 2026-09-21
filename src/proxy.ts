@@ -3,7 +3,11 @@ import { NextResponse, type NextRequest } from "next/server";
 // First line of defence, deny by default: an /api request without a session cookie is
 // rejected here before any handler runs. The cookie's validity, the user's status and the
 // permission are then checked against the database inside withApi() in every handler.
-const PUBLIC_API = new Set(["/api", "/api/auth/login", "/api/auth/logout"]);
+// The /api/public/* routes back the sign-in screen before a session exists:
+// branding, the daily quote, and access-request intake. None exposes user,
+// tenant or business data, and access-request only queues a row for an
+// administrator — it never creates an account.
+const PUBLIC_API = new Set(["/api", "/api/auth/login", "/api/auth/logout", "/api/public/login-context", "/api/public/daily-motivation", "/api/public/access-request"]);
 const SESSION_COOKIE = "dp_session";
 const isDev = process.env.NODE_ENV !== "production";
 
@@ -75,5 +79,5 @@ export function proxy(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|logo.svg|robots.txt).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|icon.svg|apple-icon.png|logo.svg|robots.txt).*)"],
 };

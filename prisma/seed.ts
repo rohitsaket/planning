@@ -15,6 +15,10 @@ import {
   normalizeLab,
 } from "../src/lib/domain/diamond-rules";
 
+if (typeof (process as any).loadEnvFile === "function") {
+  try { (process as any).loadEnvFile(); } catch {}
+}
+
 const prisma = new PrismaClient();
 
 // Deterministic pseudo-random for reproducibility

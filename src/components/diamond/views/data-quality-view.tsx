@@ -16,7 +16,8 @@ interface IssueRow {
   issueCode: string;
   source: string;
   entity: string;
-  recordId: string;
+  // Nullable in the schema: an issue can describe a whole feed rather than one record.
+  recordId: string | null;
   rule: string;
   message: string;
   severity: string;
@@ -49,7 +50,7 @@ export function DataQualityView() {
     { key: "issueCode", header: "Issue Code", cell: (r) => <span className="font-mono text-[10px] font-medium">{r.issueCode}</span>, sortable: true, sortValue: (r) => r.issueCode, sticky: "left" },
     { key: "source", header: "Source", cell: (r) => <span className="text-[10px]">{r.source}</span> },
     { key: "entity", header: "Entity", cell: (r) => <span className="text-[10px]">{r.entity}</span> },
-    { key: "recordId", header: "Record ID", cell: (r) => <span className="font-mono text-[10px]">{r.recordId.slice(0, 8)}</span> },
+    { key: "recordId", header: "Record ID", cell: (r) => <span className="font-mono text-[10px]">{r.recordId ? r.recordId.slice(0, 8) : "—"}</span> },
     { key: "rule", header: "Rule", cell: (r) => <span className="text-[10px]">{r.rule}</span> },
     { key: "message", header: "Message", cell: (r) => <span className="text-[10px]">{r.message}</span> },
     { key: "severity", header: "Severity", cell: (r) => <StatusBadge status={r.severity} />, sortable: true, sortValue: (r) => r.severity },
@@ -64,7 +65,7 @@ export function DataQualityView() {
   const filteredRows = (data?.rows ?? []).filter((r) => {
     if (!search) return true;
     const q = search.toLowerCase();
-    return [r.issueCode, r.source, r.entity, r.recordId, r.rule, r.message, r.assignedTo ?? ""].some((f) => f.toLowerCase().includes(q));
+    return [r.issueCode, r.source, r.entity, r.recordId ?? "", r.rule, r.message, r.assignedTo ?? ""].some((f) => f.toLowerCase().includes(q));
   });
 
   return (

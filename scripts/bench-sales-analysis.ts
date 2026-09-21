@@ -33,7 +33,9 @@ async function measure(fn: () => Promise<unknown>) {
   const times: number[] = [];
   let peak = 0;
   for (let i = 0; i < 3; i++) {
-    Bun.gc(true);
+    const g = globalThis as Record<string, any>;
+    if (typeof g.Bun?.gc === "function") g.Bun.gc(true);
+    else if (typeof g.gc === "function") g.gc();
     const before = heapMb();
     const t = performance.now();
     await fn();
@@ -63,7 +65,8 @@ for (const n of [1_000, 10_000, 60_000]) {
 }
 await db.$executeRawUnsafe(`TRUNCATE "SalesRecord", "Customer" CASCADE`);
 
-const out = path.resolve(import.meta.dir, "../security-audit/remediation/evidence");
+const scriptDir = import.meta.dirname || (import.meta as any).dir || path.dirname(new URL(import.meta.url).pathname);
+const out = path.resolve(scriptDir, "../security-audit/remediation/evidence");
 mkdirSync(out, { recursive: true });
 writeFileSync(
   path.join(out, "sales-sa11-benchmark.md"),

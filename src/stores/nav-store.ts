@@ -67,7 +67,8 @@ export type ViewId =
   | "admin-shape-mappings"
   | "admin-feature-flags"
   | "admin-audit-log"
-  | "admin-users";
+  | "admin-users"
+  | "admin-access-requests";
 
 interface NavState {
   view: ViewId;

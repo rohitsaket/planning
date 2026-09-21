@@ -8,7 +8,7 @@ import { resetRateLimits } from "@/lib/api/rate-limit";
 
 const ROOT = path.resolve(import.meta.dir, "../..");
 const files = [...new Glob("src/app/api/**/route.ts").scanSync(ROOT)].sort();
-const PUBLIC = new Set(["GET /api", "POST /api/auth/login", "POST /api/auth/logout"]);
+const PUBLIC = new Set(["GET /api", "POST /api/auth/login", "POST /api/auth/logout", "GET /api/public/login-context", "GET /api/public/daily-motivation", "POST /api/public/access-request"]);
 const SWEEP_ROLES: { label: string; role: Role }[] = [
   { label: "Viewer", role: "VIEWER" },
   { label: "Analyst", role: "DATA_ANALYST" },

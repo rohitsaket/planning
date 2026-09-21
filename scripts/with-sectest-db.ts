@@ -1,5 +1,5 @@
 // Runs a command with DATABASE_URL pointed at the throwaway security-test database.
-// Usage: bun scripts/with-sectest-db.ts <command> [args...]
+// Usage: npx tsx scripts/with-sectest-db.ts <command> [args...]
 import { spawnSync } from "node:child_process";
 import { sectestUrl } from "../tests/security/test-db";
 

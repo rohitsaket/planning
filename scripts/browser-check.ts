@@ -99,7 +99,8 @@ record("sign out returns to the sign-in gate", await waitFor(`!!document.querySe
 
 ws.close();
 chrome.kill();
-const out = path.resolve(import.meta.dir, "../security-audit/remediation");
+const scriptDir = import.meta.dirname || (import.meta as any).dir || path.dirname(new URL(import.meta.url).pathname);
+const out = path.resolve(scriptDir, "../security-audit/remediation");
 mkdirSync(out, { recursive: true });
 writeFileSync(path.join(out, "browser-check.md"), `# Browser check — headless Chrome via DevTools protocol against ${BASE}\n\nRun: ${new Date().toISOString()}\n\n| Result | Check | Detail |\n|---|---|---|\n${results.map((r) => `| ${r.ok ? "PASS" : "FAIL"} | ${r.check} | ${r.detail.replace(/\|/g, "\\|")} |`).join("\n")}\n`);
 const failed = results.filter((r) => !r.ok);

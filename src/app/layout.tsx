@@ -22,9 +22,9 @@ export const metadata: Metadata = {
   description: "Enterprise diamond manufacturing analysis, sales intelligence, demand & requirement engine, rough planning, manufacturing traceability, plan-vs-actual and data science platform.",
   keywords: ["diamond", "manufacturing", "ERP", "planning", "traceability", "requirement", "yield"],
   authors: [{ name: "Fantasy Diamond Holdings" }],
-  icons: {
-    icon: "/logo.svg",
-  },
+  // Icons come from the app/ file convention (favicon.ico, icon.svg,
+  // apple-icon.png) — Next emits the <link> tags, so declaring them here too
+  // would duplicate and override them.
 };
 
 export default async function RootLayout({

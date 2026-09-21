@@ -14,7 +14,9 @@ interface AuditRow {
   actor: string;
   action: string;
   entity: string;
-  entityId: string;
+  // Nullable in the schema: LOGIN_FAILED for an unknown username has no entity to
+  // point at, so the API returns null here.
+  entityId: string | null;
   reason: string | null;
   timestamp: string;
   correlationId: string | null;
@@ -28,7 +30,7 @@ const columns: Column<AuditRow>[] = [
   { key: "actor", header: "Actor", cell: (r) => <span className="text-[10px] font-medium">{r.actor}</span>, sortable: true, sortValue: (r) => r.actor },
   { key: "action", header: "Action", cell: (r) => <span className="font-mono text-[10px]">{r.action}</span>, sortable: true, sortValue: (r) => r.action },
   { key: "entity", header: "Entity", cell: (r) => <span className="text-[10px]">{r.entity}</span>, sortable: true, sortValue: (r) => r.entity },
-  { key: "entityId", header: "Entity ID", cell: (r) => <span className="font-mono text-[10px]">{r.entityId.slice(0, 8)}</span> },
+  { key: "entityId", header: "Entity ID", cell: (r) => <span className="font-mono text-[10px]">{r.entityId ? r.entityId.slice(0, 8) : "—"}</span> },
   { key: "reason", header: "Reason", cell: (r) => <span className="text-[10px]">{r.reason ?? "—"}</span> },
   { key: "correlationId", header: "Correlation ID", cell: (r) => <span className="font-mono text-[10px]">{r.correlationId ? r.correlationId.slice(0, 8) : "—"}</span> },
 ];
@@ -50,7 +52,7 @@ export function AuditLogView() {
     return (data?.rows ?? []).filter((r) => {
       if (!search) return true;
       const q = search.toLowerCase();
-      return [r.actor, r.action, r.entity, r.entityId, r.reason ?? "", r.correlationId ?? ""].some((f) => f.toLowerCase().includes(q));
+      return [r.actor, r.action, r.entity, r.entityId ?? "", r.reason ?? "", r.correlationId ?? ""].some((f) => f.toLowerCase().includes(q));
     });
   }, [data, search]);
 

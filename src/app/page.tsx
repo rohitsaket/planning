@@ -54,6 +54,7 @@ import { ShapeMappingsView } from "@/components/diamond/views/shape-mappings-vie
 import { AuditLogView } from "@/components/diamond/views/audit-log-view";
 import { FeatureFlagsView } from "@/components/diamond/views/feature-flags-view";
 import { UsersView } from "@/components/diamond/views/users-view";
+import { AccessRequestsView } from "@/components/diamond/views/access-requests-view";
 
 const VIEW_REGISTRY: Record<string, React.ComponentType> = {
   dashboard: DashboardView,
@@ -121,6 +122,7 @@ const VIEW_REGISTRY: Record<string, React.ComponentType> = {
   "admin-feature-flags": FeatureFlagsView,
   "admin-audit-log": AuditLogView,
   "admin-users": UsersView,
+  "admin-access-requests": AccessRequestsView,
 };
 
 export default function Home() {

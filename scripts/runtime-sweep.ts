@@ -1,13 +1,13 @@
 // Live HTTP security sweep against a RUNNING instance (never in-process).
 // Usage: SWEEP_BASE=http://127.0.0.1:3100 SWEEP_CREDS=/path/creds.txt bun scripts/runtime-sweep.ts
 // creds file: one "<username> <password>" per line for roles VIEWER, DATA_ANALYST, PLANNER, PLANNING_MANAGER, ADMIN, SUPER_ADMIN.
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { Glob } from "bun";
+import { readFileSync, writeFileSync, mkdirSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { hasPermission } from "../src/lib/auth/permissions";
 
 const BASE = process.env.SWEEP_BASE || "http://127.0.0.1:3100";
-const ROOT = path.resolve(import.meta.dir, "..");
+const scriptDir = import.meta.dirname || (import.meta as any).dir || path.dirname(new URL(import.meta.url).pathname);
+const ROOT = path.resolve(scriptDir, "..");
 const OUT = path.join(ROOT, "security-audit/remediation");
 const PUBLIC = new Set(["GET /api", "POST /api/auth/login", "POST /api/auth/logout"]);
 let failures = 0;
@@ -33,9 +33,25 @@ for (const [username, password] of creds) {
 }
 
 // ---- route inventory from source ----
+function findRouteFiles(dir: string, base = ""): string[] {
+  const res: string[] = [];
+  try {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const rel = base ? `${base}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) {
+        res.push(...findRouteFiles(path.join(dir, entry.name), rel));
+      } else if (entry.name === "route.ts") {
+        res.push(rel);
+      }
+    }
+  } catch {}
+  return res;
+}
+
 interface Entry { route: string; method: string; guard: string }
 const entries: Entry[] = [];
-for (const f of [...new Glob("src/app/api/**/route.ts").scanSync(ROOT)].sort()) {
+const routeFiles = findRouteFiles(path.join(ROOT, "src/app/api"), "src/app/api").sort();
+for (const f of routeFiles) {
   const src = readFileSync(path.join(ROOT, f), "utf8");
   const route = "/" + f.replace(/^src\/app\//, "").replace(/\/route\.ts$/, "");
   for (const m of src.matchAll(/export const (GET|POST|PUT|PATCH|DELETE) = withApi(?:<[^(]*>)?\(\{\s*([^}]*)\}/g)) {

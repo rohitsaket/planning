@@ -12,7 +12,7 @@ import {
   FlaskConical, FileBarChart, Settings, ChevronDown, ChevronRight, Search,
   Bell, User, Database, Activity, Scale, Layers, Map, FileWarning,
   Workflow, ClipboardCheck, CalendarClock, Hash, RefreshCw, BookCheck, ClipboardList, Diamond,
-  Moon, Sun, Monitor, Command as CommandIcon, History, Calculator, ArrowLeftRight
+  Moon, Sun, Monitor, Command as CommandIcon, History, Calculator, ArrowLeftRight, UserPlus
 } from "lucide-react";
 import { ReactNode, useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
@@ -22,6 +22,7 @@ import { apiFetch } from "@/lib/api-client";
 import { useQuery } from "@tanstack/react-query";
 import { CommandPalette } from "@/components/diamond/command-palette";
 import { GlobalFilterBar } from "@/components/diamond/global-filter-bar";
+import { DiamondMark } from "@/components/brand/diamond-mark";
 import { useRealtimeStore } from "@/stores/realtime-store";
 
 interface NavItem {
@@ -170,6 +171,7 @@ const NAV: NavGroup[] = [
       { id: "admin-feature-flags", label: "Feature Flags", icon: <Workflow className="h-3.5 w-3.5" /> },
       { id: "admin-audit-log", label: "Audit Log", icon: <ClipboardList className="h-3.5 w-3.5" /> },
       { id: "admin-users", label: "Users & Roles", icon: <Users className="h-3.5 w-3.5" /> },
+      { id: "admin-access-requests", label: "Access Requests", icon: <UserPlus className="h-3.5 w-3.5" /> },
     ],
   },
 ];
@@ -231,6 +233,55 @@ function NavGroupItem({ group: fullGroup }: { group: NavGroup }) {
         </ul>
       )}
     </div>
+  );
+}
+
+// Collapsed state on desktop: a narrow rail of group icons instead of nothing,
+// so the nav stays discoverable and one click is enough to get back to it.
+// Hidden below md, where the sidebar is an overlay drawer and the space is
+// better given to content.
+function NavRail() {
+  const perms = useAuthStore((s) => s.user?.permissions);
+  const view = useNavStore((s) => s.view);
+  const setSidebarOpen = useNavStore((s) => s.setSidebarOpen);
+  const toggleGroup = useNavStore((s) => s.toggleGroup);
+  const collapsedGroups = useNavStore((s) => s.collapsedGroups);
+
+  const groups = NAV.filter((g) => g.items.some((i) => perms?.includes(viewPermission(i.id))));
+
+  const openGroup = (groupId: string) => {
+    // Expand the group the user pointed at, so the panel opens showing it.
+    if (collapsedGroups[groupId]) toggleGroup(groupId);
+    setSidebarOpen(true);
+  };
+
+  return (
+    <aside className="hidden md:flex md:w-14 md:flex-shrink-0 md:min-h-0 md:flex-col overflow-y-auto border-r border-sidebar-border bg-sidebar">
+      <nav className="flex flex-col items-center gap-0.5 py-2">
+        {groups.map((g) => {
+          const active = g.items.some((i) => i.id === view);
+          return (
+            <button
+              key={g.id}
+              type="button"
+              onClick={() => openGroup(g.id)}
+              title={g.label}
+              aria-label={`${g.label} — expand sidebar`}
+              className={cn(
+                "relative flex h-9 w-9 items-center justify-center rounded-md transition-colors",
+                active
+                  ? "bg-sidebar-accent text-sidebar-foreground"
+                  : "text-sidebar-foreground/70 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
+              )}
+            >
+              {/* Same active marker the expanded list uses. */}
+              {active && <span className="absolute left-0 h-5 w-0.5 rounded-r bg-sidebar-primary" />}
+              {g.icon}
+            </button>
+          );
+        })}
+      </nav>
+    </aside>
   );
 }
 
@@ -479,7 +530,11 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [setSidebarOpen]);
 
   return (
-    <div className="min-h-screen flex flex-col bg-background text-foreground">
+    // Fixed frame exactly one viewport tall, so <main> owns the only scrollbar;
+    // previously the shell outgrew 100vh and the document painted a second one.
+    // dvh, not vh: mobile 100vh counts the collapsing URL bar. data-app-shell
+    // lets the print stylesheet unlock the frame so pages can flow onto paper.
+    <div data-app-shell className="h-dvh overflow-hidden flex flex-col bg-background text-foreground">
       {/* Top bar */}
       <header className="h-12 border-b border-border bg-card/80 backdrop-blur-sm flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 sticky top-0 z-40">
         {/* Hamburger / collapse toggle */}
@@ -497,8 +552,10 @@ export function AppShell({ children }: { children: ReactNode }) {
           )}
         </Button>
         <div className="flex items-center gap-2 mr-1 sm:mr-2 flex-shrink-0">
+          {/* Brand lockup — the brilliant-cut mark, matching the favicon.
+              Elsewhere in the nav, lucide's generic Diamond stays as a list icon. */}
           <div className="h-6 w-6 rounded bg-gradient-to-br from-primary/80 to-primary flex items-center justify-center">
-            <Diamond className="h-3.5 w-3.5 text-primary-foreground" />
+            <DiamondMark className="h-3.5 w-3.5 text-primary-foreground" />
           </div>
           <div className="hidden sm:flex flex-col leading-none">
             <span className="text-xs font-semibold tracking-tight">Diamond Manufacturing ERP</span>
@@ -564,8 +621,10 @@ export function AppShell({ children }: { children: ReactNode }) {
               "border-r border-sidebar-border bg-sidebar overflow-y-auto z-40",
               // Mobile: fixed drawer overlay
               "fixed inset-y-0 left-0 top-12 w-72 max-w-[85vw] shadow-xl md:shadow-none",
-              // Desktop: inline sticky
-              "md:static md:sticky md:top-12 md:w-60 md:max-w-none md:flex-shrink-0 md:z-auto md:max-h-[calc(100vh-3rem)]"
+              // Desktop: inline column. The frame gives the row a definite height,
+              // so the sidebar stretches to fill it and scrolls on its own — no
+              // sticky positioning or hard-coded max-height needed.
+              "md:static md:w-60 md:max-w-none md:flex-shrink-0 md:z-auto md:min-h-0"
             )}
           >
             <nav className="py-1">
@@ -576,9 +635,14 @@ export function AppShell({ children }: { children: ReactNode }) {
             </div>
           </aside>
         )}
+        {/* Collapsed: icon rail on desktop, nothing on mobile. */}
+        {!sidebarOpen && <NavRail />}
 
         {/* Main content */}
-        <main className="flex-1 min-w-0 overflow-y-auto max-h-[calc(100vh-3rem-2rem)]">
+        {/* The single scroll container. `min-h-0` lets this flex child shrink
+            below its content so overflow-y-auto actually engages; the height is
+            whatever the frame leaves over, so no hard-coded chrome maths. */}
+        <main className="flex-1 min-w-0 min-h-0 overflow-y-auto">
           {children}
         </main>
       </div>

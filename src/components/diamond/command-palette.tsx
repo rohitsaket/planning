@@ -12,7 +12,7 @@ import {
   FileText, Package, Boxes, Factory, GitBranch, ShieldCheck, AlertTriangle,
   FlaskConical, FileBarChart, Settings, Search, Diamond, Activity, Scale, Layers,
   Map, FileWarning, Workflow, ClipboardCheck, CalendarClock, Hash, RefreshCw,
-  BookCheck, ClipboardList, Star, CornerDownLeft,
+  BookCheck, ClipboardList, Star, CornerDownLeft, UserPlus,
 } from "lucide-react";
 import { ReactNode } from "react";
 
@@ -71,6 +71,7 @@ const ITEMS: PaletteItem[] = [
   { id: "admin-feature-flags", label: "Feature Flags", group: "Admin", icon: <Workflow className="h-4 w-4" />, keywords: ["flag", "feature"] },
   { id: "admin-audit-log", label: "Audit Log", group: "Admin", icon: <ClipboardList className="h-4 w-4" />, keywords: ["audit", "log"] },
   { id: "admin-users", label: "Users & Roles", group: "Admin", icon: <Users className="h-4 w-4" />, keywords: ["user", "role", "rbac"] },
+  { id: "admin-access-requests", label: "Access Requests", group: "Admin", icon: <UserPlus className="h-4 w-4" />, keywords: ["access", "request", "registration", "signup", "approve"] },
 ];
 
 export function CommandPalette() {

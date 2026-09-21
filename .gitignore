@@ -58,8 +58,11 @@ db/*.db
 db/*.db-journal
 *.sqlite
 
-# isolated verification builds
-.next-sec/
+# isolated verification builds (NEXT_DIST_DIR). Must stay ignored: Tailwind v4's
+# automatic source detection scans every non-ignored file, and a build directory
+# holds compiled binary chunks that it will parse as utility candidates —
+# producing invalid CSS and breaking the dev server.
+.next-*/
 
 # security evidence may contain sensitive detail — keep the reports, not the raw evidence
 security-audit/evidence/
