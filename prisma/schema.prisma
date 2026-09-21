@@ -656,20 +656,32 @@ model AuditLog {
 }
 
 model DataQualityIssue {
-  id          String   @id @default(cuid())
-  issueCode   String   @unique
-  source      String
-  entity      String
-  recordId    String?
-  rule        String
-  message     String
-  severity    String   // INFO | WARNING | ERROR | BLOCKING
-  status      String   @default("OPEN") // OPEN | IN_REVIEW | RESOLVED | IGNORED
-  detectedAt  DateTime @default(now())
-  assignedTo  String?
-  resolution  String?
-  resolvedBy  String?
-  resolvedAt  DateTime?
+  id               String    @id @default(cuid())
+  issueCode        String    @unique
+  source           String
+  entity           String
+  recordId         String?
+  rule             String
+  message          String
+  severity         String   // INFO | WARNING | ERROR | BLOCKING
+  status           String   @default("OPEN") // OPEN | IN_REVIEW | RESOLVED | IGNORED
+  syncRunId        String?
+  batchId          String?
+  checkpoint       Int?
+  affectedField    String?
+  rawValue         String?
+  normalizedValue  String?
+  downstreamImpact String?
+  detectedAt       DateTime @default(now())
+  assignedTo       String?
+  resolution       String?
+  resolvedBy       String?
+  resolvedAt       DateTime?
+
+  @@index([source, status])
+  @@index([batchId])
+  @@index([rule])
+  @@index([recordId])
 }
 
 model Notification {
@@ -733,6 +745,7 @@ model SyncCheckpoint {
 model LotMasterRecord {
   id                  String    @id @default(cuid())
   lotId               String    @unique
+  sourceRecordId      String?
   sourceType          String    @default("FIXTURE") // FIXTURE | FILE_IMPORT | FANTASY_API
   entityType          String    @default("POLISHED") // POLISHED | ROUGH | WIP | MEMO | INVOICE
   currentStatus       String    // STOCK | MEMO | INVOICE | SOLD | TRANSFERRED | ARCHIVED | CANCELLED | WIP_PLANNING | WIP_LASER | WIP_POLISHING | WIP_GRADING | WIP_COMPLETED | REMOVED_UNKNOWN
@@ -788,28 +801,44 @@ model LotMasterRecord {
   @@index([country, branch])
   @@index([lastSeenAt])
   @@index([checkpoint])
+  @@index([sourceRecordId])
 }
 
 model LotHistoryRecord {
   id                  String    @id @default(cuid())
   lotId               String
-  lotMaster           LotMasterRecord @relation(fields: [lotId], references: [lotId], onDelete: Cascade)
+  lotMaster           LotMasterRecord @relation(fields: [lotId], references: [lotId], onDelete: Restrict)
+  sourceRecordId      String?
   version             Int
   status              String
+  previousStatus      String?
   docDate             DateTime
   statusEffectiveDate DateTime
+  quantity            Decimal   @default(1)
   shape               String
+  shapeNormalized     String?
   weight              Decimal
   color               String?
   clarity             String?
+  labRaw              String?
   labNormalized       String?
+  certificate         String?
+  treatment           String?
   saleTotalUsd        Decimal?
+  customerId          String?
+  customerCode        String?
   customerName        String?
+  departmentId        String?
   departmentName      String?
+  locationId          String?
   locationName        String?
   country             String
   branch              String
+  roughOrPolished     String    @default("POLISHED")
   wipStage            String?
+  parentRoughId       String?
+  kapan               String?
+  stoneName           String?
   isCurrent           Boolean
   removalReason       String?
   changeReason        String?
@@ -825,6 +854,7 @@ model LotHistoryRecord {
   @@index([checkpoint])
   @@index([status])
   @@index([recordedAt])
+  @@index([sourceRecordId])
 }
 
 // ---------------------------------------------------------------------------

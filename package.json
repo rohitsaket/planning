@@ -13,7 +13,8 @@
     "db:reset": "prisma migrate reset",
     "db:seed": "tsx --env-file-if-exists=.env prisma/seed.ts",
     "typecheck": "tsc --noEmit",
-    "test:security": "tsx --env-file-if-exists=.env scripts/sectest-db.ts --recreate && tsx --env-file-if-exists=.env scripts/with-sectest-db.ts npx prisma migrate deploy",
+    "test:fantasy": "npx tsx --env-file-if-exists=.env scripts/sectest-db.ts && npx tsx --env-file-if-exists=.env scripts/with-sectest-db.ts npx prisma migrate deploy && npx tsx --env-file-if-exists=.env scripts/with-sectest-db.ts npx tsx scripts/test-fantasy-sync.ts",
+    "test:security": "npx tsx --env-file-if-exists=.env scripts/sectest-db.ts --recreate && npx tsx --env-file-if-exists=.env scripts/with-sectest-db.ts npx prisma migrate deploy",
     "audit:deps": "npm audit --omit=dev",
     "db:migrate:deploy": "prisma migrate deploy",
     "user:create": "tsx --env-file-if-exists=.env scripts/create-user.ts"

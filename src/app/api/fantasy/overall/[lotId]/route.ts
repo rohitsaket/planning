@@ -28,6 +28,7 @@ export const GET = withApi<{ lotId: string }>({ permission: "overall.read" }, as
     lot: {
       id: master.id,
       lotId: master.lotId,
+      sourceRecordId: master.sourceRecordId,
       sourceType: master.sourceType,
       entityType: master.entityType,
       currentStatus: master.currentStatus,
@@ -75,8 +76,10 @@ export const GET = withApi<{ lotId: string }>({ permission: "overall.read" }, as
     },
     timeline: master.history.map((h) => ({
       id: h.id,
+      sourceRecordId: h.sourceRecordId,
       version: h.version,
       status: h.status,
+      previousStatus: h.previousStatus,
       docDate: h.docDate.toISOString(),
       docDateIST: formatIST(h.docDate, false),
       statusEffectiveDate: h.statusEffectiveDate.toISOString(),

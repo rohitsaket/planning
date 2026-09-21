@@ -123,24 +123,42 @@ function fmtDuration(ms: number): string {
 export function FantasySyncView() {
   const { data, isLoading, refetch } = useApi<SyncPayload>("/api/fantasy/sync");
   const [syncing, setSyncing] = useState(false);
+  const [unlocking, setUnlocking] = useState(false);
 
   const summary = data?.summary ?? [];
   const reconciliation = data?.reconciliation;
   const recentRuns = data?.recentRuns ?? [];
   const checkpoint = data?.checkpoint ?? 0;
-  const isSimulated = data?.isSimulated ?? true;
+  const isLocked = data?.isLocked ?? false;
 
-  const totalEntitiesSynced = summary.length;
   const lastSyncStatus = useMemo(() => {
-    if (summary.length === 0) return "—";
+    if (!data?.recentRuns || data.recentRuns.length === 0) return "NOT_RUN";
     const statuses = new Set(summary.map((s) => s.lastStatus));
     if (statuses.size === 1 && statuses.has("SUCCESS")) return "HEALTHY";
     if (statuses.has("FAILED")) return "FAILED";
     if (statuses.has("PARTIAL") || statuses.has("RUNNING")) return "PARTIAL";
+    if (statuses.has("NOT_RUN")) return "NOT_RUN";
     return Array.from(statuses).join(", ");
-  }, [summary]);
+  }, [summary, data?.recentRuns]);
 
   const errorsCount = (reconciliation?.dataQualityErrors ?? 0);
+
+  const handleUnlock = async () => {
+    setUnlocking(true);
+    try {
+      const res = await apiPost<{ success: boolean; message: string }>("/api/fantasy/sync/unlock", {
+        reason: "Manual release of stale sync lock from dashboard",
+      });
+      if (res.success) {
+        toast.success("Lock Released", { description: res.message });
+      }
+      refetch();
+    } catch (e) {
+      toast.error("Unlock error", { description: e instanceof Error ? e.message : "Failed to clear lock" });
+    } finally {
+      setUnlocking(false);
+    }
+  };
 
   const handleTriggerSync = async () => {
     setSyncing(true);
@@ -264,11 +282,23 @@ export function FantasySyncView() {
         subtitle="Fantasy ERP authoritative source synchronization · Checkpoint state · Mathematical reconciliation"
         actions={
           <div className="flex items-center gap-2">
+            {isLocked && (
+              <Button
+                variant="destructive"
+                size="sm"
+                className="h-8 text-xs gap-1.5"
+                disabled={unlocking}
+                onClick={handleUnlock}
+              >
+                <AlertTriangle className="h-3.5 w-3.5" />
+                {unlocking ? "Unlocking..." : "Release Sync Lock"}
+              </Button>
+            )}
             <Button
               variant="outline"
               size="sm"
               className="h-8 text-xs gap-1.5"
-              disabled={syncing}
+              disabled={syncing || isLocked}
               onClick={handleRetry}
             >
               <RotateCcw className="h-3.5 w-3.5" /> Retry Sync
@@ -276,7 +306,7 @@ export function FantasySyncView() {
             <Button
               size="sm"
               className="h-8 text-xs gap-1.5"
-              disabled={syncing}
+              disabled={syncing || isLocked}
               onClick={handleTriggerSync}
             >
               <RefreshCw className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />

@@ -2,7 +2,7 @@ import { db } from "@/lib/db";
 import { ok } from "@/lib/api-utils";
 import { withApi, qStr, paging, paged } from "@/lib/api/with-api";
 
-export const GET = withApi({ permission: "analysis.read" }, async (req: Request) => {
+export const GET = withApi({ permission: "data_quality.read" }, async (req: Request) => {
   const url = new URL(req.url);
   const p = paging(url);
   const entity = qStr(url, "entity");
@@ -14,15 +14,28 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request)
   if (severity) where.severity = severity;
   if (status) where.status = status;
 
-  const issues = await db.dataQualityIssue.findMany({ skip: p.skip, take: p.take, where, orderBy: { detectedAt: "desc" } });
+  const [totalCount, issues] = await Promise.all([
+    db.dataQualityIssue.count({ where }),
+    db.dataQualityIssue.findMany({
+      skip: p.skip,
+      take: p.take,
+      where,
+      orderBy: { detectedAt: "desc" },
+    }),
+  ]);
 
-  const severityCounts = { INFO: 0, WARNING: 0, ERROR: 0, BLOCKING: 0 };
-  for (const i of issues) {
-    severityCounts[i.severity as keyof typeof severityCounts] = (severityCounts[i.severity as keyof typeof severityCounts] ?? 0) + 1;
-  }
+  const [infoCount, warnCount, errorCount, blockCount] = await Promise.all([
+    db.dataQualityIssue.count({ where: { severity: "INFO" } }),
+    db.dataQualityIssue.count({ where: { severity: "WARNING" } }),
+    db.dataQualityIssue.count({ where: { severity: "ERROR" } }),
+    db.dataQualityIssue.count({ where: { severity: "BLOCKING" } }),
+  ]);
 
+  const severityCounts = { INFO: infoCount, WARNING: warnCount, ERROR: errorCount, BLOCKING: blockCount };
   const pg = paged(issues, p);
+
   return ok({
+    total: totalCount,
     page: pg.page,
     pageSize: pg.pageSize,
     hasMore: pg.hasMore,
@@ -36,6 +49,13 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request)
       message: i.message,
       severity: i.severity,
       status: i.status,
+      syncRunId: i.syncRunId,
+      batchId: i.batchId,
+      checkpoint: i.checkpoint,
+      affectedField: i.affectedField,
+      rawValue: i.rawValue,
+      normalizedValue: i.normalizedValue,
+      downstreamImpact: i.downstreamImpact,
       assignedTo: i.assignedTo,
       detectedAt: i.detectedAt.toISOString(),
       resolution: i.resolution,

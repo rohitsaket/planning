@@ -76,6 +76,7 @@ export const GET = withApi({ permission: "overall.read" }, async (req: Request) 
     rows: pg.rows.map((r) => ({
       id: r.id,
       lotId: r.lotId,
+      sourceRecordId: r.sourceRecordId,
       sourceType: r.sourceType,
       entityType: r.entityType,
       currentStatus: r.currentStatus,

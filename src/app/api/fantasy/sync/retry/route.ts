@@ -5,7 +5,6 @@ import { retrySynchronization } from "@/lib/fantasy/sync-service";
 import { z } from "zod";
 
 const retrySchema = z.object({
-  targetCheckpoint: z.number().int().min(0).max(10).optional(),
   reason: z.string().min(3).max(200).optional(),
 });
 
@@ -13,19 +12,24 @@ export const POST = withApi({
   permission: "fantasy.sync",
   body: retrySchema,
 }, async (_req, _ctx, { principal, body, audit }) => {
-  const result = await retrySynchronization(body.targetCheckpoint, principal.username);
+  // Retries current failed checkpoint only; does not accept arbitrary checkpoints
+  const result = await retrySynchronization({
+    actor: principal.username,
+    actorUserId: principal.userId,
+  });
 
   await audit(db, {
     action: "FANTASY_SYNC_RETRY",
     entity: "IntegrationSyncRun",
     entityId: result.runId,
     after: {
-      targetCheckpoint: body.targetCheckpoint,
       status: result.status,
       batchId: result.batchId,
+      startingCheckpoint: result.startingCheckpoint,
+      endingCheckpoint: result.endingCheckpoint,
       reconciliation: result.reconciliation,
     },
-    reason: body.reason ?? "Manual retry of synchronization run",
+    reason: body?.reason ?? "Manual retry of current failed checkpoint",
   });
 
   return ok({
@@ -37,6 +41,6 @@ export const POST = withApi({
     status: result.status,
     durationMs: result.durationMs,
     reconciliation: result.reconciliation,
-    errorSummary: result.errorSummary,
+    errorSummary: result.errorSummary ? result.errorSummary.split("\n")[0].slice(0, 250) : undefined,
   });
 });

@@ -121,23 +121,129 @@ export function normalizeShape(raw: string | null | undefined): string {
   return trimmed;
 }
 
+export interface LabNormalizationResult {
+  normalized: string;
+  raw: string | null;
+  isRecognized: boolean;
+  isNonCert: boolean;
+  requiresReview: boolean;
+  warning?: string;
+}
+
+/**
+ * Resolves diamond lab certification with recognition status and configurable mappings.
+ * Client Rules:
+ * - Blank, null, NONE, UNCERTIFIED -> Non-Cert
+ * - Recognized GIA variants -> GIA
+ * - Unconfirmed labs (IGI, HRD, etc.) retain raw value unless in configuredMappings, and raise review warning.
+ */
+export function resolveLabNormalization(
+  raw: string | null | undefined,
+  configuredMappings?: Map<string, string> | Record<string, string>
+): LabNormalizationResult {
+  if (!raw || raw.trim() === "") {
+    return {
+      normalized: "Non-Cert",
+      raw: raw ?? null,
+      isRecognized: true,
+      isNonCert: true,
+      requiresReview: false,
+    };
+  }
+
+  const rawTrimmed = raw.trim();
+  const upper = rawTrimmed.toUpperCase();
+
+  // 1. Non-certified representations
+  if (
+    upper === "NONE" ||
+    upper === "NON-CERT" ||
+    upper === "NON CERT" ||
+    upper === "UNCERTIFIED" ||
+    upper === "NO CERT" ||
+    upper === "NO-CERT" ||
+    upper === "NIL" ||
+    upper === "NA" ||
+    upper === "N/A"
+  ) {
+    return {
+      normalized: "Non-Cert",
+      raw: rawTrimmed,
+      isRecognized: true,
+      isNonCert: true,
+      requiresReview: false,
+    };
+  }
+
+  // 2. Configured database mappings
+  if (configuredMappings) {
+    let mapped: string | undefined;
+    if (configuredMappings instanceof Map) {
+      mapped = configuredMappings.get(rawTrimmed) ?? configuredMappings.get(upper);
+    } else {
+      mapped = configuredMappings[rawTrimmed] ?? configuredMappings[upper];
+    }
+    if (mapped) {
+      return {
+        normalized: mapped,
+        raw: rawTrimmed,
+        isRecognized: true,
+        isNonCert: mapped === "Non-Cert",
+        requiresReview: false,
+      };
+    }
+  }
+
+  // 3. Recognized GIA variants
+  if (
+    upper === "GIA" ||
+    upper === "G.I.A." ||
+    upper === "GIA CERT" ||
+    upper === "GIA REPORT" ||
+    upper === "GIA-DOSSIER" ||
+    upper === "GIA DOSSIER" ||
+    upper.startsWith("GIA ") ||
+    upper.endsWith(" GIA") ||
+    /^GIA\b/.test(upper)
+  ) {
+    return {
+      normalized: "GIA",
+      raw: rawTrimmed,
+      isRecognized: true,
+      isNonCert: false,
+      requiresReview: false,
+    };
+  }
+
+  // 4. Unconfirmed lab values (IGI, HRD, or new unmapped values)
+  // Retain raw value without silently asserting an approved classification, flag for review.
+  return {
+    normalized: rawTrimmed,
+    raw: rawTrimmed,
+    isRecognized: false,
+    isNonCert: false,
+    requiresReview: true,
+    warning: `Unconfirmed lab certification "${rawTrimmed}" requires mapping review.`,
+  };
+}
+
 /**
  * Normalizes diamond lab certification string.
  */
-export function normalizeLab(raw: string | null | undefined): string {
-  if (!raw) return "Non-Cert";
-  const trimmed = raw.trim().toUpperCase();
-  if (trimmed.includes("GIA")) return "GIA";
-  if (trimmed.includes("IGI")) return "IGI";
-  if (trimmed.includes("HRD")) return "HRD";
-  if (trimmed === "NON-CERT" || trimmed === "NONE" || trimmed === "UNCERTIFIED") return "Non-Cert";
-  return raw.trim();
+export function normalizeLab(
+  raw: string | null | undefined,
+  configuredMappings?: Map<string, string> | Record<string, string>
+): string {
+  return resolveLabNormalization(raw, configuredMappings).normalized;
 }
 
 /**
  * Validates a single canonical record for essential data integrity.
  */
-export function validateCanonicalRecord(rec: CanonicalRecord): BatchValidationResult {
+export function validateCanonicalRecord(
+  rec: CanonicalRecord,
+  configuredMappings?: Map<string, string> | Record<string, string>
+): BatchValidationResult {
   const errors: string[] = [];
   const warnings: string[] = [];
 
@@ -159,8 +265,11 @@ export function validateCanonicalRecord(rec: CanonicalRecord): BatchValidationRe
     errors.push(`Invalid docDate: ${rec.docDate}`);
   }
 
-  if (rec.labRaw && normalizeLab(rec.labRaw) === "UNKNOWN") {
-    warnings.push(`Unknown lab certification: ${rec.labRaw}`);
+  if (rec.labRaw) {
+    const labRes = resolveLabNormalization(rec.labRaw, configuredMappings);
+    if (labRes.requiresReview && labRes.warning) {
+      warnings.push(labRes.warning);
+    }
   }
 
   return {

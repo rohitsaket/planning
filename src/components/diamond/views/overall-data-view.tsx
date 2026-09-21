@@ -38,6 +38,7 @@ import { toast } from "sonner";
 interface OverallLotItem {
   id: string;
   lotId: string;
+  sourceRecordId?: string | null;
   sourceType: string;
   entityType: string;
   currentStatus: string;
@@ -459,6 +460,12 @@ export function OverallDataView() {
                     <span className="text-muted-foreground">Current Version:</span>{" "}
                     <strong>v{detailData.lot.currentVersion}</strong>
                   </div>
+                  {detailData.lot.sourceRecordId && (
+                    <div>
+                      <span className="text-muted-foreground">Source Rec ID:</span>{" "}
+                      <strong className="font-mono">{detailData.lot.sourceRecordId}</strong>
+                    </div>
+                  )}
                 </div>
               </div>
 
