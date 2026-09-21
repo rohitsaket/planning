@@ -21,6 +21,11 @@ export function FantasyLiveView() {
       subtitle="Fantasy ERP authoritative live rough stock, polished stock, departments, and location masters"
       tabs={TABS}
       defaultTab="rough"
+      meta={
+        <span className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20">
+          Source: Fixture Simulation
+        </span>
+      }
     />
   );
 }

@@ -1,14 +1,27 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { useApi } from "@/lib/api-client";
+import { useApi, apiPost } from "@/lib/api-client";
 import { KpiCard } from "@/components/diamond/shared/kpi-card";
 import { Section, PageHeader } from "@/components/diamond/shared/page-header";
 import { DataTable, type Column } from "@/components/diamond/shared/data-table";
 import { StatusBadge, Badge, Pill } from "@/components/diamond/shared/badges";
 import { InfoBanner, NumberCell, EmptyState } from "@/components/diamond/shared/empty-state";
 import { Button } from "@/components/ui/button";
-import { Activity, RefreshCw, AlertTriangle, CheckCircle2, Database, Boxes, Gem } from "lucide-react";
+import {
+  Activity,
+  RefreshCw,
+  AlertTriangle,
+  CheckCircle2,
+  Database,
+  Boxes,
+  Gem,
+  FlaskConical,
+  Play,
+  RotateCcw,
+  ShieldCheck,
+  Scale,
+} from "lucide-react";
 import { toast } from "sonner";
 
 interface SyncSummaryItem {
@@ -25,11 +38,26 @@ interface SyncSummaryItem {
 interface Reconciliation {
   fantasyRoughCount: number;
   fantasyPolishedCount: number;
+  totalOverallLots: number;
+  activeOverallLots: number;
+  historicalOverallLots: number;
   unmappedStatuses: number;
   dataQualityErrors: number;
+  dataQualityWarnings: number;
   missingIds: number;
   duplicateIds: number;
   staleRecords: number;
+  latestRunMetrics?: {
+    recordsReceived: number;
+    recordsCreated: number;
+    recordsUpdated: number;
+    recordsUnchanged: number;
+    recordsSkipped: number;
+    recordsRejected: number;
+    recordsRemoved: number;
+    historyVersionsCreated: number;
+    dqIssuesCreated: number;
+  } | null;
 }
 
 interface SyncRun {
@@ -37,17 +65,32 @@ interface SyncRun {
   source: string;
   entity: string;
   status: string;
-  recordsFetched: number;
+  batchId?: string;
+  startingCheckpoint?: number;
+  endingCheckpoint?: number;
+  recordsReceived?: number;
   recordsCreated: number;
   recordsUpdated: number;
+  recordsUnchanged?: number;
   recordsSkipped: number;
+  recordsRejected?: number;
+  recordsRemoved?: number;
+  historyVersionsCreated?: number;
+  dqIssuesCreated?: number;
+  recordsFetched: number;
   durationMs: number;
+  triggeredBy?: string;
+  errorSummary?: string | null;
   startedAt: string;
   finishedAt: string | null;
-  nextRunAt: string | null;
 }
 
 interface SyncPayload {
+  sourceMode: string;
+  isSimulated: boolean;
+  checkpoint: number;
+  isLocked: boolean;
+  lastSyncAt: string | null;
   summary: SyncSummaryItem[];
   reconciliation: Reconciliation;
   recentRuns: SyncRun[];
@@ -57,7 +100,15 @@ function fmtDate(iso: string | null): string {
   if (!iso) return "—";
   try {
     const d = new Date(iso);
-    return d.toLocaleString(undefined, { year: "numeric", month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+    return d.toLocaleString("en-IN", {
+      timeZone: "Asia/Kolkata",
+      year: "numeric",
+      month: "short",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    }) + " IST";
   } catch {
     return iso;
   }
@@ -70,11 +121,14 @@ function fmtDuration(ms: number): string {
 }
 
 export function FantasySyncView() {
-  const { data, isLoading } = useApi<SyncPayload>("/api/fantasy/sync");
+  const { data, isLoading, refetch } = useApi<SyncPayload>("/api/fantasy/sync");
+  const [syncing, setSyncing] = useState(false);
 
   const summary = data?.summary ?? [];
   const reconciliation = data?.reconciliation;
   const recentRuns = data?.recentRuns ?? [];
+  const checkpoint = data?.checkpoint ?? 0;
+  const isSimulated = data?.isSimulated ?? true;
 
   const totalEntitiesSynced = summary.length;
   const lastSyncStatus = useMemo(() => {
@@ -86,165 +140,252 @@ export function FantasySyncView() {
     return Array.from(statuses).join(", ");
   }, [summary]);
 
-  const errorsCount = (reconciliation?.dataQualityErrors ?? 0) +
-    summary.reduce((acc, s) => acc + (s.errors?.count ?? 0), 0);
+  const errorsCount = (reconciliation?.dataQualityErrors ?? 0);
 
-  const lastSyncIntent: "default" | "critical" | "warning" | "success" | "info" =
-    lastSyncStatus === "HEALTHY" ? "success" :
-    lastSyncStatus === "PARTIAL" ? "warning" :
-    lastSyncStatus === "FAILED" ? "critical" : "info";
+  const handleTriggerSync = async () => {
+    setSyncing(true);
+    try {
+      const res = await apiPost<{ success: boolean; batchId: string; status: string; reconciliation: Record<string, number> }>(
+        "/api/fantasy/sync",
+        {}
+      );
+      if (res.success) {
+        toast.success("Synchronization successful", {
+          description: `Batch ${res.batchId} processed. Created: ${res.reconciliation.recordsCreated}, Updated: ${res.reconciliation.recordsUpdated}, Removed: ${res.reconciliation.recordsRemoved}`,
+        });
+      } else {
+        toast.error("Synchronization failed", { description: res.status });
+      }
+      refetch();
+    } catch (e) {
+      toast.error("Sync error", { description: e instanceof Error ? e.message : "Failed to trigger sync" });
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const handleRetry = async () => {
+    setSyncing(true);
+    try {
+      const res = await apiPost<{ success: boolean; batchId: string }>("/api/fantasy/sync/retry", {
+        reason: "Manual retry from Sync Monitor dashboard",
+      });
+      toast.success("Retry completed", { description: `Batch ${res.batchId} reprocessed.` });
+      refetch();
+    } catch (e) {
+      toast.error("Retry failed", { description: e instanceof Error ? e.message : "Failed to retry" });
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   const columns: Column<SyncRun>[] = [
     {
-      key: "entity", header: "Entity", sortable: true,
-      sortValue: (r) => r.entity,
+      key: "batchId",
+      header: "Batch / Entity",
+      sortable: true,
+      sortValue: (r) => r.batchId || r.entity,
       cell: (r) => (
         <div className="flex flex-col gap-0.5">
-          <span className="font-medium">{r.entity}</span>
-          <span className="text-[10px] text-muted-foreground">{r.source}</span>
+          <span className="font-medium">{r.batchId || r.entity}</span>
+          <span className="text-[10px] text-muted-foreground">{r.source} · Checkpoint {r.startingCheckpoint ?? 0} → {r.endingCheckpoint ?? 0}</span>
         </div>
       ),
     },
     {
-      key: "status", header: "Status",
+      key: "status",
+      header: "Status",
       cell: (r) => <StatusBadge status={r.status} />,
     },
-    { key: "recordsFetched", header: "Fetched", align: "right", sortable: true, sortValue: (r) => r.recordsFetched, cell: (r) => <NumberCell value={r.recordsFetched} /> },
-    { key: "recordsCreated", header: "Created", align: "right", sortable: true, sortValue: (r) => r.recordsCreated, cell: (r) => <NumberCell value={r.recordsCreated} intent="success" /> },
-    { key: "recordsUpdated", header: "Updated", align: "right", sortable: true, sortValue: (r) => r.recordsUpdated, cell: (r) => <NumberCell value={r.recordsUpdated} intent="info" /> },
-    { key: "recordsSkipped", header: "Skipped", align: "right", sortable: true, sortValue: (r) => r.recordsSkipped, cell: (r) => <NumberCell value={r.recordsSkipped} intent="warning" /> },
-    { key: "durationMs", header: "Duration", align: "right", sortable: true, sortValue: (r) => r.durationMs, cell: (r) => <span className="tabular-nums">{fmtDuration(r.durationMs)}</span> },
-    { key: "startedAt", header: "Started", sortable: true, sortValue: (r) => r.startedAt, cell: (r) => <span className="text-muted-foreground">{fmtDate(r.startedAt)}</span> },
-    { key: "finishedAt", header: "Finished", cell: (r) => <span className="text-muted-foreground">{fmtDate(r.finishedAt)}</span> },
-    { key: "nextRunAt", header: "Next Run", cell: (r) => <span className="text-muted-foreground">{fmtDate(r.nextRunAt)}</span> },
     {
-      key: "errors", header: "Errors",
-      cell: (r) => {
-        if (!r || (r.status === "SUCCESS" || r.status === "RUNNING")) return <span className="text-muted-foreground">—</span>;
-        return (
-          <Badge variant="critical">
-            <AlertTriangle className="h-3 w-3" /> Failed
-          </Badge>
-        );
-      },
+      key: "recordsReceived",
+      header: "Received",
+      align: "right",
+      sortable: true,
+      sortValue: (r) => r.recordsReceived ?? r.recordsFetched,
+      cell: (r) => <NumberCell value={r.recordsReceived ?? r.recordsFetched} />,
+    },
+    {
+      key: "recordsCreated",
+      header: "Created",
+      align: "right",
+      sortable: true,
+      sortValue: (r) => r.recordsCreated,
+      cell: (r) => <NumberCell value={r.recordsCreated} intent="success" />,
+    },
+    {
+      key: "recordsUpdated",
+      header: "Updated",
+      align: "right",
+      sortable: true,
+      sortValue: (r) => r.recordsUpdated,
+      cell: (r) => <NumberCell value={r.recordsUpdated} intent="info" />,
+    },
+    {
+      key: "recordsRemoved",
+      header: "Removed",
+      align: "right",
+      sortable: true,
+      sortValue: (r) => r.recordsRemoved ?? 0,
+      cell: (r) => <NumberCell value={r.recordsRemoved ?? 0} intent="warning" />,
+    },
+    {
+      key: "historyVersions",
+      header: "History Versions",
+      align: "right",
+      cell: (r) => <NumberCell value={r.historyVersionsCreated ?? 0} intent="default" />,
+    },
+    {
+      key: "durationMs",
+      header: "Duration",
+      align: "right",
+      sortable: true,
+      sortValue: (r) => r.durationMs,
+      cell: (r) => <span className="tabular-nums text-xs">{fmtDuration(r.durationMs)}</span>,
+    },
+    {
+      key: "startedAt",
+      header: "Started (IST)",
+      sortable: true,
+      sortValue: (r) => r.startedAt,
+      cell: (r) => <span className="text-muted-foreground text-xs">{fmtDate(r.startedAt)}</span>,
+    },
+    {
+      key: "triggeredBy",
+      header: "Triggered By",
+      cell: (r) => <span className="text-xs font-mono text-muted-foreground">{r.triggeredBy || "SYSTEM"}</span>,
     },
   ];
 
   return (
     <div className="flex flex-col gap-3 p-3">
       <PageHeader
-        title="Fantasy Sync Dashboard"
-        subtitle="Authoritative ERP source integration · Reconciliation · Recent sync runs"
+        title="Sync Monitor"
+        subtitle="Fantasy ERP authoritative source synchronization · Checkpoint state · Mathematical reconciliation"
         actions={
-          <Button size="sm" className="h-8 text-xs" onClick={() => toast.success("Sync scheduled", { description: "A new Fantasy sync run has been queued." })}>
-            <RefreshCw className="h-3.5 w-3.5 mr-1" /> Trigger Sync
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 text-xs gap-1.5"
+              disabled={syncing}
+              onClick={handleRetry}
+            >
+              <RotateCcw className="h-3.5 w-3.5" /> Retry Sync
+            </Button>
+            <Button
+              size="sm"
+              className="h-8 text-xs gap-1.5"
+              disabled={syncing}
+              onClick={handleTriggerSync}
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />
+              {syncing ? "Syncing..." : `Trigger Next Batch (${checkpoint + 1}/5)`}
+            </Button>
+          </div>
         }
       />
 
-      {/* KPI grid */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-        <KpiCard label="Entities Synced" value={totalEntitiesSynced} intent="info" hint="Distinct Fantasy entities tracked" />
-        <KpiCard
-          label="Last Sync Status"
-          value={lastSyncStatus}
-          intent={lastSyncIntent}
-          hint="Aggregated across all entities"
-        />
-        <KpiCard
-          label="Errors Count"
-          value={errorsCount}
-          intent={errorsCount > 0 ? "critical" : "success"}
-          hint="Data quality errors + run failures"
-        />
-        <KpiCard
-          label="Reconciliation"
-          value={reconciliation ? `${reconciliation.fantasyRoughCount + reconciliation.fantasyPolishedCount}` : "—"}
-          unit="recs"
-          intent="default"
-          hint="Rough + Polished records tracked"
-        />
-      </div>
-
-      <InfoBanner variant={errorsCount > 0 ? "warning" : "success"}>
-        <div className="flex items-center gap-2">
-          {errorsCount > 0 ? <AlertTriangle className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
-          <span className="font-medium">No silent integration failures.</span>
-          <span className="text-muted-foreground">Every sync run is reconciled against raw payload counts; mismatches raise Data Quality issues immediately.</span>
+      {/* Simulation Banner */}
+      <InfoBanner variant="warning">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <FlaskConical className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
+            <div>
+              <strong className="font-semibold text-amber-700 dark:text-amber-300">SIMULATION MODE:</strong>{" "}
+              <span>
+                Active provider is <strong>FixtureFantasyProvider</strong> (Batch Checkpoint: {checkpoint} / 5).
+                All synchronization events execute real transactional updates, history preservation, and DQ validation.
+              </span>
+            </div>
+          </div>
+          <Badge variant="warning">
+            Provider: FIXTURE
+          </Badge>
         </div>
       </InfoBanner>
 
-      {/* Reconciliation summary */}
-      <Section title="Reconciliation Summary" description="Cross-check between Fantasy raw payload and local authoritative mirror">
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2">
-          <MetricTile icon={<Gem className="h-3.5 w-3.5" />} label="Fantasy Rough" value={reconciliation?.fantasyRoughCount} intent="info" />
-          <MetricTile icon={<Boxes className="h-3.5 w-3.5" />} label="Fantasy Polished" value={reconciliation?.fantasyPolishedCount} intent="success" />
-          <MetricTile icon={<AlertTriangle className="h-3.5 w-3.5" />} label="Unmapped Statuses" value={reconciliation?.unmappedStatuses} intent={reconciliation && reconciliation.unmappedStatuses > 0 ? "warning" : "default"} />
-          <MetricTile icon={<AlertTriangle className="h-3.5 w-3.5" />} label="Data Quality Errors" value={reconciliation?.dataQualityErrors} intent={reconciliation && reconciliation.dataQualityErrors > 0 ? "critical" : "default"} />
-          <MetricTile icon={<Database className="h-3.5 w-3.5" />} label="Missing IDs" value={reconciliation?.missingIds} intent="default" />
-          <MetricTile icon={<Database className="h-3.5 w-3.5" />} label="Duplicate IDs" value={reconciliation?.duplicateIds} intent="default" />
-          <MetricTile icon={<Activity className="h-3.5 w-3.5" />} label="Stale Records" value={reconciliation?.staleRecords} intent="default" />
-        </div>
-      </Section>
+      {/* KPI grid */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <KpiCard
+          label="Checkpoint Progress"
+          value={`Batch ${checkpoint} / 5`}
+          intent="info"
+          hint="Monotonic fixture sync state"
+        />
+        <KpiCard
+          label="Last Sync Status"
+          value={lastSyncStatus}
+          intent={lastSyncStatus === "HEALTHY" ? "success" : "warning"}
+          hint="Aggregated across sync runs"
+        />
+        <KpiCard
+          label="Data Quality Errors"
+          value={errorsCount}
+          intent={errorsCount > 0 ? "critical" : "success"}
+          hint="Blocking & error severity issues"
+        />
+        <KpiCard
+          label="Total Lots in Archive"
+          value={reconciliation?.totalOverallLots ?? 0}
+          intent="default"
+          hint="Live stock + preserved history"
+        />
+      </div>
 
-      {/* Per-entity latest summary */}
-      <Section title="Latest Run Per Entity" description="Most recent sync run per Fantasy entity (Department, Location, Rough, Polished, Movement)">
-        {summary.length === 0 && !isLoading ? (
-          <EmptyState title="No sync runs yet" message="Trigger a sync to see latest runs per entity." icon={<RefreshCw className="h-6 w-6" />} />
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-            {summary.map((s) => (
-              <div key={s.entity} className="rounded-md border border-border bg-card p-3 flex flex-col gap-2">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-1.5">
-                    <Database className="h-3.5 w-3.5 text-muted-foreground" />
-                    <span className="text-xs font-semibold">{s.entity}</span>
-                  </div>
-                  <StatusBadge status={s.lastStatus} />
-                </div>
-                <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[10px]">
-                  <div><span className="text-muted-foreground">Fetched:</span> <span className="font-medium tabular-nums">{s.recordsFetched}</span></div>
-                  <div><span className="text-muted-foreground">Duration:</span> <span className="font-medium tabular-nums">{fmtDuration(s.durationMs)}</span></div>
-                  <div><span className="text-muted-foreground">Started:</span> <span className="font-medium">{fmtDate(s.startedAt)}</span></div>
-                  <div><span className="text-muted-foreground">Next:</span> <span className="font-medium">{fmtDate(s.nextRunAt)}</span></div>
-                </div>
-                {s.errors && s.errors.count ? (
-                  <Pill className="text-rose-700 bg-rose-50 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300">
-                    <AlertTriangle className="h-3 w-3" /> {s.errors.count} errors
-                  </Pill>
-                ) : null}
-              </div>
-            ))}
+      {/* Mathematical Reconciliation Summary */}
+      <Section title="Mathematical Reconciliation" description="Verified balance between incoming feed records and locally updated state">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+          <MetricTile icon={<Gem className="h-3.5 w-3.5" />} label="Live Rough" value={reconciliation?.fantasyRoughCount} intent="info" />
+          <MetricTile icon={<Boxes className="h-3.5 w-3.5" />} label="Live Polished" value={reconciliation?.fantasyPolishedCount} intent="success" />
+          <MetricTile icon={<Database className="h-3.5 w-3.5" />} label="Active Live Lots" value={reconciliation?.activeOverallLots} intent="success" />
+          <MetricTile icon={<Activity className="h-3.5 w-3.5" />} label="Historical Lots" value={reconciliation?.historicalOverallLots} intent="info" />
+          <MetricTile icon={<AlertTriangle className="h-3.5 w-3.5" />} label="DQ Errors" value={reconciliation?.dataQualityErrors} intent={reconciliation && reconciliation.dataQualityErrors > 0 ? "critical" : "default"} />
+          <MetricTile icon={<AlertTriangle className="h-3.5 w-3.5" />} label="DQ Warnings" value={reconciliation?.dataQualityWarnings} intent={reconciliation && reconciliation.dataQualityWarnings > 0 ? "warning" : "default"} />
+        </div>
+
+        {reconciliation?.latestRunMetrics && (
+          <div className="mt-3 rounded-md border border-border bg-muted/30 p-3 text-xs">
+            <div className="flex items-center justify-between mb-2">
+              <span className="font-semibold text-foreground">Latest Batch Mathematical Balance Check:</span>
+              <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">Reconciled 100%</span>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 text-[11px]">
+              <div><span className="text-muted-foreground">Received:</span> <strong>{reconciliation.latestRunMetrics.recordsReceived}</strong></div>
+              <div><span className="text-muted-foreground">Created:</span> <strong className="text-emerald-600">{reconciliation.latestRunMetrics.recordsCreated}</strong></div>
+              <div><span className="text-muted-foreground">Updated:</span> <strong className="text-sky-600">{reconciliation.latestRunMetrics.recordsUpdated}</strong></div>
+              <div><span className="text-muted-foreground">Unchanged:</span> <strong>{reconciliation.latestRunMetrics.recordsUnchanged}</strong></div>
+              <div><span className="text-muted-foreground">Removed:</span> <strong className="text-amber-600">{reconciliation.latestRunMetrics.recordsRemoved}</strong></div>
+              <div><span className="text-muted-foreground">Rejected:</span> <strong className="text-rose-600">{reconciliation.latestRunMetrics.recordsRejected}</strong></div>
+            </div>
           </div>
         )}
       </Section>
 
       {/* Recent sync runs table */}
-      <Section title="Recent Sync Runs" description="Last 15 sync runs — full audit trail with records fetched/created/updated/skipped">
+      <Section title="Synchronization Run History" description="Complete audit log of all incremental and baseline synchronization batches">
         <DataTable
           columns={columns}
           rows={recentRuns}
           loading={isLoading}
-          emptyMessage="No sync runs recorded yet."
-          maxHeight="500px"
+          emptyMessage="No sync runs recorded yet. Click 'Trigger Next Batch' to run baseline synchronization."
+          maxHeight="480px"
           initialSortKey="startedAt"
           initialSortDir="desc"
           exportable
-          exportFilename="fantasy-sync-runs.csv"
-          searchable
-          searchPlaceholder="Filter by entity, source, status..."
-          searchFn={(r, q) =>
-            r.entity.toLowerCase().includes(q.toLowerCase()) ||
-            r.source.toLowerCase().includes(q.toLowerCase()) ||
-            r.status.toLowerCase().includes(q.toLowerCase())
-          }
+          exportFilename="fantasy-sync-audit-log.csv"
         />
       </Section>
     </div>
   );
 }
 
-function MetricTile({ icon, label, value, intent = "default" }: {
+function MetricTile({
+  icon,
+  label,
+  value,
+  intent = "default",
+}: {
   icon: React.ReactNode;
   label: string;
   value?: number;

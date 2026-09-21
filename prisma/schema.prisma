@@ -683,19 +683,148 @@ model Notification {
 }
 
 model IntegrationSyncRun {
-  id            String   @id @default(cuid())
-  source        String   // Fantasy
-  entity        String   // Department | Location | Rough | Polished | Movement
-  status        String   // RUNNING | SUCCESS | FAILED | PARTIAL
-  recordsFetched Int     @default(0)
-  recordsCreated Int     @default(0)
-  recordsUpdated Int     @default(0)
-  recordsSkipped Int     @default(0)
-  errorsJson    String?
-  durationMs    Int      @default(0)
-  startedAt     DateTime @default(now())
-  finishedAt    DateTime?
-  nextRunAt     DateTime?
+  id                     String    @id @default(cuid())
+  source                 String    // Fantasy
+  entity                 String    // Department | Location | Rough | Polished | Movement | ALL | BATCH
+  status                 String    // RUNNING | SUCCESS | FAILED | PARTIAL
+  sourceMode             String    @default("FIXTURE") // FIXTURE | FILE_IMPORT | FANTASY_API
+  isSimulated            Boolean   @default(true)
+  batchId                String?
+  startingCheckpoint     Int       @default(0)
+  endingCheckpoint       Int       @default(0)
+  sourceCutoff           DateTime?
+  recordsReceived        Int       @default(0)
+  recordsCreated         Int       @default(0)
+  recordsUpdated         Int       @default(0)
+  recordsUnchanged       Int       @default(0)
+  recordsSkipped         Int       @default(0)
+  recordsRejected        Int       @default(0)
+  recordsRemoved         Int       @default(0)
+  historyVersionsCreated Int       @default(0)
+  dqIssuesCreated        Int       @default(0)
+  recordsFetched         Int       @default(0)
+  errorsJson             String?
+  errorSummary           String?
+  durationMs             Int       @default(0)
+  triggeredBy            String?
+  triggeredByUserId      String?
+  startedAt              DateTime  @default(now())
+  finishedAt             DateTime?
+  nextRunAt              DateTime?
+
+  @@index([startedAt])
+  @@index([status])
+  @@index([batchId])
+}
+
+model SyncCheckpoint {
+  id                String    @id @default(cuid())
+  source            String    @unique @default("FANTASY")
+  mode              String    @default("FIXTURE") // FIXTURE | FILE_IMPORT | FANTASY_API
+  currentCheckpoint Int       @default(0)
+  lastBatchId       String?
+  lastSyncAt        DateTime?
+  isLocked          Boolean   @default(false)
+  lockedAt          DateTime?
+  lockedBy          String?
+  updatedAt         DateTime  @updatedAt
+}
+
+model LotMasterRecord {
+  id                  String    @id @default(cuid())
+  lotId               String    @unique
+  sourceType          String    @default("FIXTURE") // FIXTURE | FILE_IMPORT | FANTASY_API
+  entityType          String    @default("POLISHED") // POLISHED | ROUGH | WIP | MEMO | INVOICE
+  currentStatus       String    // STOCK | MEMO | INVOICE | SOLD | TRANSFERRED | ARCHIVED | CANCELLED | WIP_PLANNING | WIP_LASER | WIP_POLISHING | WIP_GRADING | WIP_COMPLETED | REMOVED_UNKNOWN
+  previousStatus      String?
+  statusEffectiveDate DateTime
+  docDate             DateTime
+  quantity            Decimal   @default(1)
+  shape               String
+  shapeNormalized     String?
+  weight              Decimal
+  color               String?
+  clarity             String?
+  labRaw              String?
+  labNormalized       String?
+  certificate         String?
+  treatment           String?
+  saleTotalUsd        Decimal?
+  customerId          String?
+  customerCode        String?
+  customerName        String?
+  departmentId        String?
+  departmentName      String?
+  locationId          String?
+  locationName        String?
+  country             String
+  branch              String
+  roughOrPolished     String    @default("POLISHED")
+  wipStage            String?
+  parentRoughId       String?
+  kapan               String?
+  stoneName           String?
+  isCurrent           Boolean   @default(true)
+  removalReason       String?   // EXPLICIT_SALE | MEMO_RETURN | TRANSFERRED | ARCHIVED | CANCELLED | COMPLETED | CORRECTION | SOURCE_DISAPPEARANCE_UNKNOWN
+  removedFromLiveAt   DateTime?
+  firstSeenAt         DateTime  @default(now())
+  lastSeenAt          DateTime  @default(now())
+  sourceCreatedAt     DateTime?
+  sourceUpdatedAt     DateTime?
+  currentVersion      Int       @default(1)
+  lastSyncBatchId     String
+  checkpoint          Int       @default(1)
+  isSimulated         Boolean   @default(true)
+  metadataJson        String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  history             LotHistoryRecord[]
+
+  @@index([isCurrent])
+  @@index([currentStatus])
+  @@index([shapeNormalized])
+  @@index([labNormalized])
+  @@index([country, branch])
+  @@index([lastSeenAt])
+  @@index([checkpoint])
+}
+
+model LotHistoryRecord {
+  id                  String    @id @default(cuid())
+  lotId               String
+  lotMaster           LotMasterRecord @relation(fields: [lotId], references: [lotId], onDelete: Cascade)
+  version             Int
+  status              String
+  docDate             DateTime
+  statusEffectiveDate DateTime
+  shape               String
+  weight              Decimal
+  color               String?
+  clarity             String?
+  labNormalized       String?
+  saleTotalUsd        Decimal?
+  customerName        String?
+  departmentName      String?
+  locationName        String?
+  country             String
+  branch              String
+  wipStage            String?
+  isCurrent           Boolean
+  removalReason       String?
+  changeReason        String?
+  syncBatchId         String
+  checkpoint          Int
+  isSimulated         Boolean   @default(true)
+  metadataJson        String?
+  recordedAt          DateTime  @default(now())
+
+  @@unique([lotId, version])
+  @@index([lotId])
+  @@index([syncBatchId])
+  @@index([checkpoint])
+  @@index([status])
+  @@index([recordedAt])
 }
 
 // ---------------------------------------------------------------------------
