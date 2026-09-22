@@ -2,15 +2,13 @@
 
 import { TabbedHostView, HostTabItem } from "@/components/diamond/shared/tabbed-host-view";
 import { DemandCalculationOverview } from "@/components/diamond/views/demand-calculation-overview";
-import { DashboardView } from "@/components/diamond/views/dashboard-view";
 import { SalesAnalysisView } from "@/components/diamond/views/sales-analysis-view";
 import { SalesTrendsView } from "@/components/diamond/views/sales-trends-view";
 import { DemandHistoryView } from "@/components/diamond/views/demand-history-view";
-import { Calculator, Activity, ShoppingCart, TrendingUp, History } from "lucide-react";
+import { Calculator, ShoppingCart, TrendingUp, History } from "lucide-react";
 
 const TABS: HostTabItem[] = [
   { id: "calculation", label: "Demand & Categories", icon: <Calculator className="h-3.5 w-3.5" />, permission: "analysis.read", component: DemandCalculationOverview },
-  { id: "executive", label: "Executive Summary", icon: <Activity className="h-3.5 w-3.5" />, component: DashboardView },
   { id: "sales", label: "Sales Analysis", icon: <ShoppingCart className="h-3.5 w-3.5" />, permission: "sales.read", component: SalesAnalysisView },
   { id: "trends", label: "Sales Trends", icon: <TrendingUp className="h-3.5 w-3.5" />, permission: "sales.read", component: SalesTrendsView },
   { id: "history", label: "Demand History", icon: <History className="h-3.5 w-3.5" />, component: DemandHistoryView },
