@@ -107,10 +107,6 @@ export function FantasyRoughView() {
 
   return (
     <div className="flex flex-col gap-3 p-3">
-      <PageHeader
-        title="Fantasy Rough Stock"
-        subtitle="Authoritative Fantasy-sourced rough inventory · Kapan / Packet / Stone Name · Plan eligibility & status"
-      />
 
       {/* KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">

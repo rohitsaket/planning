@@ -56,10 +56,6 @@ export function FantasyLocationsView() {
 
   return (
     <div className="flex flex-col gap-3 p-3">
-      <PageHeader
-        title="Fantasy Locations"
-        subtitle="Authoritative Fantasy-sourced physical location registry · Linked to departments"
-      />
 
       {/* KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">

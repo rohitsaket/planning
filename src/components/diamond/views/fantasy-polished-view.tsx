@@ -108,10 +108,6 @@ export function FantasyPolishedView() {
 
   return (
     <div className="flex flex-col gap-3 p-3">
-      <PageHeader
-        title="Fantasy Polished Stock"
-        subtitle="Authoritative Fantasy-sourced polished lots · Lab normalization · Shape normalization · Weight bands"
-      />
 
       {/* KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">

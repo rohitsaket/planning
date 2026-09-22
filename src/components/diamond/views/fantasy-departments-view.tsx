@@ -44,10 +44,6 @@ export function FantasyDepartmentsView() {
 
   return (
     <div className="flex flex-col gap-3 p-3">
-      <PageHeader
-        title="Fantasy Departments"
-        subtitle="Authoritative Fantasy department registry · Nested locations per department"
-      />
 
       {/* KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">

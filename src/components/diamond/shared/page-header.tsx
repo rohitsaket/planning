@@ -13,14 +13,13 @@ interface PageHeaderProps {
 
 export function PageHeader({ title, subtitle, actions, meta, className }: PageHeaderProps) {
   return (
-    <div className={cn("sticky top-0 z-20 -mx-3 -mt-3 mb-1 border-b border-border bg-card/95 backdrop-blur-md px-4 py-3 shadow-xs", className)}>
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div className="min-w-0">
-          <h1 className="text-base font-semibold tracking-tight text-foreground truncate">{title}</h1>
-          {subtitle && <p className="text-[11px] text-muted-foreground mt-0.5">{subtitle}</p>}
+    <div className={cn("sticky top-0 z-20 -mx-3 -mt-3 mb-2 border-b border-border bg-card/95 backdrop-blur-md px-3 py-1.5 shadow-xs", className)}>
+      <div className="flex items-center justify-between gap-3 flex-wrap min-h-8">
+        <div className="flex items-center gap-2 min-w-0">
+          <h1 className="text-sm font-semibold tracking-tight text-foreground truncate">{title}</h1>
         </div>
         {(actions || meta) && (
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap ml-auto">
             {meta}
             {actions}
           </div>
