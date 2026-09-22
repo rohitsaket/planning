@@ -18,8 +18,8 @@ export function GlobalFilterBar({ className }: { className?: string }) {
       {/* Country */}
       <div className="flex items-center gap-1">
         <Select value={country ?? "ALL"} onValueChange={(v) => setCountry(v === "ALL" ? null : v)}>
-          <SelectTrigger size="sm" className="h-7.5 w-[110px] sm:w-[125px] text-[11px] bg-card/80 border-border/70 shadow-xs">
-            <Globe className="h-3 w-3 text-muted-foreground mr-1 shrink-0" />
+          <SelectTrigger size="sm" className="h-8 min-w-[138px] px-2.5 text-xs bg-card/90 border-border/80 shadow-xs">
+            <Globe className="h-3.5 w-3.5 text-muted-foreground mr-1.5 shrink-0" />
             <SelectValue placeholder="All Countries" />
           </SelectTrigger>
           <SelectContent>
@@ -35,7 +35,7 @@ export function GlobalFilterBar({ className }: { className?: string }) {
       {country && (
         <div className="flex items-center gap-1">
           <Select value={branch ?? "ALL"} onValueChange={(v) => setBranch(v === "ALL" ? null : v)}>
-            <SelectTrigger size="sm" className="h-7.5 w-[100px] text-[11px] bg-card/80 border-border/70 shadow-xs">
+            <SelectTrigger size="sm" className="h-8 min-w-[120px] px-2.5 text-xs bg-card/90 border-border/80 shadow-xs">
               <SelectValue placeholder="All Branches" />
             </SelectTrigger>
             <SelectContent>
@@ -51,8 +51,8 @@ export function GlobalFilterBar({ className }: { className?: string }) {
       {/* Lab */}
       <div className="flex items-center gap-1">
         <Select value={lab ?? "ALL"} onValueChange={(v) => setLab(v === "ALL" ? null : v)}>
-          <SelectTrigger size="sm" className="h-7.5 w-[90px] sm:w-[100px] text-[11px] bg-card/80 border-border/70 shadow-xs">
-            <FlaskConical className="h-3 w-3 text-muted-foreground mr-1 shrink-0" />
+          <SelectTrigger size="sm" className="h-8 min-w-[110px] px-2.5 text-xs bg-card/90 border-border/80 shadow-xs">
+            <FlaskConical className="h-3.5 w-3.5 text-muted-foreground mr-1.5 shrink-0" />
             <SelectValue placeholder="All Labs" />
           </SelectTrigger>
           <SelectContent>
@@ -67,8 +67,8 @@ export function GlobalFilterBar({ className }: { className?: string }) {
       {/* Window */}
       <div className="flex items-center gap-1">
         <Select value={String(windowDays)} onValueChange={(v) => setWindowDays(parseInt(v, 10))}>
-          <SelectTrigger size="sm" className="h-7.5 w-[75px] text-[11px] bg-card/80 border-border/70 shadow-xs">
-            <Clock className="h-3 w-3 text-muted-foreground mr-1 shrink-0" />
+          <SelectTrigger size="sm" className="h-8 min-w-[85px] px-2.5 text-xs bg-card/90 border-border/80 shadow-xs">
+            <Clock className="h-3.5 w-3.5 text-muted-foreground mr-1.5 shrink-0" />
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
