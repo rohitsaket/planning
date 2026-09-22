@@ -79,5 +79,5 @@ export function proxy(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|icon.svg|apple-icon.png|logo.svg|robots.txt).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|favicon.svg|icon.svg|apple-icon.png|logo.svg|robots.txt).*)"],
 };
