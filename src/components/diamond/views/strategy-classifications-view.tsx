@@ -22,7 +22,6 @@ interface CategoryMetric {
   shape: string;
   weightBand: string;
   sales90d: number;
-  monthlyAverage: number;
   roundedTarget: number;
   availableStock: number;
   memoQty: number;
@@ -30,7 +29,8 @@ interface CategoryMetric {
   blockedQty: number;
   physicalShortage: number;
   excessStock: number;
-  wipCoverage: number;
+  /** null when the result was produced without manufacturing coverage available. */
+  wipCoverage: number | null;
   unallocatedWip: number;
   pipelineNeed: number;
   approvedPlanCoverage: number;
@@ -119,9 +119,9 @@ export function StrategyClassificationsView() {
       } else if (c.sales90d > 0 && c.availableStock === 0) {
         classification = "DEMAND_NO_SUPPLY";
         reason = `Sales of ${c.sales90d} pcs in 90D with 0 available stock`;
-      } else if (c.physicalShortage > 0 && c.wipCoverage >= c.physicalShortage) {
+      } else if (c.physicalShortage > 0 && (c.wipCoverage ?? 0) >= c.physicalShortage) {
         classification = "WIP_COVERED_SHORTAGE";
-        reason = `Shortage of ${c.physicalShortage} pcs covered by ${c.wipCoverage} WIP pcs`;
+        reason = `Shortage of ${c.physicalShortage} pcs covered by ${c.wipCoverage ?? 0} pieces in manufacturing`;
       } else if (c.physicalShortage > 0) {
         classification = "SHORTAGE";
         reason = `Shortage of ${c.physicalShortage} pcs (Target ${c.roundedTarget} vs Stock ${c.availableStock})`;
@@ -221,10 +221,10 @@ export function StrategyClassificationsView() {
       key: "wipCoverage",
       header: "WIP Cov",
       sortable: true,
-      sortValue: (r) => r.wipCoverage,
+      sortValue: (r) => r.wipCoverage ?? -1,
       align: "right",
       width: "85px",
-      cell: (r) => <NumberCell value={r.wipCoverage} />,
+      cell: (r) => (r.wipCoverage === null ? <span className="text-[10px] font-mono text-muted-foreground">—</span> : <NumberCell value={r.wipCoverage} />),
     },
     {
       key: "physicalShortage",

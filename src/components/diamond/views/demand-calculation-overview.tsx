@@ -29,8 +29,6 @@ interface CategoryMetricRow {
   shape: string;
   weightBand: string;
   sales90d: number;
-  monthlyAverage: number;
-  unroundedTarget: number;
   roundedTarget: number;
   availableStock: number;
   memoQty: number;
@@ -38,12 +36,11 @@ interface CategoryMetricRow {
   blockedQty: number;
   physicalShortage: number;
   excessStock: number;
-  wipCoverage: number;
+  wipCoverage: number | null;
   unallocatedWip: number;
   pipelineNeed: number;
   approvedPlanCoverage: number;
   remainingUnplanned: number;
-  forecastSignal: number;
   status: string;
 }
 
@@ -65,34 +62,23 @@ interface DemandOverviewSummary {
 
 interface DemandOverviewResponse {
   hasEverRun: boolean;
-  sourceMode: string;
+  sourceMode: "FIXTURE_SIMULATION" | "LIVE";
   isSimulated: boolean;
-  ruleVersion: string;
   runId: string | null;
-  runDate: string | null;
-  runDateIST: string | null;
+  calculatedAt: string | null;
+  calculatedAtIst: string | null;
   businessDateIst: string | null;
   lookbackStart: string | null;
   lookbackEnd: string | null;
   windowDays: number;
-  checkpoint: number;
-  lastBatchId: string | null;
-  salesCount: number;
-  inventoryCount: number;
-  wipCount: number;
-  excludedCount: number;
   categories: CategoryMetricRow[];
   summary: DemandOverviewSummary;
-  /** Calculation policy served by the API — the single source for rule statements. */
-  rules: {
-    wipPolicy: { ruleId: string; status: "CONFIGURED" | "NOT_CONFIGURED"; message: string; eligibleStages: string[] };
-    wipAppliedInRun: boolean;
-    formula: string[];
-  };
+  /** Manufacturing coverage availability in business language. */
+  wipCoverage: { available: boolean; appliedInRun: boolean; message: string };
 }
 
 export function DemandCalculationOverview() {
-  const setView = useNavStore((s) => s.setView);
+  const openDemandTrace = useNavStore((s) => s.openDemandTrace);
   const qc = useQueryClient();
   const [runningDemand, setRunningDemand] = useState(false);
   const [unlocking, setUnlocking] = useState(false);
@@ -105,12 +91,20 @@ export function DemandCalculationOverview() {
   const canUnlockDemand = perms.includes("demand.unlock");
   const canTrace = perms.includes("demand.trace");
 
+  // Demand result queries are keyed by their full request URL, so every run/category/page
+  // variant is invalidated by path rather than by one exact key.
+  const invalidateDemandResults = () =>
+    qc.invalidateQueries({
+      predicate: (q) =>
+        typeof q.queryKey[0] === "string" && q.queryKey[0].startsWith("/api/analysis/demand-trace"),
+    });
+
   const runMutation = useMutation({
     mutationFn: () => apiPost<{ runId: string; categoriesProcessed: number; totalShortage: number }>("/api/demand/run", {}),
     onMutate: () => setRunningDemand(true),
     onSuccess: (r) => {
       toast.success(`Demand calculated successfully — ${r.categoriesProcessed} categories, shortage ${r.totalShortage} pcs`);
-      qc.invalidateQueries({ queryKey: ["/api/analysis/demand-trace"] });
+      invalidateDemandResults();
       qc.invalidateQueries({ queryKey: ["/api/dashboard"] });
       qc.invalidateQueries({ queryKey: ["/api/demand/history"] });
     },
@@ -125,7 +119,7 @@ export function DemandCalculationOverview() {
       toast.success(r.message || "Demand calculation unlocked");
       setUnlockModalOpen(false);
       setUnlockReason("");
-      qc.invalidateQueries({ queryKey: ["/api/analysis/demand-trace"] });
+      invalidateDemandResults();
     },
     onError: (e) => toast.error(`Unlock failed: ${(e as Error).message}`),
     onSettled: () => setUnlocking(false),
@@ -144,7 +138,7 @@ export function DemandCalculationOverview() {
   const summary = data?.summary;
   const categories = data?.categories ?? [];
   const hasEverRun = data?.hasEverRun ?? false;
-  const wipApplied = data?.rules?.wipAppliedInRun ?? false;
+  const wipApplied = data?.wipCoverage?.appliedInRun ?? false;
 
   const columns: Column<CategoryMetricRow>[] = [
     {
@@ -223,10 +217,15 @@ export function DemandCalculationOverview() {
       key: "wipCoverage",
       header: "Eligible WIP",
       sortable: true,
-      sortValue: (r) => r.wipCoverage,
+      sortValue: (r) => r.wipCoverage ?? -1,
       align: "right",
       width: "90px",
-      cell: (r) => <NumberCell value={r.wipCoverage} intent={r.wipCoverage > 0 ? "info" : undefined} />,
+      cell: (r) =>
+        r.wipCoverage === null ? (
+          <span className="text-[10px] font-mono text-muted-foreground">—</span>
+        ) : (
+          <NumberCell value={r.wipCoverage} intent={r.wipCoverage > 0 ? "info" : undefined} />
+        ),
     },
     {
       key: "pipelineNeed",
@@ -311,7 +310,9 @@ export function DemandCalculationOverview() {
             size="sm"
             variant="ghost"
             className="h-6 px-2 text-[10px] gap-1 text-sky-600 hover:text-sky-700 dark:text-sky-400"
-            onClick={() => setView("demand-trace")}
+            // The clicked row carries the canonical category key the API returned. It is passed
+            // through untouched, together with the run these figures came from.
+            onClick={() => openDemandTrace({ runId: data?.runId ?? null, category: r.category })}
           >
             Trace <ChevronRight className="h-3 w-3" />
           </Button>
@@ -344,24 +345,13 @@ export function DemandCalculationOverview() {
           <Badge variant="warning" className="uppercase font-bold tracking-wider text-[9px]">
             {data?.isSimulated ? "Simulated Mode" : "Live Mode"}
           </Badge>
-          <span className="text-amber-800 dark:text-amber-300 font-medium">
-            Fantasy Checkpoint #{data?.checkpoint ?? 0}
-          </span>
           {data?.businessDateIst && (
             <span className="text-muted-foreground text-[11px]">
               · IST Business Date: <strong className="text-foreground">{data.businessDateIst}</strong>
             </span>
           )}
-          {data?.lastBatchId && (
-            <span className="text-muted-foreground text-[11px] hidden sm:inline font-mono">
-              · Batch {data.lastBatchId}
-            </span>
-          )}
         </div>
         <div className="flex items-center gap-1.5">
-          <Badge variant="info" className="text-[10px]">
-            Rule {data?.ruleVersion ?? "DEMAND-V1"}
-          </Badge>
           <Badge variant="neutral" className="text-[10px]">
             90D IST Window
           </Badge>
@@ -374,9 +364,9 @@ export function DemandCalculationOverview() {
         subtitle="Transparent, reproducible demand, physical shortage, WIP coverage, plan coverage, and pipeline requirements"
         meta={
           <div className="flex items-center gap-2 flex-wrap">
-            {data?.runDateIST && (
+            {data?.calculatedAtIst && (
               <span className="text-[11px] text-muted-foreground">
-                Last calculated: <span className="tabular-nums font-medium text-foreground">{data.runDateIST}</span>
+                Last calculated: <span className="tabular-nums font-medium text-foreground">{data.calculatedAtIst}</span>
               </span>
             )}
             <Button
@@ -405,8 +395,8 @@ export function DemandCalculationOverview() {
         }
       />
 
-      {data?.rules?.wipPolicy?.status === "NOT_CONFIGURED" && (
-        <InfoBanner variant="warning">{data.rules.wipPolicy.message}</InfoBanner>
+      {data?.wipCoverage && !data.wipCoverage.available && (
+        <InfoBanner variant="warning">{data.wipCoverage.message}</InfoBanner>
       )}
 
       {!hasEverRun ? (

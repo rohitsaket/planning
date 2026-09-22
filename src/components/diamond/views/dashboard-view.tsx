@@ -16,7 +16,7 @@ import { useMemo, useState } from "react";
 import {
   AlertTriangle, Package, Gem, Boxes, ShoppingCart, FileWarning,
   Activity, RefreshCw, TrendingUp, TrendingDown, Gem as GemIcon,
-  ShieldCheck, Clock, Zap, ChevronRight, History, type LucideIcon,
+  ShieldCheck, Clock, Zap, History, type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -478,18 +478,6 @@ export function DashboardView() {
           </div>
         </Section>
       </div>
-
-      {/* Closed loop diagram */}
-      <Section title="The Closed Loop" description="Sales → Analysis → Demand → Target → Stock → Shortage → Orders → WIP → Final Requirement → Rough → Planning → Matching → Approval → Allocation → Reservation → Manufacturing → Actual → Polished → Plan-vs-Actual → Reconciliation → New Analysis">
-        <div className="flex flex-wrap items-center gap-1 text-[10px]">
-          {["Sales", "Analysis", "Demand", "Target Stock", "Polished Stock", "Shortage", "Orders / Priority", "WIP", "Final Requirement", "Rough", "Rough Planning", "Requirement Matching", "Plan Approval", "Requirement Allocation", "Rough Reservation", "Manufacturing Tracking", "Actual Polished", "Fantasy Polished Stock", "Plan-vs-Actual", "Requirement Recalculation", "New Analysis"].map((step, i, arr) => (
-            <span key={step} className="inline-flex items-center gap-1">
-              <span className={`px-2 py-0.5 rounded border ${i === 0 ? "bg-emerald-100 border-emerald-300 dark:bg-emerald-950/50 dark:border-emerald-900 text-emerald-800 dark:text-emerald-300" : i === arr.length - 1 ? "bg-sky-100 border-sky-300 dark:bg-sky-950/50 dark:border-sky-900 text-sky-800 dark:text-sky-300" : "bg-muted border-border text-muted-foreground"}`}>{step}</span>
-              {i < arr.length - 1 && <ChevronRight className="h-2.5 w-2.5 text-muted-foreground/50" />}
-            </span>
-          ))}
-        </div>
-      </Section>
         </>
       )}
     </div>

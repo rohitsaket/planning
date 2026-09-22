@@ -106,9 +106,6 @@ export const NAV: NavGroup[] = [
     icon: <BarChart3 className="h-4 w-4" />,
     items: [
       { id: "demand-overview", label: "Demand Overview", icon: <Activity className="h-3.5 w-3.5" /> },
-      { id: "inventory-position", label: "Inventory Position", icon: <Package className="h-3.5 w-3.5" /> },
-      { id: "customers-orders", label: "Customers and Orders", icon: <Users className="h-3.5 w-3.5" /> },
-      { id: "demand-trace", label: "Demand Trace", icon: <Calculator className="h-3.5 w-3.5" /> },
       { id: "stock-strategy", label: "Stock Strategy", icon: <ArrowLeftRight className="h-3.5 w-3.5" /> },
     ],
   },
@@ -788,7 +785,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </header>
 
         {/* Center Main Workspace */}
-        <main className="flex-1 min-w-0 h-full overflow-hidden flex flex-col">
+        <main className="flex-1 min-w-0 h-full overflow-y-auto overflow-x-hidden flex flex-col">
           {children}
         </main>
 

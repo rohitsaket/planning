@@ -765,38 +765,159 @@ async function main() {
   const traceViewer = await makeUser("trace-viewer", "SALES_VIEWER"); // analysis.read, no demand.trace
   const traceAnalyst = analyst; // analysis.read + demand.trace
 
+  // Requirement 29: a signed-in caller without analysis.read is denied at the route boundary.
+  const noAnalysis = await makeUser("trace-no-analysis", "AUDITOR"); // no analysis.read
+  const deniedTrace = await call(traceGET, { path: "/api/analysis/demand-trace", cookie: noAnalysis.cookie });
+  assert(deniedTrace.status === 403, `A caller without analysis.read cannot open demand results (got ${deniedTrace.status})`);
+  const deniedWithCategory = await call(traceGET, {
+    path: "/api/analysis/demand-trace?category=GIA%7CHEART%7C1.70-1.99&runId=anything",
+    cookie: noAnalysis.cookie,
+  });
+  assert(deniedWithCategory.status === 403, "Query parameters do not bypass the analysis.read gate");
+
+  // A category key that really exists in this run, taken from the API itself so the test
+  // uses the canonical key rather than one rebuilt from labels.
+  const baseTrace = await call(traceGET, { path: "/api/analysis/demand-trace", cookie: traceAnalyst.cookie });
+  assert(baseTrace.status === 200 && baseTrace.json.categories.length > 0, "The demand result API serves categories for the latest run");
+  const realCategory: string = baseTrace.json.categories[0].category;
+  const encodedCategory = encodeURIComponent(realCategory);
+
+  // --- Aggregate access without demand.trace (requirement 30) ---
   const noTrace = await call(traceGET, { path: "/api/analysis/demand-trace", cookie: traceViewer.cookie });
-  assert(noTrace.status === 200, "A caller with analysis.read may read aggregate trace values");
-  assert(noTrace.json.hasTracePermission === false, "The response states that lot-level access is restricted");
+  assert(noTrace.status === 200, "A caller with analysis.read may read aggregate demand results");
+  assert(noTrace.json.canViewSupportingRecords === false, "The response states that record-level access is restricted");
   assert(noTrace.json.summary.totalShortage >= 0 && noTrace.json.categories.length > 0, "Aggregate figures are still returned");
-  assert(Array.isArray(noTrace.json.traceItems) && noTrace.json.traceItems.length === 0, "No trace items are returned without demand.trace");
+  assert(noTrace.json.supportingRecords === null, "No supporting records are returned without demand.trace");
+
+  // Requirement 32: asking for a category by query parameter must not widen access.
+  const noTraceWithCategory = await call(traceGET, {
+    path: `/api/analysis/demand-trace?category=${encodedCategory}&recordType=CONFIRMED_SALE`,
+    cookie: traceViewer.cookie,
+  });
+  assert(noTraceWithCategory.status === 200, "A category parameter is accepted without demand.trace");
   assert(
-    noTrace.json.categories.every((c: { traceDetails?: unknown; traceAccessRestricted: boolean }) => c.traceDetails === undefined && c.traceAccessRestricted === true),
-    "No nested lot detail is attached to categories without demand.trace",
+    noTraceWithCategory.json.supportingRecords === null,
+    "A category query parameter does not bypass demand.trace",
   );
-  const noTraceBody = JSON.stringify(noTrace.json);
+  const noTraceBody = JSON.stringify(noTraceWithCategory.json);
   const knownLotIds = ["SALE-1", "WIP-POL-1", "WIP-MIRROR-1", "IN-STOCK-0"];
   assert(
     knownLotIds.every((lot) => !noTraceBody.includes(lot)),
     "No lot identifier leaks anywhere in the response body without demand.trace",
   );
+  assert(
+    !/traceJson|planningClass|DemandMetric|LotHistoryRecord|BR-WIP-001/.test(noTraceBody),
+    "No stored trace JSON, model name or rule identifier reaches a restricted caller",
+  );
 
-  const withTrace = await call(traceGET, { path: "/api/analysis/demand-trace", cookie: traceAnalyst.cookie });
-  assert(withTrace.json.hasTracePermission === true, "demand.trace unlocks lot-level access");
-  assert(withTrace.json.traceItems.length > 0, "Trace items are returned to an authorized caller");
-  assert(typeof withTrace.json.total === "number" && typeof withTrace.json.hasMore === "boolean", "Trace items follow the pagination contract");
-  assert(withTrace.json.rules.formula.length === 5, "Trace API serves the five calculation formulas as rule metadata");
+  // --- Record-level access with demand.trace (requirement 31) ---
+  const withTrace = await call(traceGET, {
+    path: `/api/analysis/demand-trace?category=${encodedCategory}&recordType=CONFIRMED_SALE&page=1&pageSize=10`,
+    cookie: traceAnalyst.cookie,
+  });
+  assert(withTrace.json.canViewSupportingRecords === true, "demand.trace unlocks record-level access");
+  assert(withTrace.json.supportingRecords !== null, "Supporting records are returned to an authorized caller");
   assert(
-    withTrace.json.rules.statements.some((s: { code: string; text: string }) => s.code === "WIP" && s.text.includes("pipeline")),
-    "Rule metadata states that eligible WIP reduces the pipeline requirement only",
+    typeof withTrace.json.supportingRecords.total === "number" &&
+      typeof withTrace.json.supportingRecords.hasMore === "boolean" &&
+      withTrace.json.supportingRecords.pageSize === 10,
+    "Supporting records follow the pagination contract",
   );
   assert(
-    withTrace.json.rules.statements.some((s: { code: string; applies: boolean }) => s.code === "MEMO" && s.applies === true),
-    "Rule metadata states that memo does not reduce physical shortage",
+    withTrace.json.supportingRecords.rows.every((r: { recordType: string }) => r.recordType === "CONFIRMED_SALE"),
+    "Only the requested record type is returned",
   );
+
+  // --- Exact category filtering (requirements 23-25, 27) ---
   assert(
-    !JSON.stringify(withTrace.json.rules).includes("never auto-applied"),
-    "No contradictory 'never auto-applied' WIP claim remains in the served rules",
+    withTrace.json.selectedCategory?.category === realCategory,
+    "An exact category key returns the matching selection",
+  );
+  assert(withTrace.json.selectedCategoryUnavailable === false, "An existing category is not reported as unavailable");
+
+  const wrongCase = await call(traceGET, {
+    path: `/api/analysis/demand-trace?category=${encodeURIComponent(realCategory.toLowerCase())}`,
+    cookie: traceAnalyst.cookie,
+  });
+  assert(wrongCase.status === 200, "A wrong-case category is handled without an error");
+  assert(wrongCase.json.selectedCategory === null, "A wrong-case category does not fuzzy-match");
+  assert(wrongCase.json.selectedCategoryUnavailable === true, "A wrong-case category is reported as unavailable");
+  assert(wrongCase.json.supportingRecords === null, "No records are returned for a category that did not match");
+
+  const partialKey = realCategory.split("|")[0];
+  const partial = await call(traceGET, {
+    path: `/api/analysis/demand-trace?category=${encodeURIComponent(partialKey)}`,
+    cookie: traceAnalyst.cookie,
+  });
+  assert(partial.json.selectedCategory === null, "A partial category key does not prefix-match");
+
+  const missing = await call(traceGET, {
+    path: `/api/analysis/demand-trace?category=${encodeURIComponent("GIA|HEART|99.00-99.99")}`,
+    cookie: traceAnalyst.cookie,
+  });
+  assert(missing.json.selectedCategory === null, "A nonexistent category returns selectedCategory: null");
+  assert(
+    missing.json.categories.length > 0 && missing.json.selectedCategoryUnavailable === true,
+    "A nonexistent category is reported as unavailable while aggregates still load",
+  );
+
+  for (const payload of ["' OR 1=1 --", "%' ; DROP TABLE \"DemandMetric\"; --", "GIA|HEART|1.70-1.99' UNION SELECT"]) {
+    const injected = await call(traceGET, {
+      path: `/api/analysis/demand-trace?category=${encodeURIComponent(payload)}`,
+      cookie: traceAnalyst.cookie,
+    });
+    assert(injected.status === 200, `An injection-shaped category is handled safely (${payload.slice(0, 12)}…)`);
+    assert(injected.json.selectedCategory === null, "An injection-shaped category selects nothing");
+    assert(injected.json.supportingRecords === null, "An injection-shaped category returns no records");
+  }
+
+  // --- Error responses stay safe (requirement 28) ---
+  const overLong = await call(traceGET, {
+    path: `/api/analysis/demand-trace?category=${"x".repeat(250)}`,
+    cookie: traceAnalyst.cookie,
+  });
+  assert(overLong.status === 400, "An over-length category parameter is rejected");
+  const overLongBody = JSON.stringify(overLong.json);
+  assert(
+    !/prisma|postgres|select |from "|stack|\.ts:|DemandMetricTraceItem/i.test(overLongBody),
+    "A rejected request exposes no database, ORM or stack detail",
+  );
+  const badPage = await call(traceGET, { path: "/api/analysis/demand-trace?page=abc", cookie: traceAnalyst.cookie });
+  assert(badPage.status === 400, "A non-integer page is rejected");
+  assert(
+    !/prisma|postgres|stack|\.ts:/i.test(JSON.stringify(badPage.json)),
+    "A rejected page parameter exposes no internal detail",
+  );
+
+  // --- Run scoping (requirement 26) ---
+  const olderRunId: string = baseTrace.json.runId;
+  const newerRun = await runDemandCalculation({ actor: "test" });
+  assert(newerRun.runId !== olderRunId, "A second demand calculation produced a newer run");
+
+  const latest = await call(traceGET, { path: "/api/analysis/demand-trace", cookie: traceAnalyst.cookie });
+  assert(latest.json.runId === newerRun.runId, "Without a runId the API serves the latest run");
+
+  const scoped = await call(traceGET, {
+    path: `/api/analysis/demand-trace?runId=${encodeURIComponent(olderRunId)}&category=${encodedCategory}`,
+    cookie: traceAnalyst.cookie,
+  });
+  assert(scoped.json.runId === olderRunId, "An older runId stays scoped to that run and is not swapped for the latest");
+  assert(scoped.json.runUnavailable === false, "A run that exists is not reported as unavailable");
+  assert(
+    scoped.json.selectedCategory?.category === realCategory,
+    "The selected category is resolved within the requested run",
+  );
+
+  const unknownRun = await call(traceGET, {
+    path: "/api/analysis/demand-trace?runId=run-that-does-not-exist",
+    cookie: traceAnalyst.cookie,
+  });
+  assert(unknownRun.status === 200, "An unknown runId is answered rather than erroring");
+  assert(unknownRun.json.runUnavailable === true, "An unknown runId reports the run as unavailable");
+  assert(unknownRun.json.status === "RUN_UNAVAILABLE", "An unknown runId carries an explicit RUN_UNAVAILABLE status");
+  assert(
+    unknownRun.json.categories.length === 0 && unknownRun.json.runId === null,
+    "An unknown runId never falls back to another run's figures",
   );
 
   // Lot-level WIP records follow the same rule as the trace endpoint.
@@ -851,9 +972,18 @@ async function main() {
   await db.demandMetric.deleteMany({});
   await db.demandRun.deleteMany({});
   const noRun = await call(traceGET, { path: "/api/analysis/demand-trace", cookie: admin.cookie });
-  assert(noRun.json.hasEverRun === false, "With no completed run the trace reports hasEverRun = false");
+  assert(noRun.json.hasEverRun === false, "With no completed run the demand result reports hasEverRun = false");
   assert(noRun.json.summary.totalShortage === 0 && noRun.json.categories.length === 0, "No fabricated figures are shown before a run exists");
-  assert(noRun.json.rules.wipPolicy.status === "CONFIGURED", "Rule metadata is still served when no run exists");
+  assert(noRun.json.status === "NOT_RUN", "No run at all is reported as NOT_RUN");
+  assert(
+    noRun.json.runUnavailable === false,
+    "NOT_RUN is distinguished from a requested run being unavailable",
+  );
+  const noRunButRequested = await call(traceGET, { path: "/api/analysis/demand-trace?runId=missing-run", cookie: admin.cookie });
+  assert(
+    noRunButRequested.json.status === "RUN_UNAVAILABLE" && noRunButRequested.json.runUnavailable === true,
+    "A requested run that does not exist is reported as RUN_UNAVAILABLE, not as 'never run'",
+  );
 
   const noRunHistory = await call(historyGET, { path: "/api/demand/history", cookie: admin.cookie });
   assert(noRunHistory.json.hasEverRun === false && noRunHistory.json.summary.lastStatus === "NOT_RUN", "Demand history reports NOT_RUN rather than a fabricated success");

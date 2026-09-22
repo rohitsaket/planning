@@ -12,6 +12,8 @@ const EXACT: Record<string, string> = {
   "demand-overview": "analysis.read",
   "inventory-position": "analysis.read",
   "customers-orders": "customers.read",
+  // Legacy alias for "analysis-demand-trace"; kept in step with it so a stale link is
+  // authorized identically to the canonical id it resolves to.
   "demand-trace": "analysis.read",
   "stock-strategy": "analysis.read",
   "requirements-matrix": "requirement.read",

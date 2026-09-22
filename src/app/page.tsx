@@ -96,7 +96,6 @@ const VIEW_REGISTRY: Record<string, React.ComponentType> = {
   "demand-overview": DemandOverviewView,
   "inventory-position": InventoryPositionView,
   "customers-orders": CustomersOrdersView,
-  "demand-trace": DemandTraceView,
   "stock-strategy": StockStrategyView,
 
   // 6. Requirements and Priority
@@ -154,6 +153,8 @@ const VIEW_REGISTRY: Record<string, React.ComponentType> = {
   "analysis-aging": AgingView,
   "analysis-reorder-signals": ReorderSignalsView,
   "demand-history": DemandHistoryView,
+  // The one Demand Result Details mapping. The legacy "demand-trace" id is an alias resolved
+  // by the nav store, so it can never reach the registry as a second, divergent page.
   "analysis-demand-trace": DemandTraceView,
   "transfer-analyzer": TransferAnalyzerView,
   "aging-dashboard": AgingDashboardView,

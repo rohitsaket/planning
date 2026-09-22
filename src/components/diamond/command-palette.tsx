@@ -60,11 +60,8 @@ const ITEMS: PaletteItem[] = [
   { id: "data-quality-issues", label: "Data Quality Issues", group: "Data Quality", icon: <AlertTriangle className="h-4 w-4" />, keywords: ["quality", "unmapped", "labs", "shapes", "issues", "anomalies"] },
 
   // 6. Demand and Inventory
-  { id: "demand-overview", label: "Demand Overview", group: "Demand and Inventory", icon: <Activity className="h-4 w-4" />, keywords: ["executive analysis", "sales analysis", "sales trends", "demand run history"] },
-  { id: "inventory-position", label: "Inventory Position", group: "Demand and Inventory", icon: <Package className="h-4 w-4" />, keywords: ["polished inventory", "memo analysis", "wip analysis", "stockout risk", "excess stock"] },
-  { id: "customers-orders", label: "Customers and Orders", group: "Demand and Inventory", icon: <Users className="h-4 w-4" />, keywords: ["customers", "orders", "country", "branch", "buyer", "geography"] },
-  { id: "demand-trace", label: "Demand Trace (Workflow)", group: "Demand and Inventory", icon: <Calculator className="h-4 w-4" />, keywords: ["trace", "calculation", "formula", "engine", "breakdown", "workflow"] },
-  { id: "stock-strategy", label: "Stock Strategy", group: "Demand and Inventory", icon: <ArrowLeftRight className="h-4 w-4" />, keywords: ["stock aging", "aging dashboard", "reorder signals", "transfer analyzer"] },
+  { id: "demand-overview", label: "Demand Overview", group: "Demand and Inventory", icon: <Activity className="h-4 w-4" />, keywords: ["demand calculation", "categories", "shortage", "wip coverage", "demand run history"] },
+  { id: "stock-strategy", label: "Stock Strategy", group: "Demand and Inventory", icon: <ArrowLeftRight className="h-4 w-4" />, keywords: ["strategic posture", "classifications", "shortage need", "supply demand alignment", "excess"] },
 
   // 6. Requirements and Priority
   { id: "requirements-matrix", label: "Requirement Matrix", group: "Requirements and Priority", icon: <Hash className="h-4 w-4" />, keywords: ["requirement", "matrix", "demand", "target", "carat"] },

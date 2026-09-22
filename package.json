@@ -16,6 +16,8 @@
     "test:demand": "npx tsx --env-file-if-exists=.env scripts/sectest-db.ts && npx tsx --env-file-if-exists=.env scripts/with-sectest-db.ts npx prisma migrate deploy && npx tsx --env-file-if-exists=.env scripts/with-sectest-db.ts npx tsx scripts/test-demand-calculation.ts",
     "test:fantasy": "npx tsx --env-file-if-exists=.env scripts/sectest-db.ts && npx tsx --env-file-if-exists=.env scripts/with-sectest-db.ts npx prisma migrate deploy && npx tsx --env-file-if-exists=.env scripts/with-sectest-db.ts npx tsx scripts/test-fantasy-sync.ts",
     "test:nav": "npx tsx scripts/test-analysis-navigation.ts",
+    "test:demand-inventory": "npx tsx --env-file-if-exists=.env scripts/sectest-db.ts && npx tsx --env-file-if-exists=.env scripts/with-sectest-db.ts npx prisma migrate deploy && npx tsx --env-file-if-exists=.env scripts/with-sectest-db.ts npx tsx scripts/test-demand-inventory.ts",
+    "test:demand-result": "npx tsx --env-file-if-exists=.env scripts/sectest-db.ts && npx tsx --env-file-if-exists=.env scripts/with-sectest-db.ts npx prisma migrate deploy && npx tsx --env-file-if-exists=.env scripts/with-sectest-db.ts npx tsx scripts/test-demand-result-details.ts",
     "test:security": "npx tsx --env-file-if-exists=.env scripts/sectest-db.ts --recreate && npx tsx --env-file-if-exists=.env scripts/with-sectest-db.ts npx prisma migrate deploy",
     "audit:deps": "npm audit --omit=dev",
     "db:migrate:deploy": "prisma migrate deploy",
