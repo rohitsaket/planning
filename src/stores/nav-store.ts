@@ -38,6 +38,8 @@ export type ViewId =
   | "analysis-executive"
   | "analysis-sales"
   | "analysis-sales-trends"
+  | "analysis-customers-orders"
+  | "analysis-inventory-position"
   | "analysis-customers"
   | "analysis-orders"
   | "analysis-country"

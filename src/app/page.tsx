@@ -138,6 +138,8 @@ const VIEW_REGISTRY: Record<string, React.ComponentType> = {
   "analysis-executive": DashboardView,
   "analysis-sales": SalesAnalysisView,
   "analysis-sales-trends": SalesTrendsView,
+  "analysis-customers-orders": CustomersOrdersView,
+  "analysis-inventory-position": InventoryPositionView,
   "analysis-customers": CustomersView,
   "analysis-orders": OrdersView,
   "analysis-country": CountryView,

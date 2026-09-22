@@ -39,6 +39,8 @@ const EXACT: Record<string, string> = {
   "analysis-executive": "analysis.read",
   "analysis-sales": "sales.read",
   "analysis-sales-trends": "sales.read",
+  "analysis-customers-orders": "customers.read",
+  "analysis-inventory-position": "analysis.read",
   "analysis-customers": "customers.read",
   "analysis-orders": "orders.read",
   "analysis-country": "analysis.read",

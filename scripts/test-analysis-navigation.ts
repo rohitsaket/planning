@@ -22,13 +22,8 @@ const EXPECTED_ANALYSIS_PAGES = [
   { id: "analysis-executive", label: "Executive Analysis", perm: "analysis.read" },
   { id: "analysis-sales", label: "Sales Analysis", perm: "sales.read" },
   { id: "analysis-sales-trends", label: "Sales Trends", perm: "sales.read" },
-  { id: "analysis-customers", label: "Customers", perm: "customers.read" },
-  { id: "analysis-orders", label: "Orders", perm: "orders.read" },
-  { id: "analysis-country", label: "Country / Branch", perm: "analysis.read" },
-  { id: "analysis-polished", label: "Polished Inventory", perm: "analysis.read" },
-  { id: "analysis-memo", label: "Memo Analysis", perm: "sales.read" },
-  { id: "analysis-wip", label: "WIP Analysis", perm: "analysis.read" },
-  { id: "analysis-forecast", label: "Forecast", perm: "analysis.read" },
+  { id: "analysis-customers-orders", label: "Customers & Orders", perm: "customers.read" },
+  { id: "analysis-inventory-position", label: "Inventory Position", perm: "analysis.read" },
   { id: "analysis-stockout", label: "Stockout Risk", perm: "analysis.read" },
   { id: "analysis-excess", label: "Excess Stock", perm: "analysis.read" },
   { id: "analysis-aging", label: "Stock Aging", perm: "analysis.read" },
@@ -65,9 +60,9 @@ async function main() {
   const analysisGroup = NAV[analysisIdx];
   assert(analysisGroup.label === "Analysis", "Analysis group label is 'Analysis'");
 
-  // 2. All 18 Pages in Exact Order
-  console.log("\n--- TEST 2: All 18 Analysis Pages in Exact Required Order ---");
-  assert(analysisGroup.items.length === 18, `Analysis group has exactly 18 items (got ${analysisGroup.items.length})`);
+  // 2. All 13 Pages in Exact Order
+  console.log("\n--- TEST 2: All 13 Analysis Pages in Exact Required Order ---");
+  assert(analysisGroup.items.length === 13, `Analysis group has exactly 13 items (got ${analysisGroup.items.length})`);
 
   for (let i = 0; i < EXPECTED_ANALYSIS_PAGES.length; i++) {
     const expected = EXPECTED_ANALYSIS_PAGES[i];
@@ -135,19 +130,14 @@ async function main() {
     const hasSalesRead = perms.includes("sales.read");
     assert(canSales === hasSalesRead, `${role} can access analysis-sales: ${canSales}`);
 
-    // Customers -> requires customers.read
-    const canCust = isViewAuthorized(perms, "analysis-customers");
+    // Customers & Orders -> requires customers.read
+    const canCustOrders = isViewAuthorized(perms, "analysis-customers-orders");
     const hasCustRead = perms.includes("customers.read");
-    assert(canCust === hasCustRead, `${role} can access analysis-customers: ${canCust}`);
+    assert(canCustOrders === hasCustRead, `${role} can access analysis-customers-orders: ${canCustOrders}`);
 
-    // Orders -> requires orders.read
-    const canOrders = isViewAuthorized(perms, "analysis-orders");
-    const hasOrdersRead = perms.includes("orders.read");
-    assert(canOrders === hasOrdersRead, `${role} can access analysis-orders: ${canOrders}`);
-
-    // Memo -> requires sales.read
-    const canMemo = isViewAuthorized(perms, "analysis-memo");
-    assert(canMemo === hasSalesRead, `${role} can access analysis-memo: ${canMemo}`);
+    // Inventory Position -> requires analysis.read
+    const canInvPos = isViewAuthorized(perms, "analysis-inventory-position");
+    assert(canInvPos === hasAnalysisRead, `${role} can access analysis-inventory-position: ${canInvPos}`);
 
     // Demand Trace Alias -> requires analysis.read (same as demand-trace)
     const canTraceAlias = isViewAuthorized(perms, "analysis-demand-trace");
