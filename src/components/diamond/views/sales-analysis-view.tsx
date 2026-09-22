@@ -4,7 +4,7 @@ import { useState, useMemo } from "react";
 import { useApi } from "@/lib/api-client";
 import { KpiCard } from "@/components/diamond/shared/kpi-card";
 import { Section, PageHeader } from "@/components/diamond/shared/page-header";
-import { DataTable, Column } from "@/components/diamond/shared/data-table";
+import { DataTable, Column, DATA_TABLE_VIEWPORT_MAX_HEIGHT } from "@/components/diamond/shared/data-table";
 import { Money, NumberCell } from "@/components/diamond/shared/empty-state";
 import { useGlobalFilter } from "@/stores/global-filter";
 import { useAuthStore } from "@/stores/auth-store";
@@ -197,7 +197,7 @@ export function SalesAnalysisView() {
           searchable
           searchPlaceholder="Search dimension..."
           searchFn={(r, q) => r.dimension.toLowerCase().includes(q.toLowerCase())}
-          maxHeight="500px"
+          maxHeight={DATA_TABLE_VIEWPORT_MAX_HEIGHT}
         />
       </Section>
     </div>

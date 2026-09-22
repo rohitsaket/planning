@@ -2,7 +2,7 @@
 
 import { toCsv } from "@/lib/csv-export";
 import { cn } from "@/lib/utils";
-import { ReactNode, useState } from "react";
+import { ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Download, FileSpreadsheet, FileText, Search } from "lucide-react";
 import type { Permission } from "@/lib/auth/permissions";
 import { Input } from "@/components/ui/input";
@@ -11,6 +11,14 @@ import { exportDataTableToExcel } from "@/lib/excel-export";
 import { exportToPDF } from "@/lib/pdf-export";
 
 import { useAuthStore } from "@/stores/auth-store";
+
+/**
+ * Viewport-aware row-viewport height for data-dense tables. Roughly 7–12 rows: ~336px at
+ * 1366×768, ~468px at 1440×900, capped at 520px on large displays, never below 300px.
+ * `dvh` follows the real viewport on mobile browsers; the surrounding chrome (shell header,
+ * tab strip, section header, KPIs, chart) is what the 27rem accounts for.
+ */
+export const DATA_TABLE_VIEWPORT_MAX_HEIGHT = "clamp(300px, calc(100dvh - 27rem), 520px)";
 
 export interface Column<T> {
   key: string;
@@ -111,6 +119,25 @@ export function DataTable<T>({
   const [sortDir, setSortDir] = useState<"asc" | "desc">(initialSortDir);
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  // Height of the row viewport while rows are shown, held as min-height during a reload so the
+  // table does not collapse to a one-line "Loading…" and jump the page. Written straight to the
+  // element (React never manages minHeight here), no state and no re-render.
+  const lastHeightRef = useRef(0);
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    if (loading) {
+      if (lastHeightRef.current) el.style.minHeight = `${lastHeightRef.current}px`;
+    } else {
+      el.style.minHeight = "";
+      lastHeightRef.current = el.offsetHeight;
+    }
+  });
+  // A new sort, search, page or dataset starts the row viewport at the top.
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: 0 });
+  }, [sortKey, sortDir, query, page, rows]);
 
   let processed = rows;
   if (searchable && searchFn && query) {
@@ -223,8 +250,16 @@ export function DataTable<T>({
         </div>
       )}
 
-      {/* Table Scroll Area — ONLY this inner part scrolls */}
-      <div className="overflow-auto flex-1 min-h-0 w-full" style={maxHeight ? { maxHeight } : undefined}>
+      {/* Table Scroll Area — ONLY this inner part scrolls (vertically up to maxHeight, horizontally
+          when the columns need more room). Toolbar above and pagination below stay put. Focusable so
+          keyboard users can scroll it; native scrolling only. */}
+      <div
+        ref={scrollRef}
+        tabIndex={0}
+        aria-label={title ? `${title} rows` : "Table rows"}
+        className="overflow-auto flex-1 min-h-0 w-full max-w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        style={maxHeight ? { maxHeight } : undefined}
+      >
         <table className="w-full text-xs border-collapse">
           <thead className={cn(stickyHeader && "sticky top-0 z-20 bg-muted")}>
             <tr className="bg-muted">
@@ -234,7 +269,9 @@ export function DataTable<T>({
                   onClick={() => handleSort(c)}
                   className={cn(
                     "px-2 py-2 font-semibold text-muted-foreground uppercase tracking-wide text-[10px] whitespace-nowrap bg-muted border-b border-border",
-                    stickyHeader && "sticky top-0 z-20",
+                    // With border-collapse the cell border does not travel with a sticky header, so the
+                    // header's bottom rule is drawn as an inset shadow that does.
+                    stickyHeader && "sticky top-0 z-20 shadow-[inset_0_-1px_0_0_var(--color-border)]",
                     c.align === "right" ? "text-right" : c.align === "center" ? "text-center" : "text-left",
                     c.sortable && "cursor-pointer hover:bg-muted-foreground/10 select-none",
                     c.sticky === "left" && "sticky left-0 bg-muted z-30 border-r",
@@ -292,8 +329,10 @@ export function DataTable<T>({
                       key={c.key}
                       className={cn(
                         "px-2 py-1.5 align-middle",
-                        c.align === "right" && "text-right tabular-nums",
-                        c.align === "center" && "text-center",
+                        // Numeric / status cells never wrap ("$937.31K" stays on one line); the wrapper
+                        // scrolls horizontally instead when the viewport is narrow.
+                        c.align === "right" && "text-right tabular-nums whitespace-nowrap",
+                        c.align === "center" && "text-center whitespace-nowrap",
                         (!c.align || c.align === "left") && "text-left",
                         c.sticky === "left" && "sticky left-0 bg-card z-10 border-r",
                         c.sticky === "right" && "sticky right-0 bg-card z-10 border-l"

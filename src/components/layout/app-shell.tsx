@@ -57,8 +57,8 @@ export const NAV: NavGroup[] = [
     icon: <BarChart3 className="h-4 w-4" />,
     items: [
       { id: "analysis-executive", label: "Executive Analysis", icon: <BarChart3 className="h-3.5 w-3.5" /> },
-      { id: "analysis-sales", label: "Sales Analysis", icon: <TrendingUp className="h-3.5 w-3.5" /> },
-      { id: "analysis-sales-trends", label: "Sales Trends", icon: <Activity className="h-3.5 w-3.5" /> },
+      // Sales Analysis + Sales Trends live as tabs inside one module (#analysis-sales?tab=analysis|trends).
+      { id: "analysis-sales", label: "Sales Analysis & Trends", icon: <TrendingUp className="h-3.5 w-3.5" /> },
       { id: "analysis-customers-orders", label: "Customers & Orders", icon: <Users className="h-3.5 w-3.5" /> },
       { id: "analysis-inventory-position", label: "Inventory", icon: <Package className="h-3.5 w-3.5" /> },
       { id: "analysis-stockout", label: "Stockout Risk", icon: <AlertTriangle className="h-3.5 w-3.5" />, advisory: true },

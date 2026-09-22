@@ -37,8 +37,8 @@ const EXACT: Record<string, string> = {
 
   // Analysis Section & Direct Subpages
   "analysis-executive": "analysis.read",
-  "analysis-sales": "sales.read",
-  "analysis-sales-trends": "sales.read",
+  "analysis-sales": "sales.read", // "Sales Analysis & Trends" module (tabs: analysis | trends)
+  "analysis-sales-trends": "sales.read", // legacy id, redirected to analysis-sales?tab=trends
   "analysis-customers-orders": "customers.read",
   "analysis-inventory-position": "analysis.read",
   "analysis-customers": "customers.read",

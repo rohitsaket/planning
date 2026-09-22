@@ -43,8 +43,7 @@ import { BusinessRulesMappingsView } from "@/components/diamond/views/consolidat
 import { SystemSettingsView } from "@/components/diamond/views/consolidated/system-settings-view";
 
 // Legacy Views (for direct view rendering / backward compatibility)
-import { SalesAnalysisView } from "@/components/diamond/views/sales-analysis-view";
-import { SalesTrendsView } from "@/components/diamond/views/sales-trends-view";
+import { SalesAnalysisTrendsView } from "@/components/diamond/views/consolidated/sales-analysis-trends-view";
 import { CustomersView } from "@/components/diamond/views/customers-view";
 import { OrdersView } from "@/components/diamond/views/orders-view";
 import { CountryView } from "@/components/diamond/views/country-view";
@@ -136,8 +135,11 @@ const VIEW_REGISTRY: Record<string, React.ComponentType> = {
 
   // Analysis Section Direct Views
   "analysis-executive": DashboardView,
-  "analysis-sales": SalesAnalysisView,
-  "analysis-sales-trends": SalesTrendsView,
+  // "Sales Analysis & Trends": both former pages are tabs of one host (?tab=analysis|trends).
+  "analysis-sales": SalesAnalysisTrendsView,
+  // Legacy id — the nav store rewrites it to #analysis-sales?tab=trends; kept so a direct
+  // render of the old id never falls back to the dashboard.
+  "analysis-sales-trends": SalesAnalysisTrendsView,
   "analysis-customers-orders": CustomersOrdersView,
   "analysis-inventory-position": InventoryPositionView,
   "analysis-customers": CustomersView,

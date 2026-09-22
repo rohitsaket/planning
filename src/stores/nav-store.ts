@@ -90,6 +90,32 @@ export type ViewId =
   | "admin-users"
   | "admin-access-requests";
 
+// Merged modules. A legacy view id resolves to the host view that now owns it plus the tab
+// that holds the old page, so old bookmarks, deep links and setView() callers keep working.
+export const LEGACY_VIEW_ALIASES: Partial<Record<ViewId, { view: ViewId; tab: string }>> = {
+  // "Sales Analysis" + "Sales Trends" → one sidebar module "Sales Analysis & Trends"
+  "analysis-sales-trends": { view: "analysis-sales", tab: "trends" },
+};
+
+export function resolveViewAlias(view: ViewId, tab: string | null = null): { view: ViewId; tab: string | null } {
+  const alias = LEGACY_VIEW_ALIASES[view];
+  return alias ? { view: alias.view, tab: alias.tab } : { view, tab };
+}
+
+export function navHash(view: ViewId, tab: string | null): string {
+  return tab ? `#${view}?tab=${encodeURIComponent(tab)}` : `#${view}`;
+}
+
+/** Parses "#view" or "#view?tab=x" (with or without the leading "#"); legacy ids are resolved. */
+export function parseNavHash(rawHash: string): { view: ViewId; tab: string | null; aliased: boolean } | null {
+  const h = rawHash.startsWith("#") ? rawHash.slice(1) : rawHash;
+  if (!h) return null;
+  const [viewPart, queryPart] = h.split("?");
+  const params = new URLSearchParams(queryPart || "");
+  const resolved = resolveViewAlias(viewPart as ViewId, params.get("tab") || null);
+  return { ...resolved, aliased: viewPart !== resolved.view };
+}
+
 interface NavState {
   view: ViewId;
   tab: string | null;
@@ -104,25 +130,22 @@ interface NavState {
   setSidebarOpen: (open: boolean) => void;
 }
 
-export const useNavStore = create<NavState>((set) => ({
+export const useNavStore = create<NavState>((set, get) => ({
   view: "dashboard",
   tab: null,
   detailId: null,
-  setView: (view, tab = null) => {
+  setView: (rawView, rawTab = null) => {
+    const { view, tab } = resolveViewAlias(rawView, rawTab);
     set({ view, tab, detailId: null });
-    if (typeof window !== "undefined") {
-      const hash = tab ? `${view}?tab=${encodeURIComponent(tab)}` : view;
-      window.history.replaceState(null, "", `#${hash}`);
-    }
+    if (typeof window !== "undefined") window.history.replaceState(null, "", navHash(view, tab));
   },
   setTab: (tab) => {
-    set((s) => {
-      if (typeof window !== "undefined") {
-        const hash = tab ? `${s.view}?tab=${encodeURIComponent(tab)}` : s.view;
-        window.history.replaceState(null, "", `#${hash}`);
-      }
-      return { tab };
-    });
+    const s = get();
+    if (s.tab === tab) return;
+    set({ tab });
+    // A tab switch is a history entry, so Back/Forward move between the tabs of a module
+    // and the hashchange listener in page.tsx restores the tab from the URL.
+    if (typeof window !== "undefined") window.history.pushState(null, "", navHash(s.view, tab));
   },
   openDetail: (view, id) => set({ view, detailId: id }),
   closeDetail: () => set({ detailId: null }),
@@ -140,11 +163,9 @@ export const useNavStore = create<NavState>((set) => ({
 
 export function initNavFromHash() {
   if (typeof window === "undefined") return;
-  const rawHash = window.location.hash.slice(1);
-  if (rawHash) {
-    const [viewPart, queryPart] = rawHash.split("?");
-    const params = new URLSearchParams(queryPart || "");
-    const tab = params.get("tab");
-    useNavStore.setState({ view: viewPart as ViewId, tab: tab || null });
-  }
+  const parsed = parseNavHash(window.location.hash);
+  if (!parsed) return;
+  useNavStore.setState({ view: parsed.view, tab: parsed.tab });
+  // A legacy id is rewritten to its canonical hash so refresh/bookmark land on the same URL.
+  if (parsed.aliased) window.history.replaceState(null, "", navHash(parsed.view, parsed.tab));
 }
