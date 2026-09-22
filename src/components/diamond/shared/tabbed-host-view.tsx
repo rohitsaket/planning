@@ -54,7 +54,7 @@ export function TabbedHostView({
   return (
     <div className="flex flex-col min-h-full">
       {/* Sleek Compact Sticky Tab Header */}
-      <div className="sticky top-0 z-20 -mx-3 -mt-3 mb-2 border-b border-border bg-card/95 backdrop-blur-md px-3 py-1.5 shadow-xs flex items-center justify-between gap-3 flex-wrap min-h-11">
+      <div className="sticky top-0 z-20 -mx-3 -mt-3 mb-2 border-b border-border bg-card/95 backdrop-blur-md px-4 sm:px-5 py-1.5 shadow-xs flex items-center justify-between gap-3 flex-wrap min-h-11">
         <div className="flex items-center gap-3 min-w-0 flex-1 overflow-x-auto no-scrollbar">
           {/* Page Title */}
           <div className="flex items-center gap-2 flex-shrink-0">
