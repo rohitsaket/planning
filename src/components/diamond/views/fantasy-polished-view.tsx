@@ -107,7 +107,7 @@ export function FantasyPolishedView() {
   ];
 
   return (
-    <div className="flex flex-col gap-2.5 p-3 h-full min-h-0 overflow-hidden">
+    <div className="flex flex-col gap-2.5 p-3 h-full min-h-0 flex-1 overflow-hidden">
 
       {/* KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2 flex-shrink-0">

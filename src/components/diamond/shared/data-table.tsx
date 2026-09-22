@@ -57,7 +57,7 @@ export function DataTable<T>({
   loading,
   emptyMessage = "No data available.",
   stickyHeader = true,
-  maxHeight = "600px",
+  maxHeight,
   onRowClick,
   rowClassName,
   initialSortKey,

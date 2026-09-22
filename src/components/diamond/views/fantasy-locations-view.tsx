@@ -55,10 +55,10 @@ export function FantasyLocationsView() {
   ];
 
   return (
-    <div className="flex flex-col gap-3 p-3">
+    <div className="flex flex-col gap-2.5 p-3 h-full min-h-0 flex-1 overflow-hidden">
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 flex-shrink-0">
         <KpiCard label="Total Locations" value={rows.length} unit="locs" intent="info" hint="Fantasy entity count" />
         <KpiCard label="Countries" value={countries.size} intent="default" hint="Distinct countries covered" />
         <KpiCard label="Branches" value={branches.size} intent="default" hint="Distinct branches covered" />
@@ -70,42 +70,31 @@ export function FantasyLocationsView() {
         />
       </div>
 
-      {unmapped > 0 && (
-        <InfoBanner variant="warning">
-          <div className="flex items-center gap-2">
-            <MapPin className="h-3.5 w-3.5" />
-            <span className="font-medium">{unmapped} location{unmapped === 1 ? "" : "s"} not linked to any department.</span>
-            <span className="text-muted-foreground">Reconcile via Fantasy sync or admin mapping to ensure correct traceability.</span>
-          </div>
-        </InfoBanner>
-      )}
-
-      <Section title="Location Registry" description="Click column headers to sort · Use search to filter live">
-        <DataTable
-          columns={columns}
-          rows={rows}
-          loading={isLoading}
-          emptyMessage="No Fantasy locations have been synced yet."
-          maxHeight="600px"
-          initialSortKey="name"
-          initialSortDir="asc"
-          exportable
-          exportFilename="fantasy-locations.csv"
-          searchable
-          searchPlaceholder="Search location ID, name, country, branch, department..."
-          searchFn={(r, q) => {
-            const lq = q.toLowerCase();
-            return (
-              r.fantasyLocId.toLowerCase().includes(lq) ||
-              r.name.toLowerCase().includes(lq) ||
-              r.country.toLowerCase().includes(lq) ||
-              r.branch.toLowerCase().includes(lq) ||
-              (r.department?.name ?? "").toLowerCase().includes(lq) ||
-              (r.department?.fantasyDeptId ?? "").toLowerCase().includes(lq)
-            );
-          }}
-        />
-      </Section>
+      <DataTable
+        title="Location Registry"
+        description="Click column headers to sort · Use search to filter live"
+        columns={columns}
+        rows={rows}
+        loading={isLoading}
+        emptyMessage="No Fantasy locations have been synced yet."
+        initialSortKey="name"
+        initialSortDir="asc"
+        exportable
+        exportFilename="fantasy-locations.csv"
+        searchable
+        searchPlaceholder="Search location ID, name, country, branch, department..."
+        searchFn={(r, q) => {
+          const lq = q.toLowerCase();
+          return (
+            r.fantasyLocId.toLowerCase().includes(lq) ||
+            r.name.toLowerCase().includes(lq) ||
+            r.country.toLowerCase().includes(lq) ||
+            r.branch.toLowerCase().includes(lq) ||
+            (r.department?.name ?? "").toLowerCase().includes(lq) ||
+            (r.department?.fantasyDeptId ?? "").toLowerCase().includes(lq)
+          );
+        }}
+      />
     </div>
   );
 }
