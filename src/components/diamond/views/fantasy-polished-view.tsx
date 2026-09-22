@@ -117,23 +117,13 @@ export function FantasyPolishedView() {
         <KpiCard label="With Certificate #" value={certCount} unit="lots" intent="default" hint="Lots with certificate number populated" />
       </div>
 
-      <InfoBanner variant="info">
-        <div className="flex items-center gap-2">
-          <Diamond className="h-3.5 w-3.5" />
-          <span className="font-medium">Lab & shape are normalized.</span>
-          <span className="text-muted-foreground">Raw Fantasy values are mapped to canonical planning categories via Lab / Shape mapping tables.</span>
-        </div>
-      </InfoBanner>
-
       {/* Filters */}
-      <Section title="Filters" description="Filter by planning class, lab, shape, and country">
-        <div className="flex items-end gap-3 flex-wrap">
-          <FilterSelect label="Planning Class" value={planningClass} onChange={setPlanningClass} options={PLANNING_CLASS_OPTIONS} placeholder="All classes" width="160px" />
-          <FilterSelect label="Lab" value={lab} onChange={setLab} options={LAB_OPTIONS} placeholder="All labs" width="140px" />
-          <FilterSelect label="Shape" value={shape} onChange={setShape} options={SHAPE_OPTIONS} placeholder="All shapes" width="160px" />
-          <FilterSelect label="Country" value={country} onChange={setCountry} options={COUNTRY_OPTIONS} placeholder="All countries" width="160px" />
-        </div>
-      </Section>
+      <div className="flex items-center gap-3 flex-wrap">
+        <FilterSelect label="Plan Class" value={planningClass} onChange={setPlanningClass} options={PLANNING_CLASS_OPTIONS} placeholder="All classes" width="140px" />
+        <FilterSelect label="Lab" value={lab} onChange={setLab} options={LAB_OPTIONS} placeholder="All labs" width="120px" />
+        <FilterSelect label="Shape" value={shape} onChange={setShape} options={SHAPE_OPTIONS} placeholder="All shapes" width="140px" />
+        <FilterSelect label="Country" value={country} onChange={setCountry} options={COUNTRY_OPTIONS} placeholder="All countries" width="140px" />
+      </div>
 
       <DataTable
         title="Polished Lots"

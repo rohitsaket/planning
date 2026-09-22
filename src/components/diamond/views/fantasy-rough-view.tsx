@@ -116,63 +116,53 @@ export function FantasyRoughView() {
         <KpiCard label="Blue Stones" value={blueCount} unit="stones" intent="info" hint="Fancy blue stone type" />
       </div>
 
-      <InfoBanner variant="info">
-        <div className="flex items-center gap-2">
-          <Gem className="h-3.5 w-3.5" />
-          <span className="font-medium">Fantasy is the authoritative source.</span>
-          <span className="text-muted-foreground">All rough IDs, kapan/packet, status, and movement are mirrored from Fantasy sync runs.</span>
-        </div>
-      </InfoBanner>
-
       {/* Filters */}
-      <Section title="Filters" description="Filter by planning status, stone type, and country">
-        <div className="flex items-end gap-3 flex-wrap">
-          <div className="flex flex-col gap-1">
-            <label className="text-[10px] uppercase tracking-wide text-muted-foreground flex items-center gap-1">
-              <Filter className="h-3 w-3" /> Planning Status
-            </label>
-            <Select value={planningStatus} onValueChange={setPlanningStatus}>
-              <SelectTrigger className="h-8 text-xs w-[180px]" size="sm">
-                <SelectValue placeholder="All statuses" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ALL">All statuses</SelectItem>
-                {PLANNING_STATUS_OPTIONS.map((s) => (
-                  <SelectItem key={s} value={s}>{s.replace(/_/g, " ")}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-[10px] uppercase tracking-wide text-muted-foreground">Stone Type</label>
-            <Select value={stoneType} onValueChange={setStoneType}>
-              <SelectTrigger className="h-8 text-xs w-[140px]" size="sm">
-                <SelectValue placeholder="All types" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ALL">All types</SelectItem>
-                {STONE_TYPE_OPTIONS.map((s) => (
-                  <SelectItem key={s} value={s}>{s}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-[10px] uppercase tracking-wide text-muted-foreground">Country</label>
-            <Select value={country} onValueChange={setCountry}>
-              <SelectTrigger className="h-8 text-xs w-[160px]" size="sm">
-                <SelectValue placeholder="All countries" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ALL">All countries</SelectItem>
-                {COUNTRY_OPTIONS.map((s) => (
-                  <SelectItem key={s} value={s}>{s}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex items-center gap-1.5">
+          <label className="text-[11px] font-medium text-muted-foreground flex items-center gap-1">
+            <Filter className="h-3 w-3" /> Status:
+          </label>
+          <Select value={planningStatus} onValueChange={setPlanningStatus}>
+            <SelectTrigger className="h-7.5 text-xs w-[150px] bg-card shadow-xs" size="sm">
+              <SelectValue placeholder="All statuses" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ALL">All statuses</SelectItem>
+              {PLANNING_STATUS_OPTIONS.map((s) => (
+                <SelectItem key={s} value={s}>{s.replace(/_/g, " ")}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
-      </Section>
+        <div className="flex items-center gap-1.5">
+          <label className="text-[11px] font-medium text-muted-foreground">Stone Type:</label>
+          <Select value={stoneType} onValueChange={setStoneType}>
+            <SelectTrigger className="h-7.5 text-xs w-[120px] bg-card shadow-xs" size="sm">
+              <SelectValue placeholder="All types" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ALL">All types</SelectItem>
+              {STONE_TYPE_OPTIONS.map((s) => (
+                <SelectItem key={s} value={s}>{s}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <label className="text-[11px] font-medium text-muted-foreground">Country:</label>
+          <Select value={country} onValueChange={setCountry}>
+            <SelectTrigger className="h-7.5 text-xs w-[130px] bg-card shadow-xs" size="sm">
+              <SelectValue placeholder="All countries" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ALL">All countries</SelectItem>
+              {COUNTRY_OPTIONS.map((s) => (
+                <SelectItem key={s} value={s}>{s}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
 
       <DataTable
         title="Rough Stock"
