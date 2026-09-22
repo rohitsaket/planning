@@ -575,17 +575,21 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div className="h-6 w-6 rounded bg-gradient-to-br from-primary/80 to-primary flex items-center justify-center">
             <DiamondMark className="h-3.5 w-3.5 text-primary-foreground" />
           </div>
-          <div className="hidden sm:flex flex-col leading-none">
+          <div className="hidden 2xl:flex flex-col leading-none">
             <span className="text-xs font-semibold tracking-tight">Diamond Manufacturing ERP</span>
             <span className="text-[9px] text-muted-foreground">Analysis · Requirement · Planning · Traceability</span>
           </div>
         </div>
-        {/* Search: hidden on mobile (use command palette instead) */}
-        <div className="hidden md:block flex-1 min-w-0">
+        {/* Search: hidden on small screens */}
+        <div className="hidden lg:block w-48 xl:w-56 2xl:w-64 flex-shrink-0">
           <GlobalSearch />
         </div>
-        {/* Spacer for mobile to push actions right */}
-        <div className="md:hidden flex-1" />
+        {/* Global Filter Bar inside top bar */}
+        <div className="hidden md:flex items-center flex-shrink-0">
+          <GlobalFilterBar />
+        </div>
+        {/* Spacer to push actions right */}
+        <div className="flex-1" />
         <div className="flex items-center gap-1 sm:gap-1.5 ml-auto flex-shrink-0">
           {/* Mobile: show small Cmd+K icon button */}
           <Button
@@ -603,7 +607,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <Button
             variant="outline"
             size="sm"
-            className="h-8 gap-1.5 text-[11px] hidden lg:flex"
+            className="h-8 gap-1.5 text-[11px] hidden xl:flex"
             onClick={() => {
               window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, ctrlKey: true }));
             }}
@@ -620,9 +624,6 @@ export function AppShell({ children }: { children: ReactNode }) {
           <UserMenu />
         </div>
       </header>
-
-      {/* Pinned Global filter bar */}
-      <GlobalFilterBar className="flex-shrink-0 z-30" />
 
       {/* Center workspace: Middle area flex container */}
       <div className="flex flex-1 min-h-0 min-w-0 overflow-hidden relative">
