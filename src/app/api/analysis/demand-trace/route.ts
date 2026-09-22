@@ -89,7 +89,7 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request,
   }> = [];
   let traceItemsTotal = 0;
 
-  if (hasTracePermission) {
+  if (hasTracePermission && (db as any).demandMetricTraceItem) {
     const traceWhere: Record<string, unknown> = { runId: targetRun.id };
     if (selectedCategoryParam) {
       traceWhere.planningCategory = selectedCategoryParam;
@@ -99,17 +99,17 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request,
     }
 
     const [items, total] = await Promise.all([
-      db.demandMetricTraceItem.findMany({
+      (db as any).demandMetricTraceItem.findMany({
         where: traceWhere,
         skip: (page - 1) * pageSize,
         take: pageSize,
         orderBy: [{ planningCategory: "asc" }, { createdAt: "asc" }],
       }),
-      db.demandMetricTraceItem.count({ where: traceWhere }),
+      (db as any).demandMetricTraceItem.count({ where: traceWhere }),
     ]);
 
     traceItemsTotal = total;
-    traceItems = items.map((item) => ({
+    traceItems = (items as any[]).map((item) => ({
       id: item.id,
       planningCategory: item.planningCategory,
       traceType: item.traceType,

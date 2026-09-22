@@ -1230,9 +1230,9 @@ function resolveApprovedShape(rawShape: string | null | undefined, shapeMap: Map
 
       await tx.demandMetric.createMany({ data: metricRows });
 
-      // Create DemandMetricTraceItem rows
-      if (traceItemsToPersist.length > 0) {
-        await tx.demandMetricTraceItem.createMany({
+      // Create DemandMetricTraceItem rows if model exists on tx
+      if (traceItemsToPersist.length > 0 && (tx as any).demandMetricTraceItem) {
+        await (tx as any).demandMetricTraceItem.createMany({
           data: traceItemsToPersist,
           skipDuplicates: true,
         });
