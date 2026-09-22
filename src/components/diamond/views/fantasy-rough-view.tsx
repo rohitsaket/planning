@@ -106,10 +106,10 @@ export function FantasyRoughView() {
   ];
 
   return (
-    <div className="flex flex-col gap-3 p-3">
+    <div className="flex flex-col gap-2.5 p-3 h-full min-h-0 overflow-hidden">
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 flex-shrink-0">
         <KpiCard label="Total Rough Stones" value={data?.total ?? 0} unit="stones" intent="info" hint="After filters applied" />
         <KpiCard label="Total Weight" value={totalWeight.toFixed(2)} unit="ct" intent="default" hint="Sum of selected rows" />
         <KpiCard label="Planning Eligible" value={eligibleCount} unit="stones" intent="success" hint="Available for planning" />
@@ -117,7 +117,7 @@ export function FantasyRoughView() {
       </div>
 
       {/* Filters */}
-      <div className="flex items-center gap-3 flex-wrap">
+      <div className="flex items-center gap-3 flex-wrap flex-shrink-0">
         <div className="flex items-center gap-1.5">
           <label className="text-[11px] font-medium text-muted-foreground flex items-center gap-1">
             <Filter className="h-3 w-3" /> Status:
@@ -171,7 +171,6 @@ export function FantasyRoughView() {
         rows={rows}
         loading={isLoading}
         emptyMessage="No rough stones match the current filters."
-        maxHeight="600px"
         initialSortKey="lastUpdated"
         initialSortDir="desc"
         exportable

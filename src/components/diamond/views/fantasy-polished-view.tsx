@@ -107,10 +107,10 @@ export function FantasyPolishedView() {
   ];
 
   return (
-    <div className="flex flex-col gap-3 p-3">
+    <div className="flex flex-col gap-2.5 p-3 h-full min-h-0 overflow-hidden">
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 flex-shrink-0">
         <KpiCard label="Total Polished Lots" value={data?.total ?? 0} unit="lots" intent="success" hint="After filters applied" />
         <KpiCard label="Total Weight" value={totalWeight.toFixed(2)} unit="ct" intent="default" hint="Sum of selected rows" />
         <KpiCard label="GIA Certified" value={giaCount} unit="lots" intent="info" hint="labNormalized = GIA" />
@@ -118,7 +118,7 @@ export function FantasyPolishedView() {
       </div>
 
       {/* Filters */}
-      <div className="flex items-center gap-3 flex-wrap">
+      <div className="flex items-center gap-3 flex-wrap flex-shrink-0">
         <FilterSelect label="Plan Class" value={planningClass} onChange={setPlanningClass} options={PLANNING_CLASS_OPTIONS} placeholder="All classes" width="140px" />
         <FilterSelect label="Lab" value={lab} onChange={setLab} options={LAB_OPTIONS} placeholder="All labs" width="120px" />
         <FilterSelect label="Shape" value={shape} onChange={setShape} options={SHAPE_OPTIONS} placeholder="All shapes" width="140px" />
@@ -132,7 +132,6 @@ export function FantasyPolishedView() {
         rows={rows}
         loading={isLoading}
         emptyMessage="No polished lots match the current filters."
-        maxHeight="600px"
         initialSortKey="lastUpdated"
         initialSortDir="desc"
         exportable

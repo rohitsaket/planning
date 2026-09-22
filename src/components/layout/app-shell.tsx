@@ -695,8 +695,8 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
         </header>
 
-        {/* Scrollable Center Main Content */}
-        <main className="flex-1 min-w-0 h-full overflow-y-auto overflow-x-hidden">
+        {/* Center Main Workspace */}
+        <main className="flex-1 min-w-0 h-full overflow-hidden flex flex-col">
           {children}
         </main>
 

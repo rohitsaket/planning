@@ -131,10 +131,10 @@ export function DataTable<T>({
   };
 
   return (
-    <div className="rounded-md border border-border overflow-hidden bg-card">
+    <div className="rounded-md border border-border overflow-hidden bg-card flex-1 min-h-0 flex flex-col">
       {/* Upper Single-Row Table Header: Title on Left, Search/Exports/Count on Right */}
       {(title || searchable || toolbar || exportable || excelExportable || pdfExportable) && (
-        <div className="flex items-center justify-between gap-2 px-3 py-1.5 border-b border-border bg-muted/40 flex-wrap min-h-10">
+        <div className="flex items-center justify-between gap-2 px-3 py-1.5 border-b border-border bg-muted/40 flex-wrap min-h-10 flex-shrink-0">
           {/* Left: Title & Subtle description */}
           <div className="flex items-center gap-2 min-w-0">
             {title && <h2 className="text-xs font-semibold tracking-wide text-foreground truncate">{title}</h2>}
@@ -179,12 +179,11 @@ export function DataTable<T>({
         </div>
       )}
 
-      {/* Table Scroll Area */}
-      <div style={{ maxHeight }}>
-        <div className="overflow-auto h-full">
-          <table className="w-full text-xs border-collapse">
-            <thead className={cn(stickyHeader && "sticky top-0 z-10")}>
-              <tr className="bg-muted/60 border-b border-border">
+      {/* Table Scroll Area — ONLY this inner part scrolls */}
+      <div className="overflow-auto flex-1 min-h-0 w-full" style={maxHeight ? { maxHeight } : undefined}>
+        <table className="w-full text-xs border-collapse">
+          <thead className={cn(stickyHeader && "sticky top-0 z-10")}>
+            <tr className="bg-muted border-b border-border shadow-xs">
                 {columns.map((c) => (
                   <th
                     key={c.key}
@@ -263,12 +262,11 @@ export function DataTable<T>({
             </tbody>
           </table>
         </div>
-      </div>
       {pagination && totalPages > 1 && (
-        <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+        <div className="flex items-center gap-2 text-[11px] text-muted-foreground px-3 py-1.5 border-t border-border bg-muted/30 flex-shrink-0">
           <span>Page {page} of {totalPages}</span>
-          <Button size="sm" variant="outline" className="h-7 text-xs" disabled={page === 1} onClick={() => setPage(p => Math.max(1, p - 1))}>Prev</Button>
-          <Button size="sm" variant="outline" className="h-7 text-xs" disabled={page === totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}>Next</Button>
+          <Button size="sm" variant="outline" className="h-6 text-xs px-2" disabled={page === 1} onClick={() => setPage(p => Math.max(1, p - 1))}>Prev</Button>
+          <Button size="sm" variant="outline" className="h-6 text-xs px-2" disabled={page === totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}>Next</Button>
         </div>
       )}
     </div>

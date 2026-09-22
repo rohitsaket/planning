@@ -52,9 +52,9 @@ export function TabbedHostView({
   const ActiveComponent = currentTab?.component;
 
   return (
-    <div className="flex flex-col min-h-full">
-      {/* Sleek Compact Sticky Tab Header */}
-      <div className="sticky top-0 z-20 -mx-3 -mt-3 mb-2 border-b border-border bg-card/95 backdrop-blur-md px-4 sm:px-5 py-1.5 shadow-xs flex items-center justify-between gap-3 flex-wrap min-h-11">
+    <div className="flex flex-col h-full min-h-0 overflow-hidden">
+      {/* Sleek Compact Tab Header */}
+      <div className="flex-shrink-0 z-20 border-b border-border bg-card/95 px-4 sm:px-5 py-1.5 shadow-xs flex items-center justify-between gap-3 flex-wrap min-h-11">
         <div className="flex items-center gap-3 min-w-0 flex-1 overflow-x-auto no-scrollbar">
           {/* Page Title */}
           <div className="flex items-center gap-2 flex-shrink-0">
@@ -120,7 +120,7 @@ export function TabbedHostView({
       </div>
 
       {/* Tab Body */}
-      <div className="flex-1 min-h-0">
+      <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
         {!isTabAuthorized ? (
           <AccessRestricted
             title={`Access Restricted: ${currentTab.label}`}
