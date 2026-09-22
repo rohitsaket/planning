@@ -17,13 +17,22 @@ interface LocationRow {
   branch: string;
 }
 
+import { useGlobalFilter } from "@/stores/global-filter";
+
 interface Payload {
   rows: LocationRow[];
 }
 
 export function FantasyLocationsView() {
+  const globalFilter = useGlobalFilter();
   const { data, isLoading } = useApi<Payload>("/api/fantasy/locations");
-  const rows = data?.rows ?? [];
+  const rawRows = data?.rows ?? [];
+
+  const rows = rawRows.filter((r) => {
+    if (globalFilter.country && r.country !== globalFilter.country) return false;
+    if (globalFilter.branch && r.branch !== globalFilter.branch) return false;
+    return true;
+  });
 
   const countries = new Set(rows.map((r) => r.country));
   const branches = new Set(rows.map((r) => r.branch));

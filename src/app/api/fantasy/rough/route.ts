@@ -9,11 +9,25 @@ export const GET = withApi({ permission: "rough.read" }, async (req: Request) =>
   const planningStatus = qStr(url, "planningStatus");
   const stoneType = qStr(url, "stoneType");
   const country = qStr(url, "country");
+  const q = qStr(url, "q", 100);
 
   const where: Record<string, unknown> = {};
   if (planningStatus) where.planningStatus = planningStatus;
   if (stoneType) where.stoneType = stoneType;
   if (country) where.country = country;
+
+  if (q) {
+    const escaped = q.replace(/[\\%_]/g, "\\$&");
+    where.OR = [
+      { fantasyRoughId: { contains: escaped, mode: "insensitive" } },
+      { kapan: { contains: escaped, mode: "insensitive" } },
+      { packet: { contains: escaped, mode: "insensitive" } },
+      { stoneName: { contains: escaped, mode: "insensitive" } },
+      { signer: { contains: escaped, mode: "insensitive" } },
+      { country: { contains: escaped, mode: "insensitive" } },
+      { branch: { contains: escaped, mode: "insensitive" } },
+    ];
+  }
 
   const roughs = await db.roughStone.findMany({ skip: p.skip, take: p.take, where, orderBy: { lastUpdated: "desc" } });
 

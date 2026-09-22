@@ -61,21 +61,27 @@ const fmtDate = (iso: string | null): string => {
   }
 };
 
+import { useGlobalFilter, COUNTRY_OPTIONS } from "@/stores/global-filter";
+
 export function RoughAvailabilityView() {
   const setView = useNavStore((s) => s.setView);
+  const globalFilter = useGlobalFilter();
   const [planningStatus, setPlanningStatus] = useState("");
   const [stoneType, setStoneType] = useState("");
   const [country, setCountry] = useState("");
   const [eligibleOnly, setEligibleOnly] = useState(true);
 
+  const effectiveCountry = country || globalFilter.country || "";
+
   const qs = useMemo(() => {
     const parts: string[] = [];
     if (planningStatus) parts.push(`planningStatus=${encodeURIComponent(planningStatus)}`);
     if (stoneType) parts.push(`stoneType=${encodeURIComponent(stoneType)}`);
-    if (country) parts.push(`country=${encodeURIComponent(country)}`);
+    if (effectiveCountry) parts.push(`country=${encodeURIComponent(effectiveCountry)}`);
+    if (globalFilter.branch) parts.push(`branch=${encodeURIComponent(globalFilter.branch)}`);
     if (eligibleOnly) parts.push(`eligibleOnly=true`);
     return parts.length ? `?${parts.join("&")}` : "";
-  }, [planningStatus, stoneType, country, eligibleOnly]);
+  }, [planningStatus, stoneType, effectiveCountry, globalFilter.branch, eligibleOnly]);
 
   const { data, isLoading } = useApi<ApiResponse>(`/api/planning/rough${qs}`);
   const rows = data?.rows ?? [];
@@ -262,15 +268,22 @@ export function RoughAvailabilityView() {
             </SelectContent>
           </Select>
 
-          <Select value={country || "ALL"} onValueChange={(v) => setCountry(v === "ALL" ? "" : v)}>
+          <Select
+            value={effectiveCountry || "ALL"}
+            onValueChange={(v) => {
+              const next = v === "ALL" ? "" : v;
+              setCountry(next);
+              globalFilter.setCountry(next || null);
+            }}
+          >
             <SelectTrigger size="sm" className="h-8 w-[140px] text-xs">
               <SelectValue placeholder="All Countries" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="ALL">All Countries</SelectItem>
-              {COUNTRIES.map((c) => (
-                <SelectItem key={c} value={c}>
-                  {c}
+              {COUNTRY_OPTIONS.map((c) => (
+                <SelectItem key={c.value} value={c.value}>
+                  {c.label}
                 </SelectItem>
               ))}
             </SelectContent>

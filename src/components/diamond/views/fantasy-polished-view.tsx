@@ -10,6 +10,8 @@ import { InfoBanner, NumberCell } from "@/components/diamond/shared/empty-state"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Diamond, Filter } from "lucide-react";
 
+import { useGlobalFilter, COUNTRY_OPTIONS } from "@/stores/global-filter";
+
 interface PolishedRow {
   id: string;
   fantasyLotId: string;
@@ -38,9 +40,8 @@ interface Payload {
 }
 
 const PLANNING_CLASS_OPTIONS = ["PHYSICAL", "PLANNING_AVAILABLE", "RESERVED", "HOLD", "TRANSFER", "MEMO", "OTHER"];
-const LAB_OPTIONS = ["GIA", "Non-Cert"];
+const LAB_OPTIONS = ["GIA", "Non-Cert", "Other"];
 const SHAPE_OPTIONS = ["ROUND", "OVAL", "PEAR", "EMERALD", "CUSHION", "PRINCESS", "MARQUISE", "RADIANT", "HEART", "ASSCHER", "TRILLION"];
-const COUNTRY_OPTIONS = ["India", "Belgium", "Hong Kong", "UAE", "USA", "Israel"];
 
 function fmtDate(iso: string): string {
   try {
@@ -51,20 +52,26 @@ function fmtDate(iso: string): string {
 }
 
 export function FantasyPolishedView() {
+  const globalFilter = useGlobalFilter();
   const [planningClass, setPlanningClass] = useState<string>("ALL");
   const [lab, setLab] = useState<string>("ALL");
   const [shape, setShape] = useState<string>("ALL");
   const [country, setCountry] = useState<string>("ALL");
 
+  const effectiveCountry = country !== "ALL" ? country : (globalFilter.country ?? "ALL");
+  const effectiveBranch = globalFilter.branch;
+  const effectiveLab = lab !== "ALL" ? lab : (globalFilter.lab ?? "ALL");
+
   const queryString = useMemo(() => {
     const params = new URLSearchParams();
     if (planningClass !== "ALL") params.set("planningClass", planningClass);
-    if (lab !== "ALL") params.set("lab", lab);
+    if (effectiveLab !== "ALL") params.set("lab", effectiveLab);
     if (shape !== "ALL") params.set("shape", shape);
-    if (country !== "ALL") params.set("country", country);
+    if (effectiveCountry !== "ALL") params.set("country", effectiveCountry);
+    if (effectiveBranch && effectiveBranch !== "ALL") params.set("branch", effectiveBranch);
     const s = params.toString();
     return s ? `?${s}` : "";
-  }, [planningClass, lab, shape, country]);
+  }, [planningClass, effectiveLab, shape, effectiveCountry, effectiveBranch]);
 
   const { data, isLoading } = useApi<Payload>(`/api/fantasy/polished${queryString}`);
 
@@ -120,9 +127,31 @@ export function FantasyPolishedView() {
       {/* Filters */}
       <div className="flex items-center gap-3 flex-wrap flex-shrink-0">
         <FilterSelect label="Plan Class" value={planningClass} onChange={setPlanningClass} options={PLANNING_CLASS_OPTIONS} placeholder="All classes" width="140px" />
-        <FilterSelect label="Lab" value={lab} onChange={setLab} options={LAB_OPTIONS} placeholder="All labs" width="120px" />
+        <FilterSelect
+          label="Lab"
+          value={effectiveLab}
+          onChange={(val) => {
+            setLab(val);
+            if (val !== "ALL") globalFilter.setLab(val);
+            else globalFilter.setLab(null);
+          }}
+          options={LAB_OPTIONS}
+          placeholder="All labs"
+          width="120px"
+        />
         <FilterSelect label="Shape" value={shape} onChange={setShape} options={SHAPE_OPTIONS} placeholder="All shapes" width="140px" />
-        <FilterSelect label="Country" value={country} onChange={setCountry} options={COUNTRY_OPTIONS} placeholder="All countries" width="140px" />
+        <FilterSelect
+          label="Country"
+          value={effectiveCountry}
+          onChange={(val) => {
+            setCountry(val);
+            if (val !== "ALL") globalFilter.setCountry(val);
+            else globalFilter.setCountry(null);
+          }}
+          options={COUNTRY_OPTIONS}
+          placeholder="All countries"
+          width="140px"
+        />
       </div>
 
       <DataTable
@@ -157,7 +186,7 @@ function FilterSelect({ label, value, onChange, options, placeholder, width }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
-  options: string[];
+  options: (string | { value: string; label: string })[];
   placeholder: string;
   width: string;
 }) {
@@ -172,9 +201,13 @@ function FilterSelect({ label, value, onChange, options, placeholder, width }: {
         </SelectTrigger>
         <SelectContent>
           <SelectItem value="ALL">All</SelectItem>
-          {options.map((s) => (
-            <SelectItem key={s} value={s}>{s.replace(/_/g, " ")}</SelectItem>
-          ))}
+          {options.map((opt) => {
+            const val = typeof opt === "string" ? opt : opt.value;
+            const text = typeof opt === "string" ? opt.replace(/_/g, " ") : opt.label;
+            return (
+              <SelectItem key={val} value={val}>{text}</SelectItem>
+            );
+          })}
         </SelectContent>
       </Select>
     </div>

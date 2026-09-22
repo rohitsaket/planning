@@ -3,7 +3,12 @@ import { ok, num } from "@/lib/api-utils";
 import { withApi, SCAN_MAX, scanned } from "@/lib/api/with-api";
 
 // Executive Dashboard KPIs - all values drilldown to evidence
-export const GET = withApi({ permission: "analysis.read" }, async () => {
+export const GET = withApi({ permission: "analysis.read" }, async (req: Request) => {
+  const url = new URL(req.url);
+  const country = url.searchParams.get("country");
+  const branch = url.searchParams.get("branch");
+  const lab = url.searchParams.get("lab");
+
   // Aggregate from DemandMetric (latest run)
   const latestRun = await db.demandRun.findFirst({
     orderBy: { runDate: "desc" },
@@ -18,6 +23,7 @@ export const GET = withApi({ permission: "analysis.read" }, async () => {
 
   if (latestRun) {
     for (const m of latestRun.metrics) {
+      if (lab && m.labNormalized !== lab && m.labNormalized !== "Non-Cert") continue;
       physicalShortage += num(m.physicalShortage);
       pipelineAdjusted += num(m.pipelineNeed);
       approvedPlanCoverage += num(m.approvedPlanCoverage);
@@ -26,12 +32,34 @@ export const GET = withApi({ permission: "analysis.read" }, async () => {
     }
   }
 
-  const polishedStock = await db.polishedStone.count();
+  const polishedWhere: Record<string, unknown> = {};
+  if (country) polishedWhere.country = country;
+  if (branch) polishedWhere.branch = branch;
+  if (lab) polishedWhere.labNormalized = lab;
+
+  const roughWhere: Record<string, unknown> = {};
+  if (country) roughWhere.country = country;
+  if (branch) roughWhere.branch = branch;
+
+  const reqWhere: Record<string, unknown> = { remainingUnplanned: { gt: 0 } };
+  if (country) reqWhere.country = country;
+  if (branch) reqWhere.branch = branch;
+  if (lab) reqWhere.labNormalized = lab;
+
+  const orderWhere: Record<string, unknown> = { status: { in: ["OPEN", "PARTIAL"] } };
+  if (country) orderWhere.country = country;
+  if (branch) orderWhere.branch = branch;
+
+  const memoWhere: Record<string, unknown> = { status: "OPEN" };
+  if (country) memoWhere.country = country;
+  if (branch) memoWhere.branch = branch;
+
+  const polishedStock = await db.polishedStone.count({ where: polishedWhere });
   const roughAvailable = await db.roughStone.count({
-    where: { planningStatus: "AVAILABLE", planningEligible: true },
+    where: { ...roughWhere, planningStatus: "AVAILABLE", planningEligible: true },
   });
   const roughReserved = await db.roughStone.count({
-    where: { planningStatus: { in: ["RESERVED", "PLAN_APPROVED", "RELEASED_TO_MANUFACTURING"] } },
+    where: { ...roughWhere, planningStatus: { in: ["RESERVED", "PLAN_APPROVED", "RELEASED_TO_MANUFACTURING"] } },
   });
   const currentWip = await db.planOptionPiece.count({
     where: {
@@ -42,21 +70,21 @@ export const GET = withApi({ permission: "analysis.read" }, async () => {
   });
 
   const criticalRequirements = await db.requirement.count({
-    where: { requirementPriority: "CRITICAL", remainingUnplanned: { gt: 0 } },
+    where: { ...reqWhere, requirementPriority: "CRITICAL" },
   });
   const highRequirements = await db.requirement.count({
-    where: { requirementPriority: "HIGH", remainingUnplanned: { gt: 0 } },
+    where: { ...reqWhere, requirementPriority: "HIGH" },
   });
   const overdueRequirements = await db.requirement.count({
-    where: { daysOverdue: { gt: 0 } },
+    where: { ...reqWhere, daysOverdue: { gt: 0 } },
   });
-  const openOrders = await db.salesOrder.count({ where: { status: { in: ["OPEN", "PARTIAL"] } } });
+  const openOrders = await db.salesOrder.count({ where: orderWhere });
   const backorders = await db.salesOrderLine.aggregate({
     _sum: { backorderQty: true },
   });
   const memoExposure = await db.memoRecord.aggregate({
     _sum: { memoValueUsd: true },
-    where: { status: "OPEN" },
+    where: memoWhere,
   });
 
   // Sync health

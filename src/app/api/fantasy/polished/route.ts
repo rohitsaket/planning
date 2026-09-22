@@ -9,12 +9,29 @@ export const GET = withApi({ permission: "fantasy.read" }, async (req: Request) 
   const lab = qStr(url, "lab");
   const shape = qStr(url, "shape");
   const country = qStr(url, "country");
+  const q = qStr(url, "q", 100);
 
   const where: Record<string, unknown> = {};
   if (planningClass) where.planningClass = planningClass;
   if (lab) where.labNormalized = lab;
   if (shape) where.shape = shape;
   if (country) where.country = country;
+
+  if (q) {
+    const escaped = q.replace(/[\\%_]/g, "\\$&");
+    where.OR = [
+      { fantasyLotId: { contains: escaped, mode: "insensitive" } },
+      { shape: { contains: escaped, mode: "insensitive" } },
+      { shapeNormalized: { contains: escaped, mode: "insensitive" } },
+      { color: { contains: escaped, mode: "insensitive" } },
+      { clarity: { contains: escaped, mode: "insensitive" } },
+      { certificate: { contains: escaped, mode: "insensitive" } },
+      { country: { contains: escaped, mode: "insensitive" } },
+      { branch: { contains: escaped, mode: "insensitive" } },
+      { labRaw: { contains: escaped, mode: "insensitive" } },
+      { labNormalized: { contains: escaped, mode: "insensitive" } },
+    ];
+  }
 
   const stones = await db.polishedStone.findMany({
     where,

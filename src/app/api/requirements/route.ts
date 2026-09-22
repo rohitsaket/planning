@@ -27,9 +27,16 @@ export const GET = withApi({ permission: "requirement.read" }, async (req: Reque
   if (lab) where.labNormalized = lab;
   if (shape) where.shape = shape;
   if (weightBandId) where.weightBandId = weightBandId;
-  if (priority) where.requirementPriority = priority;
   // % and _ are LIKE wildcards that Prisma does not escape: make them literals.
-  if (search) where.requirementCode = { contains: search.replace(/[\\%_]/g, "\\$&") };
+  if (search) {
+    const escaped = search.replace(/[\\%_]/g, "\\$&");
+    where.OR = [
+      { requirementCode: { contains: escaped, mode: "insensitive" } },
+      { customerName: { contains: escaped, mode: "insensitive" } },
+      { orderNumber: { contains: escaped, mode: "insensitive" } },
+      { shape: { contains: escaped, mode: "insensitive" } },
+    ];
+  }
 
   const [total, rows] = await Promise.all([
     db.requirement.count({ where }),

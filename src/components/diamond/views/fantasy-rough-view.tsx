@@ -8,6 +8,7 @@ import { DataTable, type Column } from "@/components/diamond/shared/data-table";
 import { StatusBadge, Badge } from "@/components/diamond/shared/badges";
 import { InfoBanner, NumberCell } from "@/components/diamond/shared/empty-state";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useGlobalFilter, COUNTRY_OPTIONS } from "@/stores/global-filter";
 import { Gem, Filter } from "lucide-react";
 
 interface RoughRow {
@@ -38,7 +39,6 @@ interface Payload {
 
 const PLANNING_STATUS_OPTIONS = ["AVAILABLE", "SOFT_RESERVED", "UNDER_PLANNING", "PLAN_APPROVED", "RESERVED", "RELEASED", "CANCELLED"];
 const STONE_TYPE_OPTIONS = ["WHITE", "BLUE"];
-const COUNTRY_OPTIONS = ["India", "Belgium", "Hong Kong", "UAE", "USA", "Israel"];
 
 function fmtDate(iso: string | null): string {
   if (!iso) return "—";
@@ -50,18 +50,23 @@ function fmtDate(iso: string | null): string {
 }
 
 export function FantasyRoughView() {
+  const globalFilter = useGlobalFilter();
   const [planningStatus, setPlanningStatus] = useState<string>("ALL");
   const [stoneType, setStoneType] = useState<string>("ALL");
   const [country, setCountry] = useState<string>("ALL");
+
+  const effectiveCountry = country !== "ALL" ? country : (globalFilter.country ?? "ALL");
+  const effectiveBranch = globalFilter.branch;
 
   const queryString = useMemo(() => {
     const params = new URLSearchParams();
     if (planningStatus !== "ALL") params.set("planningStatus", planningStatus);
     if (stoneType !== "ALL") params.set("stoneType", stoneType);
-    if (country !== "ALL") params.set("country", country);
+    if (effectiveCountry !== "ALL") params.set("country", effectiveCountry);
+    if (effectiveBranch && effectiveBranch !== "ALL") params.set("branch", effectiveBranch);
     const s = params.toString();
     return s ? `?${s}` : "";
-  }, [planningStatus, stoneType, country]);
+  }, [planningStatus, stoneType, effectiveCountry, effectiveBranch]);
 
   const { data, isLoading } = useApi<Payload>(`/api/fantasy/rough${queryString}`);
 
@@ -150,14 +155,21 @@ export function FantasyRoughView() {
         </div>
         <div className="flex items-center gap-1.5">
           <label className="text-[11px] font-medium text-muted-foreground">Country:</label>
-          <Select value={country} onValueChange={setCountry}>
+          <Select
+            value={effectiveCountry}
+            onValueChange={(val) => {
+              setCountry(val);
+              if (val !== "ALL") globalFilter.setCountry(val);
+              else globalFilter.setCountry(null);
+            }}
+          >
             <SelectTrigger className="h-7.5 text-xs w-[130px] bg-card shadow-xs" size="sm">
               <SelectValue placeholder="All countries" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="ALL">All countries</SelectItem>
-              {COUNTRY_OPTIONS.map((s) => (
-                <SelectItem key={s} value={s}>{s}</SelectItem>
+              {COUNTRY_OPTIONS.map((c) => (
+                <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
               ))}
             </SelectContent>
           </Select>
