@@ -264,7 +264,7 @@ function NavGroupItem({ group }: { group: NavGroup }) {
   );
 }
 
-// Collapsed state on desktop: a narrow rail of group icons instead of nothing.
+// Collapsed state on desktop: a narrow rail of group icons with expand header.
 function NavRail() {
   const perms = useAuthStore((s) => s.user?.permissions);
   const view = useNavStore((s) => s.view);
@@ -278,8 +278,21 @@ function NavRail() {
   };
 
   return (
-    <aside className="hidden md:flex md:w-14 md:flex-shrink-0 md:min-h-0 md:flex-col overflow-y-auto border-r border-sidebar-border bg-sidebar">
-      <nav className="flex flex-col items-center gap-0.5 py-2">
+    <aside className="hidden md:flex md:w-14 md:flex-shrink-0 md:h-screen md:flex-col border-r border-sidebar-border bg-sidebar z-20">
+      {/* NavRail Top Header */}
+      <div className="h-12 border-b border-sidebar-border flex items-center justify-center flex-shrink-0">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 text-sidebar-foreground hover:bg-sidebar-accent"
+          onClick={() => setSidebarOpen(true)}
+          aria-label="Expand sidebar"
+          title="Expand sidebar"
+        >
+          <ChevronRight className="h-4 w-4" />
+        </Button>
+      </div>
+      <nav className="flex-1 overflow-y-auto flex flex-col items-center gap-0.5 py-2">
         {NAV.map((g) => {
           const active = g.items.some((i) => i.id === view);
           const allRestricted = g.items.every((i) => !isViewAuthorized(perms, i.id));
@@ -554,131 +567,155 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [setSidebarOpen]);
 
   return (
-    <div data-app-shell className="h-screen max-h-screen w-full flex flex-col bg-background text-foreground overflow-hidden">
-      {/* Pinned Top bar */}
-      <header className="h-12 border-b border-border bg-card/95 backdrop-blur-sm flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 flex-shrink-0 z-40">
-        {/* Hamburger / collapse toggle */}
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8 flex-shrink-0"
-          onClick={() => setSidebarOpen(!sidebarOpen)}
-          aria-label="Toggle sidebar"
-        >
-          {sidebarOpen ? (
-            <ChevronDown className="h-4 w-4 -rotate-90" />
-          ) : (
-            <ChevronRight className="h-4 w-4" />
+    <div data-app-shell className="h-screen max-h-screen w-full flex bg-background text-foreground overflow-hidden">
+      {/* Mobile backdrop when sidebar open */}
+      {sidebarOpen && (
+        <div
+          className="md:hidden fixed inset-0 bg-black/50 z-40 backdrop-blur-xs"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
+      {/* Sidebar — overlay on mobile, inline full-height on desktop */}
+      {sidebarOpen && (
+        <aside
+          className={cn(
+            "border-r border-sidebar-border bg-sidebar flex flex-col h-screen",
+            // Mobile: fixed drawer overlay
+            "fixed inset-y-0 left-0 w-72 max-w-[85vw] shadow-2xl z-50",
+            // Desktop: static flex-shrink-0 full-height
+            "md:static md:w-64 md:max-w-none md:flex-shrink-0 md:z-20 md:shadow-none"
           )}
-        </Button>
-        <div className="flex items-center gap-2 mr-1 sm:mr-2 flex-shrink-0">
-          <div className="h-6 w-6 rounded bg-gradient-to-br from-primary/80 to-primary flex items-center justify-center">
-            <DiamondMark className="h-3.5 w-3.5 text-primary-foreground" />
+        >
+          {/* Sidebar Top Header with Brand Logo + Website Name + Collapse Button */}
+          <div className="h-12 border-b border-sidebar-border flex items-center justify-between px-3 gap-2 flex-shrink-0 bg-sidebar">
+            <div className="flex items-center gap-2 min-w-0 flex-1">
+              <div className="h-6 w-6 rounded bg-gradient-to-br from-primary/80 to-primary flex items-center justify-center flex-shrink-0 shadow-xs">
+                <DiamondMark className="h-3.5 w-3.5 text-primary-foreground" />
+              </div>
+              <div className="flex flex-col leading-tight min-w-0 flex-1">
+                <span className="text-xs font-semibold tracking-tight text-sidebar-foreground truncate select-none">
+                  Diamond Manufacturing ERP
+                </span>
+                <span className="text-[9px] text-muted-foreground truncate select-none">
+                  Analysis · Requirement · Planning · Traceability
+                </span>
+              </div>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent flex-shrink-0"
+              onClick={() => setSidebarOpen(false)}
+              aria-label="Collapse sidebar"
+              title="Collapse sidebar"
+            >
+              <ChevronDown className="h-4 w-4 -rotate-90" />
+            </Button>
           </div>
-          <div className="hidden 2xl:flex flex-col leading-none">
-            <span className="text-xs font-semibold tracking-tight">Diamond Manufacturing ERP</span>
-            <span className="text-[9px] text-muted-foreground">Analysis · Requirement · Planning · Traceability</span>
+
+          {/* Navigation Items */}
+          <nav className="flex-1 overflow-y-auto py-1">
+            {NAV.map((g) => (
+              <NavGroupItem key={g.id} group={g} />
+            ))}
+          </nav>
+
+          {/* Sidebar Footer */}
+          <div className="px-3 py-2 text-[9px] text-muted-foreground/60 border-t border-sidebar-border/40 flex-shrink-0">
+            <p>Source-to-Decision · Demand rule v1 · {new Date().getFullYear()}</p>
           </div>
-        </div>
-        {/* Search: hidden on small screens */}
-        <div className="hidden lg:block w-48 xl:w-56 2xl:w-64 flex-shrink-0">
-          <GlobalSearch />
-        </div>
-        {/* Global Filter Bar inside top bar */}
-        <div className="hidden md:flex items-center flex-shrink-0">
-          <GlobalFilterBar />
-        </div>
-        {/* Spacer to push actions right */}
-        <div className="flex-1" />
-        <div className="flex items-center gap-1 sm:gap-1.5 ml-auto flex-shrink-0">
-          {/* Mobile: show small Cmd+K icon button */}
+        </aside>
+      )}
+
+      {/* Collapsed: icon rail on desktop */}
+      {!sidebarOpen && <NavRail />}
+
+      {/* Right Content Area: Top Bar + Main View + Bottom Footer */}
+      <div className="flex-1 flex flex-col h-screen min-w-0 overflow-hidden">
+        {/* Pinned Top Bar */}
+        <header className="h-12 border-b border-border bg-card/95 backdrop-blur-sm flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 flex-shrink-0 z-10">
+          {/* Mobile hamburger toggle (only when sidebar is closed) */}
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8 lg:hidden"
-            onClick={() => {
-              window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, ctrlKey: true }));
-            }}
-            aria-label="Command palette"
+            className="h-8 w-8 md:hidden flex-shrink-0"
+            onClick={() => setSidebarOpen(true)}
+            aria-label="Open navigation menu"
           >
-            <CommandIcon className="h-4 w-4" />
+            <ChevronRight className="h-4 w-4" />
           </Button>
-          {/* Desktop: show labeled Cmd+K button */}
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8 gap-1.5 text-[11px] hidden xl:flex"
-            onClick={() => {
-              window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, ctrlKey: true }));
-            }}
-          >
-            <CommandIcon className="h-3 w-3" />
-            <span>Command</span>
-            <kbd className="font-mono text-[9px] bg-muted px-1 py-0.5 rounded border border-border">⌘K</kbd>
-          </Button>
-          <ThemeToggle />
-          <NotificationsBell />
-          <div className="h-7 w-7 sm:h-8 sm:w-8 rounded-full bg-muted border border-border flex items-center justify-center">
-            <User className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-muted-foreground" />
-          </div>
-          <UserMenu />
-        </div>
-      </header>
 
-      {/* Center workspace: Middle area flex container */}
-      <div className="flex flex-1 min-h-0 min-w-0 overflow-hidden relative">
-        {/* Mobile backdrop when sidebar open */}
-        {sidebarOpen && (
-          <div
-            className="md:hidden fixed inset-0 top-12 bg-black/50 z-40 backdrop-blur-xs"
-            onClick={() => setSidebarOpen(false)}
-          />
-        )}
-        {/* Sidebar — overlay on mobile, inline on desktop */}
-        {sidebarOpen && (
-          <aside
-            className={cn(
-              "border-r border-sidebar-border bg-sidebar overflow-y-auto",
-              // Mobile: fixed drawer overlay below header
-              "fixed inset-y-0 left-0 top-12 bottom-0 w-72 max-w-[85vw] shadow-2xl z-50",
-              // Desktop: inline flex-shrink-0 full-height scroll
-              "md:static md:w-64 md:max-w-none md:flex-shrink-0 md:h-full md:z-20 md:shadow-none"
-            )}
-          >
-            <nav className="py-1">
-              {NAV.map((g) => (
-                <NavGroupItem key={g.id} group={g} />
-              ))}
-            </nav>
-            <div className="px-3 py-2 text-[9px] text-muted-foreground/60 border-t border-sidebar-border/40">
-              <p>Source-to-Decision · Demand rule v1 · {new Date().getFullYear()}</p>
+          {/* Search */}
+          <div className="hidden sm:block w-48 xl:w-56 2xl:w-64 flex-shrink-0">
+            <GlobalSearch />
+          </div>
+
+          {/* Global Filter Bar inside top bar */}
+          <div className="hidden md:flex items-center flex-shrink-0">
+            <GlobalFilterBar />
+          </div>
+
+          {/* Spacer to push actions right */}
+          <div className="flex-1" />
+
+          {/* Right actions */}
+          <div className="flex items-center gap-1 sm:gap-1.5 ml-auto flex-shrink-0">
+            {/* Mobile: show small Cmd+K icon button */}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 lg:hidden"
+              onClick={() => {
+                window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, ctrlKey: true }));
+              }}
+              aria-label="Command palette"
+            >
+              <CommandIcon className="h-4 w-4" />
+            </Button>
+            {/* Desktop: show labeled Cmd+K button */}
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 gap-1.5 text-[11px] hidden xl:flex"
+              onClick={() => {
+                window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, ctrlKey: true }));
+              }}
+            >
+              <CommandIcon className="h-3 w-3" />
+              <span>Command</span>
+              <kbd className="font-mono text-[9px] bg-muted px-1 py-0.5 rounded border border-border">⌘K</kbd>
+            </Button>
+            <ThemeToggle />
+            <NotificationsBell />
+            <div className="h-7 w-7 sm:h-8 sm:w-8 rounded-full bg-muted border border-border flex items-center justify-center">
+              <User className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-muted-foreground" />
             </div>
-          </aside>
-        )}
-        {/* Collapsed: icon rail on desktop, nothing on mobile. */}
-        {!sidebarOpen && <NavRail />}
+            <UserMenu />
+          </div>
+        </header>
 
         {/* Scrollable Center Main Content */}
         <main className="flex-1 min-w-0 h-full overflow-y-auto overflow-x-hidden">
           {children}
         </main>
-      </div>
 
-      {/* Pinned Bottom Footer */}
-      <footer className="h-8 border-t border-border bg-card/90 backdrop-blur-sm px-2 sm:px-3 flex items-center justify-between gap-2 text-[10px] text-muted-foreground flex-shrink-0 z-30 select-none">
-        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-          <span className="flex items-center gap-1 flex-shrink-0">
-            <ShieldCheck className="h-3 w-3" /> Fantasy
-          </span>
-          <span className="hidden sm:inline">·</span>
-          <span className="hidden sm:inline">90D rule CONFIRMED</span>
-          <span className="hidden md:inline">·</span>
-          <span className="hidden md:inline">Memo excluded</span>
-        </div>
-        <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
-          <span className="truncate">View: <span className="text-foreground font-medium">{view}</span></span>
-        </div>
-      </footer>
+        {/* Pinned Bottom Footer */}
+        <footer className="h-8 border-t border-border bg-card/90 backdrop-blur-sm px-2 sm:px-3 flex items-center justify-between gap-2 text-[10px] text-muted-foreground flex-shrink-0 z-10 select-none">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+            <span className="flex items-center gap-1 flex-shrink-0">
+              <ShieldCheck className="h-3 w-3" /> Fantasy
+            </span>
+            <span className="hidden sm:inline">·</span>
+            <span className="hidden sm:inline">90D rule CONFIRMED</span>
+            <span className="hidden md:inline">·</span>
+            <span className="hidden md:inline">Memo excluded</span>
+          </div>
+          <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+            <span className="truncate">View: <span className="text-foreground font-medium">{view}</span></span>
+          </div>
+        </footer>
+      </div>
 
       {/* Command palette (Cmd+K / Ctrl+K) */}
       <CommandPalette />
