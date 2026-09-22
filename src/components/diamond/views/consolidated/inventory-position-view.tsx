@@ -19,7 +19,7 @@ const TABS: HostTabItem[] = [
 export function InventoryPositionView() {
   return (
     <TabbedHostView
-      title="Inventory Position"
+      title="Inventory"
       subtitle="Complete stock pipeline across rough diamonds, manufacturing WIP, polished vault inventory, memo consignments, and sales invoices"
       tabs={TABS}
       defaultTab="rough"

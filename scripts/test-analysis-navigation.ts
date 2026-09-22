@@ -23,7 +23,7 @@ const EXPECTED_ANALYSIS_PAGES = [
   { id: "analysis-sales", label: "Sales Analysis", perm: "sales.read" },
   { id: "analysis-sales-trends", label: "Sales Trends", perm: "sales.read" },
   { id: "analysis-customers-orders", label: "Customers & Orders", perm: "customers.read" },
-  { id: "analysis-inventory-position", label: "Inventory Position", perm: "analysis.read" },
+  { id: "analysis-inventory-position", label: "Inventory", perm: "analysis.read" },
   { id: "analysis-stockout", label: "Stockout Risk", perm: "analysis.read" },
   { id: "analysis-excess", label: "Excess Stock", perm: "analysis.read" },
   { id: "analysis-aging", label: "Stock Aging", perm: "analysis.read" },
