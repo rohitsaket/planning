@@ -54,19 +54,19 @@ export function TabbedHostView({
   return (
     <div className="flex flex-col min-h-full">
       {/* Sleek Compact Sticky Tab Header */}
-      <div className="sticky top-0 z-20 -mx-3 -mt-3 mb-2 border-b border-border bg-card/95 backdrop-blur-md px-3 py-1.5 shadow-xs flex items-center justify-between gap-3 flex-wrap min-h-10">
-        <div className="flex items-center gap-2.5 min-w-0 flex-1 overflow-x-auto no-scrollbar">
+      <div className="sticky top-0 z-20 -mx-3 -mt-3 mb-2 border-b border-border bg-card/95 backdrop-blur-md px-3 py-1.5 shadow-xs flex items-center justify-between gap-3 flex-wrap min-h-11">
+        <div className="flex items-center gap-3 min-w-0 flex-1 overflow-x-auto no-scrollbar">
           {/* Page Title */}
           <div className="flex items-center gap-2 flex-shrink-0">
-            <h1 className="text-sm font-semibold tracking-tight text-foreground truncate">{title}</h1>
+            <h1 className="text-lg font-bold tracking-tight text-foreground truncate">{title}</h1>
             {advisory && (
-              <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[9px] font-semibold uppercase tracking-wider bg-violet-500/10 text-violet-600 dark:bg-violet-500/20 dark:text-violet-400 border border-violet-500/20">
+              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wider bg-violet-500/10 text-violet-600 dark:bg-violet-500/20 dark:text-violet-400 border border-violet-500/20">
                 Advisory
               </span>
             )}
           </div>
 
-          <div className="h-4 w-px bg-border/60 hidden sm:block flex-shrink-0" />
+          <div className="h-5 w-px bg-border/80 hidden sm:block flex-shrink-0" />
 
           {/* Compact Tab Pills */}
           <div className="flex items-center gap-1 flex-shrink-0">
