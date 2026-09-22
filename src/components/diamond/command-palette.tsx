@@ -21,6 +21,8 @@ import { ReactNode } from "react";
 
 interface PaletteItem {
   id: ViewId;
+  // Tab inside a tabbed host view; several palette entries may target one view id.
+  tab?: string;
   label: string;
   group: string;
   icon: ReactNode;
@@ -34,8 +36,8 @@ const ITEMS: PaletteItem[] = [
 
   // 2. Analysis (Direct Analytical Workspace)
   { id: "analysis-executive", label: "Executive Analysis", group: "Analysis", icon: <BarChart3 className="h-4 w-4" />, keywords: ["executive", "summary", "kpi", "demand", "inventory"] },
-  { id: "analysis-sales", label: "Sales Analysis", group: "Analysis", icon: <TrendingUp className="h-4 w-4" />, keywords: ["sales", "invoices", "revenue", "category", "customer"] },
-  { id: "analysis-sales-trends", label: "Sales Trends", group: "Analysis", icon: <Activity className="h-4 w-4" />, keywords: ["trends", "30 day", "90 day", "velocity", "history"] },
+  { id: "analysis-sales", tab: "analysis", label: "Sales Analysis & Trends → Sales Analysis", group: "Analysis", icon: <TrendingUp className="h-4 w-4" />, keywords: ["sales", "invoices", "revenue", "category", "customer", "sales analysis"] },
+  { id: "analysis-sales", tab: "trends", label: "Sales Analysis & Trends → Sales Trends", group: "Analysis", icon: <Activity className="h-4 w-4" />, keywords: ["trends", "30 day", "90 day", "velocity", "history", "sales trends"] },
   { id: "analysis-customers-orders", label: "Customers & Orders", group: "Analysis", icon: <Users className="h-4 w-4" />, keywords: ["customers", "orders", "country", "branch", "buyer", "geography", "accounts"] },
   { id: "analysis-inventory-position", label: "Inventory Position", group: "Analysis", icon: <Package className="h-4 w-4" />, keywords: ["rough", "wip", "polished", "memo", "invoices", "inventory", "stock", "pipeline"] },
   { id: "analysis-stockout", label: "Stockout Risk", group: "Analysis", icon: <AlertTriangle className="h-4 w-4" />, advisory: true, keywords: ["stockout", "shortage", "risk", "projected stock"] },
@@ -146,7 +148,7 @@ export function CommandPalette() {
   const flatFiltered = filtered;
 
   const selectItem = (item: PaletteItem) => {
-    setView(item.id);
+    setView(item.id, item.tab ?? null);
     handleOpenChange(false);
   };
 
@@ -185,7 +187,7 @@ export function CommandPalette() {
                 const authorized = isViewAuthorized(perms, item.id);
                 return (
                   <button
-                    key={item.id}
+                    key={item.tab ? `${item.id}:${item.tab}` : item.id}
                     onMouseEnter={() => setActiveIdx(idx)}
                     onClick={() => selectItem(item)}
                     className={cn(

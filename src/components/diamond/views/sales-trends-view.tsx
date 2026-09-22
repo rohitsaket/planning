@@ -4,7 +4,7 @@ import { useState, useMemo } from "react";
 import { useApi } from "@/lib/api-client";
 import { KpiCard } from "@/components/diamond/shared/kpi-card";
 import { Section, PageHeader } from "@/components/diamond/shared/page-header";
-import { DataTable, Column } from "@/components/diamond/shared/data-table";
+import { DataTable, Column, DATA_TABLE_VIEWPORT_MAX_HEIGHT } from "@/components/diamond/shared/data-table";
 import { NumberCell } from "@/components/diamond/shared/empty-state";
 import { Badge } from "@/components/diamond/shared/badges";
 import { useGlobalFilter } from "@/stores/global-filter";
@@ -209,7 +209,7 @@ export function SalesTrendsView() {
           searchable
           searchPlaceholder="Search group..."
           searchFn={(r, q) => r.key.toLowerCase().includes(q.toLowerCase())}
-          maxHeight="500px"
+          maxHeight={DATA_TABLE_VIEWPORT_MAX_HEIGHT}
         />
       </Section>
     </div>
