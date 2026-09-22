@@ -182,38 +182,39 @@ export function DataTable<T>({
       {/* Table Scroll Area — ONLY this inner part scrolls */}
       <div className="overflow-auto flex-1 min-h-0 w-full" style={maxHeight ? { maxHeight } : undefined}>
         <table className="w-full text-xs border-collapse">
-          <thead className={cn(stickyHeader && "sticky top-0 z-10")}>
-            <tr className="bg-muted border-b border-border shadow-xs">
-                {columns.map((c) => (
-                  <th
-                    key={c.key}
-                    onClick={() => handleSort(c)}
+          <thead className={cn(stickyHeader && "sticky top-0 z-20 bg-muted")}>
+            <tr className="bg-muted">
+              {columns.map((c) => (
+                <th
+                  key={c.key}
+                  onClick={() => handleSort(c)}
+                  className={cn(
+                    "px-2 py-2 font-semibold text-muted-foreground uppercase tracking-wide text-[10px] whitespace-nowrap bg-muted border-b border-border",
+                    stickyHeader && "sticky top-0 z-20",
+                    c.align === "right" ? "text-right" : c.align === "center" ? "text-center" : "text-left",
+                    c.sortable && "cursor-pointer hover:bg-muted-foreground/10 select-none",
+                    c.sticky === "left" && "sticky left-0 bg-muted z-30 border-r",
+                    c.sticky === "right" && "sticky right-0 bg-muted z-30 border-l"
+                  )}
+                  style={c.width ? { width: c.width } : undefined}
+                >
+                  <div
                     className={cn(
-                      "px-2 py-2 font-semibold text-muted-foreground uppercase tracking-wide text-[10px] whitespace-nowrap",
-                      c.align === "right" ? "text-right" : c.align === "center" ? "text-center" : "text-left",
-                      c.sortable && "cursor-pointer hover:bg-muted select-none",
-                      c.sticky === "left" && "sticky left-0 bg-muted/80 z-20 border-r",
-                      c.sticky === "right" && "sticky right-0 bg-muted/80 z-20 border-l"
+                      "flex items-center gap-1",
+                      c.align === "right" && "justify-end text-right",
+                      c.align === "center" && "justify-center text-center",
+                      (!c.align || c.align === "left") && "justify-start text-left"
                     )}
-                    style={c.width ? { width: c.width } : undefined}
                   >
-                    <div
-                      className={cn(
-                        "flex items-center gap-1",
-                        c.align === "right" && "justify-end text-right",
-                        c.align === "center" && "justify-center text-center",
-                        (!c.align || c.align === "left") && "justify-start text-left"
-                      )}
-                    >
-                      <span>{c.header}</span>
-                      {sortKey === c.key && (
-                        <span className="text-[8px]">{sortDir === "asc" ? "▲" : "▼"}</span>
-                      )}
-                    </div>
-                  </th>
-                ))}
-              </tr>
-            </thead>
+                    <span>{c.header}</span>
+                    {sortKey === c.key && (
+                      <span className="text-[8px]">{sortDir === "asc" ? "▲" : "▼"}</span>
+                    )}
+                  </div>
+                </th>
+              ))}
+            </tr>
+          </thead>
             <tbody>
               {loading && (
                 <tr>
