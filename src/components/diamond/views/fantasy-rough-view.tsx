@@ -64,9 +64,10 @@ export function FantasyRoughView() {
     if (stoneType !== "ALL") params.set("stoneType", stoneType);
     if (effectiveCountry !== "ALL") params.set("country", effectiveCountry);
     if (effectiveBranch && effectiveBranch !== "ALL") params.set("branch", effectiveBranch);
+    if (globalFilter.windowDays) params.set("windowDays", String(globalFilter.windowDays));
     const s = params.toString();
     return s ? `?${s}` : "";
-  }, [planningStatus, stoneType, effectiveCountry, effectiveBranch]);
+  }, [planningStatus, stoneType, effectiveCountry, effectiveBranch, globalFilter.windowDays]);
 
   const { data, isLoading } = useApi<Payload>(`/api/fantasy/rough${queryString}`);
 

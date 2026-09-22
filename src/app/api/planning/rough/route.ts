@@ -9,6 +9,8 @@ export const GET = withApi({ permission: "rough.read" }, async (req: Request) =>
   const planningStatus = qStr(url, "planningStatus");
   const stoneType = qStr(url, "stoneType");
   const country = qStr(url, "country");
+  const branch = qStr(url, "branch");
+  const windowDays = qStr(url, "windowDays");
   const eligibleOnly = qStr(url, "eligibleOnly") === "true";
   const q = qStr(url, "q", 100);
 
@@ -16,7 +18,17 @@ export const GET = withApi({ permission: "rough.read" }, async (req: Request) =>
   if (planningStatus) where.planningStatus = planningStatus;
   if (stoneType) where.stoneType = stoneType;
   if (country) where.country = country;
+  if (branch) where.branch = branch;
   if (eligibleOnly) where.planningEligible = true;
+
+  if (windowDays) {
+    const days = parseInt(windowDays, 10);
+    if (!isNaN(days) && days > 0) {
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - days);
+      where.lastUpdated = { gte: cutoff };
+    }
+  }
 
   if (q) {
     const escaped = q.replace(/[\\%_]/g, "\\$&");

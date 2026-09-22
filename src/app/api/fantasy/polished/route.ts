@@ -9,6 +9,8 @@ export const GET = withApi({ permission: "fantasy.read" }, async (req: Request) 
   const lab = qStr(url, "lab");
   const shape = qStr(url, "shape");
   const country = qStr(url, "country");
+  const branch = qStr(url, "branch");
+  const windowDays = qStr(url, "windowDays");
   const q = qStr(url, "q", 100);
 
   const where: Record<string, unknown> = {};
@@ -16,6 +18,16 @@ export const GET = withApi({ permission: "fantasy.read" }, async (req: Request) 
   if (lab) where.labNormalized = lab;
   if (shape) where.shape = shape;
   if (country) where.country = country;
+  if (branch) where.branch = branch;
+
+  if (windowDays) {
+    const days = parseInt(windowDays, 10);
+    if (!isNaN(days) && days > 0) {
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - days);
+      where.lastUpdated = { gte: cutoff };
+    }
+  }
 
   if (q) {
     const escaped = q.replace(/[\\%_]/g, "\\$&");

@@ -69,9 +69,10 @@ export function FantasyPolishedView() {
     if (shape !== "ALL") params.set("shape", shape);
     if (effectiveCountry !== "ALL") params.set("country", effectiveCountry);
     if (effectiveBranch && effectiveBranch !== "ALL") params.set("branch", effectiveBranch);
+    if (globalFilter.windowDays) params.set("windowDays", String(globalFilter.windowDays));
     const s = params.toString();
     return s ? `?${s}` : "";
-  }, [planningClass, effectiveLab, shape, effectiveCountry, effectiveBranch]);
+  }, [planningClass, effectiveLab, shape, effectiveCountry, effectiveBranch, globalFilter.windowDays]);
 
   const { data, isLoading } = useApi<Payload>(`/api/fantasy/polished${queryString}`);
 
