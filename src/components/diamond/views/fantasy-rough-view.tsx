@@ -174,33 +174,33 @@ export function FantasyRoughView() {
         </div>
       </Section>
 
-      <Section title="Rough Stock" description="Click column headers to sort · Use search to filter live">
-        <DataTable
-          columns={columns}
-          rows={rows}
-          loading={isLoading}
-          emptyMessage="No rough stones match the current filters."
-          maxHeight="600px"
-          initialSortKey="lastUpdated"
-          initialSortDir="desc"
-          exportable
-          exportFilename="fantasy-rough-stock.csv"
-          excelExportable
-          excelExportFilename="fantasy-rough-stock.xlsx"
-          searchable
-          searchPlaceholder="Search rough ID, kapan, packet, stone name..."
-          searchFn={(r, q) => {
-            const lq = q.toLowerCase();
-            return (
-              r.fantasyRoughId.toLowerCase().includes(lq) ||
-              r.kapan.toLowerCase().includes(lq) ||
-              r.packet.toLowerCase().includes(lq) ||
-              r.stoneName.toLowerCase().includes(lq) ||
-              (r.signer ?? "").toLowerCase().includes(lq)
-            );
-          }}
-        />
-      </Section>
+      <DataTable
+        title="Rough Stock"
+        description="Click column headers to sort · Use search to filter live"
+        columns={columns}
+        rows={rows}
+        loading={isLoading}
+        emptyMessage="No rough stones match the current filters."
+        maxHeight="600px"
+        initialSortKey="lastUpdated"
+        initialSortDir="desc"
+        exportable
+        exportFilename="fantasy-rough-stock.csv"
+        excelExportable
+        excelExportFilename="fantasy-rough-stock.xlsx"
+        searchable
+        searchPlaceholder="Search rough ID, kapan, packet, stone name..."
+        searchFn={(r, q) => {
+          const lq = q.toLowerCase();
+          return (
+            r.fantasyRoughId.toLowerCase().includes(lq) ||
+            r.kapan.toLowerCase().includes(lq) ||
+            r.packet.toLowerCase().includes(lq) ||
+            r.stoneName.toLowerCase().includes(lq) ||
+            (r.signer ?? "").toLowerCase().includes(lq)
+          );
+        }}
+      />
     </div>
   );
 }

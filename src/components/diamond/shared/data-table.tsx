@@ -22,7 +22,9 @@ export interface Column<T> {
   align?: "left" | "right" | "center";
 }
 
-interface DataTableProps<T> {
+export interface DataTableProps<T> {
+  title?: string;
+  description?: string;
   columns: Column<T>[];
   rows: T[];
   loading?: boolean;
@@ -48,6 +50,8 @@ interface DataTableProps<T> {
 }
 
 export function DataTable<T>({
+  title,
+  description,
   columns,
   rows,
   loading,
@@ -127,42 +131,56 @@ export function DataTable<T>({
   };
 
   return (
-    <div className="flex flex-col gap-2">
-      {(searchable || toolbar || exportable || excelExportable || pdfExportable) && (
-        <div className="flex items-center gap-2 flex-wrap">
-          {searchable && (
-            <div className="relative flex-1 min-w-[200px] max-w-sm">
-              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-              <Input
-                value={query}
-                onChange={(e) => { setQuery(e.target.value); setPage(1); }}
-                placeholder={searchPlaceholder}
-                className="h-8 pl-7 text-xs"
-              />
+    <div className="rounded-md border border-border overflow-hidden bg-card">
+      {/* Upper Single-Row Table Header: Title on Left, Search/Exports/Count on Right */}
+      {(title || searchable || toolbar || exportable || excelExportable || pdfExportable) && (
+        <div className="flex items-center justify-between gap-2 px-3 py-1.5 border-b border-border bg-muted/40 flex-wrap min-h-10">
+          {/* Left: Title & Subtle description */}
+          <div className="flex items-center gap-2 min-w-0">
+            {title && <h2 className="text-xs font-semibold tracking-wide text-foreground truncate">{title}</h2>}
+            {description && (
+              <span className="text-[10px] text-muted-foreground hidden sm:inline truncate">· {description}</span>
+            )}
+          </div>
+
+          {/* Right: Search + Toolbar + Exports + Row Count */}
+          <div className="flex items-center gap-1.5 flex-wrap ml-auto">
+            {searchable && (
+              <div className="relative w-44 sm:w-56 md:w-64">
+                <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                <Input
+                  value={query}
+                  onChange={(e) => { setQuery(e.target.value); setPage(1); }}
+                  placeholder={searchPlaceholder}
+                  className="h-7 pl-7 text-xs bg-background/90"
+                />
+              </div>
+            )}
+            {toolbar}
+            {exportable && (
+              <Button variant="outline" size="sm" className="h-7 px-2 text-[11px] gap-1 bg-background/90" onClick={exportCsv}>
+                <Download className="h-3 w-3" /> Export CSV
+              </Button>
+            )}
+            {excelExportable && (
+              <Button variant="outline" size="sm" className="h-7 px-2 text-[11px] gap-1 bg-background/90" onClick={exportExcel}>
+                <FileSpreadsheet className="h-3 w-3" /> Export Excel
+              </Button>
+            )}
+            {pdfExportable && (
+              <Button variant="outline" size="sm" className="h-7 px-2 text-[11px] gap-1 bg-background/90" onClick={exportPDF}>
+                <FileText className="h-3 w-3" /> Export PDF
+              </Button>
+            )}
+            <div className="text-[10px] text-muted-foreground pl-1 font-mono whitespace-nowrap">
+              {processed.length} {processed.length === 1 ? "row" : "rows"}
             </div>
-          )}
-          {toolbar}
-          {exportable && (
-            <Button variant="outline" size="sm" className="h-8 text-xs" onClick={exportCsv}>
-              <Download className="h-3 w-3 mr-1" /> Export CSV
-            </Button>
-          )}
-          {excelExportable && (
-            <Button variant="outline" size="sm" className="h-8 text-xs" onClick={exportExcel}>
-              <FileSpreadsheet className="h-3 w-3 mr-1" /> Export Excel
-            </Button>
-          )}
-          {pdfExportable && (
-            <Button variant="outline" size="sm" className="h-8 text-xs" onClick={exportPDF}>
-              <FileText className="h-3 w-3 mr-1" /> Export PDF
-            </Button>
-          )}
-          <div className="ml-auto text-[11px] text-muted-foreground">
-            {processed.length} {processed.length === 1 ? "row" : "rows"}
           </div>
         </div>
       )}
-      <div className="rounded-md border border-border overflow-hidden bg-card" style={{ maxHeight }}>
+
+      {/* Table Scroll Area */}
+      <div style={{ maxHeight }}>
         <div className="overflow-auto h-full">
           <table className="w-full text-xs border-collapse">
             <thead className={cn(stickyHeader && "sticky top-0 z-10")}>

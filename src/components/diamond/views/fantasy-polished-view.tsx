@@ -135,31 +135,31 @@ export function FantasyPolishedView() {
         </div>
       </Section>
 
-      <Section title="Polished Lots" description="Click column headers to sort · Use search to filter live">
-        <DataTable
-          columns={columns}
-          rows={rows}
-          loading={isLoading}
-          emptyMessage="No polished lots match the current filters."
-          maxHeight="600px"
-          initialSortKey="lastUpdated"
-          initialSortDir="desc"
-          exportable
-          exportFilename="fantasy-polished-stock.csv"
-          searchable
-          searchPlaceholder="Search lot ID, certificate, color, clarity..."
-          searchFn={(r, q) => {
-            const lq = q.toLowerCase();
-            return (
-              r.fantasyLotId.toLowerCase().includes(lq) ||
-              (r.certificate ?? "").toLowerCase().includes(lq) ||
-              (r.color ?? "").toLowerCase().includes(lq) ||
-              (r.clarity ?? "").toLowerCase().includes(lq) ||
-              r.shape.toLowerCase().includes(lq)
-            );
-          }}
-        />
-      </Section>
+      <DataTable
+        title="Polished Lots"
+        description="Click column headers to sort · Use search to filter live"
+        columns={columns}
+        rows={rows}
+        loading={isLoading}
+        emptyMessage="No polished lots match the current filters."
+        maxHeight="600px"
+        initialSortKey="lastUpdated"
+        initialSortDir="desc"
+        exportable
+        exportFilename="fantasy-polished-stock.csv"
+        searchable
+        searchPlaceholder="Search lot ID, certificate, color, clarity..."
+        searchFn={(r, q) => {
+          const lq = q.toLowerCase();
+          return (
+            r.fantasyLotId.toLowerCase().includes(lq) ||
+            (r.certificate ?? "").toLowerCase().includes(lq) ||
+            (r.color ?? "").toLowerCase().includes(lq) ||
+            (r.clarity ?? "").toLowerCase().includes(lq) ||
+            r.shape.toLowerCase().includes(lq)
+          );
+        }}
+      />
     </div>
   );
 }
