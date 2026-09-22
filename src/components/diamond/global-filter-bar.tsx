@@ -15,11 +15,6 @@ export function GlobalFilterBar({ className }: { className?: string }) {
 
   return (
     <div className={cn("flex items-center gap-1.5 text-xs", className)}>
-      <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground flex-shrink-0 px-1.5 py-0.5 rounded bg-muted/50 border border-border/50">
-        <Filter className="h-3 w-3 text-primary" />
-        <span className="hidden xl:inline">Global Filter</span>
-      </div>
-
       {/* Country */}
       <div className="flex items-center gap-1">
         <Select value={country ?? "ALL"} onValueChange={(v) => setCountry(v === "ALL" ? null : v)}>
