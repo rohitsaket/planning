@@ -140,19 +140,19 @@ export function ReportsView() {
     }
     if (activeType === "sales-by-category") {
       const rows = (data as { rows: SalesRow[] }).rows;
-      return <DataTable columns={salesColumns} rows={rows} emptyMessage="No sales records" maxHeight="520px" exportable exportFilename="sales-by-category.csv" searchable searchPlaceholder="Search category..." searchFn={(r, q) => r.category.toLowerCase().includes(q.toLowerCase())} />;
+      return <DataTable columns={salesColumns} rows={rows} emptyMessage="No sales records" maxHeight="520px" exportable exportPermission="analysis.export" exportFilename="sales-by-category.csv" searchable searchPlaceholder="Search category..." searchFn={(r, q) => r.category.toLowerCase().includes(q.toLowerCase())} />;
     }
     if (activeType === "critical-requirements") {
       const rows = (data as { rows: CriticalReqRow[] }).rows;
-      return <DataTable columns={criticalReqColumns} rows={rows} emptyMessage="No critical requirements" maxHeight="520px" exportable exportFilename="critical-requirements.csv" />;
+      return <DataTable columns={criticalReqColumns} rows={rows} emptyMessage="No critical requirements" maxHeight="520px" exportable exportPermission="analysis.export" exportFilename="critical-requirements.csv" />;
     }
     if (activeType === "yield-variance") {
       const rows = (data as { rows: YieldRow[] }).rows;
-      return <DataTable columns={yieldColumns} rows={rows} emptyMessage="No reconciliation rows" maxHeight="520px" exportable exportFilename="yield-variance.csv" />;
+      return <DataTable columns={yieldColumns} rows={rows} emptyMessage="No reconciliation rows" maxHeight="520px" exportable exportPermission="analysis.export" exportFilename="yield-variance.csv" />;
     }
     if (activeType === "weight-bands-config") {
       const rows = (data as { rows: WeightBandRow[] }).rows;
-      return <DataTable columns={weightBandColumns} rows={rows} emptyMessage="No weight bands" maxHeight="520px" exportable exportFilename="weight-bands-config.csv" />;
+      return <DataTable columns={weightBandColumns} rows={rows} emptyMessage="No weight bands" maxHeight="520px" exportable exportPermission="analysis.export" exportFilename="weight-bands-config.csv" />;
     }
     return <EmptyState title="Unknown report type" />;
   };

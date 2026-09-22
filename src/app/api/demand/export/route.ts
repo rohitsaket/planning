@@ -11,7 +11,7 @@ export const GET = withApi({ permission: "demand.export" }, async (req: Request)
   const format = qStr(url, "format") || "json";
 
   const targetRun = await db.demandRun.findFirst({
-    where: runIdParam ? { id: runIdParam } : { status: "COMPLETED" },
+    where: runIdParam ? { id: runIdParam } : { status: { in: ["COMPLETED", "REVIEW_REQUIRED"] } },
     orderBy: { runDate: "desc" },
     include: {
       metrics: {

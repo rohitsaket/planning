@@ -1,65 +1,109 @@
 import { db } from "@/lib/db";
-import { ok, num } from "@/lib/api-utils";
-import { withApi, SCAN_MAX, scanned } from "@/lib/api/with-api";
+import { ok } from "@/lib/api-utils";
+import { withApi, qStr } from "@/lib/api/with-api";
+import {
+  analyzeTransfers,
+  rollupByBranch,
+  rollupByCountry,
+  type CategoryPosition,
+} from "@/lib/analytics/stock-position";
 
-// Country/Branch Analysis — local vs global shortage, transfer candidates
-export const GET = withApi({ permission: "analysis.read" }, async () => {
-  const latestRun = await db.demandRun.findFirst({
-    orderBy: { runDate: "desc" },
-  });
-  if (!latestRun) return ok({ rows: [] });
+// Country / Branch position — every figure is derived per exact category
+// (Country + Lab + Shape + Weight Band) and only then rolled up, so a shortage in
+// one category is never netted against an excess in another.
+//
+// Transfer candidates come from the shared transfer service used by the Transfer
+// Analyzer; the count is the real number of candidate pairs, or null when the
+// analysis cannot run.
+export const GET = withApi({ permission: "analysis.read" }, async (req: Request) => {
+  const url = new URL(req.url);
+  const country = qStr(url, "country");
+  const branch = qStr(url, "branch");
+  const lab = qStr(url, "lab");
 
-  const metrics = await db.demandMetric.findMany({ take: SCAN_MAX,
-    where: { runId: latestRun.id },
-  }).then(scanned);
+  const { positions, transfers, wipPolicy, wipCoverageUnavailable } = await analyzeTransfers(db);
 
-  // Group by country extracted from category (we use planningCategory which is lab|shape|band)
-  // Country-specific demand comes from Requirements instead
-  const requirements = await db.requirement.findMany({ take: SCAN_MAX,
-    where: { remainingUnplanned: { gt: 0 } },
-  }).then(scanned);
+  const filtered: CategoryPosition[] = positions.filter(
+    (p) =>
+      (!country || p.country === country) &&
+      (!branch || p.branch === branch) &&
+      (!lab || p.lab === lab.trim().toUpperCase()),
+  );
 
-  const byCountry = new Map<string, { shortage: number; target: number; available: number; excess: number; wip: number; planCov: number; transfer: number }>();
-  for (const r of requirements) {
-    const cur = byCountry.get(r.country) ?? { shortage: 0, target: 0, available: 0, excess: 0, wip: 0, planCov: 0, transfer: 0 };
-    cur.shortage += r.remainingUnplanned;
-    cur.target += r.requiredQty;
-    cur.available += r.physicalStockQty;
-    cur.wip += r.wipCoverage;
-    cur.planCov += r.approvedPlanCoverage;
-    byCountry.set(r.country, cur);
+  const countries = rollupByCountry(filtered);
+  const branches = rollupByBranch(filtered);
+
+  // Candidate counts per source country, from the same shared analysis.
+  const candidatesByCountry = new Map<string, number>();
+  if (transfers.candidateCount !== null) {
+    for (const c of transfers.candidates) {
+      candidatesByCountry.set(c.fromCountry, (candidatesByCountry.get(c.fromCountry) ?? 0) + 1);
+    }
   }
-  // Global aggregates
-  const globalAgg = metrics.reduce((acc, m) => {
-    acc.target += num(m.roundedTarget);
-    acc.available += num(m.availableStock);
-    acc.shortage += num(m.physicalShortage);
-    acc.excess += num(m.excessStock);
-    acc.wip += num(m.wipCoverage);
-    acc.planCov += num(m.approvedPlanCoverage);
-    return acc;
-  }, { target: 0, available: 0, shortage: 0, excess: 0, wip: 0, planCov: 0 });
 
-  const rows = Array.from(byCountry.entries()).map(([country, v]) => ({
-    country,
-    physicalShortage: v.shortage,
-    target: v.target,
-    available: v.available,
-    excess: Math.max(0, v.available - v.target + v.shortage), // approx
-    wip: v.wip,
-    planCov: v.planCov,
-    transferCandidates: 0, // OPEN rule — display separately
-  })).sort((a, b) => b.physicalShortage - a.physicalShortage);
+  const rows = countries.map((c) => ({
+    country: c.country,
+    target: c.target,
+    available: c.available,
+    physicalShortage: c.physicalShortage,
+    excess: c.excess,
+    wip: c.eligibleWip,
+    planCov: c.approvedPlanCoverage,
+    pipelineRequirement: c.pipelineRequirement,
+    remainingUnplanned: c.remainingUnplanned,
+    categories: c.categories,
+    categoriesWithShortage: c.categoriesWithShortage,
+    categoriesWithExcess: c.categoriesWithExcess,
+    // null (not 0) when transfer analysis could not run at all.
+    transferCandidates: transfers.candidateCount === null ? null : candidatesByCountry.get(c.country) ?? 0,
+    transferStatus: transfers.status,
+  }));
+
+  const global = filtered.reduce(
+    (acc, p) => {
+      acc.target += p.target;
+      acc.available += p.available;
+      acc.shortage += p.physicalShortage;
+      acc.excess += p.excess;
+      acc.wip += p.eligibleWip;
+      acc.planCov += p.approvedPlanCoverage;
+      acc.pipelineRequirement += p.pipelineRequirement;
+      acc.remainingUnplanned += p.remainingUnplanned;
+      return acc;
+    },
+    { target: 0, available: 0, shortage: 0, excess: 0, wip: 0, planCov: 0, pipelineRequirement: 0, remainingUnplanned: 0 },
+  );
 
   return ok({
     rows,
-    global: {
-      target: globalAgg.target,
-      available: globalAgg.available,
-      shortage: globalAgg.shortage,
-      excess: globalAgg.excess,
-      wip: globalAgg.wip,
-      planCov: globalAgg.planCov,
+    branches: branches.map((b) => ({
+      country: b.country,
+      branch: b.branch,
+      target: b.target,
+      available: b.available,
+      physicalShortage: b.physicalShortage,
+      excess: b.excess,
+      wip: b.eligibleWip,
+      planCov: b.approvedPlanCoverage,
+      remainingUnplanned: b.remainingUnplanned,
+      categories: b.categories,
+    })),
+    global,
+    categoryCount: filtered.length,
+    wipPolicy: {
+      status: wipPolicy.status,
+      message: wipPolicy.message,
+      ruleId: wipPolicy.ruleId,
+      eligibleStages: wipPolicy.eligibleStages,
+    },
+    wipCoverageUnavailable,
+    transfer: {
+      status: transfers.status,
+      ruleId: transfers.ruleId,
+      ruleStatus: transfers.ruleStatus,
+      candidateCount: transfers.candidateCount,
+      message: transfers.message,
+      autoExecuted: transfers.autoExecuted,
     },
   });
 });

@@ -5,6 +5,7 @@ import { useApi } from "@/lib/api-client";
 import { KpiCard } from "@/components/diamond/shared/kpi-card";
 import { Section, PageHeader } from "@/components/diamond/shared/page-header";
 import { DataTable, type Column } from "@/components/diamond/shared/data-table";
+import { ServerPagination } from "@/components/diamond/shared/server-pagination";
 import { StatusBadge, Badge } from "@/components/diamond/shared/badges";
 import { NumberCell, InfoBanner, EmptyState } from "@/components/diamond/shared/empty-state";
 import {
@@ -21,24 +22,20 @@ interface Candidate {
   shape: string;
   weightBand: string;
   fromCountry: string;
-  fromCountryExcess: number;
-  fromCountryAvailable: number;
-  fromCountryTarget: number;
+  sourceExcess: number;
   toCountry: string;
-  toCountryShortage: number;
-  toCountryAvailable: number;
-  toCountryTarget: number;
+  destinationShortage: number;
   transferQty: number;
-  potentialCoverage: number;
-  status: string;
+  potentialCoveragePct: number;
 }
 
 interface Summary {
-  totalCandidates: number;
+  /** null when the analysis could not run — never rendered as zero. */
+  candidateCount: number | null;
   totalTransferQty: number;
-  totalPotentialCoverage: number;
   countriesWithExcess: number;
   countriesWithShortage: number;
+  categoriesAnalyzed: number;
 }
 
 interface CountryBalanceRow {
@@ -46,13 +43,24 @@ interface CountryBalanceRow {
   totalExcess: number;
   totalShortage: number;
   netBalance: number;
+  categories: number;
 }
 
 interface TransferCandidatesResponse {
-  candidates: Candidate[];
-  summary: Summary;
-  countryBalance: CountryBalanceRow[];
+  status: 'ADVISORY_UNCONFIRMED' | 'ADVISORY_CONFIRMED_RULE' | 'UNAVAILABLE';
+  ruleId: string;
+  ruleStatus: string | null;
   advisoryNotice: string;
+  autoExecuted: boolean;
+  summary: Summary;
+  wipPolicy: { status: string; message: string };
+  wipCoverageUnavailable: boolean;
+  countryBalance: CountryBalanceRow[];
+  rows: Candidate[];
+  page: number;
+  pageSize: number;
+  total: number;
+  hasMore: boolean;
 }
 
 function coverageIntent(pct: number): "critical" | "warning" | "success" {
@@ -68,18 +76,20 @@ function coverageBadge(pct: number) {
 }
 
 export function TransferAnalyzerView() {
+  const [page, setPage] = useState(1);
   const { data, isLoading } = useApi<TransferCandidatesResponse>(
-    "/api/analysis/transfer-candidates"
+    `/api/analysis/transfer-candidates?page=${page}&pageSize=50`,
   );
 
-  const candidates = data?.candidates ?? [];
+  const candidates = data?.rows ?? [];
   const summary = data?.summary;
   const countryBalance = data?.countryBalance ?? [];
 
   // Mobile advisory banner — Show more / Show less toggle (mirrors demand-trace-view pattern)
   const [showFullAdvisory, setShowFullAdvisory] = useState(false);
   const fullAdvisoryText =
-    "Cross-country transfer eligibility is not confirmed. Do NOT auto-execute transfers without business approval. Displayed separately from confirmed manufacturing requirement (spec §17 — Multi-Country / Multi-Branch Analysis, OPEN rule BR-TRANSFER-001).";
+    data?.advisoryNotice ??
+    "Cross-country transfer eligibility is not client-confirmed. Candidates are advisory and no transfer is created or executed.";
   const shortAdvisoryText = `${fullAdvisoryText.split(".")[0]}.`;
 
   // Chart data: top 12 categories by transferQty, with from/to split
@@ -89,8 +99,8 @@ export function TransferAnalyzerView() {
       .map((c) => ({
         name: `${c.fromCountry}→${c.toCountry}`,
         label: `${c.shape} ${c.weightBand}`.slice(0, 22),
-        excess: c.fromCountryExcess,
-        shortage: c.toCountryShortage,
+        excess: c.sourceExcess,
+        shortage: c.destinationShortage,
         transfer: c.transferQty,
       }));
   }, [candidates]);
@@ -120,17 +130,17 @@ export function TransferAnalyzerView() {
       cell: (r) => (
         <div className="flex flex-col">
           <span className="font-medium text-emerald-700 dark:text-emerald-400">{r.fromCountry}</span>
-          <span className="text-[10px] text-muted-foreground">excess {r.fromCountryExcess}</span>
+          <span className="text-[10px] text-muted-foreground">excess {r.sourceExcess}</span>
         </div>
       ),
     },
     {
-      key: "fromCountryExcess",
+      key: "sourceExcess",
       header: "Excess",
       sortable: true,
-      sortValue: (r) => r.fromCountryExcess,
+      sortValue: (r) => r.sourceExcess,
       align: "right",
-      cell: (r) => <NumberCell value={r.fromCountryExcess} intent="success" />,
+      cell: (r) => <NumberCell value={r.sourceExcess} intent="success" />,
     },
     {
       key: "toCountry",
@@ -140,17 +150,17 @@ export function TransferAnalyzerView() {
       cell: (r) => (
         <div className="flex flex-col">
           <span className="font-medium text-rose-700 dark:text-rose-400">{r.toCountry}</span>
-          <span className="text-[10px] text-muted-foreground">shortage {r.toCountryShortage}</span>
+          <span className="text-[10px] text-muted-foreground">shortage {r.destinationShortage}</span>
         </div>
       ),
     },
     {
-      key: "toCountryShortage",
+      key: "destinationShortage",
       header: "Shortage",
       sortable: true,
-      sortValue: (r) => r.toCountryShortage,
+      sortValue: (r) => r.destinationShortage,
       align: "right",
-      cell: (r) => <NumberCell value={r.toCountryShortage} intent="critical" />,
+      cell: (r) => <NumberCell value={r.destinationShortage} intent="critical" />,
     },
     {
       key: "transferQty",
@@ -166,29 +176,29 @@ export function TransferAnalyzerView() {
       ),
     },
     {
-      key: "potentialCoverage",
+      key: "potentialCoveragePct",
       header: "Coverage %",
       sortable: true,
-      sortValue: (r) => r.potentialCoverage,
+      sortValue: (r) => r.potentialCoveragePct,
       align: "right",
       cell: (r) => (
         <div className="inline-flex flex-col items-end gap-1">
           <NumberCell
-            value={r.potentialCoverage}
-            intent={coverageIntent(r.potentialCoverage)}
+            value={r.potentialCoveragePct}
+            intent={coverageIntent(r.potentialCoveragePct)}
             decimals={1}
           />
           <div className="w-20 h-1.5 rounded-full bg-muted overflow-hidden">
             <div
               className={
                 "h-full rounded-full " +
-                (r.potentialCoverage >= 80
+                (r.potentialCoveragePct >= 80
                   ? "bg-emerald-500"
-                  : r.potentialCoverage >= 40
+                  : r.potentialCoveragePct >= 40
                   ? "bg-amber-500"
                   : "bg-rose-500")
               }
-              style={{ width: `${Math.min(100, r.potentialCoverage)}%` }}
+              style={{ width: `${Math.min(100, r.potentialCoveragePct)}%` }}
             />
           </div>
         </div>
@@ -197,7 +207,7 @@ export function TransferAnalyzerView() {
     {
       key: "status",
       header: "Status",
-      cell: (r) => coverageBadge(r.potentialCoverage),
+      cell: (r) => coverageBadge(r.potentialCoveragePct),
       align: "center",
     },
   ];
@@ -272,10 +282,10 @@ export function TransferAnalyzerView() {
     <div className="flex flex-col gap-3 p-3">
       <PageHeader
         title="Transfer Candidate Analyzer"
-        subtitle="Potential cross-country transfer candidates — OPEN rule, advisory only"
+        subtitle="Advisory cross-country transfer candidates matched inside one exact category (Lab + Shape + Weight Band)"
         meta={
           <span className="text-[10px] text-muted-foreground">
-            BR-TRANSFER-001 · Source: latest requirements + polished stock
+            {data?.ruleId ?? "BR-TRANSFER-001"} · Source: shared country position service (requirements, polished stock, classified WIP, approved plans)
           </span>
         }
       />
@@ -284,7 +294,7 @@ export function TransferAnalyzerView() {
       <InfoBanner variant="warning">
         <div className="flex flex-col gap-0.5">
           <span className="font-semibold">
-            POTENTIAL transfer candidates only — OPEN rule BR-TRANSFER-001.
+            Advisory transfer candidates — {data?.ruleId ?? "BR-TRANSFER-001"} is {data?.ruleStatus ?? "not defined"}. No transfer is executed.
           </span>
           {/* Mobile: short text + Show more/less toggle */}
           <span className="md:hidden">
@@ -306,10 +316,10 @@ export function TransferAnalyzerView() {
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-2">
         <KpiCard
           label="Total Candidates"
-          value={summary?.totalCandidates ?? 0}
-          unit="pairs"
-          intent="info"
-          hint="From→To category matches"
+          value={summary?.candidateCount === null || summary?.candidateCount === undefined ? "UNAVAILABLE" : summary.candidateCount}
+          unit={summary?.candidateCount === null || summary?.candidateCount === undefined ? undefined : "pairs"}
+          intent={summary?.candidateCount === null ? "warning" : "info"}
+          hint="Real From→To matches inside one exact category"
           icon={ArrowLeftRight}
         />
         <KpiCard
@@ -321,14 +331,11 @@ export function TransferAnalyzerView() {
           icon={Package}
         />
         <KpiCard
-          label="Avg Coverage"
-          value={summary?.totalPotentialCoverage ?? 0}
-          unit="%"
-          intent={(() => {
-            const v = summary?.totalPotentialCoverage ?? 0;
-            return v >= 80 ? "success" : v >= 40 ? "warning" : "critical";
-          })() as "success" | "warning" | "critical"}
-          hint="Σ candidate coverage / N"
+          label="Categories Analyzed"
+          value={summary?.categoriesAnalyzed ?? 0}
+          unit="cats"
+          intent="info"
+          hint="Country + Lab + Shape + Weight Band positions compared"
           icon={Sparkles}
         />
         <KpiCard
@@ -432,9 +439,10 @@ export function TransferAnalyzerView() {
           rows={candidates}
           loading={isLoading}
           emptyMessage="No transfer candidates — either no cross-country imbalance, or excess/shortage overlap is zero."
-          initialSortKey="potentialCoverage"
+          initialSortKey="potentialCoveragePct"
           initialSortDir="desc"
           exportable
+          exportPermission="analysis.export"
           exportFilename="transfer-candidates.csv"
           excelExportable
           excelExportFilename="transfer-candidates.xlsx"
@@ -451,7 +459,17 @@ export function TransferAnalyzerView() {
               r.weightBand.toLowerCase().includes(lq)
             );
           }}
+          exportScope="current-page"
           maxHeight="560px"
+        />
+        <ServerPagination
+          page={data?.page ?? 1}
+          pageSize={data?.pageSize ?? 50}
+          total={data?.total ?? 0}
+          hasMore={data?.hasMore ?? false}
+          onPageChange={setPage}
+          loading={isLoading}
+          label="candidate pairs"
         />
       </Section>
 
@@ -471,6 +489,7 @@ export function TransferAnalyzerView() {
           initialSortKey="netBalance"
           initialSortDir="desc"
           exportable
+          exportPermission="analysis.export"
           exportFilename="country-balance.csv"
           excelExportable
           excelExportFilename="country-balance.xlsx"
@@ -482,23 +501,24 @@ export function TransferAnalyzerView() {
         <div className="flex items-start gap-2">
           <Scale className="h-3.5 w-3.5 mt-0.5 shrink-0" />
           <span>
-            Methodology: <strong>excess</strong> = max(0, polished available −
-            target requiredQty) per (country, category);{" "}
-            <strong>shortage</strong> = sum(remainingUnplanned) per (country,
-            category). For each category with both sides present, the receiver
-            is paired with the donor offering the largest excess —{" "}
-            <strong>transferQty = min(excess, shortage)</strong>. Polished stock
-            counts are restricted to <code>PHYSICAL</code> and{" "}
-            <code>PLANNING_AVAILABLE</code> planning classes. Same-country pairs
-            are excluded.
+            Methodology: positions are computed per exact category (Country + Lab +
+            Shape + Weight Band) by the shared stock-position service. <strong>Excess</strong> =
+            max(0, available − target); <strong>shortage</strong> = remaining unplanned
+            requirement after eligible WIP and approved plan coverage. Within one category a
+            receiver is matched against donors largest-first and{" "}
+            <strong>transferQty = min(source excess, destination shortage)</strong>, with each
+            donor's excess consumed only once. Polished counts are restricted to{" "}
+            <code>PHYSICAL</code> and <code>PLANNING_AVAILABLE</code>; same-country pairs and
+            unbanded stock are excluded.
           </span>
         </div>
       </InfoBanner>
 
       <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
         <Boxes className="h-3 w-3" />
-        Displayed separately from confirmed manufacturing requirement (spec §17
-        — Multi-Country / Multi-Branch Analysis, OPEN rule BR-TRANSFER-001).
+        Displayed separately from confirmed manufacturing requirement. Rule{" "}
+        {data?.ruleId ?? "BR-TRANSFER-001"} is {data?.ruleStatus ?? "not defined"}; candidates stay advisory
+        and never create a transfer, requirement or reservation.
       </div>
     </div>
   );

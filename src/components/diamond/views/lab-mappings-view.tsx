@@ -56,6 +56,7 @@ export function LabMappingsView() {
           emptyMessage="No lab mappings configured"
           maxHeight="640px"
           exportable
+          exportPermission="config.export"
           exportFilename="lab-mappings.csv"
           searchable
           searchPlaceholder="Search raw or normalized lab..."

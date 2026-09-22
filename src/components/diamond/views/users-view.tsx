@@ -300,6 +300,7 @@ export function UsersView() {
             maxHeight="560px"
             searchable={false}
             exportable
+            exportPermission="user.manage"
             exportFilename="rbac-permission-matrix.csv"
             initialSortKey="roleLabel"
             initialSortDir="asc"
@@ -452,6 +453,7 @@ export function UsersView() {
             maxHeight="320px"
             searchable={false}
             exportable
+            exportPermission="user.manage"
             exportFilename="users.csv"
           />
         )}

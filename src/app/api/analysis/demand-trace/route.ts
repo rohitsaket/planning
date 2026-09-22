@@ -1,8 +1,71 @@
+import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
 import { withApi, qStr, qInt } from "@/lib/api/with-api";
 import { getFantasyConfig } from "@/lib/fantasy/config";
 import { formatIST } from "@/lib/fantasy/time";
+import { loadWipPolicy, type WipPolicy } from "@/lib/demand/wip-classification";
+
+/**
+ * The calculation policy, served from the authoritative API so every screen shows
+ * the same rules instead of keeping its own copy of the explanation text.
+ */
+function buildRuleMetadata(wipPolicy: WipPolicy, run: { wipPolicyStatus: string; wipEligibleStages: string | null } | null) {
+  const wipAppliedInRun = run ? run.wipPolicyStatus === "CONFIGURED" : wipPolicy.appliesCoverage;
+  return {
+    wipPolicy: {
+      ruleId: wipPolicy.ruleId,
+      status: wipPolicy.status,
+      reason: wipPolicy.reason,
+      message: wipPolicy.message,
+      ruleStatus: wipPolicy.ruleStatus,
+      ruleVersion: wipPolicy.ruleVersion,
+      eligibleStages: wipPolicy.eligibleStages,
+      appliesCoverage: wipPolicy.appliesCoverage,
+    },
+    // What the run that produced these numbers actually did.
+    wipAppliedInRun,
+    runEligibleStages: run?.wipEligibleStages ? run.wipEligibleStages.split(",").filter(Boolean) : [],
+    formula: [
+      "Monthly Average = Sales90D ÷ 3",
+      "Target = Round-half-up(Monthly Average × 2)",
+      "Physical Shortage = MAX(0, Target − Available Physical Polished Stock)",
+      "Pipeline Requirement = MAX(0, Physical Shortage − Eligible WIP Coverage)",
+      "Remaining Unplanned Requirement = MAX(0, Pipeline Requirement − Approved Plan Coverage)",
+    ],
+    statements: [
+      { code: "MEMO", applies: true, text: "Memo consignment stock does not reduce physical shortage (BR-MEMO-001)." },
+      {
+        code: "RESERVED_BLOCKED",
+        applies: true,
+        text: "Reserved, blocked, held, unavailable and historical stock do not reduce physical shortage.",
+      },
+      {
+        code: "WIP",
+        applies: wipAppliedInRun,
+        text: wipAppliedInRun
+          ? "Eligible manufacturing WIP reduces the pipeline requirement only — never the physical shortage."
+          : `Eligible WIP coverage is not applied: ${wipPolicy.message}`,
+      },
+      {
+        code: "PLAN",
+        applies: true,
+        text: "Approved plan coverage reduces the remaining unplanned requirement only.",
+      },
+      { code: "FORECAST", applies: true, text: "Forecast signals are advisory and never create confirmed demand." },
+      {
+        code: "UNMAPPED_WIP",
+        applies: true,
+        text: "WIP that cannot be mapped to a planning category stays unallocated and is quarantined for review.",
+      },
+      {
+        code: "NO_DOUBLE_COUNT",
+        applies: true,
+        text: "No piece is counted twice: output already tracked as WIP or as polished stock is excluded from approved plan coverage.",
+      },
+    ],
+  };
+}
 
 // Demand Calculation Trace — exposes every intermediate calculation step,
 // confirmed sale events, finished inventory lots, memo consignments, WIP lots,
@@ -18,20 +81,26 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request,
   const hasTracePermission = principal.permissions.includes("demand.trace");
 
   // 1. Fetch latest or specified demand run
-  const whereRun = runIdParam ? { id: runIdParam } : { status: "COMPLETED" };
-  const targetRun = await db.demandRun.findFirst({
-    where: whereRun,
-    orderBy: { runDate: "desc" },
-    include: {
-      metrics: {
-        orderBy: { planningCategory: "asc" },
+  // A run that finished needing review is still the newest usable snapshot: show it
+  // (its status travels with the response) rather than silently serving an older run.
+  const whereRun = runIdParam ? { id: runIdParam } : { status: { in: ["COMPLETED", "REVIEW_REQUIRED"] } };
+  const [targetRun, wipPolicy] = await Promise.all([
+    db.demandRun.findFirst({
+      where: whereRun,
+      orderBy: { runDate: "desc" },
+      include: {
+        metrics: {
+          orderBy: { planningCategory: "asc" },
+        },
       },
-    },
-  });
+    }),
+    loadWipPolicy(db),
+  ]);
 
   if (!targetRun) {
     return ok({
       hasEverRun: false,
+      rules: buildRuleMetadata(wipPolicy, null),
       sourceMode: config.sourceMode,
       isSimulated: config.isSimulation,
       ruleVersion: "DEMAND-V1",
@@ -52,6 +121,8 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request,
       traceItemsTotal: 0,
       page,
       pageSize,
+      total: 0,
+      hasMore: false,
       summary: {
         totalCategories: 0,
         totalShortage: 0,
@@ -89,8 +160,8 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request,
   }> = [];
   let traceItemsTotal = 0;
 
-  if (hasTracePermission && (db as any).demandMetricTraceItem) {
-    const traceWhere: Record<string, unknown> = { runId: targetRun.id };
+  if (hasTracePermission) {
+    const traceWhere: Prisma.DemandMetricTraceItemWhereInput = { runId: targetRun.id };
     if (selectedCategoryParam) {
       traceWhere.planningCategory = selectedCategoryParam;
     }
@@ -99,17 +170,17 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request,
     }
 
     const [items, total] = await Promise.all([
-      (db as any).demandMetricTraceItem.findMany({
+      db.demandMetricTraceItem.findMany({
         where: traceWhere,
         skip: (page - 1) * pageSize,
         take: pageSize,
-        orderBy: [{ planningCategory: "asc" }, { createdAt: "asc" }],
+        orderBy: [{ planningCategory: "asc" }, { createdAt: "asc" }, { id: "asc" }],
       }),
-      (db as any).demandMetricTraceItem.count({ where: traceWhere }),
+      db.demandMetricTraceItem.count({ where: traceWhere }),
     ]);
 
     traceItemsTotal = total;
-    traceItems = (items as any[]).map((item) => ({
+    traceItems = items.map((item) => ({
       id: item.id,
       planningCategory: item.planningCategory,
       traceType: item.traceType,
@@ -259,10 +330,17 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request,
         step: 8,
         label: "Eligible Manufacturing WIP Coverage",
         value: wipCoverage,
-        formula: "COUNT(LotMasterRecord WHERE isCurrent=true AND roughOrPolished='WIP' AND wipStage IN eligibleStages AND category matches)",
-        source: "Eligible Manufacturing WIP (Approved Stages Only)",
+        formula:
+          targetRun.wipPolicyStatus === "CONFIGURED"
+            ? `COUNT(current WIP lots whose normalized stage is in [${targetRun.wipEligibleStages || ""}] and whose lab, shape and weight band match this category)`
+            : "Not applied — no confirmed WIP coverage rule (BR-WIP-001) was in force for this run",
+        source:
+          targetRun.wipPolicyStatus === "CONFIGURED"
+            ? `Eligible manufacturing WIP per ${wipPolicy.ruleId}${targetRun.wipRuleVersion ? ` v${targetRun.wipRuleVersion}` : ""}`
+            : "WIP coverage unavailable (policy not configured)",
         tone: wipCoverage > 0 ? "coverage" : "neutral",
         contributingLotsCount: traceDetails.eligibleWipLots.length,
+        unavailable: targetRun.wipPolicyStatus !== "CONFIGURED",
       },
       {
         step: 9,
@@ -276,8 +354,9 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request,
         step: 10,
         label: "Approved Plan Coverage",
         value: approvedPlanCoverage,
-        formula: "SUM(PlanOptionPiece WHERE planOption.isApproved=true AND piece.approvalStatus='APPROVED' AND not double-counted with WIP)",
-        source: "Approved Rough Production Plans",
+        formula:
+          "COUNT(pieces of selected APPROVED plan options, excluding pieces already tracked as WIP or as polished output)",
+        source: "Approved rough production plans (no double count with WIP or polished stock)",
         tone: approvedPlanCoverage > 0 ? "coverage" : "neutral",
       },
       {
@@ -376,9 +455,12 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request,
     planCount: targetRun.planCount,
     excludedCount: targetRun.excludedCount,
     hasTracePermission,
+    rules: buildRuleMetadata(wipPolicy, targetRun),
     page,
     pageSize,
     traceItemsTotal,
+    total: traceItemsTotal,
+    hasMore: page * pageSize < traceItemsTotal,
     traceItems,
     categories,
     selectedCategory: selectedCategoryParam

@@ -1,10 +1,11 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useApi } from "@/lib/api-client";
 import { KpiCard } from "@/components/diamond/shared/kpi-card";
 import { Section, PageHeader } from "@/components/diamond/shared/page-header";
 import { DataTable, Column } from "@/components/diamond/shared/data-table";
+import { ServerPagination } from "@/components/diamond/shared/server-pagination";
 import { NumberCell, Money, InfoBanner } from "@/components/diamond/shared/empty-state";
 import { StatusBadge } from "@/components/diamond/shared/badges";
 import { useGlobalFilter } from "@/stores/global-filter";
@@ -48,6 +49,10 @@ interface MemoResponse {
   byCustomer: MemoAggRow[];
   ageBuckets: MemoAgeBuckets;
   rows: MemoRow[];
+  page: number;
+  pageSize: number;
+  total: number;
+  hasMore: boolean;
 }
 
 function formatDate(iso: string): string {
@@ -57,76 +62,35 @@ function formatDate(iso: string): string {
 }
 
 export function MemoView() {
-  // Global filter — /api/analysis/memo currently returns the full memo dataset and
-  // ignores country/branch/lab params. We append them (forward-compat) and additionally
-  // filter the `rows` array client-side so the user sees the global filter take effect
-  // on the detail table. Aggregate byCountry / byCustomer / ageBuckets are server-
-  // computed over the full dataset and therefore remain as-is.
+  // The memo API applies country/branch/lab filters, aggregates over the whole
+  // filtered set in PostgreSQL, and pages the detail rows. Nothing is re-filtered
+  // or re-aggregated in the browser.
   const globalFilter = useGlobalFilter();
+  const [page, setPage] = useState(1);
   const url = useMemo(() => {
-    const base = "/api/analysis/memo";
     const params = new URLSearchParams();
     if (globalFilter.country) params.set("country", globalFilter.country);
     if (globalFilter.branch) params.set("branch", globalFilter.branch);
     if (globalFilter.lab) params.set("lab", globalFilter.lab);
-    const qs = params.toString();
-    return qs ? `${base}?${qs}` : base;
-  }, [globalFilter.country, globalFilter.branch, globalFilter.lab]);
+    params.set("page", String(page));
+    params.set("pageSize", "50");
+    return `/api/analysis/memo?${params.toString()}`;
+  }, [globalFilter.country, globalFilter.branch, globalFilter.lab, page]);
   const { data, isLoading } = useApi<MemoResponse>(url);
 
-  // Client-side filter on the detail rows + the byCountry/byCustomer aggregates so the
-  // KPI cards and tables reflect the global filter until the API is extended.
-  const filteredRows = useMemo(() => {
-    const all = data?.rows ?? [];
-    let r = all;
-    if (globalFilter.country) r = r.filter((row) => row.country === globalFilter.country);
-    if (globalFilter.branch) r = r.filter((row) => row.branch === globalFilter.branch);
-    if (globalFilter.lab) r = r.filter((row) => (row.lab ?? "Non-Cert") === globalFilter.lab);
-    return r;
-  }, [data, globalFilter.country, globalFilter.branch, globalFilter.lab]);
-  const filteredByCountry = useMemo(() => {
-    const all = data?.byCountry ?? [];
-    if (!globalFilter.country) return all;
-    return all.filter((row) => row.dimension === globalFilter.country);
-  }, [data, globalFilter.country]);
-  const filteredByCustomer = useMemo(() => {
-    // Group filtered detail rows by customer to derive a customer-side aggregate that
-    // respects the global filter (the server response groups over the full dataset).
-    const all = filteredRows;
-    const agg = new Map<string, { qty: number; value: number; ageSum: number; ageCount: number }>();
-    for (const r of all) {
-      const cur = agg.get(r.customerName) ?? { qty: 0, value: 0, ageSum: 0, ageCount: 0 };
-      cur.qty += 1;
-      cur.value += r.memoValueUsd;
-      if (r.memoAgeDays != null) {
-        cur.ageSum += r.memoAgeDays;
-        cur.ageCount += 1;
-      }
-      agg.set(r.customerName, cur);
-    }
-    return Array.from(agg.entries())
-      .map(([dimension, v]) => ({
-        dimension,
-        qty: v.qty,
-        value: v.value,
-        avgAge: v.ageCount > 0 ? Math.round(v.ageSum / v.ageCount) : 0,
-      }))
-      .sort((a, b) => b.value - a.value);
-  }, [filteredRows]);
-  const filteredTotalQty = filteredRows.length;
-  const filteredTotalValue = filteredRows.reduce((s, r) => s + r.memoValueUsd, 0);
-  const filteredAgeBuckets = useMemo(() => {
-    const buckets = { "0-30": 0, "31-60": 0, "61-90": 0, "91-180": 0, "180+": 0 };
-    for (const r of filteredRows) {
-      const a = r.memoAgeDays ?? 0;
-      if (a <= 30) buckets["0-30"]++;
-      else if (a <= 60) buckets["31-60"]++;
-      else if (a <= 90) buckets["61-90"]++;
-      else if (a <= 180) buckets["91-180"]++;
-      else buckets["180+"]++;
-    }
-    return buckets;
-  }, [filteredRows]);
+  const filterKey = `${globalFilter.country ?? ""}|${globalFilter.branch ?? ""}|${globalFilter.lab ?? ""}`;
+  const [lastFilterKey, setLastFilterKey] = useState(filterKey);
+  if (filterKey !== lastFilterKey) {
+    setLastFilterKey(filterKey);
+    setPage(1);
+  }
+
+  const filteredRows = data?.rows ?? [];
+  const filteredByCountry = data?.byCountry ?? [];
+  const filteredByCustomer = data?.byCustomer ?? [];
+  const filteredTotalQty = data?.totalQty ?? 0;
+  const filteredTotalValue = data?.totalValue ?? 0;
+  const filteredAgeBuckets = data?.ageBuckets ?? { "0-30": 0, "31-60": 0, "61-90": 0, "91-180": 0, "180+": 0 };
 
   const ageChartData = data
     ? ([
@@ -161,7 +125,7 @@ export function MemoView() {
       while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 1);
       return slice;
     }
-    return [3, 5, 4, 6, 8, 7, 9];
+    return undefined;
   }, [filteredAgeBuckets]);
 
   // Aged > 90D sparkline — derived from ageBuckets (sum of 91-180 + 180+),
@@ -171,7 +135,7 @@ export function MemoView() {
       const base = [filteredAgeBuckets["91-180"], filteredAgeBuckets["180+"]];
       const slice = [...base];
       while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 1);
-      return slice.length >= 2 ? slice : [3, 5, 4, 6, 8, 7, 9];
+      return slice.length >= 2 ? slice : undefined;
     }
     return [3, 5, 4, 6, 8, 7, 9];
   }, [filteredAgeBuckets]);
@@ -304,7 +268,7 @@ export function MemoView() {
         </div>
       </Section>
 
-      <Section title="Memo Detail" description="All memo lots with full stone characteristics and aging">
+      <Section title="Memo Detail" description="Memo lots with full stone characteristics and aging — one server page at a time">
         <DataTable<MemoRow>
           columns={detailColumns}
           rows={filteredRows}
@@ -313,13 +277,22 @@ export function MemoView() {
           initialSortKey="memoAgeDays"
           initialSortDir="desc"
           exportable
+          exportPermission="sales.export"
           exportFilename="memos.csv"
           searchable
           searchPlaceholder="Search lotId, customer, country, shape..."
           searchFn={(r, q) => `${r.lotId} ${r.customerName} ${r.country} ${r.branch} ${r.shape} ${r.lab ?? ""}`.toLowerCase().includes(q.toLowerCase())}
+          exportScope="current-page"
           maxHeight="560px"
-          pagination
-          pageSize={50}
+        />
+        <ServerPagination
+          page={data?.page ?? 1}
+          pageSize={data?.pageSize ?? 50}
+          total={data?.total ?? 0}
+          hasMore={data?.hasMore ?? false}
+          onPageChange={setPage}
+          loading={isLoading}
+          label="memo lots"
         />
       </Section>
     </div>

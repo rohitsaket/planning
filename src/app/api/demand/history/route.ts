@@ -1,24 +1,32 @@
 import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
-import { withApi } from "@/lib/api/with-api";
+import { withApi, qInt } from "@/lib/api/with-api";
 import { getFantasyConfig } from "@/lib/fantasy/config";
 
-// Demand Run History — list all past demand runs (most recent first)
-export const GET = withApi({ permission: "analysis.read" }, async () => {
+// Demand Run History — past demand runs, newest first, paginated on the server.
+// Summary aggregates are computed across every run, not only the visible page.
+export const GET = withApi({ permission: "analysis.read" }, async (req: Request) => {
   const config = getFantasyConfig();
+  const url = new URL(req.url);
+  const page = qInt(url, "page", { def: 1, min: 1, max: 1_000_000 });
+  const pageSize = qInt(url, "pageSize", { def: 50, min: 1, max: 200 });
 
-  const runs = await db.demandRun.findMany({
-    orderBy: { runDate: "desc" },
-    take: 100,
-    include: {
-      _count: {
-        select: { metrics: true },
-      },
-    },
-  });
+  const [total, runs, allRunStats, lock] = await Promise.all([
+    db.demandRun.count(),
+    db.demandRun.findMany({
+      orderBy: [{ runDate: "desc" }, { id: "desc" }],
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      include: { _count: { select: { metrics: true } } },
+    }),
+    db.demandRun.aggregate({ _avg: { totalShortage: true, totalExcess: true } }),
+    db.demandCalculationLock.findUnique({ where: { id: "DEMAND_CALCULATION" } }),
+  ]);
 
-  const lock = await db.demandCalculationLock.findUnique({
-    where: { id: "DEMAND_CALCULATION" },
+  // The summary always describes the newest run, on every page.
+  const latestRun = await db.demandRun.findFirst({
+    orderBy: [{ runDate: "desc" }, { id: "desc" }],
+    include: { _count: { select: { metrics: true } } },
   });
 
   const rows = runs.map((r) => ({
@@ -46,16 +54,15 @@ export const GET = withApi({ permission: "analysis.read" }, async () => {
     durationMs: r.durationMs,
     metricCount: r._count.metrics,
     errorSummary: r.errorSummary,
+    wipPolicyStatus: r.wipPolicyStatus,
+    wipRuleVersion: r.wipRuleVersion,
+    wipEligibleStages: r.wipEligibleStages ? r.wipEligibleStages.split(",").filter(Boolean) : [],
   }));
 
-  const totalRuns = rows.length;
-  const avgShortage = totalRuns > 0
-    ? num(rows.reduce((s, r) => s + r.totalShortage, 0) / totalRuns)
-    : 0;
-  const avgExcess = totalRuns > 0
-    ? num(rows.reduce((s, r) => s + r.totalExcess, 0) / totalRuns)
-    : 0;
-  const lastRun = rows.length > 0 ? rows[0] : null;
+  const totalRuns = total;
+  const avgShortage = num(allRunStats._avg.totalShortage ?? 0);
+  const avgExcess = num(allRunStats._avg.totalExcess ?? 0);
+  const lastRun = latestRun;
 
   return ok({
     sourceMode: config.sourceMode,
@@ -65,16 +72,22 @@ export const GET = withApi({ permission: "analysis.read" }, async () => {
     lockedBy: lock?.lockedBy ?? null,
     hasEverRun: totalRuns > 0,
     rows,
+    page,
+    pageSize,
+    total,
+    hasMore: page * pageSize < total,
     summary: {
       totalRuns,
       avgShortage,
       avgExcess,
-      lastRunDate: lastRun?.runDate ?? null,
+      lastRunDate: lastRun?.runDate.toISOString() ?? null,
       lastBusinessDateIst: lastRun?.businessDateIst ?? null,
+      lastStatus: lastRun?.status ?? "NOT_RUN",
       lastShortage: lastRun?.totalShortage ?? 0,
       lastExcess: lastRun?.totalExcess ?? 0,
-      lastMetricCount: lastRun?.metricCount ?? 0,
+      lastMetricCount: lastRun?._count.metrics ?? 0,
       lastCheckpoint: lastRun?.checkpoint ?? 0,
+      lastWipPolicyStatus: lastRun?.wipPolicyStatus ?? null,
     },
   });
 });

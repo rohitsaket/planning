@@ -134,7 +134,8 @@ const VIEW_REGISTRY: Record<string, React.ComponentType> = {
   "admin-system-settings": SystemSettingsView,
   "admin-audit-log": AuditLogView,
 
-  // Legacy Views & Aliases for direct deep-linking
+  // Analysis Section Direct Views
+  "analysis-executive": DashboardView,
   "analysis-sales": SalesAnalysisView,
   "analysis-sales-trends": SalesTrendsView,
   "analysis-customers": CustomersView,
@@ -149,9 +150,9 @@ const VIEW_REGISTRY: Record<string, React.ComponentType> = {
   "analysis-aging": AgingView,
   "analysis-reorder-signals": ReorderSignalsView,
   "demand-history": DemandHistoryView,
+  "analysis-demand-trace": DemandTraceView,
   "transfer-analyzer": TransferAnalyzerView,
   "aging-dashboard": AgingDashboardView,
-  "analysis-executive": DashboardView,
   "requirements-orders": OrdersView,
   "requirements-replenishment": RequirementsMatrixView,
   "requirements-backorders": RequirementsMatrixView,

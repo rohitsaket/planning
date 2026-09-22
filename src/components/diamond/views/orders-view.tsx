@@ -1,10 +1,11 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useApi } from "@/lib/api-client";
 import { KpiCard } from "@/components/diamond/shared/kpi-card";
 import { Section, PageHeader } from "@/components/diamond/shared/page-header";
 import { DataTable, Column } from "@/components/diamond/shared/data-table";
+import { ServerPagination } from "@/components/diamond/shared/server-pagination";
 import { NumberCell } from "@/components/diamond/shared/empty-state";
 import { StatusBadge, Badge } from "@/components/diamond/shared/badges";
 import { useGlobalFilter } from "@/stores/global-filter";
@@ -30,6 +31,18 @@ interface OrderRow {
 
 interface OrdersResponse {
   rows: OrderRow[];
+  /** Totals across every matching order, independent of the current page. */
+  summary: {
+    orders: number;
+    qtyOrdered: number;
+    qtyOutstanding: number;
+    backorderQty: number;
+    overdueOrders: number;
+  };
+  page: number;
+  pageSize: number;
+  total: number;
+  hasMore: boolean;
 }
 
 const priorityVariant = (p: string): React.ComponentProps<typeof Badge>["variant"] => {
@@ -57,28 +70,28 @@ function isOverdue(row: OrderRow): boolean {
 }
 
 export function OrdersView() {
-  // Global filter — /api/analysis/orders currently returns all orders; we append the
-  // global filter params to the URL (forward-compat) AND apply the country/branch
-  // filter client-side on the returned rows.
+  // Filters and paging are applied by the server; this page holds one page of orders
+  // and the KPI totals below describe the whole filtered set.
   const globalFilter = useGlobalFilter();
+  const [page, setPage] = useState(1);
   const url = useMemo(() => {
-    const base = "/api/analysis/orders";
     const params = new URLSearchParams();
     if (globalFilter.country) params.set("country", globalFilter.country);
     if (globalFilter.branch) params.set("branch", globalFilter.branch);
-    if (globalFilter.lab) params.set("lab", globalFilter.lab);
-    const qs = params.toString();
-    return qs ? `${base}?${qs}` : base;
-  }, [globalFilter.country, globalFilter.branch, globalFilter.lab]);
+    params.set("page", String(page));
+    params.set("pageSize", "100");
+    return `/api/analysis/orders?${params.toString()}`;
+  }, [globalFilter.country, globalFilter.branch, page]);
   const { data, isLoading } = useApi<OrdersResponse>(url);
 
-  const filteredRows = useMemo(() => {
-    const all = data?.rows ?? [];
-    let r = all;
-    if (globalFilter.country) r = r.filter((row) => row.country === globalFilter.country);
-    if (globalFilter.branch) r = r.filter((row) => row.branch === globalFilter.branch);
-    return r;
-  }, [data, globalFilter.country, globalFilter.branch]);
+  const filterKey = `${globalFilter.country ?? ""}|${globalFilter.branch ?? ""}`;
+  const [lastFilterKey, setLastFilterKey] = useState(filterKey);
+  if (filterKey !== lastFilterKey) {
+    setLastFilterKey(filterKey);
+    setPage(1);
+  }
+
+  const filteredRows = data?.rows ?? [];
 
   const columns: Column<OrderRow>[] = [
     {
@@ -114,18 +127,19 @@ export function OrdersView() {
       cell: (r) => <NumberCell value={r.backorderQty} intent={r.backorderQty > 0 ? "critical" : undefined} /> },
   ];
 
-  const totalOrders = filteredRows.length;
-  const totalOrdered = filteredRows.reduce((s, r) => s + r.qtyOrdered, 0);
-  const totalOutstanding = filteredRows.reduce((s, r) => s + r.qtyOutstanding, 0);
-  const totalBackorder = filteredRows.reduce((s, r) => s + r.backorderQty, 0);
-  const overdueCount = filteredRows.filter(isOverdue).length;
+  // Server-computed totals over every matching order.
+  const totalOrders = data?.summary.orders ?? 0;
+  const totalOrdered = data?.summary.qtyOrdered ?? 0;
+  const totalOutstanding = data?.summary.qtyOutstanding ?? 0;
+  const totalBackorder = data?.summary.backorderQty ?? 0;
+  const overdueCount = data?.summary.overdueOrders ?? 0;
   // Real-data sparklines:
   // - Open Orders: count of orders per status (top 7 statuses by count)
   // - Overdue Orders: top 7 overdue orders by qtyOutstanding (overdue-volume proxy)
   // - Outstanding Qty: top 7 orders' qtyOutstanding
   // - Backorder Qty: top 7 orders' backorderQty
   const openOrdersSpark = useMemo(() => {
-    if (filteredRows.length === 0) return [3, 5, 4, 6, 8, 7, 9]; // synthetic fallback
+    if (filteredRows.length === 0) return undefined; // no data yet — draw no sparkline
     const counts: Record<string, number> = {};
     filteredRows.forEach((r) => {
       counts[r.status] = (counts[r.status] ?? 0) + 1;
@@ -136,7 +150,7 @@ export function OrdersView() {
     return slice;
   }, [filteredRows]);
   const overdueSpark = useMemo(() => {
-    if (filteredRows.length === 0) return [2, 3, 4, 2, 5, 3, 4]; // synthetic fallback
+    if (filteredRows.length === 0) return undefined; // no data yet — draw no sparkline
     const overdue = filteredRows
       .filter(isOverdue)
       .map((r) => r.qtyOutstanding)
@@ -194,6 +208,7 @@ export function OrdersView() {
           initialSortKey="orderDate"
           initialSortDir="desc"
           exportable
+          exportPermission="orders.export"
           exportFilename="orders.csv"
           excelExportable
           excelExportFilename="sales-orders.xlsx"
@@ -201,9 +216,17 @@ export function OrdersView() {
           searchPlaceholder="Search order #, customer, country..."
           searchFn={(r, q) => `${r.orderNumber} ${r.customerName} ${r.country} ${r.branch} ${r.status}`.toLowerCase().includes(q.toLowerCase())}
           rowClassName={(r) => isOverdue(r) ? "bg-rose-50/50 dark:bg-rose-950/30" : ""}
+          exportScope="current-page"
           maxHeight="650px"
-          pagination
-          pageSize={50}
+        />
+        <ServerPagination
+          page={data?.page ?? 1}
+          pageSize={data?.pageSize ?? 100}
+          total={data?.total ?? 0}
+          hasMore={data?.hasMore ?? false}
+          onPageChange={setPage}
+          loading={isLoading}
+          label="orders"
         />
       </Section>
     </div>

@@ -325,6 +325,7 @@ export function StockoutView() {
               emptyMessage="No stockout predictions"
               maxHeight="560px"
               exportable
+              exportPermission="analysis.export"
               exportFilename="stockout-risk.csv"
               searchable
               searchPlaceholder="Search category..."

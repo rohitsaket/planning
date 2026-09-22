@@ -20,7 +20,14 @@ interface CountryRow {
   excess: number;
   wip: number;
   planCov: number;
-  transferCandidates: number;
+  pipelineRequirement: number;
+  remainingUnplanned: number;
+  categories: number;
+  categoriesWithShortage: number;
+  categoriesWithExcess: number;
+  /** null when the transfer analysis could not run — never shown as zero. */
+  transferCandidates: number | null;
+  transferStatus: string;
 }
 
 interface CountryResponse {
@@ -32,6 +39,19 @@ interface CountryResponse {
     excess: number;
     wip: number;
     planCov: number;
+    pipelineRequirement: number;
+    remainingUnplanned: number;
+  };
+  categoryCount: number;
+  wipPolicy: { status: string; message: string; ruleId: string; eligibleStages: string[] };
+  wipCoverageUnavailable: boolean;
+  transfer: {
+    status: string;
+    ruleId: string;
+    ruleStatus: string | null;
+    candidateCount: number | null;
+    message: string;
+    autoExecuted: boolean;
   };
 }
 
@@ -90,12 +110,42 @@ export function CountryView() {
       cell: (r) => <NumberCell value={r.available} /> },
     { key: "excess", header: "Excess", sortable: true, sortValue: (r) => r.excess, align: "right",
       cell: (r) => <NumberCell value={r.excess} intent={r.excess > 0 ? "warning" : undefined} /> },
-    { key: "wip", header: "WIP", sortable: true, sortValue: (r) => r.wip, align: "right",
-      cell: (r) => <NumberCell value={r.wip} intent={r.wip > 0 ? "info" : undefined} /> },
+    { key: "wip", header: "Eligible WIP", sortable: true, sortValue: (r) => r.wip, align: "right",
+      cell: (r) =>
+        data?.wipCoverageUnavailable ? (
+          <span className="text-[10px] font-mono text-muted-foreground">N/A</span>
+        ) : (
+          <NumberCell value={r.wip} intent={r.wip > 0 ? "info" : undefined} />
+        ) },
     { key: "planCov", header: "Plan Cov", sortable: true, sortValue: (r) => r.planCov, align: "right",
-      cell: (r) => <NumberCell value={r.planCov} intent="success" /> },
-    { key: "transferCandidates", header: "Transfer Candidates", sortable: true, sortValue: (r) => r.transferCandidates, align: "right",
-      cell: (r) => <NumberCell value={r.transferCandidates} /> },
+      cell: (r) => <NumberCell value={r.planCov} intent={r.planCov > 0 ? "success" : undefined} /> },
+    { key: "remainingUnplanned", header: "Remaining Unplanned", sortable: true, sortValue: (r) => r.remainingUnplanned, align: "right",
+      cell: (r) => <NumberCell value={r.remainingUnplanned} intent={r.remainingUnplanned > 0 ? "critical" : "success"} /> },
+    { key: "categories", header: "Categories", sortable: true, sortValue: (r) => r.categories, align: "right",
+      cell: (r) => (
+        <span className="text-[11px] tabular-nums text-muted-foreground">
+          {r.categories} <span className="opacity-60">({r.categoriesWithShortage}↓ / {r.categoriesWithExcess}↑)</span>
+        </span>
+      ) },
+    {
+      key: "transferCandidates",
+      header: "Transfer Cand. (Advisory)",
+      sortable: true,
+      sortValue: (r) => r.transferCandidates ?? -1,
+      align: "right",
+      exportValue: (r) => (r.transferCandidates === null ? "UNAVAILABLE" : r.transferCandidates),
+      cell: (r) =>
+        r.transferCandidates === null ? (
+          <span className="text-[10px] font-mono text-muted-foreground">UNAVAILABLE</span>
+        ) : (
+          <div className="flex items-center justify-end gap-1">
+            <NumberCell value={r.transferCandidates} />
+            {r.transferCandidates > 0 && (
+              <span className="text-[9px] px-1 py-0.2 rounded bg-sky-500/10 text-sky-600 dark:text-sky-400 font-mono">ADV</span>
+            )}
+          </div>
+        ),
+    },
   ];
 
   const g = data?.global;
@@ -104,13 +154,20 @@ export function CountryView() {
     <div className="flex flex-col gap-3 p-3">
       <PageHeader
         title="Country / Branch Analysis"
-        subtitle="Physical shortage vs target by country with WIP and approved plan coverage"
-        meta={<span className="text-[10px] text-muted-foreground">Source: latest demand run + open requirements</span>}
+        subtitle="Per-category positions (Country + Lab + Shape + Weight Band) rolled up to country — shortage in one category is never netted against excess in another"
+        meta={
+          <span className="text-[10px] text-muted-foreground">
+            Source: requirements, polished stock, classified WIP and approved plans · {data?.categoryCount ?? 0} country categories
+          </span>
+        }
       />
 
-      <InfoBanner variant="info">
-        <strong>OPEN Rule:</strong> Transfer eligibility between branches is an <strong>OPEN</strong> business rule — values shown here are placeholders pending rule confirmation.
-      </InfoBanner>
+      {data?.transfer && (
+        <InfoBanner variant={data.transfer.status === "UNAVAILABLE" ? "warning" : "info"}>
+          {data.transfer.message}
+        </InfoBanner>
+      )}
+      {data?.wipCoverageUnavailable && <InfoBanner variant="warning">{data.wipPolicy.message}</InfoBanner>}
 
       {/* Global aggregates */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
@@ -162,6 +219,7 @@ export function CountryView() {
           initialSortKey="physicalShortage"
           initialSortDir="desc"
           exportable
+          exportPermission="analysis.export"
           exportFilename="countries.csv"
           searchable
           searchPlaceholder="Search country..."

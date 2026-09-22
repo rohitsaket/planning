@@ -1,9 +1,11 @@
 "use client";
 
+import { useState } from "react";
 import { useApi } from "@/lib/api-client";
 import { KpiCard } from "@/components/diamond/shared/kpi-card";
 import { Section, PageHeader } from "@/components/diamond/shared/page-header";
 import { DataTable, Column } from "@/components/diamond/shared/data-table";
+import { ServerPagination } from "@/components/diamond/shared/server-pagination";
 import { Badge, StatusBadge } from "@/components/diamond/shared/badges";
 import { NumberCell } from "@/components/diamond/shared/empty-state";
 import {
@@ -40,6 +42,10 @@ interface DemandHistorySummary {
 interface DemandHistoryResponse {
   rows: DemandHistoryRow[];
   summary: DemandHistorySummary;
+  page: number;
+  pageSize: number;
+  total: number;
+  hasMore: boolean;
 }
 
 function formatDateTime(iso: string): string {
@@ -61,7 +67,10 @@ const SHORTAGE_HIGH = 100;
 const EXCESS_HIGH = 5;
 
 export function DemandHistoryView() {
-  const { data, isLoading } = useApi<DemandHistoryResponse>("/api/demand/history");
+  const [page, setPage] = useState(1);
+  const { data, isLoading } = useApi<DemandHistoryResponse>(
+    `/api/demand/history?page=${page}&pageSize=50`,
+  );
 
   const rows = data?.rows ?? [];
   const summary = data?.summary;
@@ -302,7 +311,7 @@ export function DemandHistoryView() {
         actions={
           <Badge variant="neutral" className="gap-1">
             <Activity className="h-2.5 w-2.5" />
-            {rows.length} {rows.length === 1 ? "run" : "runs"}
+            {data?.total ?? 0} {(data?.total ?? 0) === 1 ? "run" : "runs"}
           </Badge>
         }
       >
@@ -314,13 +323,24 @@ export function DemandHistoryView() {
           initialSortKey="runDate"
           initialSortDir="desc"
           exportable
+          exportPermission="demand.export"
           exportFilename="demand-history.csv"
           searchable
           searchPlaceholder="Search actor, rule version, status..."
           searchFn={(r, q) =>
             `${r.actor} ${r.ruleVersion} ${r.status} ${r.id}`.toLowerCase().includes(q.toLowerCase())
           }
+          exportScope="current-page"
           maxHeight="540px"
+        />
+        <ServerPagination
+          page={data?.page ?? 1}
+          pageSize={data?.pageSize ?? 50}
+          total={data?.total ?? 0}
+          hasMore={data?.hasMore ?? false}
+          onPageChange={setPage}
+          loading={isLoading}
+          label="demand runs"
         />
       </Section>
     </div>

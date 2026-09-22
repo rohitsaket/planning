@@ -915,6 +915,7 @@ export function YieldPredictionView() {
             );
           }}
           exportable
+          exportPermission="analysis.export"
           exportFilename="yield-predictions.csv"
           rowClassName={(r) => {
             if (r.riskLevel === "HIGH")
@@ -949,6 +950,7 @@ export function YieldPredictionView() {
             );
           }}
           exportable
+          exportPermission="analysis.export"
           exportFilename="yield-historical.csv"
           maxHeight="500px"
         />

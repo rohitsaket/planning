@@ -33,7 +33,7 @@
  * 29. Results are identical across different cursor batch sizes.
  * 30. Large-volume execution does not silently truncate.
  * 31. Trace quantities reconcile with every stored metric.
- * 32. RBAC negative API tests cover run, unlock, trace, and export.
+ * 32. Permission-matrix checks for run, unlock, trace and export (API-boundary RBAC is proven in scripts/test-demand-inventory.ts).
  * 33. Existing Fantasy regression tests remain passing.
  */
 
@@ -72,6 +72,11 @@ async function cleanAll() {
   await db.polishedStone.deleteMany({});
   await db.roughStone.deleteMany({});
   await db.dataQualityIssue.deleteMany({});
+  // Customers are referenced by memo records and orders (RESTRICT), so those go first.
+  await db.memoRecord.deleteMany({});
+  await db.salesOrderLine.deleteMany({});
+  await db.salesOrder.deleteMany({});
+  await db.requirement.deleteMany({});
   await db.customer.deleteMany({});
   await db.weightBand.deleteMany({});
   await db.labMapping.deleteMany({});
@@ -1132,9 +1137,9 @@ async function main() {
   }
 
   // -------------------------------------------------------------------------
-  // TEST 32: RBAC negative API tests cover run, unlock, trace, and export
+  // TEST 32: Permission matrix for demand permissions (NOT an API test — see scripts/test-demand-inventory.ts section E)
   // -------------------------------------------------------------------------
-  console.log("\n--- TEST 32: RBAC negative API permission checks ---");
+  console.log("\n--- TEST 32: Permission-matrix checks (role → permission; API boundary covered separately) ---");
   assert(!hasPermission("VIEWER", "demand.run"), "VIEWER cannot run demand calculation");
   assert(!hasPermission("VIEWER", "demand.unlock"), "VIEWER cannot unlock demand calculation");
   assert(!hasPermission("VIEWER", "demand.trace"), "VIEWER cannot view lot-level trace");

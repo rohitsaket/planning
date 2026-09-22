@@ -134,7 +134,7 @@ export function AccessRequestsView() {
       </div>
 
       <Section title="Requests" bodyClassName="p-0">
-        <DataTable columns={columns} rows={rows} loading={isLoading} emptyMessage="No access requests." maxHeight="620px" searchable searchFn={(r, q) => [r.username, r.displayName, r.email ?? "", r.department ?? "", r.justification].some((f) => f.toLowerCase().includes(q))} exportable exportFilename="access-requests" />
+        <DataTable columns={columns} rows={rows} loading={isLoading} emptyMessage="No access requests." maxHeight="620px" searchable searchFn={(r, q) => [r.username, r.displayName, r.email ?? "", r.department ?? "", r.justification].some((f) => f.toLowerCase().includes(q))} exportable exportPermission="user.manage" exportFilename="access-requests" />
       </Section>
 
       {/* Review dialog */}

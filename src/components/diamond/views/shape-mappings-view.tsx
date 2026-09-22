@@ -68,6 +68,7 @@ export function ShapeMappingsView() {
           emptyMessage="No shape mappings configured"
           maxHeight="640px"
           exportable
+          exportPermission="config.export"
           exportFilename="shape-mappings.csv"
           searchable
           searchPlaceholder="Search raw, normalized, or category..."

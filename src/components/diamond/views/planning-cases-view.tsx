@@ -524,6 +524,7 @@ export function PlanningCasesView() {
           );
         }}
         exportable
+        exportPermission="plan.export"
         exportFilename="planning-cases.csv"
         excelExportable
         excelExportFilename="planning-cases.xlsx"

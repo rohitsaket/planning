@@ -147,6 +147,30 @@ interface DemandTraceResponse {
   forecastRunVersion: string | null;
   categories: TraceCategory[];
   summary: TraceSummary;
+  hasTracePermission: boolean;
+  rules: TraceRules;
+  page: number;
+  pageSize: number;
+  total: number;
+  hasMore: boolean;
+}
+
+/** Calculation policy served by the API — the single source for every rule statement shown here. */
+interface TraceRules {
+  wipPolicy: {
+    ruleId: string;
+    status: "CONFIGURED" | "NOT_CONFIGURED";
+    reason: string;
+    message: string;
+    ruleStatus: string | null;
+    ruleVersion: string | null;
+    eligibleStages: string[];
+    appliesCoverage: boolean;
+  };
+  wipAppliedInRun: boolean;
+  runEligibleStages: string[];
+  formula: string[];
+  statements: Array<{ code: string; applies: boolean; text: string }>;
 }
 
 // ---------------------------------------------------------------------------
@@ -341,8 +365,15 @@ export function DemandTraceView() {
     return () => mq.removeEventListener("change", update);
   }, []);
 
-  const fullRuleText = `90-day rolling invoice window (IST boundaries). Monthly Average = 90D/3. Target = Monthly Avg × 2 (round-half-up). Shortage = MAX(0, Target − Physical Stock). Memo excluded per BR-MEMO-001. WIP contribution is OPEN (BR-WIP-001). Forecast signal is advisory only — NOT confirmed demand.`;
-  const shortRuleText = `${fullRuleText.split(".")[0]}.`;
+  // The calculation policy is served by the authoritative API so this page cannot
+  // drift from what the engine actually did.
+  const rules = data?.rules;
+  const fullRuleText = [
+    `${windowDays}-day rolling invoice window (IST boundaries).`,
+    ...(rules?.formula ?? []),
+    ...(rules?.statements ?? []).map((s) => s.text),
+  ].join(" ");
+  const shortRuleText = rules?.formula?.[0] ?? `${windowDays}-day rolling invoice window (IST boundaries).`;
 
   const activeCat =
     categories.find((c) => c.category === (selectedCat ?? defaultCatId)) ?? null;
@@ -528,7 +559,10 @@ export function DemandTraceView() {
         subtitle="Full provenance & step-by-step breakdown: confirmed sales, finished stock, memo, WIP, formulas & lot reconciliations"
       />
 
-      {/* Confirmed-rule banner */}
+      {/* Calculation policy in force for this run — rendered from the API, not hardcoded here */}
+      {rules && rules.wipPolicy.status === "NOT_CONFIGURED" && (
+        <InfoBanner variant="warning">{rules.wipPolicy.message}</InfoBanner>
+      )}
       <InfoBanner variant="info">
         <div className="flex flex-col gap-0.5">
           <span className="font-semibold">CONFIRMED rule {ruleVersion}.</span>
@@ -646,7 +680,12 @@ export function DemandTraceView() {
                 <span className="text-xs font-semibold text-foreground">
                   {activeCat.lab} <span className="text-muted-foreground">|</span> {activeCat.shape} <span className="text-muted-foreground">|</span> {activeCat.weightBand}
                 </span>
-                <StatusBadge status="OPEN" className="opacity-70" />
+                {rules && (
+                  <StatusBadge
+                    status={rules.wipAppliedInRun ? "WIP_COVERAGE_APPLIED" : "WIP_COVERAGE_UNAVAILABLE"}
+                    className="opacity-80"
+                  />
+                )}
               </div>
               <span className="text-[10px] text-muted-foreground font-mono">
                 {activeCat.category}
@@ -967,6 +1006,7 @@ export function DemandTraceView() {
             `${r.lab} ${r.shape} ${r.weightBand} ${r.category}`.toLowerCase().includes(q.toLowerCase())
           }
           exportable
+          exportPermission="demand.export"
           exportFilename="demand-trace.csv"
           maxHeight="560px"
           onRowClick={(r) => setSelectedCat(r.category)}
@@ -993,12 +1033,20 @@ export function DemandTraceView() {
             not recomputed in the browser. Step 13 forecast signal is read from the live{" "}
             <span className="font-mono">ForecastPrediction</span> table where available; otherwise the stored{" "}
             <span className="font-mono">DemandMetric.forecastSignal</span> value is shown with a flagged source.
-            <span className="ml-2 inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
-              <FileWarning className="h-2.5 w-2.5" />
-              OPEN rules (BR-WIP-001, BR-MEMO-001) are surfaced but never auto-applied.
-            </span>
           </div>
         </div>
+        {rules && (
+          <ul className="mt-2 flex flex-col gap-1 pl-5">
+            {rules.statements.map((s) => (
+              <li key={s.code} className="flex items-start gap-1.5">
+                <FileWarning
+                  className={cn("h-2.5 w-2.5 mt-0.5 shrink-0", s.applies ? "text-sky-600 dark:text-sky-400" : "text-amber-600 dark:text-amber-400")}
+                />
+                <span className={cn(s.applies ? "" : "text-amber-700 dark:text-amber-400")}>{s.text}</span>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </div>
   );

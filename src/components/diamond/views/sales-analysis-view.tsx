@@ -192,6 +192,7 @@ export function SalesAnalysisView() {
           initialSortKey="value"
           initialSortDir="desc"
           exportable
+          exportPermission="sales.export"
           exportFilename={`sales-${dimension}-${globalFilter.windowDays}d.csv`}
           searchable
           searchPlaceholder="Search dimension..."

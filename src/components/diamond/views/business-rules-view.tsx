@@ -162,6 +162,7 @@ export function BusinessRulesView() {
           emptyMessage="No business rules defined"
           maxHeight="640px"
           exportable
+          exportPermission="config.export"
           exportFilename="business-rules.csv"
           searchable
           searchPlaceholder="Search rules..."

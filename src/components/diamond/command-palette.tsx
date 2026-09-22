@@ -15,7 +15,7 @@ import {
   FlaskConical, FileBarChart, Settings, Search, Diamond, Activity, Scale, Layers,
   Map, FileWarning, Workflow, ClipboardCheck, CalendarClock, Hash, RefreshCw,
   BookCheck, ClipboardList, Star, CornerDownLeft, UserPlus, Lock, HardDrive,
-  Calculator, ArrowLeftRight
+  Calculator, ArrowLeftRight, History
 } from "lucide-react";
 import { ReactNode } from "react";
 
@@ -32,21 +32,41 @@ const ITEMS: PaletteItem[] = [
   // 1. Dashboard
   { id: "dashboard", label: "Executive Dashboard", group: "Dashboard", icon: <LayoutDashboard className="h-4 w-4" />, keywords: ["home", "main", "overview", "kpi", "executive"] },
 
-  // 2. Fantasy ERP
+  // 2. Analysis (Direct Analytical Workspace)
+  { id: "analysis-executive", label: "Executive Analysis", group: "Analysis", icon: <BarChart3 className="h-4 w-4" />, keywords: ["executive", "summary", "kpi", "demand", "inventory"] },
+  { id: "analysis-sales", label: "Sales Analysis", group: "Analysis", icon: <TrendingUp className="h-4 w-4" />, keywords: ["sales", "invoices", "revenue", "category", "customer"] },
+  { id: "analysis-sales-trends", label: "Sales Trends", group: "Analysis", icon: <Activity className="h-4 w-4" />, keywords: ["trends", "30 day", "90 day", "velocity", "history"] },
+  { id: "analysis-customers", label: "Customers", group: "Analysis", icon: <Users className="h-4 w-4" />, keywords: ["customers", "buyers", "accounts", "timeline"] },
+  { id: "analysis-orders", label: "Orders", group: "Analysis", icon: <ShoppingCart className="h-4 w-4" />, keywords: ["orders", "delivery", "open", "partial", "overdue"] },
+  { id: "analysis-country", label: "Country / Branch", group: "Analysis", icon: <Globe className="h-4 w-4" />, keywords: ["country", "branch", "geography", "location"] },
+  { id: "analysis-polished", label: "Polished Inventory", group: "Analysis", icon: <Gem className="h-4 w-4" />, keywords: ["polished", "stock", "lab", "shape", "weight band"] },
+  { id: "analysis-memo", label: "Memo Analysis", group: "Analysis", icon: <FileText className="h-4 w-4" />, keywords: ["memo", "consignment", "customer exposure"] },
+  { id: "analysis-wip", label: "WIP Analysis", group: "Analysis", icon: <Boxes className="h-4 w-4" />, keywords: ["wip", "manufacturing", "coverage", "stage"] },
+  { id: "analysis-forecast", label: "Forecast", group: "Analysis", icon: <TrendingUp className="h-4 w-4" />, advisory: true, keywords: ["forecast", "prediction", "advisory", "model"] },
+  { id: "analysis-stockout", label: "Stockout Risk", group: "Analysis", icon: <AlertTriangle className="h-4 w-4" />, advisory: true, keywords: ["stockout", "shortage", "risk", "projected stock"] },
+  { id: "analysis-excess", label: "Excess Stock", group: "Analysis", icon: <Package className="h-4 w-4" />, keywords: ["excess", "surplus", "overstock"] },
+  { id: "analysis-aging", label: "Stock Aging", group: "Analysis", icon: <CalendarClock className="h-4 w-4" />, keywords: ["aging", "slow moving", "days", "old stock"] },
+  { id: "analysis-reorder-signals", label: "Reorder Signals", group: "Analysis", icon: <Star className="h-4 w-4" />, advisory: true, keywords: ["reorder", "repeat customer", "prediction"] },
+  { id: "demand-history", label: "Demand Run History", group: "Analysis", icon: <History className="h-4 w-4" />, keywords: ["demand", "run", "history", "calculation"] },
+  { id: "analysis-demand-trace", label: "Demand Trace", group: "Analysis", icon: <Calculator className="h-4 w-4" />, keywords: ["demand", "trace", "formula", "calculation", "lots"] },
+  { id: "transfer-analyzer", label: "Transfer Analyzer", group: "Analysis", icon: <ArrowLeftRight className="h-4 w-4" />, advisory: true, keywords: ["transfer", "country", "branch", "excess", "shortage"] },
+  { id: "aging-dashboard", label: "Aging Dashboard", group: "Analysis", icon: <LayoutDashboard className="h-4 w-4" />, keywords: ["aging", "dashboard", "slow moving", "inventory"] },
+
+  // 3. Fantasy ERP
   { id: "fantasy-live", label: "Live Data", group: "Fantasy ERP", icon: <Boxes className="h-4 w-4" />, keywords: ["rough stock", "polished stock", "departments", "locations", "erp", "live"] },
   { id: "fantasy-sync", label: "Sync Monitor", group: "Fantasy ERP", icon: <RefreshCw className="h-4 w-4" />, keywords: ["sync", "reconciliation", "monitor", "integration", "dashboard"] },
 
-  // 3. Overall Data
+  // 4. Overall Data
   { id: "overall-data", label: "Overall Data", group: "Overall Data", icon: <HardDrive className="h-4 w-4" />, keywords: ["historical", "archive", "lots", "permanent", "records"] },
 
-  // 4. Data Quality
+  // 5. Data Quality
   { id: "data-quality-issues", label: "Data Quality Issues", group: "Data Quality", icon: <AlertTriangle className="h-4 w-4" />, keywords: ["quality", "unmapped", "labs", "shapes", "issues", "anomalies"] },
 
-  // 5. Demand and Inventory
+  // 6. Demand and Inventory
   { id: "demand-overview", label: "Demand Overview", group: "Demand and Inventory", icon: <Activity className="h-4 w-4" />, keywords: ["executive analysis", "sales analysis", "sales trends", "demand run history"] },
   { id: "inventory-position", label: "Inventory Position", group: "Demand and Inventory", icon: <Package className="h-4 w-4" />, keywords: ["polished inventory", "memo analysis", "wip analysis", "stockout risk", "excess stock"] },
   { id: "customers-orders", label: "Customers and Orders", group: "Demand and Inventory", icon: <Users className="h-4 w-4" />, keywords: ["customers", "orders", "country", "branch", "buyer", "geography"] },
-  { id: "demand-trace", label: "Demand Trace", group: "Demand and Inventory", icon: <Calculator className="h-4 w-4" />, keywords: ["trace", "calculation", "formula", "engine", "breakdown"] },
+  { id: "demand-trace", label: "Demand Trace (Workflow)", group: "Demand and Inventory", icon: <Calculator className="h-4 w-4" />, keywords: ["trace", "calculation", "formula", "engine", "breakdown", "workflow"] },
   { id: "stock-strategy", label: "Stock Strategy", group: "Demand and Inventory", icon: <ArrowLeftRight className="h-4 w-4" />, keywords: ["stock aging", "aging dashboard", "reorder signals", "transfer analyzer"] },
 
   // 6. Requirements and Priority

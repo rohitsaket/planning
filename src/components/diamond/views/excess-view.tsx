@@ -126,6 +126,7 @@ export function ExcessView() {
           initialSortKey="excessQty"
           initialSortDir="desc"
           exportable
+          exportPermission="analysis.export"
           exportFilename="excess.csv"
           searchable
           searchPlaceholder="Search category..."

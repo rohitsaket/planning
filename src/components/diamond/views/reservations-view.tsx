@@ -285,6 +285,7 @@ export function ReservationsView() {
           );
         }}
         exportable
+        exportPermission="plan.export"
         exportFilename="reservations.csv"
         excelExportable
         excelExportFilename="rough-reservations.xlsx"

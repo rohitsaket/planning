@@ -3,11 +3,14 @@
 import { toCsv } from "@/lib/csv-export";
 import { cn } from "@/lib/utils";
 import { ReactNode, useState } from "react";
-import { ChevronDown, ChevronRight, Download, FileSpreadsheet, FileText, Search, SlidersHorizontal } from "lucide-react";
+import { Download, FileSpreadsheet, FileText, Search } from "lucide-react";
+import type { Permission } from "@/lib/auth/permissions";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { exportDataTableToExcel } from "@/lib/excel-export";
 import { exportToPDF } from "@/lib/pdf-export";
+
+import { useAuthStore } from "@/stores/auth-store";
 
 export interface Column<T> {
   key: string;
@@ -42,6 +45,17 @@ export interface DataTableProps<T> {
   excelExportFilename?: string;
   pdfExportable?: boolean;
   pdfExportFilename?: string;
+  /**
+   * Required whenever any export is enabled: the permission that authorizes exporting
+   * THIS dataset. There is no default — a generic table must not inherit a
+   * domain-specific policy such as demand.export.
+   */
+  exportPermission?: Permission;
+  /**
+   * Set when the table shows one server page of a larger dataset. The client-side
+   * export then only claims the rows the user already has, and the button says so.
+   */
+  exportScope?: "all-loaded-rows" | "current-page";
   searchable?: boolean;
   searchPlaceholder?: string;
   searchFn?: (row: T, q: string) => boolean;
@@ -69,12 +83,30 @@ export function DataTable<T>({
   excelExportFilename = "export.xlsx",
   pdfExportable = false,
   pdfExportFilename = "export",
+  exportPermission,
+  exportScope = "all-loaded-rows",
   searchable = false,
   searchPlaceholder = "Search...",
   searchFn,
   pageSize = 50,
   pagination = false,
 }: DataTableProps<T>) {
+  const user = useAuthStore((s) => s.user);
+  const exportRequested = exportable || excelExportable || pdfExportable;
+
+  // Fail loudly in development when a table offers an export without an export policy,
+  // instead of silently applying someone else's permission.
+  if (exportRequested && !exportPermission && process.env.NODE_ENV !== "production") {
+    throw new Error(
+      `DataTable: exports are enabled without an exportPermission (title: ${title ?? "untitled"}). ` +
+        "Pass the permission that authorizes exporting this dataset, or disable the export.",
+    );
+  }
+
+  // The server authorizes every export endpoint independently; this only hides a
+  // control the user may not use.
+  const userCanExport = Boolean(exportPermission) && Boolean(user?.permissions.includes(exportPermission as Permission));
+  const pageScoped = exportScope === "current-page";
   const [sortKey, setSortKey] = useState<string | undefined>(initialSortKey);
   const [sortDir, setSortDir] = useState<"asc" | "desc">(initialSortDir);
   const [query, setQuery] = useState("");
@@ -157,17 +189,29 @@ export function DataTable<T>({
               </div>
             )}
             {toolbar}
-            {exportable && (
-              <Button variant="outline" size="sm" className="h-7 px-2 text-[11px] gap-1 bg-background/90" onClick={exportCsv}>
-                <Download className="h-3 w-3" /> Export CSV
+            {exportable && userCanExport && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 px-2 text-[11px] gap-1 bg-background/90"
+                onClick={exportCsv}
+                title={pageScoped ? "Exports the rows on this page only" : undefined}
+              >
+                <Download className="h-3 w-3" /> {pageScoped ? "Export Page CSV" : "Export CSV"}
               </Button>
             )}
-            {excelExportable && (
-              <Button variant="outline" size="sm" className="h-7 px-2 text-[11px] gap-1 bg-background/90" onClick={exportExcel}>
-                <FileSpreadsheet className="h-3 w-3" /> Export Excel
+            {excelExportable && userCanExport && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 px-2 text-[11px] gap-1 bg-background/90"
+                onClick={exportExcel}
+                title={pageScoped ? "Exports the rows on this page only" : undefined}
+              >
+                <FileSpreadsheet className="h-3 w-3" /> {pageScoped ? "Export Page Excel" : "Export Excel"}
               </Button>
             )}
-            {pdfExportable && (
+            {pdfExportable && userCanExport && (
               <Button variant="outline" size="sm" className="h-7 px-2 text-[11px] gap-1 bg-background/90" onClick={exportPDF}>
                 <FileText className="h-3 w-3" /> Export PDF
               </Button>

@@ -149,6 +149,7 @@ export function DataQualityView() {
           emptyMessage="No issues match the current filters"
           maxHeight="560px"
           exportable
+          exportPermission="data_quality.export"
           exportFilename="data-quality-issues.csv"
         />
       </Section>

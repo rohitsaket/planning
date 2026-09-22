@@ -165,6 +165,7 @@ export function FantasyPolishedView() {
         initialSortKey="lastUpdated"
         initialSortDir="desc"
         exportable
+        exportPermission="fantasy.export"
         exportFilename="fantasy-polished-stock.csv"
         searchable
         searchPlaceholder="Search lot ID, certificate, color, clarity..."

@@ -124,6 +124,7 @@ export function AuditLogView() {
           emptyMessage="No audit entries match the current filters"
           maxHeight="640px"
           exportable
+          exportPermission="audit.export"
           exportFilename="audit-log.csv"
         />
       </Section>

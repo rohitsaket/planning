@@ -70,6 +70,19 @@ export function StatusBadge({ status, className }: { status: string; className?:
     SOFT_RESERVED: "warning",
     UNDER_PLANNING: "info",
     PLAN_APPROVED: "success",
+    // Honest states for checks that have not run or policies that are not configured.
+    NOT_RUN: "neutral",
+    NOT_CONFIGURED: "warning",
+    UNAVAILABLE: "warning",
+    UNKNOWN: "neutral",
+    STALE: "warning",
+    DEGRADED: "warning",
+    CONFIGURED: "success",
+    WIP_COVERAGE_APPLIED: "success",
+    WIP_COVERAGE_UNAVAILABLE: "warning",
+    ADVISORY: "info",
+    ADVISORY_UNCONFIRMED: "warning",
+    ADVISORY_CONFIRMED_RULE: "info",
   };
   const variant = map[status] ?? "default";
   return <Badge variant={variant} className={className}>{status.replace(/_/g, " ")}</Badge>;

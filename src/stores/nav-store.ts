@@ -50,6 +50,7 @@ export type ViewId =
   | "analysis-aging"
   | "analysis-reorder-signals"
   | "demand-history"
+  | "analysis-demand-trace"
   | "transfer-analyzer"
   | "aging-dashboard"
   | "requirements-orders"

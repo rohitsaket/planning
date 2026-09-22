@@ -1,62 +1,110 @@
+import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
-import { withApi, qStr, SCAN_MAX, scanned } from "@/lib/api/with-api";
+import { withApi, qStr, qInt } from "@/lib/api/with-api";
 
-// Memo Analysis — separate decision context; does NOT reduce shortage
-// Honors global filter params: country, branch (no lab — MemoRecord has no
-// lab filter relevant for the memo exposure aggregate; the lab field is
-// informational only)
+// Memo Analysis — memo is a separate decision context and never reduces physical
+// shortage (BR-MEMO-001). Aggregates are computed in PostgreSQL over the whole
+// filtered set; the detail list is paginated on the server.
 export const GET = withApi({ permission: "sales.read" }, async (req: Request) => {
   const url = new URL(req.url);
   const country = qStr(url, "country");
   const branch = qStr(url, "branch");
+  const lab = qStr(url, "lab");
+  const status = qStr(url, "status", 40);
+  const page = qInt(url, "page", { def: 1, min: 1, max: 1_000_000 });
+  const pageSize = qInt(url, "pageSize", { def: 50, min: 1, max: 500 });
 
-  const where: Record<string, unknown> = {};
+  const where: Prisma.MemoRecordWhereInput = {};
   if (country) where.country = country;
   if (branch) where.branch = branch;
+  if (lab) where.labNormalized = lab;
+  if (status) where.status = status;
 
-  const memos = await db.memoRecord.findMany({ take: SCAN_MAX, where, include: { customer: true } }).then(scanned);
-  const now = new Date();
+  const filters: Prisma.Sql[] = [];
+  if (country) filters.push(Prisma.sql`country = ${country}`);
+  if (branch) filters.push(Prisma.sql`branch = ${branch}`);
+  if (lab) filters.push(Prisma.sql`"labNormalized" = ${lab}`);
+  if (status) filters.push(Prisma.sql`status = ${status}`);
+  const whereSql = filters.length ? Prisma.sql`WHERE ${Prisma.join(filters, " AND ")}` : Prisma.empty;
 
-  // By country
-  const byCountry = new Map<string, { qty: number; value: number; avgAge: number; count: number }>();
-  const byCustomer = new Map<string, { qty: number; value: number; avgAge: number; count: number }>();
-  let totalValue = 0;
-  let totalQty = 0;
-  const ageBuckets = { "0-30": 0, "31-60": 0, "61-90": 0, "91-180": 0, "180+": 0 };
+  const [totals, countryGroups, customerGroups, ageRows, total, rows] = await Promise.all([
+    db.memoRecord.aggregate({ where, _count: { _all: true }, _sum: { memoValueUsd: true } }),
+    db.memoRecord.groupBy({
+      by: ["country"],
+      where,
+      _count: { _all: true },
+      _sum: { memoValueUsd: true },
+      _avg: { memoAgeDays: true },
+    }),
+    db.memoRecord.groupBy({
+      by: ["customerId"],
+      where,
+      _count: { _all: true },
+      _sum: { memoValueUsd: true },
+      _avg: { memoAgeDays: true },
+    }),
+    db.$queryRaw<Array<{ bucket: string; pieces: number }>>(Prisma.sql`
+      SELECT bucket, COUNT(*)::int AS pieces
+      FROM (
+        SELECT CASE
+          WHEN age_days <= 30 THEN '0-30'
+          WHEN age_days <= 60 THEN '31-60'
+          WHEN age_days <= 90 THEN '61-90'
+          WHEN age_days <= 180 THEN '91-180'
+          ELSE '180+'
+        END AS bucket
+        FROM (
+          SELECT COALESCE("memoAgeDays", FLOOR(EXTRACT(EPOCH FROM (NOW() - "memoDate")) / 86400)::int) AS age_days
+          FROM "MemoRecord"
+          ${whereSql}
+        ) aged
+      ) bucketed
+      GROUP BY bucket
+    `),
+    db.memoRecord.count({ where }),
+    db.memoRecord.findMany({
+      where,
+      include: { customer: { select: { name: true } } },
+      orderBy: [{ memoDate: "desc" }, { lotId: "asc" }],
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+  ]);
 
-  for (const m of memos) {
-    const age = m.memoAgeDays ?? Math.floor((now.getTime() - new Date(m.memoDate).getTime()) / (1000 * 60 * 60 * 24));
-    totalValue += num(m.memoValueUsd);
-    totalQty += 1;
+  const customerNames = new Map(
+    (
+      await db.customer.findMany({
+        where: { id: { in: customerGroups.map((g) => g.customerId) } },
+        select: { id: true, name: true },
+      })
+    ).map((c) => [c.id, c.name]),
+  );
 
-    const c = byCountry.get(m.country) ?? { qty: 0, value: 0, avgAge: 0, count: 0 };
-    c.qty += 1; c.value += num(m.memoValueUsd); c.avgAge += age; c.count += 1;
-    byCountry.set(m.country, c);
-
-    const cust = byCustomer.get(m.customer.name) ?? { qty: 0, value: 0, avgAge: 0, count: 0 };
-    cust.qty += 1; cust.value += num(m.memoValueUsd); cust.avgAge += age; cust.count += 1;
-    byCustomer.set(m.customer.name, cust);
-
-    if (age <= 30) ageBuckets["0-30"]++;
-    else if (age <= 60) ageBuckets["31-60"]++;
-    else if (age <= 90) ageBuckets["61-90"]++;
-    else if (age <= 180) ageBuckets["91-180"]++;
-    else ageBuckets["180+"]++;
-  }
-
-  const finalize = (m: Map<string, { qty: number; value: number; avgAge: number; count: number }>) =>
-    Array.from(m.entries()).map(([k, v]) => ({
-      dimension: k, qty: v.qty, value: num(v.value), avgAge: Math.round(v.avgAge / Math.max(1, v.count)),
-    })).sort((a, b) => b.value - a.value);
+  const ageBuckets = { "0-30": 0, "31-60": 0, "61-90": 0, "91-180": 0, "180+": 0 } as Record<string, number>;
+  for (const r of ageRows) ageBuckets[r.bucket] = r.pieces;
 
   return ok({
-    totalQty,
-    totalValue: num(totalValue),
-    byCountry: finalize(byCountry),
-    byCustomer: finalize(byCustomer),
+    totalQty: totals._count._all,
+    totalValue: num(totals._sum.memoValueUsd),
+    byCountry: countryGroups
+      .map((g) => ({
+        dimension: g.country,
+        qty: g._count._all,
+        value: num(g._sum.memoValueUsd),
+        avgAge: Math.round(g._avg.memoAgeDays ?? 0),
+      }))
+      .sort((a, b) => b.value - a.value),
+    byCustomer: customerGroups
+      .map((g) => ({
+        dimension: customerNames.get(g.customerId) ?? "Unknown",
+        qty: g._count._all,
+        value: num(g._sum.memoValueUsd),
+        avgAge: Math.round(g._avg.memoAgeDays ?? 0),
+      }))
+      .sort((a, b) => b.value - a.value),
     ageBuckets,
-    rows: memos.map((m) => ({
+    rows: rows.map((m) => ({
       id: m.id,
       lotId: m.lotId,
       memoDate: m.memoDate.toISOString(),
@@ -73,5 +121,9 @@ export const GET = withApi({ permission: "sales.read" }, async (req: Request) =>
       status: m.status,
       memoAgeDays: m.memoAgeDays,
     })),
+    page,
+    pageSize,
+    total,
+    hasMore: page * pageSize < total,
   });
 });

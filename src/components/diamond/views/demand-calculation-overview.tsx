@@ -13,6 +13,9 @@ import { EmptyState, InfoBanner, NumberCell } from "@/components/diamond/shared/
 import { KpiGridSkeleton } from "@/components/diamond/shared/skeleton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from "@/components/ui/dialog";
 import { toast } from "sonner";
 import {
   Calculator, AlertTriangle, Package, Boxes, ShieldCheck,
@@ -80,6 +83,12 @@ interface DemandOverviewResponse {
   excludedCount: number;
   categories: CategoryMetricRow[];
   summary: DemandOverviewSummary;
+  /** Calculation policy served by the API — the single source for rule statements. */
+  rules: {
+    wipPolicy: { ruleId: string; status: "CONFIGURED" | "NOT_CONFIGURED"; message: string; eligibleStages: string[] };
+    wipAppliedInRun: boolean;
+    formula: string[];
+  };
 }
 
 export function DemandCalculationOverview() {
@@ -87,10 +96,14 @@ export function DemandCalculationOverview() {
   const qc = useQueryClient();
   const [runningDemand, setRunningDemand] = useState(false);
   const [unlocking, setUnlocking] = useState(false);
+  const [unlockModalOpen, setUnlockModalOpen] = useState(false);
+  const [unlockReason, setUnlockReason] = useState("");
 
   const { data, isLoading } = useApi<DemandOverviewResponse>("/api/analysis/demand-trace");
   const perms = useAuthStore((s) => s.user?.permissions ?? []);
   const canRunDemand = perms.includes("demand.run");
+  const canUnlockDemand = perms.includes("demand.unlock");
+  const canTrace = perms.includes("demand.trace");
 
   const runMutation = useMutation({
     mutationFn: () => apiPost<{ runId: string; categoriesProcessed: number; totalShortage: number }>("/api/demand/run", {}),
@@ -106,19 +119,32 @@ export function DemandCalculationOverview() {
   });
 
   const unlockMutation = useMutation({
-    mutationFn: () => apiPost<{ success: boolean; message: string }>("/api/demand/run/unlock", { reason: "Manual operator unlock" }),
+    mutationFn: (reason: string) => apiPost<{ success: boolean; message: string }>("/api/demand/run/unlock", { reason }),
     onMutate: () => setUnlocking(true),
     onSuccess: (r) => {
       toast.success(r.message || "Demand calculation unlocked");
+      setUnlockModalOpen(false);
+      setUnlockReason("");
       qc.invalidateQueries({ queryKey: ["/api/analysis/demand-trace"] });
     },
     onError: (e) => toast.error(`Unlock failed: ${(e as Error).message}`),
     onSettled: () => setUnlocking(false),
   });
 
+  const handleUnlockSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const reason = unlockReason.trim();
+    if (reason.length < 3) {
+      toast.error("A justification reason of at least 3 characters is mandatory");
+      return;
+    }
+    unlockMutation.mutate(reason);
+  };
+
   const summary = data?.summary;
   const categories = data?.categories ?? [];
   const hasEverRun = data?.hasEverRun ?? false;
+  const wipApplied = data?.rules?.wipAppliedInRun ?? false;
 
   const columns: Column<CategoryMetricRow>[] = [
     {
@@ -280,14 +306,20 @@ export function DemandCalculationOverview() {
       align: "center",
       width: "80px",
       cell: (r) => (
-        <Button
-          size="sm"
-          variant="ghost"
-          className="h-6 px-2 text-[10px] gap-1 text-sky-600 hover:text-sky-700 dark:text-sky-400"
-          onClick={() => setView("demand-trace")}
-        >
-          Trace <ChevronRight className="h-3 w-3" />
-        </Button>
+        canTrace ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 px-2 text-[10px] gap-1 text-sky-600 hover:text-sky-700 dark:text-sky-400"
+            onClick={() => setView("demand-trace")}
+          >
+            Trace <ChevronRight className="h-3 w-3" />
+          </Button>
+        ) : (
+          <span className="text-[10px] text-muted-foreground italic" title="Requires demand.trace">
+            Locked
+          </span>
+        )
       ),
     },
   ];
@@ -351,9 +383,9 @@ export function DemandCalculationOverview() {
               size="sm"
               variant="outline"
               className="h-7 text-[11px] gap-1.5"
-              onClick={() => unlockMutation.mutate()}
-              disabled={unlocking || !canRunDemand}
-              title="Unlock demand engine lock if stuck"
+              onClick={() => setUnlockModalOpen(true)}
+              disabled={unlocking || !canUnlockDemand}
+              title={canUnlockDemand ? "Unlock demand calculation lock" : "Requires demand.unlock permission"}
             >
               {unlocking ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Unlock className="h-3 w-3" />}
               Unlock Engine
@@ -372,6 +404,10 @@ export function DemandCalculationOverview() {
           </div>
         }
       />
+
+      {data?.rules?.wipPolicy?.status === "NOT_CONFIGURED" && (
+        <InfoBanner variant="warning">{data.rules.wipPolicy.message}</InfoBanner>
+      )}
 
       {!hasEverRun ? (
         <EmptyState
@@ -409,11 +445,11 @@ export function DemandCalculationOverview() {
             />
             <KpiCard
               label="Eligible WIP"
-              value={summary?.totalWipCoverage ?? 0}
-              unit="pcs"
-              intent="info"
+              value={wipApplied ? summary?.totalWipCoverage ?? 0 : "UNAVAILABLE"}
+              unit={wipApplied ? "pcs" : undefined}
+              intent={wipApplied ? "info" : "warning"}
               icon={Boxes}
-              hint="Mapped manufacturing WIP"
+              hint={wipApplied ? "Mapped manufacturing WIP applied by this run" : "No confirmed WIP coverage rule — nothing deducted"}
             />
             <KpiCard
               label="Pipeline Req"
@@ -421,7 +457,7 @@ export function DemandCalculationOverview() {
               unit="pcs"
               intent="warning"
               icon={TrendingDown}
-              hint="Shortage − Eligible WIP"
+              hint={wipApplied ? "MAX(0, Shortage − Eligible WIP)" : "Equals physical shortage while WIP coverage is unavailable"}
             />
             <KpiCard
               label="Plan Coverage"
@@ -486,6 +522,7 @@ export function DemandCalculationOverview() {
                 `${r.lab} ${r.shape} ${r.weightBand} ${r.category}`.toLowerCase().includes(q.toLowerCase())
               }
               exportable
+              exportPermission="demand.export"
               exportFilename="demand-categories.csv"
               maxHeight="600px"
               rowClassName={(r) =>
@@ -497,6 +534,64 @@ export function DemandCalculationOverview() {
           </Section>
         </>
       )}
+
+      {/* Unlock Justification Modal */}
+      <Dialog open={unlockModalOpen} onOpenChange={setUnlockModalOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <form onSubmit={handleUnlockSubmit}>
+            <DialogHeader>
+              <DialogTitle className="text-sm font-semibold flex items-center gap-2">
+                <Unlock className="h-4 w-4 text-amber-500" />
+                Unlock Demand Calculation Engine
+              </DialogTitle>
+              <DialogDescription className="text-xs text-muted-foreground">
+                Releasing an active engine lock requires an explicit justification for audit logging and operational safety.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="py-3">
+              <label className="text-[11px] font-medium text-foreground block mb-1">
+                Justification Reason <span className="text-rose-500">*</span>
+              </label>
+              <Input
+                value={unlockReason}
+                onChange={(e) => setUnlockReason(e.target.value)}
+                placeholder="e.g. Stale lock cleanup after worker process timeout"
+                className="h-8 text-xs"
+                autoFocus
+              />
+              <span className="text-[10px] text-muted-foreground mt-1 block">
+                Minimum 3 characters. Stored immutably in system audit logs.
+              </span>
+            </div>
+
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs"
+                onClick={() => {
+                  setUnlockModalOpen(false);
+                  setUnlockReason("");
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                variant="default"
+                size="sm"
+                className="h-8 text-xs bg-amber-600 hover:bg-amber-700 text-white font-medium"
+                disabled={unlocking || unlockReason.trim().length < 3}
+              >
+                {unlocking ? <RefreshCw className="h-3 w-3 animate-spin mr-1" /> : null}
+                Confirm Unlock
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

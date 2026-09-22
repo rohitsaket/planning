@@ -12,7 +12,7 @@ import {
   Bell, User, Database, Activity, Scale, Layers, Map, FileWarning,
   Workflow, ClipboardCheck, CalendarClock, Hash, RefreshCw, BookCheck, ClipboardList, Diamond,
   Moon, Sun, Monitor, Command as CommandIcon, History, Calculator, ArrowLeftRight, UserPlus,
-  Lock, HardDrive, X
+  Lock, HardDrive, X, Star
 } from "lucide-react";
 import { ReactNode, useState, useEffect, useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button";
@@ -50,7 +50,33 @@ export const NAV: NavGroup[] = [
       { id: "dashboard", label: "Executive Dashboard", icon: <LayoutDashboard className="h-3.5 w-3.5" /> },
     ],
   },
-  // 2. Fantasy ERP (Source)
+  // 2. Analysis (Direct Analytical Workspace)
+  {
+    id: "analysis-group",
+    label: "Analysis",
+    icon: <BarChart3 className="h-4 w-4" />,
+    items: [
+      { id: "analysis-executive", label: "Executive Analysis", icon: <BarChart3 className="h-3.5 w-3.5" /> },
+      { id: "analysis-sales", label: "Sales Analysis", icon: <TrendingUp className="h-3.5 w-3.5" /> },
+      { id: "analysis-sales-trends", label: "Sales Trends", icon: <Activity className="h-3.5 w-3.5" /> },
+      { id: "analysis-customers", label: "Customers", icon: <Users className="h-3.5 w-3.5" /> },
+      { id: "analysis-orders", label: "Orders", icon: <ShoppingCart className="h-3.5 w-3.5" /> },
+      { id: "analysis-country", label: "Country / Branch", icon: <Globe className="h-3.5 w-3.5" /> },
+      { id: "analysis-polished", label: "Polished Inventory", icon: <Gem className="h-3.5 w-3.5" /> },
+      { id: "analysis-memo", label: "Memo Analysis", icon: <FileText className="h-3.5 w-3.5" /> },
+      { id: "analysis-wip", label: "WIP Analysis", icon: <Boxes className="h-3.5 w-3.5" /> },
+      { id: "analysis-forecast", label: "Forecast", icon: <TrendingUp className="h-3.5 w-3.5" />, advisory: true },
+      { id: "analysis-stockout", label: "Stockout Risk", icon: <AlertTriangle className="h-3.5 w-3.5" />, advisory: true },
+      { id: "analysis-excess", label: "Excess Stock", icon: <Package className="h-3.5 w-3.5" /> },
+      { id: "analysis-aging", label: "Stock Aging", icon: <CalendarClock className="h-3.5 w-3.5" /> },
+      { id: "analysis-reorder-signals", label: "Reorder Signals", icon: <Star className="h-3.5 w-3.5" />, advisory: true },
+      { id: "demand-history", label: "Demand Run History", icon: <History className="h-3.5 w-3.5" /> },
+      { id: "analysis-demand-trace", label: "Demand Trace", icon: <Calculator className="h-3.5 w-3.5" /> },
+      { id: "transfer-analyzer", label: "Transfer Analyzer", icon: <ArrowLeftRight className="h-3.5 w-3.5" />, advisory: true },
+      { id: "aging-dashboard", label: "Aging Dashboard", icon: <LayoutDashboard className="h-3.5 w-3.5" /> },
+    ],
+  },
+  // 3. Fantasy ERP (Source)
   {
     id: "fantasy-group",
     label: "Fantasy ERP",

@@ -427,6 +427,7 @@ export function ApprovalQueueView() {
           );
         }}
         exportable
+        exportPermission="plan.export"
         exportFilename="approval-queue.csv"
         initialSortKey="planningDate"
         initialSortDir="asc"

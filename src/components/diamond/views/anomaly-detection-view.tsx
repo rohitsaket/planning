@@ -487,6 +487,7 @@ export function AnomalyDetectionView() {
             );
           }}
           exportable
+          exportPermission="analysis.export"
           exportFilename="anomaly-detection.csv"
           rowClassName={(r) => {
             if (r.severity === "HIGH") return "bg-rose-50/50 dark:bg-rose-950/20";

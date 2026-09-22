@@ -117,6 +117,9 @@ model Customer {
   salesRecords    SalesRecord[]
   memoRecords     MemoRecord[]
   salesOrders     SalesOrder[]
+
+  @@index([country, branch])
+  @@index([name])
 }
 
 model SalesRecord {
@@ -142,6 +145,10 @@ model SalesRecord {
   branch        String
   salesperson   String?
   createdAt     DateTime @default(now())
+
+  @@index([customerId, lotStatusDb, docDate])
+  @@index([lotStatusDb, docDate])
+  @@index([country, branch])
 }
 
 model MemoRecord {
@@ -163,6 +170,10 @@ model MemoRecord {
   memoAgeDays   Int?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+
+  @@index([customerId, status])
+  @@index([country, branch, status])
+  @@index([memoDate])
 }
 
 model SalesOrder {
@@ -181,6 +192,10 @@ model SalesOrder {
   notes         String?
   lines         SalesOrderLine[]
   createdAt     DateTime @default(now())
+
+  @@index([customerId, status])
+  @@index([country, branch, status])
+  @@index([orderDate])
 }
 
 model SalesOrderLine {
@@ -230,6 +245,11 @@ model PolishedStone {
   planningClass      String   @default("PHYSICAL")
   lastUpdated        DateTime @default(now())
   createdAt          DateTime @default(now())
+
+  @@index([country, branch])
+  @@index([planningClass])
+  @@index([labNormalized])
+  @@index([lastUpdated])
 }
 
 model RoughStone {
@@ -360,6 +380,11 @@ model DemandRun {
   lookbackEnd        DateTime?
   mappingVersion     String?
   mappingFingerprint String?
+  // WIP coverage policy (BR-WIP-001) that was in force for this run. CONFIGURED means
+  // eligible WIP was deducted from the pipeline requirement; NOT_CONFIGURED means it was not.
+  wipPolicyStatus    String                  @default("NOT_CONFIGURED")
+  wipRuleVersion     String?
+  wipEligibleStages  String?                 // comma-separated normalized stages, empty when not configured
   lockToken          String?
   sourceMode         String                  @default("FIXTURE") // FIXTURE | FILE_IMPORT | FANTASY_API
   isSimulated        Boolean                 @default(true)
@@ -498,6 +523,10 @@ model Requirement {
   updatedAt           DateTime @updatedAt
 
   allocations         RequirementAllocation[]
+
+  @@index([country, branch])
+  @@index([status])
+  @@index([labNormalized, shape, weightBandId])
 }
 
 model RequirementAllocation {
@@ -891,6 +920,9 @@ model LotMasterRecord {
   @@index([lastSeenAt])
   @@index([checkpoint])
   @@index([sourceRecordId])
+
+  @@index([isCurrent, roughOrPolished])
+  @@index([isCurrent, entityType])
 }
 
 model LotHistoryRecord {

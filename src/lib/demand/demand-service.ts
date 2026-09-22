@@ -16,9 +16,23 @@
 
 import { db } from "@/lib/db";
 import { Prisma } from "@prisma/client";
-import { resolveLabNormalization, normalizeShape } from "@/lib/fantasy/canonical";
+import { resolveLabNormalization } from "@/lib/fantasy/canonical";
+import {
+  loadCategoryMappings,
+  QUARANTINE_CATEGORY,
+  resolveApprovedShape,
+  resolveWeightBand,
+  type CategoryMappings,
+} from "@/lib/demand/planning-category";
+import {
+  classifyCurrentWip,
+  isPlanPieceCoveredElsewhere,
+  loadWipClassificationContext,
+  loadWipPolicy,
+  type WipPolicy,
+} from "@/lib/demand/wip-classification";
 import { getFantasyConfig } from "@/lib/fantasy/config";
-import { formatIST, getISTDateString, parseISTDateToUTC, nowUTC } from "@/lib/fantasy/time";
+import { getISTDateString, parseISTDateToUTC, nowUTC } from "@/lib/fantasy/time";
 import { roundHalfUpInt } from "@/lib/domain/diamond-rules";
 import crypto from "crypto";
 
@@ -30,8 +44,6 @@ export interface DemandRunOptions {
   sourcePolicy?: DemandSourcePolicy;
   windowDays?: number;
   referenceDate?: Date;
-  cursorBatchSize?: number;
-  wipEligibleStages?: string[];
 }
 
 export interface DemandCategoryTrace {
@@ -122,9 +134,13 @@ export interface DemandRunResult {
   totalBlocked: number;
   totalWipCoverage: number;
   totalUnallocatedWip: number;
+  /** WIP that could not be attributed to any planning category (quarantined, never invented). */
+  totalAmbiguousWip: number;
   totalPipelineNeed: number;
   totalApprovedPlanCoverage: number;
   totalRemainingUnplanned: number;
+  /** The WIP coverage policy applied by this run. */
+  wipPolicy: WipPolicy;
   salesCount: number;
   inventoryCount: number;
   wipCount: number;
@@ -140,26 +156,26 @@ export interface DemandRunResult {
 }
 
 /**
+ * Identity of the WIP coverage policy that was in force for a run. Any change to
+ * the rule's status, version or eligible stages changes the run fingerprint.
+ */
+export function wipPolicyFingerprint(policy: WipPolicy): string {
+  return `${policy.status}:${policy.ruleStatus ?? "NONE"}:${policy.ruleVersion ?? "NONE"}:${policy.eligibleStages.join(",")}`;
+}
+
+/**
  * Computes a deterministic SHA-256 fingerprint for active mappings, weight bands, and rules.
  */
-export function computeMappingFingerprint(
-  labMappings: Array<{ rawLab: string; normalizedLab: string; active?: boolean }>,
-  shapeMappings: Array<{ rawShape: string; normalizedShape: string; active?: boolean }>,
-  weightBands: Array<{ code: string; minCt: Prisma.Decimal | number; maxCt: Prisma.Decimal | number; active?: boolean }>,
-  wipRule?: string
-): string {
-  const labParts = [...labMappings]
-    .filter((l) => l.active !== false)
-    .sort((a, b) => a.rawLab.localeCompare(b.rawLab))
-    .map((l) => `${l.rawLab.trim().toUpperCase()}:${l.normalizedLab.trim().toUpperCase()}`);
+export function computeMappingFingerprint(mappings: CategoryMappings, wipFingerprint: string): string {
+  const labParts: string[] = [];
+  for (const [raw, normalized] of mappings.labMappings) labParts.push(`${raw}:${normalized.trim().toUpperCase()}`);
+  labParts.sort();
 
-  const shapeParts = [...shapeMappings]
-    .filter((s) => s.active !== false)
-    .sort((a, b) => a.rawShape.localeCompare(b.rawShape))
-    .map((s) => `${s.rawShape.trim().toUpperCase()}:${s.normalizedShape.trim().toUpperCase()}`);
+  const shapeParts: string[] = [];
+  for (const [raw, normalized] of mappings.shapeMappings) shapeParts.push(`${raw}:${normalized.trim().toUpperCase()}`);
+  shapeParts.sort();
 
-  const bandParts = [...weightBands]
-    .filter((w) => w.active !== false)
+  const bandParts = [...mappings.weightBands]
     .sort((a, b) => a.code.localeCompare(b.code))
     .map((w) => `${w.code}:${Number(w.minCt).toFixed(4)}-${Number(w.maxCt).toFixed(4)}`);
 
@@ -167,7 +183,7 @@ export function computeMappingFingerprint(
     labs: labParts,
     shapes: shapeParts,
     bands: bandParts,
-    wipRule: wipRule || "DEFAULT_STAGES",
+    wipPolicy: wipFingerprint,
   });
 
   return crypto.createHash("sha256").update(payload).digest("hex").slice(0, 16);
@@ -177,13 +193,8 @@ export function computeMappingFingerprint(
  * Computes current active mapping fingerprint from the database.
  */
 export async function computeCurrentMappingFingerprint(): Promise<string> {
-  const [labs, shapes, bands, wipRule] = await Promise.all([
-    db.labMapping.findMany({ where: { active: true } }),
-    db.shapeMapping.findMany({ where: { active: true } }),
-    db.weightBand.findMany({ where: { active: true }, orderBy: { sortOrder: "asc" } }),
-    db.businessRule.findUnique({ where: { ruleId: "BR-WIP-001" } }),
-  ]);
-  return computeMappingFingerprint(labs, shapes, bands, wipRule?.version);
+  const [mappings, policy] = await Promise.all([loadCategoryMappings(db), loadWipPolicy(db)]);
+  return computeMappingFingerprint(mappings, wipPolicyFingerprint(policy));
 }
 
 /**
@@ -261,34 +272,6 @@ export async function unlockDemandCalculation(
 }
 
 /**
- * Resolves exactly one active WeightBand for a given carat weight.
- */
-function resolveWeightBand(
-  weight: number,
-  bands: Array<{ id: string; code: string; label: string; minCt: Prisma.Decimal; maxCt: Prisma.Decimal }>
-) {
-  for (const b of bands) {
-    const min = Number(b.minCt);
-    const max = Number(b.maxCt);
-    if (weight >= min && weight <= max) {
-      return b;
-    }
-  }
-  return null;
-}
-
-const DEFAULT_ELIGIBLE_WIP_STAGES = [
-  "WIP_LASER",
-  "WIP_POLISHING",
-  "WIP_GRADING",
-  "POLISHING",
-  "LASER",
-  "GRADING",
-  "BLOCKING",
-  "BRUTING",
-];
-
-/**
  * Executes a full, deterministic 90-day Demand & Inventory calculation run.
  */
 export async function runDemandCalculation(options: DemandRunOptions = {}): Promise<DemandRunResult> {
@@ -353,43 +336,18 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
   let lockReleased = false;
 
   try {
-    // 3. Load active mappings, weight bands, and rules
-    const [labMappingsList, shapeMappingsList, weightBands, wipRule] = await Promise.all([
-      db.labMapping.findMany({ where: { active: true } }),
-      db.shapeMapping.findMany({ where: { active: true } }),
-      db.weightBand.findMany({ where: { active: true }, orderBy: { sortOrder: "asc" } }),
-      db.businessRule.findUnique({ where: { ruleId: "BR-WIP-001" } }),
-    ]);
+    // 3. Load active mappings, weight bands, and the WIP coverage policy.
+    // Category resolution and WIP classification are shared with every other consumer
+    // (WIP Inventory, Demand Trace, country position) so the numbers cannot diverge.
+    const mappings = await loadCategoryMappings(db);
+    const wipContext = await loadWipClassificationContext(db, { mappings });
+    const wipPolicy: WipPolicy = wipContext.policy;
 
-    const mappingFingerprint = computeMappingFingerprint(
-      labMappingsList,
-      shapeMappingsList,
-      weightBands,
-      wipRule?.version
-    );
+    const labMappingsMap = mappings.labMappings;
+    const shapeMappingsMap = mappings.shapeMappings;
+    const weightBands = mappings.weightBands;
 
-    const labMappingsMap = new Map<string, string>();
-    for (const m of labMappingsList) {
-      labMappingsMap.set(m.rawLab.trim().toUpperCase(), m.normalizedLab);
-    }
-
-    const shapeMappingsMap = new Map<string, string>();
-    for (const m of shapeMappingsList) {
-      shapeMappingsMap.set(m.rawShape.trim().toUpperCase(), m.normalizedShape.toUpperCase());
-    }
-
-    // Determine eligible WIP stages
-    let eligibleWipStages = options.wipEligibleStages ?? DEFAULT_ELIGIBLE_WIP_STAGES;
-    if (wipRule?.configuration) {
-      try {
-        const parsed = JSON.parse(wipRule.configuration);
-        if (Array.isArray(parsed.eligibleStages) && parsed.eligibleStages.length > 0) {
-          eligibleWipStages = parsed.eligibleStages;
-        }
-      } catch {
-        // Fallback to default stages
-      }
-    }
+    const mappingFingerprint = computeMappingFingerprint(mappings, wipPolicyFingerprint(wipPolicy));
 
     // Source synchronization checkpoint info
     const [checkpointRecord, lastSyncRun] = await Promise.all([
@@ -561,16 +519,8 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
       polishedMirrorMap.set(p.fantasyLotId, p);
     }
 
-    // 6. FETCH CURRENT MANUFACTURING WIP
-    const currentWipLots = await db.lotMasterRecord.findMany({
-      where: {
-        isCurrent: true,
-        OR: [
-          { roughOrPolished: "WIP" },
-          { entityType: "WIP" },
-        ],
-      },
-    });
+    // 6. CLASSIFY CURRENT MANUFACTURING WIP (shared classifier — same result as the WIP page)
+    const wipInventory = await classifyCurrentWip(db, { context: wipContext });
 
     // 6b. FETCH NON-SALE REMOVALS IN 90D WINDOW (for traceability & exclusion reporting)
     const nonSaleRemovalLots = await db.lotMasterRecord.findMany({
@@ -658,12 +608,6 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
       }
       return trace;
     }
-
-function resolveApprovedShape(rawShape: string | null | undefined, shapeMap: Map<string, string>): string {
-  if (!rawShape) return "UNKNOWN";
-  const key = rawShape.trim().toUpperCase();
-  return shapeMap.get(key) || "UNKNOWN";
-}
 
     let salesCount = 0;
     let inventoryCount = 0;
@@ -975,93 +919,120 @@ function resolveApprovedShape(rawShape: string | null | undefined, shapeMap: Map
       }
     }
 
-    // Process Manufacturing WIP Records
-    const wipTrackedPieceCodes = new Set<string>();
+    // Process Manufacturing WIP Records through the shared classifier.
+    // Eligible WIP reduces the pipeline requirement only when BR-WIP-001 is confirmed;
+    // ambiguous WIP is quarantined instead of being mapped into a business category.
+    const bandByCode = new Map(weightBands.map((b) => [b.code, b]));
+    let ambiguousWipPieces = 0;
 
-    for (const wip of currentWipLots) {
+    for (const wip of wipInventory.results) {
       wipCount++;
-      const resolvedLab = wip.labNormalized
-        ? { normalized: wip.labNormalized, requiresReview: false }
-        : resolveLabNormalization(wip.labRaw, labMappingsMap);
 
-      const normLab = resolvedLab.normalized;
-      const normShape = resolveApprovedShape(wip.shape, shapeMappingsMap);
-      const weight = Number(wip.weight);
-      const qty = Number(wip.quantity) > 0 ? Number(wip.quantity) : 1;
-      const band = resolveWeightBand(weight, weightBands);
-      const stageUpper = (wip.wipStage || wip.currentStatus || "").toUpperCase();
-      const isEligibleStage = eligibleWipStages.some((s) => stageUpper.includes(s));
+      if (wip.outcome === "COMPLETED" || wip.outcome === "ALREADY_POLISHED") {
+        // Represented as finished output elsewhere: neither coverage nor open WIP.
+        continue;
+      }
 
-      if (band && normShape !== "UNKNOWN" && normLab !== "UNKNOWN" && !resolvedLab.requiresReview && isEligibleStage) {
-        const trace = getOrCreateCategoryTrace(normLab, normShape, band);
-        trace.wipCoverage += Math.round(qty);
+      const band = wip.weightBandCode ? bandByCode.get(wip.weightBandCode) : undefined;
+
+      if (wip.outcome === "ELIGIBLE" && band && wip.category) {
+        const trace = getOrCreateCategoryTrace(wip.lab, wip.shape, band);
+        trace.wipCoverage += wip.quantity;
         trace.eligibleWipLots.push({
           lotId: wip.lotId,
-          wipStage: wip.wipStage,
-          weight,
+          wipStage: wip.stageRaw,
+          weight: wip.weight,
           kapan: wip.kapan,
-          quantity: qty,
+          quantity: wip.quantity,
         });
         traceItemsToPersist.push({
           runId: initialRun.id,
           planningCategory: trace.category,
           traceType: "WIP_ELIGIBLE",
           lotId: wip.lotId,
-          wipStage: wip.wipStage,
-          quantity: qty,
-          weight,
-          lab: normLab,
-          shape: normShape,
+          wipStage: wip.stageRaw,
+          quantity: wip.quantity,
+          weight: wip.weight,
+          lab: wip.lab,
+          shape: wip.shape,
           weightBand: band.label,
+          reason: wip.reason,
           isIncluded: true,
         });
-      } else {
-        excludedCount++;
-        const dqCode = `DQ-UNMAPPED-WIP-${wip.lotId}`;
-        dqIssuesToCreate.push({
-          issueCode: dqCode,
-          source: "DEMAND_CALCULATION",
-          entity: "ManufacturingWIP",
-          recordId: wip.lotId,
-          rule: !isEligibleStage ? "INELIGIBLE_WIP_STAGE" : normShape === "UNKNOWN" ? "UNMAPPED_SHAPE" : "UNMAPPED_WIP_ATTRIBUTES",
-          message: `WIP record ${wip.lotId} ineligible for shortage coverage (Stage: ${wip.wipStage}, Lab: ${wip.labRaw})`,
-          severity: "INFO",
-          status: "OPEN",
-          affectedField: !isEligibleStage ? "wipStage" : "attributes",
-          downstreamImpact: "Tracked as unallocated WIP; does not deduct from shortage",
-        });
-
-        if (band) {
-          const fallbackLab = normLab !== "UNKNOWN" ? normLab : "NON_CERTIFIED";
-          const fallbackShape = normShape !== "UNKNOWN" ? normShape : "ROUND";
-          const trace = getOrCreateCategoryTrace(fallbackLab, fallbackShape, band);
-          trace.unallocatedWip += Math.round(qty);
-          const reason = !isEligibleStage ? `Ineligible WIP stage (${wip.wipStage})` : `Ambiguous WIP attributes`;
-          trace.excludedLots.push({ lotId: wip.lotId, reason });
-          traceItemsToPersist.push({
-            runId: initialRun.id,
-            planningCategory: trace.category,
-            traceType: "WIP_UNALLOCATED",
-            lotId: wip.lotId,
-            wipStage: wip.wipStage,
-            quantity: qty,
-            weight,
-            lab: fallbackLab,
-            shape: fallbackShape,
-            weightBand: band.label,
-            reason,
-            isIncluded: false,
-          });
-        }
+        continue;
       }
+
+      // Everything below is real WIP that does not reduce shortage.
+      excludedCount++;
+      dqIssuesToCreate.push({
+        issueCode: `DQ-UNMAPPED-WIP-${wip.lotId}`,
+        source: "DEMAND_CALCULATION",
+        entity: "ManufacturingWIP",
+        recordId: wip.lotId,
+        rule:
+          wip.outcome === "INELIGIBLE_STAGE"
+            ? "INELIGIBLE_WIP_STAGE"
+            : wip.outcome === "POLICY_NOT_CONFIGURED"
+            ? "WIP_POLICY_NOT_CONFIGURED"
+            : wip.categoryFailure === "UNMAPPED_SHAPE"
+            ? "UNMAPPED_SHAPE"
+            : wip.categoryFailure === "UNMAPPED_WEIGHT_BAND"
+            ? "UNMAPPED_WEIGHT_BAND"
+            : "UNMAPPED_WIP_ATTRIBUTES",
+        message: `WIP record ${wip.lotId} does not reduce shortage (stage ${wip.stage}, outcome ${wip.outcome})`,
+        severity: wip.outcome === "AMBIGUOUS" ? "WARNING" : "INFO",
+        status: "OPEN",
+        affectedField: wip.outcome === "INELIGIBLE_STAGE" ? "wipStage" : wip.outcome === "AMBIGUOUS" ? "attributes" : "businessRule",
+        rawValue: wip.stageRaw,
+        downstreamImpact: "Tracked as unallocated WIP; does not deduct from shortage",
+      });
+
+      if (wip.outcome === "AMBIGUOUS" || !band || !wip.category) {
+        // Quarantined: no business category may be invented for it.
+        ambiguousWipPieces += wip.quantity;
+        traceItemsToPersist.push({
+          runId: initialRun.id,
+          planningCategory: QUARANTINE_CATEGORY,
+          traceType: "WIP_UNALLOCATED",
+          lotId: wip.lotId,
+          wipStage: wip.stageRaw,
+          quantity: wip.quantity,
+          weight: wip.weight,
+          lab: wip.lab,
+          shape: wip.shape,
+          weightBand: wip.weightBandLabel,
+          reason: wip.reason,
+          isIncluded: false,
+        });
+        continue;
+      }
+
+      const trace = getOrCreateCategoryTrace(wip.lab, wip.shape, band);
+      trace.unallocatedWip += wip.quantity;
+      trace.excludedLots.push({ lotId: wip.lotId, reason: wip.reason });
+      traceItemsToPersist.push({
+        runId: initialRun.id,
+        planningCategory: trace.category,
+        traceType: "WIP_UNALLOCATED",
+        lotId: wip.lotId,
+        wipStage: wip.stageRaw,
+        quantity: wip.quantity,
+        weight: wip.weight,
+        lab: wip.lab,
+        shape: wip.shape,
+        weightBand: band.label,
+        reason: wip.reason,
+        isIncluded: false,
+      });
     }
 
     // Process Approved Plan Coverage (Pieces)
     for (const plan of approvedPlanOptions) {
       for (const p of plan.pieces) {
         planCount++;
-        // Check if piece already converted to WIP or polished
-        if (p.fulfilled || (p.pieceCode && wipTrackedPieceCodes.has(p.pieceCode)) || p.actualPolishedLotId) {
+        // Output already tracked as manufacturing WIP or as polished stock is counted
+        // there; counting it again here would double-count the same physical piece.
+        if (isPlanPieceCoveredElsewhere(p, wipInventory.wipLotIds)) {
           continue;
         }
 
@@ -1230,9 +1201,8 @@ function resolveApprovedShape(rawShape: string | null | undefined, shapeMap: Map
 
       await tx.demandMetric.createMany({ data: metricRows });
 
-      // Create DemandMetricTraceItem rows if model exists on tx
-      if (traceItemsToPersist.length > 0 && (tx as any).demandMetricTraceItem) {
-        await (tx as any).demandMetricTraceItem.createMany({
+      if (traceItemsToPersist.length > 0) {
+        await tx.demandMetricTraceItem.createMany({
           data: traceItemsToPersist,
           skipDuplicates: true,
         });
@@ -1247,6 +1217,10 @@ function resolveApprovedShape(rawShape: string | null | undefined, shapeMap: Map
           totalExcess,
           mappingVersion: "CONFIG-V1",
           mappingFingerprint,
+          // Provenance: which WIP coverage policy this run actually applied.
+          wipPolicyStatus: wipPolicy.status,
+          wipRuleVersion: wipPolicy.ruleVersion,
+          wipEligibleStages: wipPolicy.eligibleStages.join(","),
           checkpoint: currentCheckpoint,
           lastBatchId,
           sourceCutoff: actualSourceCutoff,
@@ -1302,9 +1276,11 @@ function resolveApprovedShape(rawShape: string | null | undefined, shapeMap: Map
       totalBlocked,
       totalWipCoverage,
       totalUnallocatedWip,
+      totalAmbiguousWip: ambiguousWipPieces,
       totalPipelineNeed,
       totalApprovedPlanCoverage,
       totalRemainingUnplanned,
+      wipPolicy,
       salesCount,
       inventoryCount,
       wipCount,

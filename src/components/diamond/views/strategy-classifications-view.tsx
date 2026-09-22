@@ -366,6 +366,7 @@ export function StrategyClassificationsView() {
             `${r.lab} ${r.shape} ${r.weightBand} ${r.classificationLabel} ${r.reason}`.toLowerCase().includes(q.toLowerCase())
           }
           exportable
+          exportPermission="analysis.export"
           exportFilename="strategy-classifications.csv"
           maxHeight="540px"
         />

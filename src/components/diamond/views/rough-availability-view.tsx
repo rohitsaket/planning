@@ -320,6 +320,7 @@ export function RoughAvailabilityView() {
           );
         }}
         exportable
+        exportPermission="plan.export"
         exportFilename="rough-availability.csv"
         excelExportable
         excelExportFilename="rough-availability.xlsx"

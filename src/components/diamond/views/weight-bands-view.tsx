@@ -63,6 +63,7 @@ export function WeightBandsView() {
           emptyMessage="No weight bands configured"
           maxHeight="640px"
           exportable
+          exportPermission="config.export"
           exportFilename="weight-bands.csv"
           searchable
           searchPlaceholder="Search code or label..."

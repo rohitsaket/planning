@@ -187,6 +187,7 @@ export function FantasyRoughView() {
         initialSortKey="lastUpdated"
         initialSortDir="desc"
         exportable
+        exportPermission="fantasy.export"
         exportFilename="fantasy-rough-stock.csv"
         excelExportable
         excelExportFilename="fantasy-rough-stock.xlsx"

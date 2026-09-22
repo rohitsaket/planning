@@ -403,6 +403,7 @@ export function FantasySyncView() {
           initialSortKey="startedAt"
           initialSortDir="desc"
           exportable
+          exportPermission="fantasy.export"
           exportFilename="fantasy-sync-audit-log.csv"
         />
       </Section>

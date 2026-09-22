@@ -5,13 +5,14 @@ import { useApi } from "@/lib/api-client";
 import { KpiCard } from "@/components/diamond/shared/kpi-card";
 import { Section, PageHeader } from "@/components/diamond/shared/page-header";
 import { DataTable, Column } from "@/components/diamond/shared/data-table";
-import { NumberCell, Money } from "@/components/diamond/shared/empty-state";
+import { NumberCell, Money, InfoBanner } from "@/components/diamond/shared/empty-state";
+import { ServerPagination } from "@/components/diamond/shared/server-pagination";
 import { useGlobalFilter } from "@/stores/global-filter";
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   Legend,
 } from "recharts";
-import { Package, Gem, Diamond, Layers } from "lucide-react";
+import { Gem, Diamond, Layers } from "lucide-react";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -20,17 +21,65 @@ interface PolishedRow {
   dimension: string;
   pieces: number;
   carats: number;
-  value: number;
+  /** null when no approved valuation model can price these stones. */
+  estimatedValue: number | null;
+  valuedPieces: number;
+  unvaluedPieces: number;
 }
 
-interface AgingBucket { "0-30": number; "31-60": number; "61-90": number; "91-180": number; "181-365": number; "365+": number; }
+interface AgingBucketRow {
+  label: string;
+  pieces: number;
+  carats: number;
+}
+
+interface ValuationState {
+  status: "CONFIGURED" | "NOT_CONFIGURED";
+  reason: string;
+  message: string;
+  modelVersion: string | null;
+  effectiveDate: string | null;
+  currency: string | null;
+  priceSource: string | null;
+  isEstimate: boolean;
+}
+
+interface PolishedDetailRow {
+  id: string;
+  fantasyLotId: string;
+  planningClass: string;
+  fantasyStatus: string;
+  lab: string | null;
+  shape: string;
+  weightBand: string | null;
+  weight: number;
+  color: string | null;
+  clarity: string | null;
+  country: string;
+  branch: string;
+  lastUpdated: string;
+  estimatedValue: number | null;
+}
 
 interface PolishedResponse {
-  totalPieces: number;
-  totalCarats: number;
   dimension: string;
   rows: PolishedRow[];
-  aging: AgingBucket;
+  aging: AgingBucketRow[];
+  slowMoving: number;
+  slowMovingPct: number;
+  summary: {
+    pieces: number;
+    carats: number;
+    estimatedValue: number | null;
+    valuedPieces: number;
+    unvaluedPieces: number;
+  };
+  valuation: ValuationState;
+  detail: PolishedDetailRow[];
+  page: number;
+  pageSize: number;
+  total: number;
+  hasMore: boolean;
 }
 
 const DIMENSIONS = [
@@ -46,63 +95,44 @@ const DIMENSIONS = [
 
 export function PolishedView() {
   const [dimension, setDimension] = useState("planningClass");
-  // Global filter — /api/analysis/polished accepts `dimension` and (forward-compat)
-  // ignores country/lab/branch as separate filter params; we still append them so the
-  // URL stays consistent and the polished API can pick them up when extended.
+  const [page, setPage] = useState(1);
   const globalFilter = useGlobalFilter();
+
   const url = useMemo(() => {
     const params = new URLSearchParams();
     params.set("dimension", dimension);
     if (globalFilter.country) params.set("country", globalFilter.country);
     if (globalFilter.branch) params.set("branch", globalFilter.branch);
     if (globalFilter.lab) params.set("lab", globalFilter.lab);
+    params.set("page", String(page));
+    params.set("pageSize", "50");
     return `/api/analysis/polished?${params.toString()}`;
-  }, [dimension, globalFilter.country, globalFilter.branch, globalFilter.lab]);
+  }, [dimension, globalFilter.country, globalFilter.branch, globalFilter.lab, page]);
+
   const { data, isLoading } = useApi<PolishedResponse>(url);
 
-  const agingData = data
-    ? ([
-        { name: "0-30", pieces: data.aging["0-30"] },
-        { name: "31-60", pieces: data.aging["31-60"] },
-        { name: "61-90", pieces: data.aging["61-90"] },
-        { name: "91-180", pieces: data.aging["91-180"] },
-        { name: "181-365", pieces: data.aging["181-365"] },
-        { name: "365+", pieces: data.aging["365+"] },
-      ])
-    : [];
+  // A changed filter or dimension is a different dataset: restart at page one.
+  const filterKey = `${dimension}|${globalFilter.country ?? ""}|${globalFilter.branch ?? ""}|${globalFilter.lab ?? ""}`;
+  const [lastFilterKey, setLastFilterKey] = useState(filterKey);
+  if (filterKey !== lastFilterKey) {
+    setLastFilterKey(filterKey);
+    setPage(1);
+  }
+
   const rows = data?.rows ?? [];
+  const aging = data?.aging ?? [];
+  const agingData = aging.map((b) => ({ name: b.label, pieces: b.pieces }));
+  const valuationAvailable = data?.valuation.status === "CONFIGURED";
 
-  // Total Pieces sparkline — aging buckets (6 buckets → pad to 7 with last value)
-  const piecesSpark = useMemo(() => {
-    if (data?.aging) {
-      const slice = [
-        data.aging["0-30"],
-        data.aging["31-60"],
-        data.aging["61-90"],
-        data.aging["91-180"],
-        data.aging["181-365"],
-        data.aging["365+"],
-      ];
-      while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 1);
-      return slice;
-    }
-    // Synthetic fallback
-    return [3, 5, 4, 6, 8, 7, 9];
-  }, [data?.aging]);
-
-  // Total Carats sparkline — aging buckets don't expose carats, so use top 7
-  // by-dimension carat totals as a real-data fallback (better than synthetic).
+  // Sparklines are drawn only from real data — never from synthetic filler.
+  const piecesSpark = useMemo(() => (aging.length >= 2 ? aging.map((b) => b.pieces) : undefined), [aging]);
   const caratsSpark = useMemo(() => {
     const slice = rows.slice(0, 7).map((r) => r.carats);
-    while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 1);
-    return slice.length >= 2 ? slice : [3, 5, 4, 6, 8, 7, 9];
+    return slice.length >= 2 ? slice : undefined;
   }, [rows]);
-
-  // Dimensions Distinct sparkline — top 7 dimension rows' piece counts
   const dimPiecesSpark = useMemo(() => {
     const slice = rows.slice(0, 7).map((r) => r.pieces);
-    while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 1);
-    return slice.length >= 2 ? slice : [3, 5, 4, 6, 8, 7, 9];
+    return slice.length >= 2 ? slice : undefined;
   }, [rows]);
 
   const columns: Column<PolishedRow>[] = [
@@ -114,8 +144,41 @@ export function PolishedView() {
       cell: (r) => <NumberCell value={r.pieces} /> },
     { key: "carats", header: "Carats", sortable: true, sortValue: (r) => r.carats, align: "right",
       cell: (r) => <NumberCell value={r.carats} /> },
-    { key: "value", header: "Value (USD)", sortable: true, sortValue: (r) => r.value, align: "right",
-      cell: (r) => <Money value={r.value} /> },
+    {
+      key: "estimatedValue",
+      header: valuationAvailable ? `Estimated Value (${data?.valuation.currency ?? "USD"})` : "Estimated Value",
+      sortable: true,
+      sortValue: (r) => r.estimatedValue ?? -1,
+      align: "right",
+      exportValue: (r) => (r.estimatedValue === null ? "UNAVAILABLE" : r.estimatedValue),
+      cell: (r) =>
+        r.estimatedValue === null ? (
+          <span className="text-[10px] font-mono text-muted-foreground">UNAVAILABLE</span>
+        ) : (
+          <div className="flex items-center justify-end gap-1">
+            <Money value={r.estimatedValue} />
+            <span className="text-[9px] px-1 py-0.2 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 font-mono">EST</span>
+          </div>
+        ),
+    },
+  ];
+
+  const detailColumns: Column<PolishedDetailRow>[] = [
+    { key: "fantasyLotId", header: "Lot ID", sortable: true, sortValue: (r) => r.fantasyLotId, cell: (r) => <span className="font-mono text-[11px]">{r.fantasyLotId}</span> },
+    { key: "planningClass", header: "Class", cell: (r) => <span className="text-[11px]">{r.planningClass}</span> },
+    { key: "lab", header: "Lab", cell: (r) => <span className="text-[11px]">{r.lab ?? "—"}</span> },
+    { key: "shape", header: "Shape", cell: (r) => <span className="text-[11px]">{r.shape}</span> },
+    { key: "weightBand", header: "Weight Band", cell: (r) => <span className="text-[11px]">{r.weightBand ?? "—"}</span> },
+    { key: "weight", header: "Carats", align: "right", sortable: true, sortValue: (r) => r.weight, cell: (r) => <NumberCell value={r.weight} /> },
+    { key: "country", header: "Location", cell: (r) => <span className="text-[11px]">{r.country} / {r.branch}</span> },
+    {
+      key: "estimatedValue",
+      header: "Est. Value",
+      align: "right",
+      exportValue: (r) => (r.estimatedValue === null ? "UNAVAILABLE" : r.estimatedValue),
+      cell: (r) => (r.estimatedValue === null ? <span className="text-[10px] font-mono text-muted-foreground">—</span> : <Money value={r.estimatedValue} />),
+    },
+    { key: "lastUpdated", header: "Last Updated", sortable: true, sortValue: (r) => r.lastUpdated, cell: (r) => <span className="text-[11px]">{new Date(r.lastUpdated).toLocaleDateString()}</span> },
   ];
 
   return (
@@ -147,14 +210,35 @@ export function PolishedView() {
               </span>
             )}
             <span className="text-[10px] text-muted-foreground">Dimension: {DIMENSIONS.find((d) => d.value === dimension)?.label}</span>
+            <span
+              className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded font-mono border ${
+                valuationAvailable
+                  ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20"
+                  : "bg-muted text-muted-foreground border-border"
+              }`}
+            >
+              Valuation: {valuationAvailable ? `${data?.valuation.modelVersion} (estimate)` : "NOT_CONFIGURED"}
+            </span>
           </div>
         }
       />
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-        <KpiCard label="Total Pieces" value={data?.totalPieces ?? 0} unit="pcs" intent="info" hint="Polished lots (all dimensions)" icon={Gem} sparkline={piecesSpark} />
-        <KpiCard label="Total Carats" value={(data?.totalCarats ?? 0).toFixed(2)} unit="ct" intent="default" hint="Σ weight" icon={Diamond} sparkline={caratsSpark} />
-        <KpiCard label="Dimensions Distinct" value={(data?.rows.length ?? 0)} intent="success" hint={`By ${DIMENSIONS.find((d) => d.value === dimension)?.label}`} icon={Layers} sparkline={dimPiecesSpark} />
+      {data?.valuation && (
+        <InfoBanner variant={valuationAvailable ? "info" : "warning"}>{data.valuation.message}</InfoBanner>
+      )}
+
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
+        <KpiCard label="Total Pieces" value={data?.summary.pieces ?? 0} unit="pcs" intent="info" hint="Polished lots matching the filters" icon={Gem} sparkline={piecesSpark} />
+        <KpiCard label="Total Carats" value={(data?.summary.carats ?? 0).toFixed(2)} unit="ct" intent="default" hint="Σ weight" icon={Diamond} sparkline={caratsSpark} />
+        <KpiCard
+          label="Estimated Value"
+          value={valuationAvailable && data?.summary.estimatedValue !== null ? (data?.summary.estimatedValue ?? 0) : "UNAVAILABLE"}
+          unit={valuationAvailable ? data?.valuation.currency ?? "USD" : undefined}
+          intent={valuationAvailable ? "success" : "warning"}
+          hint={valuationAvailable ? `${data?.summary.valuedPieces ?? 0} of ${data?.summary.pieces ?? 0} pieces priced by the model` : "No approved valuation model configured"}
+          icon={Layers}
+        />
+        <KpiCard label="Dimensions Distinct" value={rows.length} intent="success" hint={`By ${DIMENSIONS.find((d) => d.value === dimension)?.label}`} icon={Layers} sparkline={dimPiecesSpark} />
       </div>
 
       <Section title="Aging Buckets" description="Polished lot count by days since last update">
@@ -178,20 +262,44 @@ export function PolishedView() {
         </div>
       </Section>
 
-      <Section title={`By ${DIMENSIONS.find((d) => d.value === dimension)?.label}`} description="Sortable breakdown with pieces, carats and estimated value">
+      <Section title={`By ${DIMENSIONS.find((d) => d.value === dimension)?.label}`} description="Sortable breakdown with pieces, carats and — when an approved model exists — estimated value">
         <DataTable<PolishedRow>
           columns={columns}
-          rows={data?.rows ?? []}
+          rows={rows}
           loading={isLoading}
           emptyMessage="No polished stock data available."
           initialSortKey="pieces"
           initialSortDir="desc"
           exportable
+          exportPermission="analysis.export"
           exportFilename={`polished-${dimension}.csv`}
           searchable
           searchPlaceholder="Search dimension..."
           searchFn={(r, q) => r.dimension.toLowerCase().includes(q.toLowerCase())}
           maxHeight="500px"
+        />
+      </Section>
+
+      <Section title="Polished Lots" description="Individual lots for the current filters">
+        <DataTable<PolishedDetailRow>
+          columns={detailColumns}
+          rows={data?.detail ?? []}
+          loading={isLoading}
+          emptyMessage="No polished lots for the current filters."
+          exportable
+          exportPermission="analysis.export"
+          exportFilename="polished-lots.csv"
+          exportScope="current-page"
+          maxHeight="420px"
+        />
+        <ServerPagination
+          page={data?.page ?? 1}
+          pageSize={data?.pageSize ?? 50}
+          total={data?.total ?? 0}
+          hasMore={data?.hasMore ?? false}
+          onPageChange={setPage}
+          loading={isLoading}
+          label="polished lots"
         />
       </Section>
     </div>

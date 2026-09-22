@@ -1,156 +1,218 @@
+import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
-import { withApi, SCAN_MAX, scanned } from "@/lib/api/with-api";
+import { withApi, qStr, qInt } from "@/lib/api/with-api";
 
-// Customer Reorder Signal — data science advisory feature (spec section 64).
-// Analyzes each customer's historical repeat purchase intervals per category and predicts:
-// - typical repeat interval (days)
-// - likely reorder window (next N days)
-// - likely quantity range
-// Clearly labeled as PREDICTION — never converts prediction into confirmed order.
-export const GET = withApi({ permission: "analysis.read" }, async () => {
-  const customers = await db.customer.findMany({ take: SCAN_MAX,
-    include: {
-      salesRecords: {
-        where: { lotStatusDb: "Invoice" },
-        orderBy: { docDate: "asc" },
-      },
-    },
-  }).then(scanned);
+// Customer Reorder Signal — ADVISORY prediction only.
+//
+// Repeat-purchase intervals are computed in PostgreSQL (one aggregate per customer,
+// not one row per sale), the ranked list is paginated on the server, and category
+// preferences are fetched only for the visible page.
+//
+// A prediction never becomes a confirmed order, requirement or reservation.
 
-  const now = new Date();
-  const signals: Array<{
-    customerId: string;
-    customerCode: string;
-    customerName: string;
-    country: string;
-    businessPriority: string | null;
-    totalOrders: number;
-    lastPurchaseDate: string | null;
-    avgIntervalDays: number | null;
-    typicalCategories: string[];
-    likelyReorderWindow: string | null;
-    likelyReorderDate: string | null;
-    likelyQtyRange: string;
-    daysSinceLastPurchase: number | null;
-    confidence: number;
-    signal: "PREDICTED_SOON" | "PREDICTED_LATER" | "INSUFFICIENT_DATA" | "DORMANT";
-  }> = [];
+type Signal = "PREDICTED_SOON" | "PREDICTED_LATER" | "INSUFFICIENT_DATA" | "DORMANT";
+const SIGNAL_RANK: Record<Signal, number> = {
+  PREDICTED_SOON: 0,
+  PREDICTED_LATER: 1,
+  INSUFFICIENT_DATA: 2,
+  DORMANT: 3,
+};
 
-  for (const c of customers) {
-    const records = c.salesRecords;
-    if (records.length === 0) {
-      signals.push({
-        customerId: c.id,
-        customerCode: c.customerCode,
-        customerName: c.name,
-        country: c.country,
-        businessPriority: c.businessPriority,
+interface CustomerStatsRow {
+  id: string;
+  customer_code: string;
+  name: string;
+  country: string;
+  business_priority: string | null;
+  total_orders: number;
+  last_purchase: Date | null;
+  gap_count: number;
+  avg_gap: number | null;
+  sd_gap: number | null;
+}
+
+export const GET = withApi({ permission: "analysis.read" }, async (req: Request) => {
+  const url = new URL(req.url);
+  const country = qStr(url, "country");
+  const branch = qStr(url, "branch");
+  const page = qInt(url, "page", { def: 1, min: 1, max: 1_000_000 });
+  const pageSize = qInt(url, "pageSize", { def: 50, min: 1, max: 500 });
+
+  const filters: Prisma.Sql[] = [];
+  if (country) filters.push(Prisma.sql`c.country = ${country}`);
+  if (branch) filters.push(Prisma.sql`c.branch = ${branch}`);
+  const whereSql = filters.length ? Prisma.sql`WHERE ${Prisma.join(filters, " AND ")}` : Prisma.empty;
+
+  const stats = await db.$queryRaw<CustomerStatsRow[]>(Prisma.sql`
+    WITH ordered AS (
+      SELECT s."customerId",
+             s."docDate",
+             LAG(s."docDate") OVER (PARTITION BY s."customerId" ORDER BY s."docDate") AS prev_date
+      FROM "SalesRecord" s
+      WHERE s."lotStatusDb" = 'Invoice'
+    ),
+    gaps AS (
+      SELECT "customerId",
+             EXTRACT(EPOCH FROM ("docDate" - prev_date)) / 86400 AS gap_days
+      FROM ordered
+      WHERE prev_date IS NOT NULL
+    ),
+    gap_stats AS (
+      SELECT "customerId",
+             COUNT(*)::int AS gap_count,
+             AVG(gap_days)::float8 AS avg_gap,
+             COALESCE(STDDEV_POP(gap_days), 0)::float8 AS sd_gap
+      FROM gaps
+      WHERE gap_days > 0 AND gap_days < 365
+      GROUP BY "customerId"
+    ),
+    totals AS (
+      SELECT "customerId", COUNT(*)::int AS total_orders, MAX("docDate") AS last_purchase
+      FROM "SalesRecord"
+      WHERE "lotStatusDb" = 'Invoice'
+      GROUP BY "customerId"
+    )
+    SELECT c.id,
+           c."customerCode" AS customer_code,
+           c.name,
+           c.country,
+           c."businessPriority" AS business_priority,
+           COALESCE(t.total_orders, 0) AS total_orders,
+           t.last_purchase,
+           COALESCE(g.gap_count, 0) AS gap_count,
+           g.avg_gap,
+           g.sd_gap
+    FROM "Customer" c
+    LEFT JOIN totals t ON t."customerId" = c.id
+    LEFT JOIN gap_stats g ON g."customerId" = c.id
+    ${whereSql}
+  `);
+
+  const now = Date.now();
+  const DAY = 24 * 60 * 60 * 1000;
+
+  const signals = stats.map((s) => {
+    const lastPurchase = s.last_purchase ? new Date(s.last_purchase) : null;
+    const daysSinceLastPurchase = lastPurchase ? Math.floor((now - lastPurchase.getTime()) / DAY) : null;
+
+    if (s.total_orders === 0 || !lastPurchase) {
+      return {
+        customerId: s.id,
+        customerCode: s.customer_code,
+        customerName: s.name,
+        country: s.country,
+        businessPriority: s.business_priority,
         totalOrders: 0,
         lastPurchaseDate: null,
         avgIntervalDays: null,
-        typicalCategories: [],
         likelyReorderWindow: null,
         likelyReorderDate: null,
-        likelyQtyRange: "—",
         daysSinceLastPurchase: null,
         confidence: 0,
-        signal: "DORMANT",
-      });
-      continue;
+        signal: "DORMANT" as Signal,
+      };
     }
 
-    // Sort by date and compute intervals
-    const sorted = [...records].sort((a, b) => new Date(a.docDate).getTime() - new Date(b.docDate).getTime());
-    const intervals: number[] = [];
-    for (let i = 1; i < sorted.length; i++) {
-      const diff = (new Date(sorted[i].docDate).getTime() - new Date(sorted[i - 1].docDate).getTime()) / (1000 * 60 * 60 * 24);
-      if (diff > 0 && diff < 365) intervals.push(diff);
-    }
-    const avgInterval = intervals.length > 0 ? intervals.reduce((s, x) => s + x, 0) / intervals.length : null;
-    const lastDate = new Date(sorted[sorted.length - 1].docDate);
-    const daysSinceLast = Math.floor((now.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24));
-
-    // Categories purchased
-    const catCounts = new Map<string, number>();
-    for (const r of sorted) {
-      const cat = `${r.labNormalized ?? "Non-Cert"}|${r.shape}|${r.weightBandId ?? "Unmapped"}`;
-      catCounts.set(cat, (catCounts.get(cat) ?? 0) + 1);
-    }
-    const typicalCategories = Array.from(catCounts.entries())
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 3)
-      .map(([cat, count]) => {
-        const [lab, shape] = cat.split("|");
-        return `${shape} (${lab})`;
-      });
-
-    // Predict reorder
-    let likelyReorderDate: string | null = null;
-    let likelyReorderWindow: string | null = null;
-    let signal: "PREDICTED_SOON" | "PREDICTED_LATER" | "INSUFFICIENT_DATA" | "DORMANT" = "INSUFFICIENT_DATA";
-    let confidence = 0;
-    let likelyQtyRange = "—";
-
-    if (avgInterval && intervals.length >= 2) {
-      const predictedReorder = new Date(lastDate.getTime() + avgInterval * 24 * 60 * 60 * 1000);
-      likelyReorderDate = predictedReorder.toISOString();
-      const daysUntilReorder = Math.floor((predictedReorder.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-      if (daysUntilReorder < 0) {
-        likelyReorderWindow = `Overdue by ${Math.abs(daysUntilReorder)}d`;
-        signal = "PREDICTED_SOON";
-      } else if (daysUntilReorder <= 14) {
-        likelyReorderWindow = `Within ${daysUntilReorder}d`;
-        signal = "PREDICTED_SOON";
-      } else if (daysUntilReorder <= 45) {
-        likelyReorderWindow = `Within ${daysUntilReorder}d`;
-        signal = "PREDICTED_LATER";
-      } else {
-        likelyReorderWindow = `In ${daysUntilReorder}d`;
-        signal = "PREDICTED_LATER";
-      }
-      // Confidence based on interval consistency
-      const intervalVariance = intervals.length > 1
-        ? Math.sqrt(intervals.reduce((s, x) => s + Math.pow(x - avgInterval, 2), 0) / intervals.length)
-        : avgInterval * 0.5;
-      const cv = avgInterval > 0 ? intervalVariance / avgInterval : 1;
-      confidence = Math.max(0.3, Math.min(0.95, 1 - cv));
-      // Likely quantity range = min/max of historical order sizes
-      const orderSizes = Array.from(catCounts.values());
-      const minQty = Math.min(...orderSizes);
-      const maxQty = Math.max(...orderSizes);
-      likelyQtyRange = `${minQty}-${maxQty} pcs`;
-    } else if (records.length > 0) {
-      signal = "INSUFFICIENT_DATA";
-      confidence = 0.2;
-      likelyQtyRange = "1-3 pcs";
+    // Two or more observed gaps are required before an interval is predictive.
+    if (!s.avg_gap || s.gap_count < 2) {
+      return {
+        customerId: s.id,
+        customerCode: s.customer_code,
+        customerName: s.name,
+        country: s.country,
+        businessPriority: s.business_priority,
+        totalOrders: s.total_orders,
+        lastPurchaseDate: lastPurchase.toISOString(),
+        avgIntervalDays: s.avg_gap ? Math.round(s.avg_gap) : null,
+        likelyReorderWindow: null,
+        likelyReorderDate: null,
+        daysSinceLastPurchase,
+        confidence: 0.2,
+        signal: "INSUFFICIENT_DATA" as Signal,
+      };
     }
 
-    signals.push({
-      customerId: c.id,
-      customerCode: c.customerCode,
-      customerName: c.name,
-      country: c.country,
-      businessPriority: c.businessPriority,
-      totalOrders: records.length,
-      lastPurchaseDate: lastDate.toISOString(),
-      avgIntervalDays: avgInterval ? Math.round(avgInterval) : null,
-      typicalCategories,
-      likelyReorderWindow,
-      likelyReorderDate,
-      likelyQtyRange,
-      daysSinceLastPurchase: daysSinceLast,
-      confidence: num(confidence),
+    const predicted = new Date(lastPurchase.getTime() + s.avg_gap * DAY);
+    const daysUntil = Math.floor((predicted.getTime() - now) / DAY);
+    const signal: Signal = daysUntil <= 14 ? "PREDICTED_SOON" : "PREDICTED_LATER";
+    const cv = s.avg_gap > 0 ? (s.sd_gap ?? 0) / s.avg_gap : 1;
+
+    return {
+      customerId: s.id,
+      customerCode: s.customer_code,
+      customerName: s.name,
+      country: s.country,
+      businessPriority: s.business_priority,
+      totalOrders: s.total_orders,
+      lastPurchaseDate: lastPurchase.toISOString(),
+      avgIntervalDays: Math.round(s.avg_gap),
+      likelyReorderWindow:
+        daysUntil < 0 ? `Overdue by ${Math.abs(daysUntil)}d` : `Within ${daysUntil}d`,
+      likelyReorderDate: predicted.toISOString(),
+      daysSinceLastPurchase,
+      confidence: num(Math.max(0.3, Math.min(0.95, 1 - cv))),
       signal,
-    });
+    };
+  });
+
+  signals.sort(
+    (a, b) =>
+      SIGNAL_RANK[a.signal] - SIGNAL_RANK[b.signal] ||
+      (b.totalOrders ?? 0) - (a.totalOrders ?? 0) ||
+      a.customerName.localeCompare(b.customerName),
+  );
+
+  const total = signals.length;
+  const pageRows = signals.slice((page - 1) * pageSize, (page - 1) * pageSize + pageSize);
+
+  // Typical categories only for the customers actually shown.
+  const pageIds = pageRows.map((r) => r.customerId);
+  const categoryGroups = pageIds.length
+    ? await db.salesRecord.groupBy({
+        by: ["customerId", "labNormalized", "shape"],
+        where: { customerId: { in: pageIds }, lotStatusDb: "Invoice" },
+        _count: { _all: true },
+      })
+    : [];
+
+  const categoriesByCustomer = new Map<string, Array<{ label: string; count: number }>>();
+  for (const g of categoryGroups) {
+    const list = categoriesByCustomer.get(g.customerId) ?? [];
+    list.push({ label: `${g.shape} (${g.labNormalized ?? "Non-Cert"})`, count: g._count._all });
+    categoriesByCustomer.set(g.customerId, list);
   }
 
-  // Sort by signal urgency
-  const order = { PREDICTED_SOON: 0, PREDICTED_LATER: 1, INSUFFICIENT_DATA: 2, DORMANT: 3 };
-  signals.sort((a, b) => order[a.signal] - order[b.signal]);
+  const rows = pageRows.map((r) => ({
+    ...r,
+    typicalCategories: (categoriesByCustomer.get(r.customerId) ?? [])
+      .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
+      .slice(0, 3)
+      .map((c) => c.label),
+  }));
+
+  // Signal counts describe every customer in scope, not only the visible page.
+  const withPrediction = signals.filter((s) => s.signal === "PREDICTED_SOON" || s.signal === "PREDICTED_LATER");
+  const summary = {
+    customers: total,
+    predictedSoon: signals.filter((s) => s.signal === "PREDICTED_SOON").length,
+    predictedLater: signals.filter((s) => s.signal === "PREDICTED_LATER").length,
+    insufficientData: signals.filter((s) => s.signal === "INSUFFICIENT_DATA").length,
+    dormant: signals.filter((s) => s.signal === "DORMANT").length,
+    avgConfidence: withPrediction.length
+      ? num(withPrediction.reduce((s, r) => s + r.confidence, 0) / withPrediction.length)
+      : 0,
+  };
 
   return ok({
-    rows: signals,
-    advisoryNotice: "PREDICTION — Customer reorder signals are advisory only. Never convert a prediction into a confirmed order without business approval.",
+    rows,
+    summary,
+    page,
+    pageSize,
+    total,
+    hasMore: page * pageSize < total,
+    advisory: true,
+    advisoryNotice:
+      "PREDICTION — Customer reorder signals are advisory only. They never create a confirmed order, requirement or reservation without business approval.",
   });
 });

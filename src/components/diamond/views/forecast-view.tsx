@@ -124,6 +124,7 @@ export function ForecastView() {
           emptyMessage="No forecast rows"
           maxHeight="520px"
           exportable
+          exportPermission="analysis.export"
           exportFilename="forecast-predictions.csv"
           searchable
           searchPlaceholder="Search category..."

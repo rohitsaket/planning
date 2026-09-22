@@ -204,6 +204,7 @@ export function SalesTrendsView() {
           initialSortKey="total90"
           initialSortDir="desc"
           exportable
+          exportPermission="sales.export"
           exportFilename={`sales-trend-${groupBy}.csv`}
           searchable
           searchPlaceholder="Search group..."

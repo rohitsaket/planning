@@ -816,6 +816,7 @@ export function PlanComparisonView() {
                 );
               }}
               exportable
+              exportPermission="plan.export"
               exportFilename={`plan-comparison-${data.caseCode}.csv`}
               rowClassName={(r) =>
                 r.selected ? "bg-sky-50/50 dark:bg-sky-950/30" : ""

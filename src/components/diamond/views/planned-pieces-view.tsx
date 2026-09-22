@@ -316,6 +316,7 @@ export function PlannedPiecesView() {
           );
         }}
         exportable
+        exportPermission="plan.export"
         exportFilename="planned-pieces.csv"
         excelExportable
         excelExportFilename="planned-pieces.xlsx"

@@ -82,6 +82,7 @@ export function FeatureFlagsView() {
           emptyMessage="No feature flags defined"
           maxHeight="560px"
           exportable
+          exportPermission="config.export"
           exportFilename="feature-flags.csv"
           searchable
           searchPlaceholder="Search by code or name..."

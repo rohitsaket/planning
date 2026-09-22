@@ -1,9 +1,12 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import { useApi } from "@/lib/api-client";
+import { useGlobalFilter } from "@/stores/global-filter";
 import { KpiCard } from "@/components/diamond/shared/kpi-card";
 import { Section, PageHeader } from "@/components/diamond/shared/page-header";
 import { DataTable, type Column } from "@/components/diamond/shared/data-table";
+import { ServerPagination } from "@/components/diamond/shared/server-pagination";
 import { InfoBanner, Money, NumberCell, EmptyState } from "@/components/diamond/shared/empty-state";
 import {
   ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell,
@@ -20,7 +23,10 @@ import {
 interface AgingSummary {
   totalPieces: number;
   totalCarats: number;
-  totalValue: number;
+  /** null when no approved valuation model can price the stock. */
+  totalValue: number | null;
+  valuedPieces: number;
+  unvaluedPieces: number;
   slowMovingPieces: number;
   slowMovingPct: number;
   agedPieces: number;
@@ -28,11 +34,22 @@ interface AgingSummary {
   avgAgeDays: number;
 }
 
+interface ValuationState {
+  status: "CONFIGURED" | "NOT_CONFIGURED";
+  reason: string;
+  message: string;
+  modelVersion: string | null;
+  currency: string | null;
+  priceSource: string | null;
+  isEstimate: boolean;
+}
+
 interface AgingBucket {
   label: string;
   pieces: number;
   carats: number;
-  value: number;
+  value: number | null;
+  valuedPieces: number;
   pct: number;
 }
 
@@ -48,18 +65,24 @@ interface SlowAlert {
   lotId: string;
   ageDays: number;
   country: string;
-  value: number;
+  branch: string;
+  value: number | null;
   shape: string;
   weight: number;
 }
 
 interface AgingDashboardResponse {
   summary: AgingSummary;
+  valuation: ValuationState;
   buckets: AgingBucket[];
   byCountry: CountryAgg[];
   byLab: LabAgg[];
   byShape: ShapeAgg[];
   slowMovingAlerts: SlowAlert[];
+  page: number;
+  pageSize: number;
+  total: number;
+  hasMore: boolean;
 }
 
 /* ------------------------------------------------------------------ */
@@ -81,7 +104,26 @@ const BUCKET_COLORS: Record<string, string> = {
 /* View                                                                */
 /* ------------------------------------------------------------------ */
 export function AgingDashboardView() {
-  const { data, isLoading } = useApi<AgingDashboardResponse>("/api/analysis/aging-dashboard");
+  const globalFilter = useGlobalFilter();
+  const [page, setPage] = useState(1);
+  const url = useMemo(() => {
+    const params = new URLSearchParams();
+    if (globalFilter.country) params.set("country", globalFilter.country);
+    if (globalFilter.branch) params.set("branch", globalFilter.branch);
+    if (globalFilter.lab) params.set("lab", globalFilter.lab);
+    params.set("page", String(page));
+    params.set("pageSize", "25");
+    return `/api/analysis/aging-dashboard?${params.toString()}`;
+  }, [globalFilter.country, globalFilter.branch, globalFilter.lab, page]);
+  const { data, isLoading } = useApi<AgingDashboardResponse>(url);
+
+  const filterKey = `${globalFilter.country ?? ""}|${globalFilter.branch ?? ""}|${globalFilter.lab ?? ""}`;
+  const [lastFilterKey, setLastFilterKey] = useState(filterKey);
+  if (filterKey !== lastFilterKey) {
+    setLastFilterKey(filterKey);
+    setPage(1);
+  }
+  const valuationAvailable = data?.valuation.status === "CONFIGURED";
 
   const summary = data?.summary;
   const buckets = data?.buckets ?? [];
@@ -91,13 +133,13 @@ export function AgingDashboardView() {
   const alerts = data?.slowMovingAlerts ?? [];
 
   const piecesSpark = buckets.map((b) => b.pieces);
-  const valueSpark = buckets.map((b) => b.value);
+  const valueSpark = valuationAvailable ? buckets.map((b) => b.value ?? 0) : undefined;
   const slowSpark = alerts.slice(0, 7).map((a) => a.ageDays);
 
   // Pie data — non-empty buckets only
   const pieData = buckets
-    .filter((b) => b.value > 0)
-    .map((b) => ({ name: b.label, value: b.value, pct: b.pct }));
+    .filter((b) => (b.value ?? 0) > 0)
+    .map((b) => ({ name: b.label, value: b.value ?? 0, pct: b.pct }));
 
   /* --------------------- By Country table ------------------------ */
   const countryColumns: Column<CountryAgg>[] = [
@@ -210,8 +252,9 @@ export function AgingDashboardView() {
       cell: (r) => <NumberCell value={r.weight} decimals={2} />,
     },
     {
-      key: "value", header: "Est. Value", sortable: true, sortValue: (r) => r.value, align: "right",
-      cell: (r) => <Money value={r.value} />,
+      key: "value", header: "Est. Value", sortable: true, sortValue: (r) => r.value ?? -1, align: "right",
+      exportValue: (r) => (r.value === null ? "UNAVAILABLE" : r.value),
+      cell: (r) => (r.value === null ? <span className="text-[10px] font-mono text-muted-foreground">—</span> : <Money value={r.value} />),
     },
   ];
 
@@ -233,6 +276,10 @@ export function AgingDashboardView() {
         Stock aging helps identify slow-moving and aged inventory for transfer, discount, or repurposing decisions.
         Slow-moving = 91+ days, Aged = 365+ days.
       </InfoBanner>
+
+      {data?.valuation && !valuationAvailable && (
+        <InfoBanner variant="warning">{data.valuation.message}</InfoBanner>
+      )}
 
       {/* Summary KPI grid */}
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2">
@@ -256,12 +303,22 @@ export function AgingDashboardView() {
         />
         <KpiCard
           label="Total Value"
-          value={summary ? (summary.totalValue >= 1000 ? `${(summary.totalValue / 1000).toFixed(1)}K` : summary.totalValue.toFixed(0)) : "0"}
-          unit="USD"
-          intent="success"
-          hint="Est. @ price-per-ct"
+          value={
+            !valuationAvailable || summary?.totalValue == null
+              ? "UNAVAILABLE"
+              : summary.totalValue >= 1000
+              ? `${(summary.totalValue / 1000).toFixed(1)}K`
+              : summary.totalValue.toFixed(0)
+          }
+          unit={valuationAvailable ? data?.valuation.currency ?? "USD" : undefined}
+          intent={valuationAvailable ? "success" : "warning"}
+          hint={
+            valuationAvailable
+              ? `Estimate from ${data?.valuation.modelVersion} · ${summary?.valuedPieces ?? 0} of ${summary?.totalPieces ?? 0} pieces priced`
+              : "No approved valuation model configured"
+          }
           icon={DollarSign}
-          sparkline={valueSpark.length >= 2 ? valueSpark : [1, 2, 3, 4, 5]}
+          sparkline={valueSpark && valueSpark.length >= 2 ? valueSpark : undefined}
         />
         <KpiCard
           label="Slow-Moving"
@@ -421,6 +478,7 @@ export function AgingDashboardView() {
           initialSortDir="desc"
           maxHeight="400px"
           exportable
+          exportPermission="analysis.export"
           exportFilename="aging-by-shape.csv"
           excelExportable
           excelExportFilename="aging-by-shape.xlsx"
@@ -432,11 +490,11 @@ export function AgingDashboardView() {
       {/* Slow-Moving Alerts */}
       <Section
         title="Slow-Moving Alerts"
-        description="Top 10 oldest individual lots (91+ days) — review for transfer, discount, or repurposing"
+        description="Oldest lots first (91+ days) — review for transfer, discount, or repurposing"
         actions={
           <span className="inline-flex items-center gap-1 text-[10px] text-amber-700 dark:text-amber-400 font-semibold">
             <CalendarClock className="h-3 w-3" />
-            {alerts.length} flagged
+            {data?.total ?? 0} flagged
           </span>
         }
       >
@@ -456,11 +514,22 @@ export function AgingDashboardView() {
               : "bg-amber-50/40 dark:bg-amber-950/10"
           }
           exportable
+          exportPermission="analysis.export"
           exportFilename="slow-moving-alerts.csv"
           excelExportable
           excelExportFilename="slow-moving-alerts.xlsx"
           pdfExportable
           pdfExportFilename="slow-moving-alerts"
+          exportScope="current-page"
+        />
+        <ServerPagination
+          page={data?.page ?? 1}
+          pageSize={data?.pageSize ?? 25}
+          total={data?.total ?? 0}
+          hasMore={data?.hasMore ?? false}
+          onPageChange={setPage}
+          loading={isLoading}
+          label="slow-moving lots"
         />
       </Section>
     </div>

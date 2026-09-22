@@ -103,6 +103,7 @@ export function ForecastModelsView() {
           emptyMessage="No models registered"
           maxHeight="480px"
           exportable
+          exportPermission="analysis.export"
           exportFilename="forecast-models.csv"
         />
       </Section>
@@ -115,6 +116,7 @@ export function ForecastModelsView() {
           emptyMessage="No runs executed"
           maxHeight="480px"
           exportable
+          exportPermission="analysis.export"
           exportFilename="forecast-runs.csv"
         />
       </Section>

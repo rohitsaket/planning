@@ -4,6 +4,7 @@ import { useState, useMemo } from "react";
 import { useApi, apiFetch } from "@/lib/api-client";
 import { Section, PageHeader } from "@/components/diamond/shared/page-header";
 import { DataTable, Column } from "@/components/diamond/shared/data-table";
+import { ServerPagination } from "@/components/diamond/shared/server-pagination";
 import { Money, NumberCell, InfoBanner } from "@/components/diamond/shared/empty-state";
 import { Badge } from "@/components/diamond/shared/badges";
 import { KpiCard } from "@/components/diamond/shared/kpi-card";
@@ -41,6 +42,20 @@ interface CustomerRow {
 
 interface CustomersResponse {
   rows: CustomerRow[];
+  /** Totals across every matching customer, independent of the current page. */
+  summary: {
+    customers: number;
+    pieces: number;
+    carats: number;
+    totalValue: number;
+    memoExposure: number;
+    openOrders: number;
+  };
+  sort: string;
+  page: number;
+  pageSize: number;
+  total: number;
+  hasMore: boolean;
 }
 
 interface TimelineMonthly {
@@ -372,30 +387,32 @@ function CustomerDetailDialog({
 
 export function CustomersView() {
   const [selected, setSelected] = useState<CustomerRow | null>(null);
-  // Global filter — the /api/analysis/customers endpoint currently does not accept
-  // country/branch query params, so we append the filter to the URL (forward-compat
-  // for when the API is extended) AND apply the filter client-side on the returned rows.
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState("");
+  // Filtering, ranking and paging all happen on the server; this page holds one page
+  // of customers and the totals below describe the whole filtered set.
   const globalFilter = useGlobalFilter();
   const url = useMemo(() => {
-    const base = "/api/analysis/customers";
     const params = new URLSearchParams();
     if (globalFilter.country) params.set("country", globalFilter.country);
     if (globalFilter.branch) params.set("branch", globalFilter.branch);
     if (globalFilter.lab) params.set("lab", globalFilter.lab);
-    const qs = params.toString();
-    return qs ? `${base}?${qs}` : base;
-  }, [globalFilter.country, globalFilter.branch, globalFilter.lab]);
+    if (search.trim()) params.set("q", search.trim());
+    params.set("page", String(page));
+    params.set("pageSize", "50");
+    return `/api/analysis/customers?${params.toString()}`;
+  }, [globalFilter.country, globalFilter.branch, globalFilter.lab, search, page]);
   const { data, isLoading } = useApi<CustomersResponse>(url);
 
-  // Client-side filter — applies the global country/branch to the rows returned by
-  // the API (which currently returns the full customer list).
-  const filteredRows = useMemo(() => {
-    const all = data?.rows ?? [];
-    let r = all;
-    if (globalFilter.country) r = r.filter((row) => row.country === globalFilter.country);
-    if (globalFilter.branch) r = r.filter((row) => row.branch === globalFilter.branch);
-    return r;
-  }, [data, globalFilter.country, globalFilter.branch]);
+  // A changed filter or search is a different result set: restart at page one.
+  const filterKey = `${globalFilter.country ?? ""}|${globalFilter.branch ?? ""}|${globalFilter.lab ?? ""}|${search}`;
+  const [lastFilterKey, setLastFilterKey] = useState(filterKey);
+  if (filterKey !== lastFilterKey) {
+    setLastFilterKey(filterKey);
+    setPage(1);
+  }
+
+  const filteredRows = data?.rows ?? [];
 
   const columns: Column<CustomerRow>[] = [
     {
@@ -431,10 +448,12 @@ export function CustomersView() {
       cell: (r) => <span className="tabular-nums text-muted-foreground">{formatDate(r.lastPurchase)}</span> },
   ];
 
-  const totalPieces = filteredRows.reduce((s, r) => s + r.pieces, 0);
-  const totalValue = filteredRows.reduce((s, r) => s + r.totalValue, 0);
-  const totalCaratsAll = filteredRows.reduce((s, r) => s + r.carats, 0);
-  const totalMemo = filteredRows.reduce((s, r) => s + r.memoExposure, 0);
+  // Totals come from the server and cover every matching customer, not just this page.
+  const totalCustomers = data?.summary.customers ?? 0;
+  const totalPieces = data?.summary.pieces ?? 0;
+  const totalValue = data?.summary.totalValue ?? 0;
+  const totalCaratsAll = data?.summary.carats ?? 0;
+  const totalMemo = data?.summary.memoExposure ?? 0;
 
   // Real-data sparklines: derive 7 points from the top 7 customers (by totalValue).
   // Each KPI's sparkline uses the corresponding field of those top customers.
@@ -445,28 +464,28 @@ export function CustomersView() {
   }, [filteredRows]);
 
   const customersCountSpark = useMemo(() => {
-    if (top7Customers.length === 0) return [3, 5, 4, 6, 8, 7, 9]; // synthetic fallback
+    if (top7Customers.length === 0) return undefined; // no data yet — draw no sparkline
     const slice = top7Customers.map((r) => r.pieces);
     while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 0);
     return slice;
   }, [top7Customers]);
 
   const totalValueSpark = useMemo(() => {
-    if (top7Customers.length === 0) return [3, 5, 4, 6, 8, 7, 9]; // synthetic fallback
+    if (top7Customers.length === 0) return undefined; // no data yet — draw no sparkline
     const slice = top7Customers.map((r) => r.totalValue);
     while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 0);
     return slice;
   }, [top7Customers]);
 
   const totalCaratsSpark = useMemo(() => {
-    if (top7Customers.length === 0) return [3, 5, 4, 6, 8, 7, 9]; // synthetic fallback
+    if (top7Customers.length === 0) return undefined; // no data yet — draw no sparkline
     const slice = top7Customers.map((r) => r.carats);
     while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 0);
     return slice;
   }, [top7Customers]);
 
   const memoExposureSpark = useMemo(() => {
-    if (top7Customers.length === 0) return [3, 5, 4, 6, 8, 7, 9]; // synthetic fallback
+    if (top7Customers.length === 0) return undefined; // no data yet — draw no sparkline
     const slice = top7Customers.map((r) => r.memoExposure);
     while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 0);
     return slice;
@@ -488,7 +507,7 @@ export function CustomersView() {
                 ].filter(Boolean).join(", ")}
               </span>
             )}
-            <span className="text-[10px] text-muted-foreground">{filteredRows.length} customers · {totalPieces} pcs · ${(totalValue / 1000).toFixed(1)}K · ${(totalMemo / 1000).toFixed(1)}K memo</span>
+            <span className="text-[10px] text-muted-foreground">{totalCustomers} customers · {totalPieces} pcs · ${(totalValue / 1000).toFixed(1)}K · ${(totalMemo / 1000).toFixed(1)}K memo</span>
           </div>
         }
       />
@@ -497,7 +516,7 @@ export function CustomersView() {
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2">
         <KpiCard
           label="Total Customers"
-          value={filteredRows.length}
+          value={totalCustomers}
           unit="accts"
           intent="info"
           hint="Active customer accounts"
@@ -542,13 +561,29 @@ export function CustomersView() {
           initialSortKey="totalValue"
           initialSortDir="desc"
           exportable
+          exportPermission="customers.export"
           exportFilename="customers.csv"
           excelExportable
           excelExportFilename="customers.xlsx"
-          searchable
-          searchPlaceholder="Search code, name, country..."
-          searchFn={(r, q) => `${r.customerCode} ${r.name} ${r.country} ${r.branch} ${r.accountOwner}`.toLowerCase().includes(q.toLowerCase())}
+          exportScope="current-page"
+          toolbar={
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search code or name (server-side)…"
+              className="h-7 w-52 rounded-md border border-border bg-background/90 px-2 text-xs"
+            />
+          }
           maxHeight="600px"
+        />
+        <ServerPagination
+          page={data?.page ?? 1}
+          pageSize={data?.pageSize ?? 50}
+          total={data?.total ?? 0}
+          hasMore={data?.hasMore ?? false}
+          onPageChange={setPage}
+          loading={isLoading}
+          label="customers"
         />
       </Section>
 

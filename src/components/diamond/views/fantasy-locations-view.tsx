@@ -89,6 +89,7 @@ export function FantasyLocationsView() {
         initialSortKey="name"
         initialSortDir="asc"
         exportable
+        exportPermission="fantasy.export"
         exportFilename="fantasy-locations.csv"
         searchable
         searchPlaceholder="Search location ID, name, country, branch, department..."

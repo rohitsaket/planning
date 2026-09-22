@@ -190,6 +190,7 @@ export function PlanVsActualView() {
           initialSortKey="variance"
           initialSortDir="asc"
           exportable
+          exportPermission="plan.export"
           exportFilename="plan-vs-actual-yield-variance.csv"
           searchable
           searchPlaceholder="Search plan option code, status..."

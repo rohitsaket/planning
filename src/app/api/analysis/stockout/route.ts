@@ -2,15 +2,31 @@ import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
 import { withApi, SCAN_MAX, scanned } from "@/lib/api/with-api";
 
-// Stockout Risk — projected position: Available + Eligible WIP - Predicted Demand
-// Eligible WIP is OPEN rule; display counts separately, do not auto-apply.
+// Stockout Risk — ADVISORY forecast projection against the available stock of the
+// latest usable demand run. A prediction never becomes confirmed demand, and the
+// figures are only shown against a run that actually completed.
 export const GET = withApi({ permission: "analysis.read" }, async () => {
   const predictions = await db.forecastPrediction.findMany({ take: SCAN_MAX }).then(scanned);
   const latestRun = await db.demandRun.findFirst({
+    where: { status: { in: ["COMPLETED", "REVIEW_REQUIRED"] } },
     orderBy: { runDate: "desc" },
     include: { metrics: true },
   });
-  if (!latestRun) return ok({ rows: [] });
+  if (!latestRun) {
+    return ok({
+      rows: [],
+      critical: 0,
+      high: 0,
+      medium: 0,
+      hasEverRun: false,
+      runStatus: "NOT_RUN",
+      runId: null,
+      runDate: null,
+      advisory: true,
+      advisoryNotice:
+        "Stockout risk is unavailable: no completed demand calculation exists yet, so there is no available-stock baseline to project against.",
+    });
+  }
   const metricsByCat = new Map(latestRun.metrics.map((m) => [m.planningCategory, m]));
 
   const rows = predictions.map((p) => {
@@ -42,5 +58,17 @@ export const GET = withApi({ permission: "analysis.read" }, async () => {
   const high = rows.filter((r) => r.stockoutRisk === "HIGH").length;
   const medium = rows.filter((r) => r.stockoutRisk === "MEDIUM").length;
 
-  return ok({ rows, critical, high, medium, advisoryNotice: "Predicted stockout is advisory, not a confirmed order trigger." });
+  return ok({
+    rows,
+    critical,
+    high,
+    medium,
+    hasEverRun: true,
+    runStatus: latestRun.status,
+    runId: latestRun.id,
+    runDate: latestRun.runDate.toISOString(),
+    advisory: true,
+    advisoryNotice:
+      "Predicted stockout is advisory only. It is not confirmed demand and never triggers an order, requirement or reservation.",
+  });
 });

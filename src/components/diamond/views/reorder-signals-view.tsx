@@ -1,9 +1,12 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import { useApi } from "@/lib/api-client";
+import { useGlobalFilter } from "@/stores/global-filter";
 import { PageHeader, Section } from "@/components/diamond/shared/page-header";
 import { KpiCard } from "@/components/diamond/shared/kpi-card";
 import { DataTable, Column } from "@/components/diamond/shared/data-table";
+import { ServerPagination } from "@/components/diamond/shared/server-pagination";
 import { StatusBadge, Badge } from "@/components/diamond/shared/badges";
 import { InfoBanner, NumberCell } from "@/components/diamond/shared/empty-state";
 import { Star, AlertTriangle, TrendingUp, Clock, Users } from "lucide-react";
@@ -20,7 +23,6 @@ interface ReorderSignal {
   typicalCategories: string[];
   likelyReorderWindow: string | null;
   likelyReorderDate: string | null;
-  likelyQtyRange: string;
   daysSinceLastPurchase: number | null;
   confidence: number;
   signal: "PREDICTED_SOON" | "PREDICTED_LATER" | "INSUFFICIENT_DATA" | "DORMANT";
@@ -40,14 +42,50 @@ const signalIntent: Record<string, "critical" | "warning" | "info" | "default"> 
   DORMANT: "default",
 };
 
+interface ReorderSignalsResponse {
+  rows: ReorderSignal[];
+  /** Counts across every customer in scope, not only the visible page. */
+  summary: {
+    customers: number;
+    predictedSoon: number;
+    predictedLater: number;
+    insufficientData: number;
+    dormant: number;
+    avgConfidence: number;
+  };
+  page: number;
+  pageSize: number;
+  total: number;
+  hasMore: boolean;
+  advisory: boolean;
+  advisoryNotice: string;
+}
+
 export function ReorderSignalsView() {
-  const { data, isLoading } = useApi<{ rows: ReorderSignal[]; advisoryNotice: string }>("/api/analysis/reorder-signals");
+  const globalFilter = useGlobalFilter();
+  const [page, setPage] = useState(1);
+  const url = useMemo(() => {
+    const params = new URLSearchParams();
+    if (globalFilter.country) params.set("country", globalFilter.country);
+    if (globalFilter.branch) params.set("branch", globalFilter.branch);
+    params.set("page", String(page));
+    params.set("pageSize", "50");
+    return `/api/analysis/reorder-signals?${params.toString()}`;
+  }, [globalFilter.country, globalFilter.branch, page]);
+  const { data, isLoading } = useApi<ReorderSignalsResponse>(url);
+
+  const filterKey = `${globalFilter.country ?? ""}|${globalFilter.branch ?? ""}`;
+  const [lastFilterKey, setLastFilterKey] = useState(filterKey);
+  if (filterKey !== lastFilterKey) {
+    setLastFilterKey(filterKey);
+    setPage(1);
+  }
 
   const rows = data?.rows ?? [];
-  const predictedSoon = rows.filter((r) => r.signal === "PREDICTED_SOON").length;
-  const predictedLater = rows.filter((r) => r.signal === "PREDICTED_LATER").length;
-  const insufficient = rows.filter((r) => r.signal === "INSUFFICIENT_DATA").length;
-  const avgConfidence = rows.length > 0 ? rows.reduce((s, r) => s + r.confidence, 0) / rows.length : 0;
+  const predictedSoon = data?.summary.predictedSoon ?? 0;
+  const predictedLater = data?.summary.predictedLater ?? 0;
+  const insufficient = data?.summary.insufficientData ?? 0;
+  const avgConfidence = data?.summary.avgConfidence ?? 0;
 
   const columns: Column<ReorderSignal>[] = [
     {
@@ -104,12 +142,6 @@ export function ReorderSignalsView() {
       key: "likelyReorderWindow",
       header: "Likely Reorder",
       cell: (r) => r.likelyReorderWindow ? <span className="font-medium text-xs">{r.likelyReorderWindow}</span> : <span className="text-muted-foreground/50">—</span>,
-    },
-    {
-      key: "likelyQtyRange",
-      header: "Likely Qty",
-      align: "right",
-      cell: (r) => <span className="tabular-nums text-xs">{r.likelyQtyRange}</span>,
     },
     {
       key: "confidence",
@@ -171,8 +203,19 @@ export function ReorderSignalsView() {
           searchPlaceholder="Search customer..."
           searchFn={(r, q) => r.customerName.toLowerCase().includes(q.toLowerCase()) || r.customerCode.toLowerCase().includes(q.toLowerCase())}
           exportable
+          exportPermission="analysis.export"
           exportFilename="customer-reorder-signals.csv"
+          exportScope="current-page"
           initialSortKey="signal"
+        />
+        <ServerPagination
+          page={data?.page ?? 1}
+          pageSize={data?.pageSize ?? 50}
+          total={data?.total ?? 0}
+          hasMore={data?.hasMore ?? false}
+          onPageChange={setPage}
+          loading={isLoading}
+          label="customers"
         />
       </Section>
     </div>
