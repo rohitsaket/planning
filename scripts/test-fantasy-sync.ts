@@ -576,7 +576,8 @@ async function main() {
   assert(hasPermission("ADMIN", "plan.approve") === false, "CRITICAL RBAC: ADMIN does NOT have plan.approve");
   assert(hasPermission("ADMIN", "business_rule.manage") === false, "ADMIN does NOT have business_rule.manage");
   assert(hasPermission("ADMIN", "feature_flag.manage") === false, "ADMIN does NOT have feature_flag.manage");
-  assert(hasPermission("ADMIN", "user.manage") === true, "ADMIN has user.manage");
+  assert(hasPermission("ADMIN", "user.read") === true, "ADMIN has user.read");
+  assert(hasPermission("ADMIN", "user.super_admin.assign") === false, "ADMIN does NOT hold protected-role assignment authority");
 
   // Case B: Explicit Planning Approval roles
   assert(hasPermission("SUPER_ADMIN", "plan.approve") === true, "SUPER_ADMIN has plan.approve");
@@ -584,12 +585,13 @@ async function main() {
   assert(hasPermission("PLANNER", "plan.approve") === false, "PLANNER does NOT have plan.approve");
 
   // Case C: VIEWER cannot trigger or retry sync
-  assert(hasPermission("VIEWER", "fantasy.sync") === false, "VIEWER does NOT have fantasy.sync");
+  assert(hasPermission("VIEWER", "fantasy.sync.run") === false, "VIEWER does NOT have fantasy.sync.run");
   assert(hasPermission("VIEWER", "fantasy.read") === false, "VIEWER does NOT have fantasy.read");
   assert(hasPermission("VIEWER", "overall.export") === false, "VIEWER does NOT have overall.export");
 
   // Case D: Fantasy Integration role cannot approve plans or broadcast notifications
-  assert(hasPermission("FANTASY_INTEGRATION", "fantasy.sync") === true, "FANTASY_INTEGRATION has fantasy.sync");
+  assert(hasPermission("FANTASY_INTEGRATION", "fantasy.sync.run") === true, "FANTASY_INTEGRATION has fantasy.sync.run");
+  assert(hasPermission("FANTASY_INTEGRATION", "fantasy.sync.unlock") === false, "FANTASY_INTEGRATION cannot unlock a stuck sync: running one does not imply it");
   assert(hasPermission("FANTASY_INTEGRATION", "plan.approve") === false, "FANTASY_INTEGRATION cannot approve plans");
   assert(hasPermission("FANTASY_INTEGRATION", "notification.broadcast") === false, "FANTASY_INTEGRATION cannot broadcast notifications");
 

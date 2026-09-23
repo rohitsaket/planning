@@ -5,6 +5,7 @@ import { z, ZodError, type ZodType } from "zod";
 import { db } from "@/lib/db";
 import { ApiError, badRequest, forbidden, tooLarge, tooManyRequests, unauthenticated } from "@/lib/api/errors";
 import { consume, type RateLimit } from "@/lib/api/rate-limit";
+import { log } from "@/lib/api/log";
 import { resolvePrincipal, type Principal } from "@/lib/auth/session";
 import type { Permission } from "@/lib/auth/permissions";
 
@@ -23,6 +24,10 @@ export interface AuditInput {
   before?: unknown;
   after?: unknown;
   reason?: string | null;
+  /** Defaults to SUCCESS. DENIED records a refused sensitive attempt. */
+  outcome?: "SUCCESS" | "DENIED" | "FAILED";
+  /** SECURITY for access changes, OPERATIONAL for everything else. */
+  category?: "SECURITY" | "OPERATIONAL";
 }
 
 export interface ApiContext<B> {
@@ -45,13 +50,18 @@ interface Options<B> {
   public?: true;
   body?: ZodType<B>;
   rateLimit?: RateLimit;
+  /**
+   * Reachable while the account is on a temporary password. Only the three endpoints a
+   * restricted session legitimately needs set this: own identity, password change and
+   * logout. Everything else is refused until the password is changed, so a temporary
+   * credential cannot be used to work in the application.
+   */
+  allowPasswordChangeSession?: true;
 }
 
-export function log(level: "info" | "warn" | "error", event: string, fields: Record<string, unknown>) {
-  const line = JSON.stringify({ ts: new Date().toISOString(), level, event, ...fields });
-  if (level === "error") console.error(line);
-  else console.log(line);
-}
+// Re-exported for the route handlers that already import it from here. The definition
+// lives in its own module so a client-safe module can log without pulling this one in.
+export { log };
 
 export function clientIp(req: Request): string | null {
   // Forwarded headers are only meaningful behind our own proxy, which overwrites them.
@@ -137,6 +147,11 @@ export function withApi<P = Record<string, never>, B = undefined>(opts: Options<
       if (!opts.public) {
         principal = await resolvePrincipal(req);
         if (!principal) throw unauthenticated();
+        // A session on a temporary password is restricted before any permission is even
+        // considered: holding a permission does not let it act.
+        if (principal.mustChangePassword && !opts.allowPasswordChangeSession) {
+          throw forbidden("A password change is required before this account can be used.");
+        }
         if (opts.permission && !principal.permissions.includes(opts.permission)) throw forbidden();
       }
       const rule = opts.rateLimit ?? (mutating ? DEFAULT_WRITE_LIMIT : DEFAULT_READ_LIMIT);
@@ -173,6 +188,8 @@ export function withApi<P = Record<string, never>, B = undefined>(opts: Options<
             before: input.before === undefined ? null : JSON.stringify(input.before),
             after: input.after === undefined ? null : JSON.stringify(input.after),
             reason: input.reason ?? null,
+            outcome: input.outcome ?? "SUCCESS",
+            category: input.category ?? "OPERATIONAL",
           },
         });
       };

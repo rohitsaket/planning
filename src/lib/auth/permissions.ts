@@ -32,7 +32,21 @@ export const PERMISSIONS = [
   "forecast.run",
   "forecast.publish",
   "fantasy.read",
-  "fantasy.sync",
+  // Running a routine synchronization, retrying a failed one and force-releasing a
+  // stuck lock are three different risks and are authorized separately.
+  "fantasy.sync.run",
+  "fantasy.sync.retry",
+  "fantasy.sync.unlock",
+  // Shadow projection is a diagnostic capability, separate from synchronization.
+  // Running one costs real work over a whole batch; reading a run's reconciliation
+  // exposes how source data would be interpreted. Neither implies the other, and
+  // neither implies any authority over live synchronization.
+  "fantasy.projection.run",
+  "fantasy.projection.read",
+  // Aborting someone else's running projection is an administrative recovery action,
+  // not a consequence of being allowed to start or read one. Kept separate so it can be
+  // granted to whoever actually holds operational recovery authority.
+  "fantasy.projection.recover",
   "fantasy.export",
   "overall.read",
   "overall.export",
@@ -46,10 +60,33 @@ export const PERMISSIONS = [
   "feature_flag.read",
   "feature_flag.manage",
   "notification.read",
+  // Marking a notification read is a write: it must not travel on the read permission.
+  "notification.manage",
   "notification.broadcast",
   "audit.read",
   "audit.export",
-  "user.manage",
+
+  // --- Access administration -------------------------------------------------
+  // Replaces the single `user.manage` super-permission, which authorized account
+  // creation, role assignment, password reset (an account-takeover primitive) and
+  // access-request approval with one grant.
+  "user.read",
+  "user.create",
+  "user.update",
+  "user.status.manage",
+  "user.roles.assign",
+  "user.password.reset",
+  "user.sessions.read",
+  "user.sessions.revoke",
+  // Authority to assign a protected system-administrator role. Deliberately separate,
+  // and deliberately withheld from ordinary administrators.
+  "user.super_admin.assign",
+  "access_request.review",
+  "role.read",
+  "role.manage",
+  "role.permissions.assign",
+  "security_audit.read",
+  "security_audit.export",
 ] as const;
 
 /** Every permission that authorizes an export. Used by tests and the admin matrix. */
@@ -66,6 +103,7 @@ export const EXPORT_PERMISSIONS = [
   "data_quality.export",
   "config.export",
   "audit.export",
+  "security_audit.export",
 ] as const satisfies readonly (typeof PERMISSIONS)[number][];
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -92,31 +130,57 @@ export type Role = (typeof ROLES)[number];
 
 const ALL = [...PERMISSIONS] as Permission[];
 const BASE: Permission[] = ["notification.read"];
+
+/** Triaging shared system notifications. Not in BASE: the rows are global, so marking
+ *  one read changes what every other user sees. */
+const NOTIFICATION_TRIAGE: Permission[] = ["notification.manage"];
 const PLANNING_READ: Permission[] = ["analysis.read", "requirement.read", "plan.read", "rough.read", "fantasy.read", "overall.read", "data_quality.read", "config.read"];
 const COMMERCIAL_READ: Permission[] = ["sales.read", "customers.read", "orders.read"];
 
 export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   SUPER_ADMIN: ALL,
-  // ADMIN has administrative and operational powers (including demand.run, demand.unlock, demand.trace, demand.export)
-  // but must NOT automatically receive planning approval (plan.approve), rule management (business_rule.manage),
-  // or feature flag management (feature_flag.manage).
-  ADMIN: ALL.filter((p) => p !== "business_rule.manage" && p !== "feature_flag.manage" && p !== "plan.approve"),
-  ANALYSIS_MANAGER: [...BASE, ...PLANNING_READ, ...COMMERCIAL_READ, "requirement.create", "requirement.override", "demand.run", "demand.trace", "demand.export", "overall.export", "analysis.export", "sales.export", "customers.export", "orders.export", "requirement.export", "fantasy.export", "data_quality.manage", "data_quality.export", "business_rule.read", "audit.read"],
+  // ADMIN keeps administrative and operational powers but is deliberately denied four
+  // authorities: planning approval, rule management, feature-flag management, and —
+  // added with the access-administration split — defining what a role may do and
+  // assigning the protected Super Admin role.
+  ADMIN: ALL.filter(
+    (p) =>
+      p !== "business_rule.manage" &&
+      p !== "feature_flag.manage" &&
+      p !== "plan.approve" &&
+      p !== "role.manage" &&
+      p !== "role.permissions.assign" &&
+      p !== "user.super_admin.assign",
+  ),
+  ANALYSIS_MANAGER: [...BASE, ...NOTIFICATION_TRIAGE, ...PLANNING_READ, ...COMMERCIAL_READ, "requirement.create", "requirement.override", "demand.run", "demand.trace", "demand.export", "overall.export", "analysis.export", "sales.export", "customers.export", "orders.export", "requirement.export", "fantasy.export", "data_quality.manage", "data_quality.export", "business_rule.read", "audit.read"],
   DATA_ANALYST: [...BASE, ...PLANNING_READ, ...COMMERCIAL_READ, "demand.trace", "demand.export", "overall.export", "analysis.export", "sales.export", "customers.export", "orders.export", "data_quality.read", "data_quality.export", "audit.read"],
   DATA_SCIENTIST: [...BASE, ...PLANNING_READ, "sales.read", "demand.trace", "demand.export", "forecast.run", "forecast.publish", "overall.export", "analysis.export", "sales.export", "data_quality.read", "audit.read"],
   // Explicitly authorized planning approval authority
-  PLANNING_MANAGER: [...BASE, ...PLANNING_READ, "orders.read", "demand.trace", "plan.create", "plan.select", "plan.approve", "plan.replan", "rough.reserve", "overall.export", "analysis.export", "plan.export", "requirement.export", "business_rule.read", "audit.read"],
+  PLANNING_MANAGER: [...BASE, ...NOTIFICATION_TRIAGE, ...PLANNING_READ, "orders.read", "demand.trace", "plan.create", "plan.select", "plan.approve", "plan.replan", "rough.reserve", "overall.export", "analysis.export", "plan.export", "requirement.export", "business_rule.read", "audit.read"],
   PLANNER: [...BASE, ...PLANNING_READ, "orders.read", "plan.create", "plan.select", "plan.replan", "rough.reserve", "plan.export"],
   PLANNING_VIEWER: [...BASE, ...PLANNING_READ],
-  MFG_MANAGER: [...BASE, ...PLANNING_READ, "analysis.export", "audit.read"],
+  MFG_MANAGER: [...BASE, ...NOTIFICATION_TRIAGE, ...PLANNING_READ, "analysis.export", "audit.read"],
   MFG_VIEWER: [...BASE, "analysis.read", "plan.read", "rough.read", "fantasy.read", "overall.read"],
-  SALES_MANAGER: [...BASE, "analysis.read", "requirement.read", ...COMMERCIAL_READ, "overall.export", "analysis.export", "sales.export", "customers.export", "orders.export", "audit.read"],
+  SALES_MANAGER: [...BASE, ...NOTIFICATION_TRIAGE, "analysis.read", "requirement.read", ...COMMERCIAL_READ, "overall.export", "analysis.export", "sales.export", "customers.export", "orders.export", "audit.read"],
   SALES_VIEWER: [...BASE, "analysis.read", ...COMMERCIAL_READ],
-  // Fantasy Integration role: sync & data access only; no exports, notification broadcast or planning approval
-  FANTASY_INTEGRATION: ["fantasy.read", "fantasy.sync", "overall.read", "data_quality.read"],
-  AUDITOR: [...BASE, "audit.read", "audit.export", "overall.read", "data_quality.read", "business_rule.read", "feature_flag.read", "config.read", "config.export"],
+  // Fantasy Integration role: sync & data access only; no exports, notification
+  // broadcast or planning approval. Runs and retries synchronization. Force-releasing a stuck lock is a separate
+  // authority and is deliberately NOT granted here: running a sync must not imply it.
+  FANTASY_INTEGRATION: ["fantasy.read", "fantasy.sync.run", "fantasy.sync.retry", "fantasy.projection.run", "fantasy.projection.read", "overall.read", "data_quality.read"],
+  // Reads projection diagnostics but cannot start a run: inspecting how data would be
+  // interpreted is an audit activity; consuming batch-sized work is not.
+  AUDITOR: [...BASE, "audit.read", "audit.export", "overall.read", "data_quality.read", "fantasy.projection.read", "business_rule.read", "feature_flag.read", "config.read", "config.export"],
   VIEWER: [...BASE, "analysis.read", "requirement.read", "plan.read", "rough.read", "overall.read"],
 };
+
+/**
+ * True only for a permission this build defines. Stored role-permission rows are checked
+ * through this on write and on read, so a code that no longer has an enforcement point
+ * grants nothing.
+ */
+export function isPermission(v: string): v is Permission {
+  return (PERMISSIONS as readonly string[]).includes(v);
+}
 
 export function isRole(v: string): v is Role {
   return (ROLES as readonly string[]).includes(v);

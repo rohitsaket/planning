@@ -111,11 +111,11 @@ export function AgingView() {
   const lotColumns: Column<AgingLotRow>[] = [
     { key: "lotId", header: "Lot ID", sortable: true, sortValue: (r) => r.lotId, cell: (r) => <span className="font-mono text-[11px]">{r.lotId}</span> },
     { key: "ageDays", header: "Age (days)", sortable: true, sortValue: (r) => r.ageDays, align: "right", cell: (r) => <NumberCell value={r.ageDays} intent={r.ageDays >= 365 ? "critical" : r.ageDays >= 91 ? "warning" : undefined} /> },
-    { key: "bucket", header: "Bucket", cell: (r) => <span className="text-[11px]">{r.bucket}</span> },
-    { key: "lab", header: "Lab", cell: (r) => <span className="text-[11px]">{r.lab ?? "—"}</span> },
-    { key: "shape", header: "Shape", cell: (r) => <span className="text-[11px]">{r.shape ?? "—"}</span> },
+    { key: "bucket", header: "Bucket", align: "center", cell: (r) => <span className="text-[11px]">{r.bucket}</span> },
+    { key: "lab", header: "Lab", align: "center", cell: (r) => <span className="text-[11px]">{r.lab ?? "—"}</span> },
+    { key: "shape", header: "Shape", align: "center", cell: (r) => <span className="text-[11px]">{r.shape ?? "—"}</span> },
     { key: "weight", header: "Carats", sortable: true, sortValue: (r) => r.weight, align: "right", cell: (r) => <NumberCell value={r.weight} /> },
-    { key: "country", header: "Location", cell: (r) => <span className="text-[11px]">{r.country} / {r.branch}</span> },
+    { key: "country", header: "Location", align: "center", cell: (r) => <span className="text-[11px]">{r.country} / {r.branch}</span> },
   ];
 
   return (

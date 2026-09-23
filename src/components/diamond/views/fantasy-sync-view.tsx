@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from "react";
 import { useApi, apiPost } from "@/lib/api-client";
+import { useAuthStore } from "@/stores/auth-store";
 import { KpiCard } from "@/components/diamond/shared/kpi-card";
 import { Section, PageHeader } from "@/components/diamond/shared/page-header";
 import { DataTable, type Column } from "@/components/diamond/shared/data-table";
@@ -23,6 +24,10 @@ import {
   Scale,
 } from "lucide-react";
 import { toast } from "sonner";
+import {
+  FANTASY_SOURCE_STATE_LABELS,
+  type FantasySourceStateSummary,
+} from "@/lib/fantasy/source-state";
 
 interface SyncSummaryItem {
   entity: string;
@@ -86,8 +91,8 @@ interface SyncRun {
 }
 
 interface SyncPayload {
-  sourceMode: string;
-  isSimulated: boolean;
+  /** Centrally derived, sanitized source state. The page never re-derives a label. */
+  sourceState: FantasySourceStateSummary;
   checkpoint: number;
   isLocked: boolean;
   lastSyncAt: string | null;
@@ -130,6 +135,19 @@ export function FantasySyncView() {
   const recentRuns = data?.recentRuns ?? [];
   const checkpoint = data?.checkpoint ?? 0;
   const isLocked = data?.isLocked ?? false;
+  const sourceState = data?.sourceState;
+  // Three separate authorities: running a sync no longer implies retrying it or
+  // force-releasing a stuck lock. The server enforces each independently.
+  const permissions = useAuthStore((st) => st.user?.permissions ?? []);
+  const canRunSync = permissions.includes("fantasy.sync.run");
+  const canRetrySync = permissions.includes("fantasy.sync.retry");
+  const canUnlockSync = permissions.includes("fantasy.sync.unlock");
+  const sourceStateLabel = sourceState
+    ? FANTASY_SOURCE_STATE_LABELS[sourceState.effectiveState]
+    : FANTASY_SOURCE_STATE_LABELS.NOT_CONFIGURED;
+  // No source, no synchronization action. The server refuses it as well; this only
+  // keeps the page from offering something that cannot run.
+  const sourceUnusable = sourceState?.effectiveState === "NOT_CONFIGURED";
 
   const lastSyncStatus = useMemo(() => {
     if (!data?.recentRuns || data.recentRuns.length === 0) return "NOT_RUN";
@@ -287,7 +305,7 @@ export function FantasySyncView() {
                 variant="destructive"
                 size="sm"
                 className="h-8 text-xs gap-1.5"
-                disabled={unlocking}
+                disabled={unlocking || !canUnlockSync}
                 onClick={handleUnlock}
               >
                 <AlertTriangle className="h-3.5 w-3.5" />
@@ -298,7 +316,7 @@ export function FantasySyncView() {
               variant="outline"
               size="sm"
               className="h-8 text-xs gap-1.5"
-              disabled={syncing || isLocked}
+              disabled={syncing || isLocked || sourceUnusable || !canRetrySync}
               onClick={handleRetry}
             >
               <RotateCcw className="h-3.5 w-3.5" /> Retry Sync
@@ -306,7 +324,7 @@ export function FantasySyncView() {
             <Button
               size="sm"
               className="h-8 text-xs gap-1.5"
-              disabled={syncing || isLocked}
+              disabled={syncing || isLocked || sourceUnusable || !canRunSync}
               onClick={handleTriggerSync}
             >
               <RefreshCw className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />
@@ -316,21 +334,27 @@ export function FantasySyncView() {
         }
       />
 
-      {/* Simulation Banner */}
-      <InfoBanner variant="warning">
+      {/* Source-state banner. Wording comes from the central source-state module, so a
+          fixture is never presented as a live connection and an unconfigured source
+          never claims one either. */}
+      <InfoBanner variant={sourceState?.effectiveState === "LIVE_FANTASY" ? "info" : "warning"}>
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-2">
             <FlaskConical className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
             <div>
-              <strong className="font-semibold text-amber-700 dark:text-amber-300">SIMULATION MODE:</strong>{" "}
+              <strong className="font-semibold text-amber-700 dark:text-amber-300">
+                {sourceStateLabel.toUpperCase()}:
+              </strong>{" "}
               <span>
-                Active provider is <strong>FixtureFantasyProvider</strong> (Batch Checkpoint: {checkpoint} / 5).
-                All synchronization events execute real transactional updates, history preservation, and DQ validation.
+                {sourceState?.statusExplanation ?? "The data source state is not available."}
+                {sourceState?.isSimulated
+                  ? ` Synchronization batch ${checkpoint} of 5 has been applied; each batch performs real transactional updates, history preservation and data-quality validation on simulated records.`
+                  : ""}
               </span>
             </div>
           </div>
-          <Badge variant="warning">
-            Provider: FIXTURE
+          <Badge variant={sourceState?.effectiveState === "LIVE_FANTASY" ? "success" : "warning"}>
+            {sourceStateLabel}
           </Badge>
         </div>
       </InfoBanner>
@@ -359,16 +383,16 @@ export function FantasySyncView() {
           label="Total Lots in Archive"
           value={reconciliation?.totalOverallLots ?? 0}
           intent="default"
-          hint="Live stock + preserved history"
+          hint="Current stock + preserved history"
         />
       </div>
 
       {/* Mathematical Reconciliation Summary */}
       <Section title="Mathematical Reconciliation" description="Verified balance between incoming feed records and locally updated state">
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
-          <MetricTile icon={<Gem className="h-3.5 w-3.5" />} label="Live Rough" value={reconciliation?.fantasyRoughCount} intent="info" />
-          <MetricTile icon={<Boxes className="h-3.5 w-3.5" />} label="Live Polished" value={reconciliation?.fantasyPolishedCount} intent="success" />
-          <MetricTile icon={<Database className="h-3.5 w-3.5" />} label="Active Live Lots" value={reconciliation?.activeOverallLots} intent="success" />
+          <MetricTile icon={<Gem className="h-3.5 w-3.5" />} label="Current Rough" value={reconciliation?.fantasyRoughCount} intent="info" />
+          <MetricTile icon={<Boxes className="h-3.5 w-3.5" />} label="Current Polished" value={reconciliation?.fantasyPolishedCount} intent="success" />
+          <MetricTile icon={<Database className="h-3.5 w-3.5" />} label="Active Lots" value={reconciliation?.activeOverallLots} intent="success" />
           <MetricTile icon={<Activity className="h-3.5 w-3.5" />} label="Historical Lots" value={reconciliation?.historicalOverallLots} intent="info" />
           <MetricTile icon={<AlertTriangle className="h-3.5 w-3.5" />} label="DQ Errors" value={reconciliation?.dataQualityErrors} intent={reconciliation && reconciliation.dataQualityErrors > 0 ? "critical" : "default"} />
           <MetricTile icon={<AlertTriangle className="h-3.5 w-3.5" />} label="DQ Warnings" value={reconciliation?.dataQualityWarnings} intent={reconciliation && reconciliation.dataQualityWarnings > 0 ? "warning" : "default"} />
@@ -405,6 +429,8 @@ export function FantasySyncView() {
           exportable
           exportPermission="fantasy.export"
           exportFilename="fantasy-sync-audit-log.csv"
+          pagination
+          pageSize={25}
         />
       </Section>
     </div>

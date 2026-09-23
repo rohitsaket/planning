@@ -23,8 +23,11 @@ export function AccessRestricted({
   const user = useAuthStore((s) => s.user);
   const isAdmin = user?.role === "SUPER_ADMIN" || user?.role === "ADMIN";
 
-  const perm = requiredPermission || (viewId ? viewPermission(viewId) : undefined);
+  const perm = requiredPermission || (viewId ? viewPermission(viewId) : null);
   const permLabel = perm ? PERMISSION_LABELS[perm] || perm : undefined;
+  // A view with no permission mapping is denied to everyone. Say so plainly rather than
+  // implying the visitor is simply missing a role.
+  const unmapped = Boolean(viewId) && !requiredPermission && perm === null;
 
   return (
     <div className="flex h-full min-h-[400px] w-full flex-col items-center justify-center p-6 text-center">
@@ -39,7 +42,9 @@ export function AccessRestricted({
       
       <p className="mt-2 max-w-md text-xs text-muted-foreground leading-relaxed">
         {description ||
-          "You do not currently have authorization to view this section. Access is governed by role-based permissions to protect commercial and operational integrity."}
+          (unmapped
+            ? "This section has no access mapping, so it is closed to every account. An administrator must assign it a permission before it can be opened."
+            : "You do not currently have authorization to view this section. Access is governed by role-based permissions to protect commercial and operational integrity.")}
       </p>
 
       {permLabel && (

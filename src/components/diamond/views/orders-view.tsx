@@ -103,11 +103,11 @@ export function OrdersView() {
       key: "customerName", header: "Customer", sortable: true, sortValue: (r) => r.customerName,
       cell: (r) => <span className="font-medium">{r.customerName}</span>,
     },
-    { key: "country", header: "Country", sortable: true, sortValue: (r) => r.country, cell: (r) => r.country, width: "80px" },
-    { key: "branch", header: "Branch", sortable: true, sortValue: (r) => r.branch, cell: (r) => r.branch, width: "80px" },
-    { key: "orderDate", header: "Order Date", sortable: true, sortValue: (r) => r.orderDate, align: "right", width: "100px",
+    { key: "country", header: "Country", align: "center", sortable: true, sortValue: (r) => r.country, cell: (r) => r.country, width: "80px" },
+    { key: "branch", header: "Branch", align: "center", sortable: true, sortValue: (r) => r.branch, cell: (r) => r.branch, width: "80px" },
+    { key: "orderDate", header: "Order Date", align: "center", sortable: true, sortValue: (r) => r.orderDate, width: "100px",
       cell: (r) => <span className="tabular-nums text-muted-foreground">{formatDate(r.orderDate)}</span> },
-    { key: "requiredDate", header: "Required", sortable: true, sortValue: (r) => r.requiredDate ?? "", align: "right", width: "100px",
+    { key: "requiredDate", header: "Required", align: "center", sortable: true, sortValue: (r) => r.requiredDate ?? "", width: "100px",
       cell: (r) => (
         <span className={
           isOverdue(r) ? "tabular-nums text-rose-600 dark:text-rose-400 font-medium" : "tabular-nums text-muted-foreground"

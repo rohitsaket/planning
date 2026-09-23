@@ -477,6 +477,8 @@ export function AgingDashboardView() {
           initialSortKey="totalPieces"
           initialSortDir="desc"
           maxHeight="400px"
+          pagination
+          pageSize={25}
           exportable
           exportPermission="analysis.export"
           exportFilename="aging-by-shape.csv"

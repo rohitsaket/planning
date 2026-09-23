@@ -48,18 +48,18 @@ export function DataQualityView() {
 
   const columns: Column<IssueRow>[] = useMemo(() => [
     { key: "issueCode", header: "Issue Code", cell: (r) => <span className="font-mono text-[10px] font-medium">{r.issueCode}</span>, sortable: true, sortValue: (r) => r.issueCode, sticky: "left" },
-    { key: "source", header: "Source", cell: (r) => <span className="text-[10px]">{r.source}</span> },
-    { key: "entity", header: "Entity", cell: (r) => <span className="text-[10px]">{r.entity}</span> },
-    { key: "recordId", header: "Record ID", cell: (r) => <span className="font-mono text-[10px]">{r.recordId ? r.recordId.slice(0, 8) : "—"}</span> },
+    { key: "source", header: "Source", align: "center", cell: (r) => <span className="text-[10px]">{r.source}</span> },
+    { key: "entity", header: "Entity", align: "center", cell: (r) => <span className="text-[10px]">{r.entity}</span> },
+    { key: "recordId", header: "Record ID", align: "center", cell: (r) => <span className="font-mono text-[10px]">{r.recordId ? r.recordId.slice(0, 8) : "—"}</span> },
     { key: "rule", header: "Rule", cell: (r) => <span className="text-[10px]">{r.rule}</span> },
     { key: "message", header: "Message", cell: (r) => <span className="text-[10px]">{r.message}</span> },
     { key: "severity", header: "Severity", align: "center", cell: (r) => <StatusBadge status={r.severity} />, sortable: true, sortValue: (r) => r.severity },
     { key: "status", header: "Status", align: "center", cell: (r) => <StatusBadge status={r.status} /> },
     { key: "assignedTo", header: "Assigned To", cell: (r) => <span className="text-[10px]">{r.assignedTo ?? "—"}</span> },
-    { key: "detectedAt", header: "Detected", cell: (r) => <span className="tabular-nums text-[10px]">{new Date(r.detectedAt).toLocaleString()}</span>, sortable: true, sortValue: (r) => r.detectedAt },
+    { key: "detectedAt", header: "Detected", align: "center", cell: (r) => <span className="tabular-nums text-[10px]">{new Date(r.detectedAt).toLocaleString()}</span>, sortable: true, sortValue: (r) => r.detectedAt },
     { key: "resolution", header: "Resolution", cell: (r) => <span className="text-[10px]">{r.resolution ?? "—"}</span> },
     { key: "resolvedBy", header: "Resolved By", cell: (r) => <span className="text-[10px]">{r.resolvedBy ?? "—"}</span> },
-    { key: "resolvedAt", header: "Resolved At", cell: (r) => <span className="tabular-nums text-[10px]">{r.resolvedAt ? new Date(r.resolvedAt).toLocaleString() : "—"}</span> },
+    { key: "resolvedAt", header: "Resolved At", align: "center", cell: (r) => <span className="tabular-nums text-[10px]">{r.resolvedAt ? new Date(r.resolvedAt).toLocaleString() : "—"}</span> },
   ], []);
 
   const filteredRows = (data?.rows ?? []).filter((r) => {
@@ -151,6 +151,8 @@ export function DataQualityView() {
           exportable
           exportPermission="data_quality.export"
           exportFilename="data-quality-issues.csv"
+          pagination
+          pageSize={25}
         />
       </Section>
     </div>

@@ -167,6 +167,8 @@ export function BusinessRulesView() {
           searchable
           searchPlaceholder="Search rules..."
           searchFn={(r, q) => [r.ruleId, r.name, r.domain, r.notes ?? ""].some((f) => f.toLowerCase().includes(q.toLowerCase()))}
+          pagination
+          pageSize={25}
         />
       </Section>
     </div>

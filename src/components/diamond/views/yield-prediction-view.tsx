@@ -925,6 +925,8 @@ export function YieldPredictionView() {
             return "bg-emerald-50/30 dark:bg-emerald-950/10";
           }}
           maxHeight="600px"
+          pagination
+          pageSize={25}
         />
       </Section>
 
@@ -952,6 +954,8 @@ export function YieldPredictionView() {
           exportable
           exportPermission="analysis.export"
           exportFilename="yield-historical.csv"
+          pagination
+          pageSize={25}
           maxHeight="500px"
         />
       </Section>

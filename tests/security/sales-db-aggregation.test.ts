@@ -1,117 +1,194 @@
-import { beforeAll, describe, expect, test } from "bun:test";
-import { db, resetDb } from "./helpers";
-import { customer, resetSales, sales, type SaleInput } from "./sales-fixtures";
-import { aggregateSales, getSalesAnalysis, loadLabels, loadSalesFactRows, type SalesFilters } from "@/lib/analytics/sales-analysis";
-import { SALES_DIMENSIONS } from "@/lib/analytics/sales-dimensions";
-import { addDays, businessWindow } from "@/lib/analytics/reporting-date";
+/**
+ * SALES ANALYSIS — DATABASE AGGREGATION AND DEMAND PARITY.
+ *
+ * Two questions, both answered against real data:
+ *
+ *  1. Does the database aggregation the page relies on agree with an independent reading
+ *     of the same persisted sale rows?
+ *  2. Does the confirmed 90-day quantity this page reports equal the sales input the
+ *     demand result was calculated from — exactly, category by category?
+ *
+ * The second is the whole justification for reading the demand run's persisted sale
+ * trace instead of re-deciding eligibility here, so it is asserted rather than assumed.
+ */
 
-const NOW = new Date("2026-09-19T10:00:00Z");
+import { afterAll, beforeAll, describe, expect, test } from "./harness";
+import { call, db, makeUser, resetDb } from "./helpers";
+import { BULK_LOT_COUNT, cleanupSalesWorld, ensureWorld } from "./sales-fixtures";
+import { GET as salesRoute } from "@/app/api/analysis/sales/route";
+import { GET as trendRoute } from "@/app/api/analysis/sales/trend/route";
+import { GET as contributionRoute } from "@/app/api/analysis/sales/contribution/route";
+import { GET as recordsRoute } from "@/app/api/analysis/sales/records/route";
+import { getISTDateString } from "@/lib/fantasy/time";
 
-// Deterministic pseudo-random fixture (no Math.random): nulls, qty anomalies, month edges, all statuses.
-function lcg(seed: number) {
-  let s = seed;
-  return () => ((s = (s * 1664525 + 1013904223) % 2 ** 32) / 2 ** 32);
+type User = Awaited<ReturnType<typeof makeUser>>;
+let admin: User;
+
+const SUMMARY = "/api/analysis/sales";
+const get = (handler: Parameters<typeof call>[0], path: string) => call(handler, { path, cookie: admin.cookie });
+
+/** The snapshot the page is reading, and its persisted sale rows. */
+async function snapshotRows() {
+  const run = await db.demandRun.findFirst({
+    where: { status: { in: ["COMPLETED", "REVIEW_REQUIRED"] }, finishedAt: { not: null } },
+    orderBy: [{ runDate: "desc" }, { finishedAt: "desc" }],
+  });
+  const rows = await db.demandMetricTraceItem.findMany({
+    where: { runId: run!.id, traceType: "SALE", isIncluded: true },
+    select: { planningCategory: true, quantity: true, weight: true, docDate: true, lotId: true },
+  });
+  return { run: run!, rows };
 }
 
-async function mixedFixture() {
-  await resetSales();
-  const bands = await Promise.all(["1.00-1.49", "1.50-1.99"].map((label, i) => db.weightBand.upsert({ where: { code: `T-WB-${i}` }, create: { code: `T-WB-${i}`, label, minCt: 1 + i * 0.5, maxCt: 1.49 + i * 0.5, sortOrder: 90 + i }, update: {} })));
-  const custs = [await customer("M1", "Alpha"), await customer("M2", "Beta"), await customer("M3", "Gamma", "BE", "ANT")];
-  const rnd = lcg(42);
-  const pick = <T,>(a: readonly T[]) => a[Math.floor(rnd() * a.length)];
-  const rows: SaleInput[] = [];
-  for (let i = 0; i < 600; i++) {
-    const daysAgo = Math.floor(rnd() * 420);
-    const minutes = Math.floor(rnd() * 1440);
-    const c = pick(custs);
-    rows.push({
-      docDate: new Date(NOW.getTime() - daysAgo * 86_400_000 - minutes * 60_000),
-      status: pick(["Invoice", "Invoice", "Invoice", "Memo", "Stock"] as const),
-      shape: pick(["Round", "Oval", "Pear", "Emerald"]),
-      weight: Math.round((1 + rnd() * 3) * 100) / 100,
-      value: rnd() < 0.05 ? null : Math.round(rnd() * 5_000_000) / 100,
-      qty: rnd() < 0.02 ? 2 : 1,
-      lab: pick(["GIA", "IGI", null]),
-      country: c === custs[2] ? "BE" : "IN",
-      branch: c === custs[2] ? "ANT" : pick(["SRT", "MUM"]),
-      customerId: c.id,
-      weightBandId: pick([bands[0].id, bands[1].id, null]),
-      color: pick(["D", "E", null]),
-    });
+/** Independent per-category aggregate of the same rows, computed outside the database. */
+function referenceByCategory(rows: Awaited<ReturnType<typeof snapshotRows>>["rows"], cutoffIst: string) {
+  const dayOf = (d: string) => Date.parse(`${d}T00:00:00Z`) / 86_400_000;
+  const cutoff = dayOf(cutoffIst);
+  const acc = new Map<string, { quantity: number; weight: number; records: number; windows: [number, number, number] }>();
+  for (const r of rows) {
+    if (!r.docDate) continue;
+    const ist = getISTDateString(r.docDate);
+    const back = cutoff - dayOf(ist);
+    if (back < 0) continue;
+    const cur = acc.get(r.planningCategory) ?? { quantity: 0, weight: 0, records: 0, windows: [0, 0, 0] as [number, number, number] };
+    cur.quantity += Number(r.quantity);
+    cur.weight += Number(r.weight ?? 0);
+    cur.records += 1;
+    const idx = Math.floor(back / 30);
+    if (idx >= 0 && idx <= 2) cur.windows[idx] += Number(r.quantity);
+    acc.set(r.planningCategory, cur);
   }
-  // Month-boundary rows that land in different months depending on the reporting timezone.
-  rows.push({ docDate: "2026-08-31T20:00:00Z" }, { docDate: "2026-07-31T23:30:00Z" }, { docDate: "2026-09-01T00:30:00Z" });
-  await sales(custs[0].id, rows);
-}
-
-const round = (n: number, dp = 6) => Math.round(n * 10 ** dp) / 10 ** dp;
-function normalise(r: Awaited<ReturnType<typeof getSalesAnalysis>>) {
-  return {
-    ...r,
-    totalCarats: round(r.totalCarats),
-    totalValue: round(r.totalValue, 4),
-    rows: r.rows.map((x) => ({ ...x, carats: round(x.carats), value: round(x.value, 4), avgPerCt: round(x.avgPerCt, 4), pct: round(x.pct, 6) })).sort((a, b) => a.dimension.localeCompare(b.dimension)),
-    trendSeries: { ...r.trendSeries, carats: r.trendSeries.carats.map((p) => ({ ...p, value: round(p.value) })), value: r.trendSeries.value.map((p) => ({ ...p, value: round(p.value, 4) })) },
-  };
-}
-
-async function reference(f: SalesFilters) {
-  const window = businessWindow(f.now, f.windowDays, f.timezone);
-  return aggregateSales(await loadSalesFactRows(f, window), f, window, await loadLabels(f.dimension));
+  return acc;
 }
 
 beforeAll(async () => {
   await resetDb();
-  await mixedFixture();
+  admin = await makeUser("sales.agg.root", "SUPER_ADMIN");
 });
 
-describe("SA-11 database aggregation equals the in-memory reference", () => {
-  for (const tz of ["UTC", "Asia/Kolkata", "America/New_York"]) {
-    for (const windowDays of [7, 30, 90, 365]) {
-      test(`all 10 dimensions · ${windowDays}D · ${tz}`, async () => {
-        for (const d of SALES_DIMENSIONS) {
-          const f: SalesFilters = { dimension: d.value, windowDays, now: NOW, timezone: tz };
-          expect({ d: d.value, r: normalise(await getSalesAnalysis(f)) }).toEqual({ d: d.value, r: normalise(await reference(f)) });
-        }
+describe("SA-AGG database aggregation equals an independent reading of the same rows", () => {
+  beforeAll(() => ensureWorld("core"));
+
+  test("category quantities, weights, record counts and window splits all agree", async () => {
+    const { run, rows } = await snapshotRows();
+    const reference = referenceByCategory(rows, run.businessDateIst!);
+    const served = (await get(salesRoute, `${SUMMARY}?pageSize=200`)).json.rows;
+
+    expect(served.length).toBe(reference.size);
+    for (const r of served) {
+      const expected = reference.get(r.categoryId)!;
+      expect({
+        c: r.categoryId,
+        quantity: r.total90Quantity,
+        weight: Math.round(r.total90Weight * 1e4),
+        records: r.recordCount,
+        windows: [r.previous30Quantity, r.middle30Quantity, r.latest30Quantity],
+      }).toEqual({
+        c: r.categoryId,
+        quantity: expected.quantity,
+        weight: Math.round(expected.weight * 1e4),
+        records: expected.records,
+        // The reference indexes windows from the newest; the page names them.
+        windows: [expected.windows[2], expected.windows[1], expected.windows[0]],
       });
     }
-  }
-  test("with country / branch / lab filters", async () => {
-    for (const filt of [{ country: "IN" }, { branch: "MUM" }, { lab: "GIA" }, { country: "BE", lab: "IGI" }]) {
-      const f: SalesFilters = { dimension: "shape", windowDays: 180, now: NOW, timezone: "UTC", ...filt };
-      expect(normalise(await getSalesAnalysis(f))).toEqual(normalise(await reference(f)));
+  });
+
+  test("contribution by country and by branch reconciles with the same totals", async () => {
+    const summary = await get(salesRoute, `${SUMMARY}?pageSize=200`);
+    for (const dimension of ["country", "branch", "customer"]) {
+      const c = await get(contributionRoute, `/api/analysis/sales/contribution?dimension=${dimension}&pageSize=200`);
+      const quantity = c.json.rows.reduce((s: number, r: { confirmedQuantity: number }) => s + r.confirmedQuantity, 0);
+      const records = c.json.rows.reduce((s: number, r: { recordCount: number }) => s + r.recordCount, 0);
+      expect({ dimension, quantity }).toEqual({ dimension, quantity: summary.json.totals.confirmedQuantity });
+      expect({ dimension, records }).toEqual({ dimension, records: summary.json.totals.recordCount });
     }
   });
-  test("qty anomalies and null handling are identical", async () => {
-    const f: SalesFilters = { dimension: "lab", windowDays: 365, now: NOW, timezone: "UTC" };
-    const db1 = await getSalesAnalysis(f);
-    expect(db1.dataQuality.qtyNotOneCount).toBe((await reference(f)).dataQuality.qtyNotOneCount);
-    expect(db1.dataQuality.qtyNotOneCount).toBeGreaterThan(0);
-    expect(db1.rows.map((r) => r.dimension)).toContain("Non-Cert");
+
+  test("the supporting records reconcile with the aggregate they sit behind", async () => {
+    const summary = await get(salesRoute, `${SUMMARY}?pageSize=200`);
+    const records = await get(recordsRoute, "/api/analysis/sales/records?pageSize=200");
+    expect(records.json.paging.total).toBe(summary.json.totals.recordCount);
+    const quantity = records.json.rows.reduce((s: number, r: { confirmedQuantity: number }) => s + r.confirmedQuantity, 0);
+    expect(quantity).toBe(summary.json.totals.confirmedQuantity);
   });
 });
 
-describe("SA-12 window fixture: 30D < 90D < 180D < 365D", () => {
-  test("records in each band make every window strictly larger", async () => {
-    await resetSales();
-    const c = await customer("W1", "Windows");
-    const w = businessWindow(NOW, 1, "UTC");
-    const at = (daysBack: number) => `${addDays(w.endDate, -daysBack)}T12:00:00Z`;
-    await sales(c.id, [
-      { docDate: at(5), value: 100 }, // inside 30D
-      { docDate: at(29), value: 100 }, // last date of 30D
-      { docDate: at(30), value: 100 }, // first date outside 30D, inside 90D
-      { docDate: at(60), value: 100 }, // 31–90D
-      { docDate: at(120), value: 100 }, // 91–180D
-      { docDate: at(179), value: 100 }, // last date of 180D
-      { docDate: at(250), value: 100 }, // 181–365D
-      { docDate: at(364), value: 100 }, // last date of 365D
-      { docDate: at(365), value: 100 }, // older than 365D — never counted
-      { docDate: at(500), value: 100 },
-    ]);
-    const pieces: Record<number, number> = {};
-    for (const d of [30, 90, 180, 365]) pieces[d] = (await getSalesAnalysis({ dimension: "shape", windowDays: d, now: NOW, timezone: "UTC" })).totalPieces;
-    expect(pieces).toEqual({ 30: 2, 90: 4, 180: 6, 365: 8 });
-    expect(pieces[30] < pieces[90] && pieces[90] < pieces[180] && pieces[180] < pieces[365]).toBe(true);
+describe("SA-PARITY the 90-day confirmed quantity equals the demand sales input", () => {
+  beforeAll(() => ensureWorld("core"));
+
+  test("every category matches the demand metric it was calculated into", async () => {
+    const { run } = await snapshotRows();
+    const metrics = await db.demandMetric.findMany({
+      where: { runId: run.id, sales90d: { gt: 0 } },
+      select: { planningCategory: true, sales90d: true },
+    });
+    expect(metrics.length).toBeGreaterThan(0);
+
+    const served: Record<string, number> = {};
+    for (const r of (await get(salesRoute, `${SUMMARY}?pageSize=200`)).json.rows) served[r.categoryId] = r.total90Quantity;
+
+    for (const m of metrics) {
+      expect({ c: m.planningCategory, qty: served[m.planningCategory] }).toEqual({ c: m.planningCategory, qty: m.sales90d });
+    }
+    const demandTotal = metrics.reduce((s, m) => s + m.sales90d, 0);
+    const pageTotal = (await get(salesRoute, `${SUMMARY}?pageSize=200`)).json.totals.confirmedQuantity;
+    expect(pageTotal).toBe(demandTotal);
+  });
+
+  test("the page reports the same window the demand run used, and says which run", async () => {
+    const { run } = await snapshotRows();
+    const readiness = (await get(salesRoute, SUMMARY)).json.readiness;
+    expect(readiness.snapshot.snapshotId).toBe(run.id);
+    expect(readiness.snapshot.salesCutoffIst).toBe(run.businessDateIst);
+    expect(readiness.snapshot.windowDays).toBe(run.windowDays);
+    expect(readiness.snapshot.lookbackStartUtc).toBe(run.lookbackStart!.toISOString());
+    expect(readiness.snapshot.lookbackEndUtc).toBe(run.lookbackEnd!.toISOString());
+    // The run's own sale count is the eligibility policy's answer; the page adds nothing.
+    expect(readiness.eligibleSalesRecords).toBe(run.salesCount);
+  });
+
+  test("records the policy quarantined are absent from the page and from the demand input alike", async () => {
+    await ensureWorld("quality");
+    const { run } = await snapshotRows();
+    const summary = await get(salesRoute, `${SUMMARY}?pageSize=200`);
+    const metrics = await db.demandMetric.findMany({ where: { runId: run.id, sales90d: { gt: 0 } }, select: { planningCategory: true, sales90d: true } });
+    const demandTotal = metrics.reduce((s, m) => s + m.sales90d, 0);
+    expect(summary.json.totals.confirmedQuantity).toBe(demandTotal);
+    // The quarantined sale reached neither side, and the page reports it as blocked
+    // rather than absorbing it into a category.
+    expect(summary.json.readiness.eligibleSalesRecords).toBeLessThan(run.salesCount);
+    expect(summary.json.readiness.recordsBlockedByMissingCategory).toBeGreaterThan(0);
+  });
+});
+
+describe("SA-SCALE aggregation stays correct at volume", () => {
+  beforeAll(() => ensureWorld("bulk"));
+  afterAll(cleanupSalesWorld);
+
+  test("hundreds of sales across many categories still reconcile exactly", async () => {
+    const { run, rows } = await snapshotRows();
+    expect(rows.length).toBe(BULK_LOT_COUNT);
+
+    const reference = referenceByCategory(rows, run.businessDateIst!);
+    const served = (await get(salesRoute, `${SUMMARY}?pageSize=200`)).json;
+    expect(served.paging.total).toBe(reference.size);
+    expect(served.totals.recordCount).toBe(BULK_LOT_COUNT);
+    expect(served.totals.confirmedQuantity).toBe([...reference.values()].reduce((s, v) => s + v.quantity, 0));
+
+    for (const r of served.rows) {
+      const expected = reference.get(r.categoryId)!;
+      expect({ c: r.categoryId, q: r.total90Quantity, n: r.recordCount }).toEqual({ c: r.categoryId, q: expected.quantity, n: expected.records });
+    }
+  });
+
+  test("the day-level trend covers the whole window without losing a record", async () => {
+    const trend = await get(trendRoute, "/api/analysis/sales/trend?interval=day");
+    const records = trend.json.rows.reduce((s: number, r: { recordCount: number }) => s + r.recordCount, 0);
+    expect(records).toBe(BULK_LOT_COUNT);
+    // Days are returned oldest to newest, each exactly once.
+    const keys = trend.json.rows.map((r: { periodKey: string }) => r.periodKey);
+    expect(new Set(keys).size).toBe(keys.length);
+    expect(keys).toEqual([...keys].sort());
   });
 });

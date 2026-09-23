@@ -389,29 +389,33 @@ function OptionPiecesSection({ option }: { option: OptionRow }) {
             {pieces.length === 0 ? (
               <EmptyState title="No planned pieces" message="This option has no piece-level breakdown." />
             ) : (
-              <div className="overflow-x-auto rounded border border-border/60">
+              <div className="overflow-x-auto rounded border border-border">
                 <table className="w-full text-xs border-collapse">
                   <thead>
-                    <tr className="bg-muted/50 border-b border-border">
-                      {["#", "Piece Code", "Shape", "Weight (ct)", "Color", "Clarity", "Category", "Cert Intent", "Fulfilled"].map((h) => (
-                        <th key={h} className="px-2 py-1.5 text-left font-semibold text-muted-foreground uppercase tracking-wide text-[10px] whitespace-nowrap">
-                          {h}
-                        </th>
-                      ))}
+                    <tr className="bg-muted border-b border-border">
+                      <th className="px-2 py-1.5 text-center font-semibold text-muted-foreground uppercase tracking-wide text-[10px] whitespace-nowrap border-r border-border/40">#</th>
+                      <th className="px-2 py-1.5 text-left font-semibold text-muted-foreground uppercase tracking-wide text-[10px] whitespace-nowrap border-r border-border/40">Piece Code</th>
+                      <th className="px-2 py-1.5 text-left font-semibold text-muted-foreground uppercase tracking-wide text-[10px] whitespace-nowrap border-r border-border/40">Shape</th>
+                      <th className="px-2 py-1.5 text-right font-semibold text-muted-foreground uppercase tracking-wide text-[10px] whitespace-nowrap border-r border-border/40">Weight (ct)</th>
+                      <th className="px-2 py-1.5 text-left font-semibold text-muted-foreground uppercase tracking-wide text-[10px] whitespace-nowrap border-r border-border/40">Color</th>
+                      <th className="px-2 py-1.5 text-left font-semibold text-muted-foreground uppercase tracking-wide text-[10px] whitespace-nowrap border-r border-border/40">Clarity</th>
+                      <th className="px-2 py-1.5 text-left font-semibold text-muted-foreground uppercase tracking-wide text-[10px] whitespace-nowrap border-r border-border/40">Category</th>
+                      <th className="px-2 py-1.5 text-left font-semibold text-muted-foreground uppercase tracking-wide text-[10px] whitespace-nowrap border-r border-border/40">Cert Intent</th>
+                      <th className="px-2 py-1.5 text-center font-semibold text-muted-foreground uppercase tracking-wide text-[10px] whitespace-nowrap">Fulfilled</th>
                     </tr>
                   </thead>
                   <tbody>
                     {pieces.map((p, i) => (
-                      <tr key={p.id} className={cn("border-b border-border/40 last:border-0", i % 2 === 1 && "bg-muted/20")}>
-                        <td className="px-2 py-1.5 text-muted-foreground tabular-nums">{p.sequence}</td>
-                        <td className="px-2 py-1.5 font-mono text-[11px]">{p.pieceCode}</td>
-                        <td className="px-2 py-1.5">{p.expectedShape ?? "—"}</td>
-                        <td className="px-2 py-1.5 tabular-nums">{p.expectedWeight.toFixed(3)}</td>
-                        <td className="px-2 py-1.5 font-mono">{p.expectedColor ?? "—"}</td>
-                        <td className="px-2 py-1.5 font-mono">{p.expectedClarity ?? "—"}</td>
-                        <td className="px-2 py-1.5 text-[10px] text-muted-foreground">{p.expectedCategory ?? "—"}</td>
-                        <td className="px-2 py-1.5">{p.certificationIntent ?? "—"}</td>
-                        <td className="px-2 py-1.5">
+                      <tr key={p.id} className={cn("border-b border-border/50 last:border-b-0 hover:bg-muted/30 transition-colors", i % 2 === 1 && "bg-muted/15")}>
+                        <td className="px-2 py-1.5 text-center text-muted-foreground tabular-nums border-r border-border/40">{p.sequence}</td>
+                        <td className="px-2 py-1.5 font-mono text-[11px] border-r border-border/40">{p.pieceCode}</td>
+                        <td className="px-2 py-1.5 border-r border-border/40">{p.expectedShape ?? "—"}</td>
+                        <td className="px-2 py-1.5 text-right tabular-nums font-medium border-r border-border/40">{p.expectedWeight.toFixed(3)}</td>
+                        <td className="px-2 py-1.5 font-mono border-r border-border/40">{p.expectedColor ?? "—"}</td>
+                        <td className="px-2 py-1.5 font-mono border-r border-border/40">{p.expectedClarity ?? "—"}</td>
+                        <td className="px-2 py-1.5 text-[10px] text-muted-foreground border-r border-border/40">{p.expectedCategory ?? "—"}</td>
+                        <td className="px-2 py-1.5 border-r border-border/40">{p.certificationIntent ?? "—"}</td>
+                        <td className="px-2 py-1.5 text-center">
                           {p.fulfilled ? (
                             <Badge variant="success">Fulfilled</Badge>
                           ) : (
@@ -818,6 +822,8 @@ export function PlanComparisonView() {
               exportable
               exportPermission="plan.export"
               exportFilename={`plan-comparison-${data.caseCode}.csv`}
+              pagination
+              pageSize={25}
               rowClassName={(r) =>
                 r.selected ? "bg-sky-50/50 dark:bg-sky-950/30" : ""
               }

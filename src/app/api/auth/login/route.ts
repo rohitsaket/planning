@@ -7,7 +7,7 @@ import { consume, LIMITS } from "@/lib/api/rate-limit";
 import { tooManyRequests } from "@/lib/api/errors";
 import { DUMMY_HASH, verifyPassword } from "@/lib/auth/password";
 import { createSession, sessionCookie } from "@/lib/auth/session";
-import { permissionsFor } from "@/lib/auth/permissions";
+import { ASSIGNED_ROLE_SELECT, resolveEffectiveAccess } from "@/lib/auth/effective-permissions";
 
 const MAX_FAILED = 10;
 const LOCK_MS = 15 * 60_000;
@@ -25,7 +25,10 @@ export const POST = withApi({ public: true, body: bodySchema, rateLimit: LIMITS.
   // Per-username throttle, so guessing one account cannot lock everyone else out of the login endpoint.
   const rl = consume(`login-user|${username}`, LIMITS.login);
   if (!rl.ok) throw tooManyRequests(rl.retryAfterSeconds);
-  const user = await db.user.findUnique({ where: { username } });
+  const user = await db.user.findUnique({
+    where: { username },
+    include: { roleAssignments: { select: ASSIGNED_ROLE_SELECT } },
+  });
   const passwordOk = await verifyPassword(api.body.password, user?.passwordHash ?? DUMMY_HASH);
   const locked = !!user?.lockedUntil && user.lockedUntil.getTime() > Date.now();
 
@@ -49,7 +52,19 @@ export const POST = withApi({ public: true, body: bodySchema, rateLimit: LIMITS.
   await db.auditLog.create({
     data: { actor: user.username, actorUserId: user.id, actorRole: user.role, sessionId: session.id, action: "LOGIN", entity: "User", entityId: user.id, requestId: api.requestId, sourceIp: api.sourceIp },
   });
-  const res = NextResponse.json({ user: { id: user.id, username: user.username, displayName: user.displayName, role: user.role, permissions: permissionsFor(user.role) } });
+  const access = resolveEffectiveAccess(user.roleAssignments.map((a) => a.role), user.role);
+  const res = NextResponse.json({
+    user: {
+      id: user.id,
+      username: user.username,
+      displayName: user.displayName,
+      role: user.role,
+      roleCodes: access.roleCodes,
+      permissions: access.permissions,
+      // The client routes a restricted session straight to the password-change screen.
+      mustChangePassword: user.mustChangePassword,
+    },
+  });
   res.headers.append("set-cookie", sessionCookie(token, maxAgeSeconds));
   return res;
 });

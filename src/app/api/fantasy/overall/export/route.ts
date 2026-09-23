@@ -1,12 +1,12 @@
 import { db } from "@/lib/db";
 import { withApi, qStr } from "@/lib/api/with-api";
-import { getFantasyConfig } from "@/lib/fantasy/config";
+import { resolveFantasySourceStateWithHistory } from "@/lib/fantasy/config";
 import { formatIST } from "@/lib/fantasy/time";
 import { num } from "@/lib/api-utils";
 
 export const GET = withApi({ permission: "overall.export" }, async (req: Request) => {
   const url = new URL(req.url);
-  const config = getFantasyConfig();
+  const sourceState = await resolveFantasySourceStateWithHistory(db);
 
   const isCurrentParam = qStr(url, "isCurrent");
   const status = qStr(url, "status");
@@ -54,7 +54,7 @@ export const GET = withApi({ permission: "overall.export" }, async (req: Request
   const csvRows: string[] = [];
 
   // Add watermarking header for simulated data
-  if (config.isSimulation) {
+  if (sourceState.isSimulated) {
     csvRows.push("# NOTICE: SIMULATED / TEST FIXTURE DATA - DIAMOND PLANNING SYSTEM");
     csvRows.push(`# EXPORT GENERATED AT: ${formatIST(new Date())}`);
   }
@@ -99,7 +99,7 @@ export const GET = withApi({ permission: "overall.export" }, async (req: Request
     status: 200,
     headers: {
       "Content-Type": "text/csv; charset=utf-8",
-      "Content-Disposition": `attachment; filename="overall-data-${config.isSimulation ? "simulated-" : ""}export.csv"`,
+      "Content-Disposition": `attachment; filename="overall-data-${sourceState.isSimulated ? "simulated-" : ""}export.csv"`,
       "Cache-Control": "no-store",
     },
   });

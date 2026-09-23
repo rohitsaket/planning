@@ -224,6 +224,8 @@ export function CountryView() {
           searchable
           searchPlaceholder="Search country..."
           searchFn={(r, q) => r.country.toLowerCase().includes(q.toLowerCase())}
+          pagination
+          pageSize={25}
           maxHeight="500px"
         />
       </Section>

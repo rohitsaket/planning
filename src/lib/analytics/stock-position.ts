@@ -14,6 +14,7 @@
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { classifyCurrentWip, type WipPolicy } from "@/lib/demand/wip-classification";
+import { AVAILABLE_LEGACY_PLANNING_CLASSES } from "@/lib/fantasy/classification";
 
 type DbClient = typeof db;
 
@@ -127,7 +128,9 @@ export async function computeCountryCategoryPositions(client: DbClient = db): Pr
   // 2. Availability — physical / planning-available polished stock per category.
   const polishedGroups = await client.polishedStone.groupBy({
     by: ["country", "branch", "labNormalized", "shapeNormalized", "shape", "weightBandId"],
-    where: { planningClass: { in: ["PHYSICAL", "PLANNING_AVAILABLE"] } },
+    // Sourced from the classifier, not restated here, so an analytics filter cannot
+    // drift from what the mirror writer actually produces.
+    where: { planningClass: { in: [...AVAILABLE_LEGACY_PLANNING_CLASSES] } },
     _count: { _all: true },
   });
   for (const g of polishedGroups) {

@@ -768,9 +768,15 @@ model AuditLog {
   requestId   String?
   sessionId   String?
   sourceIp    String?
+  /// SUCCESS | DENIED | FAILED. Absent on rows written before this field existed.
+  outcome     String?
+  /// SECURITY | OPERATIONAL.
+  category    String?
 
   @@index([timestamp])
   @@index([actorUserId])
+  @@index([entity, entityId, timestamp])
+  @@index([category, timestamp])
 }
 
 model DataQualityIssue {
@@ -895,6 +901,24 @@ model LotMasterRecord {
   parentRoughId       String?
   kapan               String?
   stoneName           String?
+  /// --- Canonical classification (Master Phase 1) ---------------------------
+  /// Written by the central classifier, never by a downstream service. Nullable because
+  /// rows projected before this existed carry no classification; a null is treated as
+  /// unclassified and therefore unavailable, not as a permissive default.
+  holdState                    String?  // HELD | NOT_HELD | UNKNOWN
+  canonicalLifecycle           String?
+  inventoryClass               String?  // PHYSICAL_AVAILABLE | MEMO | RESERVED | WIP | EXCLUDED
+  classificationAvailable      Boolean?
+  classificationPlanningEligible Boolean?
+  classificationReviewRequired Boolean?
+  classificationTerminal       Boolean?
+  /// Comma-separated fixed reason codes. Never free text, never a source value.
+  classificationReasons        String?
+  /// Profile and version that produced this classification, so it stays reproducible
+  /// after the mapping is later edited.
+  classificationProfile        String?
+  classificationProfileVersion Int?
+  classificationState          String?  // CLASSIFIED | BLOCKED | NOT_CONFIGURED
   isCurrent           Boolean   @default(true)
   removalReason       String?   // EXPLICIT_SALE | MEMO_RETURN | TRANSFERRED | ARCHIVED | CANCELLED | COMPLETED | CORRECTION | SOURCE_DISAPPEARANCE_UNKNOWN
   removedFromLiveAt   DateTime?
@@ -923,6 +947,8 @@ model LotMasterRecord {
 
   @@index([isCurrent, roughOrPolished])
   @@index([isCurrent, entityType])
+  @@index([isCurrent, inventoryClass])
+  @@index([classificationProfile, classificationProfileVersion])
 }
 
 model LotHistoryRecord {
@@ -960,6 +986,24 @@ model LotHistoryRecord {
   parentRoughId       String?
   kapan               String?
   stoneName           String?
+  /// --- Canonical classification (Master Phase 1) ---------------------------
+  /// Written by the central classifier, never by a downstream service. Nullable because
+  /// rows projected before this existed carry no classification; a null is treated as
+  /// unclassified and therefore unavailable, not as a permissive default.
+  holdState                    String?  // HELD | NOT_HELD | UNKNOWN
+  canonicalLifecycle           String?
+  inventoryClass               String?  // PHYSICAL_AVAILABLE | MEMO | RESERVED | WIP | EXCLUDED
+  classificationAvailable      Boolean?
+  classificationPlanningEligible Boolean?
+  classificationReviewRequired Boolean?
+  classificationTerminal       Boolean?
+  /// Comma-separated fixed reason codes. Never free text, never a source value.
+  classificationReasons        String?
+  /// Profile and version that produced this classification, so it stays reproducible
+  /// after the mapping is later edited.
+  classificationProfile        String?
+  classificationProfileVersion Int?
+  classificationState          String?  // CLASSIFIED | BLOCKED | NOT_CONFIGURED
   isCurrent           Boolean
   removalReason       String?
   changeReason        String?
@@ -987,15 +1031,32 @@ model User {
   displayName      String
   email            String?   @unique
   passwordHash     String
+  /// Legacy single-role column. Retained during the transition and still written so an
+  /// unmigrated reader keeps working; principal resolution prefers UserRole.
   role             String    // role code, see src/lib/auth/permissions.ts
-  status           String    @default("ACTIVE") // ACTIVE | DISABLED
+  /// ACTIVE | SUSPENDED | DISABLED. A temporary login lockout (lockedUntil) is a
+  /// failed-login consequence, not an administrative suspension.
+  status           String    @default("ACTIVE")
   failedLoginCount Int       @default(0)
   lockedUntil      DateTime?
   lastLoginAt      DateTime?
+  /// Set when an administrator issues a temporary password. The session is restricted
+  /// to identity, password change and logout until the user chooses a new one.
+  mustChangePassword Boolean @default(false)
+  passwordChangedAt  DateTime?
+  suspendedAt        DateTime?
+  deactivatedAt      DateTime?
+  /// Optimistic concurrency. Every mutation supplies the version it read.
+  version            Int      @default(0)
+  createdByUserId    String?
+  updatedByUserId    String?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
   sessions         Session[]
+  roleAssignments  UserRole[]
+
+  @@index([status])
 }
 
 // Self-service registration. A request NEVER creates an account or grants access:
@@ -1037,4 +1098,511 @@ model Session {
   userAgent  String?
 
   @@index([userId])
+}
+
+// ---------------------------------------------------------------------------
+// FANTASY RAW INGESTION (staging) — Phase 3A
+//
+// Raw provider batches land here and go no further: nothing in this section feeds
+// inventory, demand, planning or history. Identity is ingestion metadata plus
+// surrogate ids only — no Fantasy business field (Lot ID, Doc ID, certificate,
+// company, metal or allocation account) is used as a uniqueness key, because the
+// scope and granularity of those values are not confirmed.
+//
+// JSON is stored as canonical text, matching the convention used elsewhere in this
+// schema, so stored payloads are byte-stable for hashing and comparison.
+// ---------------------------------------------------------------------------
+model FantasyRawBatch {
+  id                    String    @id @default(cuid())
+  contractVersion       String    // e.g. FANTASY_ROW_CONTRACT_V1
+  encodingVersion       String    // e.g. FANTASY_RAW_ENCODING_V1
+  sourceMode            String    // FIXTURE | FILE_IMPORT | FANTASY_API
+  providerBatchId       String    // provider-supplied, never assumed unique on its own
+  batchHash             String    // SHA-256 over contract version, headers and encoded rows
+  headersJson           String    // canonical JSON array of the exact supplied headers, in order
+  cursorKind            String    // FULL_SNAPSHOT | PROVIDER_SUPPLIED
+  cursorTokenHash       String?   // hash only; an opaque cursor token is never stored
+  providerMetadataJson  String?   // allowlisted scalar metadata only
+  processingMode        String    @default("PERSIST") // DRY_RUN never reaches the database
+  status                String    // ACCEPTED | ACCEPTED_WITH_ISSUES | REJECTED | CONFLICT
+  receivedAt            DateTime  @default(now())
+  processingStartedAt   DateTime?
+  processingCompletedAt DateTime?
+  rowsReceived          Int       @default(0)
+  rowsAccepted          Int       @default(0)
+  rowsQuarantined       Int       @default(0)
+  rowsRejected          Int       @default(0)
+  rowsWithDrift         Int       @default(0)
+  diagnosticsJson       String?   // safe diagnostic codes and positions; never source values
+  // Soft reference to the earliest batch that used this providerBatchId with different
+  // content. Deliberately not a relation: both facts stay available for investigation.
+  conflictsWithBatchId  String?
+  // Soft correlation to IntegrationSyncRun. Deliberately not a Prisma relation, so no
+  // existing query can accidentally serialize raw rows through it.
+  integrationSyncRunId  String?
+  /// --- Ingestion provenance (Master Phase 1 hardening) ---------------------
+  /// The effective source state and provider identity AT THE MOMENT THIS BATCH WAS
+  /// INGESTED. Projection binds to these rather than to whatever the application is
+  /// configured for now, so re-projecting a months-old fixture batch after a live
+  /// switchover cannot classify it as live data.
+  ///
+  /// Nullable because batches ingested before this existed carry no provenance. A null
+  /// is not "assume fixture" — projection refuses such a batch with
+  /// SOURCE_PROVENANCE_NOT_CONFIGURED.
+  effectiveSourceStateAtIngestion String?
+  providerIdAtIngestion           String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  rows                  FantasyRawRow[]
+  /// Back-relation required by the projection-run foreign key. Nothing reads raw data
+  /// through it: every API uses an explicit `select`, proven by the projection tests.
+  projectionRuns        FantasyProjectionRun[]
+
+  // Exact-replay key: identical content under the same provider batch id is stored once.
+  @@unique([sourceMode, contractVersion, providerBatchId, batchHash])
+  @@index([providerBatchId])
+  @@index([status])
+  @@index([createdAt])
+  @@index([contractVersion, sourceMode])
+  @@index([batchHash])
+}
+
+model FantasyRawRow {
+  id                    String   @id @default(cuid())
+  batchId               String
+  batch                 FantasyRawBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  sourceRowNumber       Int      // one-based position within the delivered batch
+  encodingVersion       String
+  rawPayloadJson        String   // canonical JSON of type-tagged positional cells
+  normalizedRecordJson  String?  // canonical JSON of type-tagged contract-keyed cells, when normalization succeeded
+  rowHash               String
+  outcome               String   // ACCEPTED_RAW | QUARANTINED | REJECTED_STRUCTURE
+  diagnosticsJson       String?  // safe diagnostic codes and positions; never source values
+  quarantineReasonCodes String?  // comma-separated diagnostic codes, no values
+  createdAt             DateTime @default(now())
+
+  /// Back-relation required by the projection-candidate foreign key. The RESTRICT on
+  /// that key is the point: a raw row that a candidate cites cannot be deleted, so the
+  /// evidence behind a projection always outlives the projection.
+  projectionCandidates  FantasyProjectionCandidate[]
+
+  @@unique([batchId, sourceRowNumber])
+  @@index([batchId, outcome])
+  @@index([rowHash])
+}
+
+// ---------------------------------------------------------------------------
+// Access administration (additive).
+//
+// Permission CODES stay in application code (src/lib/auth/permissions.ts): the route
+// wrapper takes a compile-time union, the route sweep proves every handler declares a
+// known code, and an unknown code fails closed. What becomes data is which codes a
+// CUSTOM role holds. System roles keep their code-defined permissions so there is no
+// second, mutable source of truth for them.
+//
+// User.role is retained during the transition and is still written, so an unmigrated
+// reader keeps working; principal resolution prefers UserRole assignments.
+// ---------------------------------------------------------------------------
+
+model Role {
+  id              String    @id @default(cuid())
+  /// Stable identifier. Immutable after creation; for a system role it equals the
+  /// role code in src/lib/auth/permissions.ts.
+  code            String    @unique
+  name            String
+  description     String?
+  /// A system role is defined in code: it cannot be renamed destructively, have its
+  /// permissions edited from the UI, or be deleted. It may be cloned.
+  isSystem        Boolean   @default(false)
+  status          String    @default("ACTIVE") // ACTIVE | INACTIVE
+  /// Optimistic concurrency. Every mutation supplies the version it read.
+  version         Int       @default(0)
+  createdByUserId String?
+  updatedByUserId String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  permissions     RolePermission[]
+  assignments     UserRole[]
+
+  @@index([status])
+  @@index([isSystem])
+}
+
+model RolePermission {
+  id              String   @id @default(cuid())
+  roleId          String
+  role            Role     @relation(fields: [roleId], references: [id])
+  /// Validated against the application permission catalogue before persistence.
+  /// An unknown code is rejected, never stored.
+  permissionCode  String
+  assignedAt      DateTime @default(now())
+  assignedByUserId String?
+  reason          String?
+
+  @@unique([roleId, permissionCode])
+  @@index([permissionCode])
+}
+
+model UserRole {
+  id               String   @id @default(cuid())
+  userId           String
+  user             User     @relation(fields: [userId], references: [id])
+  roleId           String
+  role             Role     @relation(fields: [roleId], references: [id])
+  assignedAt       DateTime @default(now())
+  assignedByUserId String?
+  /// Required by the assignment API: an access change always records why.
+  reason           String?
+
+  @@unique([userId, roleId])
+  @@index([roleId])
+}
+
+// ---------------------------------------------------------------------------
+// Fantasy classification profiles (additive).
+//
+// `FantasyStatusMapping` above cannot carry these: its `fantasyStatus @unique`
+// constraint allows one row per status *globally*, so the same status cannot exist in a
+// simulation profile and a live profile at once. Dropping that constraint would be a
+// destructive migration, so the versioned model lives here instead. The older table is
+// retained for the fixture seed and the Sync Monitor "unmapped statuses" tile, and is
+// no longer consulted for classification — see `fantasy/classification.ts`.
+//
+// Retirement condition for `FantasyStatusMapping`: once the seed writes profiles
+// instead, and the Sync Monitor tile reads `FantasySourceStatusMapping`, the old model
+// can be removed in its own additive-then-drop migration.
+// ---------------------------------------------------------------------------
+
+model FantasyClassificationProfile {
+  id            String   @id @default(cuid())
+  /// Stable profile identifier, e.g. LEGACY_FIXTURE or FIXTURE_RAW_TEST.
+  code          String   @unique
+  name          String
+  description   String?
+  /// SIMULATION_ONLY may never classify non-simulated data. LIVE_ELIGIBLE requires the
+  /// client to have confirmed the vocabulary it encodes; none exists yet.
+  applicability String   // SIMULATION_ONLY | LIVE_ELIGIBLE
+  /// Incremented on every mapping change. Stamped on every classified record so a past
+  /// classification stays reproducible after the profile is edited.
+  version       Int      @default(1)
+  isActive      Boolean  @default(true)
+  createdByUserId String?
+  updatedByUserId String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  statusMappings FantasySourceStatusMapping[]
+  holdMappings   FantasyHoldMapping[]
+
+  @@index([isActive])
+  @@index([applicability])
+}
+
+model FantasySourceStatusMapping {
+  id                String   @id @default(cuid())
+  profileId         String
+  profile           FantasyClassificationProfile @relation(fields: [profileId], references: [id])
+  /// Exact source status, normalized only by trimming and upper-casing.
+  sourceStatus      String
+  canonicalLifecycle String  // AVAILABLE | PLANNING_AVAILABLE | RESERVED | MEMO | MANUFACTURING_WIP | POLISHED_STOCK | SOLD | TRANSFERRED | CLOSED | UNKNOWN
+  inventoryClass    String   // PHYSICAL_AVAILABLE | MEMO | RESERVED | WIP | EXCLUDED
+  countsAvailable   Boolean  @default(false)
+  planningEligible  Boolean  @default(false)
+  terminalState     Boolean  @default(false)
+  reviewRequired    Boolean  @default(false)
+  isActive          Boolean  @default(true)
+  notes             String?
+  createdByUserId   String?
+  updatedByUserId   String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@unique([profileId, sourceStatus])
+  @@index([profileId, isActive])
+}
+
+model FantasyHoldMapping {
+  id              String   @id @default(cuid())
+  profileId       String
+  profile         FantasyClassificationProfile @relation(fields: [profileId], references: [id])
+  /// Exact source value, normalized only by trimming and upper-casing. The internal
+  /// sentinel LEGACY_FIXTURE_HOLD_NOT_MODELLED is only ever supplied by the application's
+  /// own fixture adapter and is rejected when it arrives on a provider row.
+  sourceValue     String
+  /// HELD | NOT_HELD. UNKNOWN is never stored: it is what an unmapped value resolves to.
+  holdState       String
+  isActive        Boolean  @default(true)
+  notes           String?
+  createdByUserId String?
+  updatedByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([profileId, sourceValue])
+  @@index([profileId, isActive])
+}
+
+// ---------------------------------------------------------------------------
+// Fantasy shadow projection (additive, structurally isolated).
+//
+// These two tables hold the canonical projection of raw Fantasy rows. They are
+// deliberately NOT joined to LotMasterRecord or LotHistoryRecord, and those models gain
+// no discriminator column, no nullable projection field and no back-relation. The
+// isolation is structural: there is no Prisma path from a canonical record into a
+// projection candidate, so no existing query, serializer or export can reach this data
+// by traversing a relation it already holds.
+//
+// References to the raw batch and row are soft (plain id columns, no relation), matching
+// the `integrationSyncRunId` convention above, so raw payload rows likewise cannot be
+// pulled through a projection include.
+//
+// Projection can run in DRY_RUN or SHADOW. There is no ACTIVE mode: a database CHECK
+// constraint rejects the value, so no application bug, migration ordering mistake or
+// direct write can make shadow output authoritative. Promotion is a separate, explicitly
+// designed piece of work that does not exist yet.
+// ---------------------------------------------------------------------------
+
+model FantasyProjectionRun {
+  id                           String    @id @default(cuid())
+  /// DRY_RUN (nothing persisted beyond this run row) | SHADOW (candidates persisted).
+  /// ACTIVE is refused by a CHECK constraint, not merely by application code.
+  mode                         String
+  status                       String    // RUNNING | COMPLETED | FAILED | ABORTED
+  /// Deterministic hash over every material input: batch id and content hash, mode,
+  /// contract and encoding versions, classification profile and version, identity
+  /// policy, measurement policy, quantity semantics and weight unit.
+  ///
+  /// This is the LOGICAL IDENTITY of the requested projection, not a unique row key. It
+  /// was globally unique until the attempt model replaced that: a crashed or failed run
+  /// then permanently blocked its own work, and the only escape was to alter an input to
+  /// manufacture a different fingerprint — which falsifies what the operation is.
+  fingerprint                  String
+  /// 1 for the first attempt at this fingerprint, incrementing per retry. Attempts are
+  /// append-only: a retry never deletes, reuses or overwrites an earlier attempt.
+  attemptNumber                Int       @default(1)
+  /// The attempt this one retries, when any. Deliberately a plain column rather than a
+  /// self-relation, so an attempt chain can be read without a recursive include.
+  previousAttemptId            String?
+  /// Optimistic concurrency. Every ownership-sensitive write supplies the version it read.
+  version                      Int       @default(0)
+  /// SHA-256 of the worker's claim token. The token itself exists only in the worker's
+  /// memory and is never stored, logged or returned. A worker proves ownership by
+  /// presenting the token; an aborted attempt has this cleared, which is what makes the
+  /// old worker's next write fail.
+  ownerTokenHash               String?
+  /// Advanced as each page commits. Read-only evidence of liveness — nothing aborts a
+  /// run on the strength of it, because an invented timeout would kill healthy long runs.
+  heartbeatAt                  DateTime?
+  abortedAt                    DateTime?
+  abortedByUserId              String?
+  /// Fixed code from the abort vocabulary. Never free text.
+  abortReasonCode              String?
+  /// Bounded operator note. Length-limited and validated at the API boundary.
+  abortReasonNote              String?
+  /// Fixed code describing how a non-completed attempt ended, for the diagnostics list.
+  terminalReasonCode           String?
+  /// The raw batch projected. A real foreign key with RESTRICT: raw evidence cannot be
+  /// deleted while a projection cites it.
+  sourceBatchId                String?
+  sourceBatch                  FantasyRawBatch? @relation(fields: [sourceBatchId], references: [id], onDelete: Restrict)
+  contractVersion              String
+  encodingVersion              String?
+  /// Effective source state at the time of the run, so a fixture projection can never be
+  /// mistaken for a live one after the fact.
+  effectiveSourceState         String
+  /// Classification inputs, recorded so a candidate stays reproducible after a mapping edit.
+  classificationProfile        String?
+  classificationProfileVersion Int?
+  /// Identity policy that produced every candidate's projectionIdentityKey.
+  identityPolicyVersion        Int
+  /// Measurement resolution policy in force. STRICT_ACTUAL_ONLY means no estimate was
+  /// ever promoted into a usable value.
+  measurementPolicy            String    @default("STRICT_ACTUAL_ONLY")
+  quantitySemantics            String    // NOT_CONFIGURED | PIECE_COUNT
+  weightUnit                   String    // UNIT_NOT_CONFIGURED | CARAT
+  rowsRead                     Int       @default(0)
+  /// Rows whose ingestion outcome was ACCEPTED_RAW — the only rows that may be decoded
+  /// and projected into canonical candidate fields.
+  rowsEligible                 Int       @default(0)
+  /// Rows skipped before any decoding, counted by why. A skipped row produces no
+  /// candidate at all, so it can never enter reconciliation as a business record.
+  rowsSkippedQuarantined       Int       @default(0)
+  rowsSkippedRejected          Int       @default(0)
+  rowsSkippedNotNormalized     Int       @default(0)
+  rowsSkippedUndecodable       Int       @default(0)
+  /// Candidates actually written, by state. These count rows, not skips.
+  candidatesProjected          Int       @default(0)
+  candidatesQuarantined        Int       @default(0)
+  candidatesReviewRequired     Int       @default(0)
+  /// Fixed diagnostic codes and counts only. Never a source value or a raw payload.
+  diagnosticsJson              String?
+  /// Constant, surfaced in diagnostics so the UI never has to infer why nothing was promoted.
+  activationBlockedReason      String    @default("ACTIVATION_NOT_IMPLEMENTED")
+  requestedByUserId            String?
+  startedAt                    DateTime  @default(now())
+  completedAt                  DateTime?
+  createdAt                    DateTime  @default(now())
+
+  candidates                   FantasyProjectionCandidate[]
+
+  /// One row per attempt at a logical projection. The "only one RUNNING" and "only one
+  /// COMPLETED" rules are partial unique indexes created in the migration — Prisma has no
+  /// syntax for them, so they exist in SQL and are verified by test.
+  @@unique([fingerprint, attemptNumber])
+  @@index([mode, status])
+  @@index([sourceBatchId])
+  @@index([startedAt])
+  @@index([classificationProfile, classificationProfileVersion])
+  @@index([fingerprint, status])
+  @@index([status, heartbeatAt])
+  @@index([requestedByUserId, status])
+  @@index([requestedByUserId, startedAt])
+}
+
+/// Immutable. Written once by a projection run and never updated: there is no
+/// `updatedAt`, and the service performs no update or upsert against this model. A
+/// corrected projection is a new run, so the two can be compared.
+model FantasyProjectionCandidate {
+  id                           String   @id @default(cuid())
+  runId                        String
+  /// RESTRICT, not CASCADE: a projection run must not be able to delete the candidates
+  /// that are the evidence for what it concluded.
+  run                          FantasyProjectionRun @relation(fields: [runId], references: [id], onDelete: Restrict)
+
+  /// Denormalized copy of the run's batch id, kept as a plain column. The batch is
+  /// already reachable through the run's foreign key; a second key to the same table
+  /// would add a redundant RESTRICT path without adding any integrity.
+  sourceBatchId                String?
+  /// The raw row this candidate was projected from. RESTRICT preserves the evidence.
+  sourceRowId                  String?
+  sourceRow                    FantasyRawRow? @relation(fields: [sourceRowId], references: [id], onDelete: Restrict)
+  sourceRowNumber              Int
+  /// Content hash of the raw row this candidate was projected from.
+  rowHash                      String
+
+  /// --- Identity (policy II: additive, legacy lotId never dropped) -----------
+  /// Deterministic business identity under identityPolicyVersion. Not assumed unique
+  /// across companies; a collision is recorded as a review reason rather than thrown.
+  projectionIdentityKey        String
+  identityPolicyVersion        Int
+  sourceCompanyId              String?
+  /// The legacy identifier, preserved verbatim so existing records remain matchable.
+  legacyLotId                  String?
+  lotName                      String?
+  certificateNumber            String?
+  certificateId                String?
+  documentId                   String?
+  documentDateRaw              String?
+  allocationAccountId          String?
+  allocationDateRaw            String?
+  processName                  String?
+  departmentAccountName        String?
+  previousDepartmentAccountName String?
+
+  /// --- Source values driving classification, kept verbatim for review ------
+  lotStatusRaw                 String?
+  onHoldRaw                    String?
+
+  /// --- Canonical classification -------------------------------------------
+  holdState                    String?
+  canonicalLifecycle           String?
+  inventoryClass               String?
+  classificationAvailable      Boolean?
+  classificationPlanningEligible Boolean?
+  classificationReviewRequired Boolean?
+  classificationTerminal       Boolean?
+  classificationReasons        String?
+  classificationProfile        String?
+  classificationProfileVersion Int?
+  classificationState          String?
+
+  /// --- Measured attributes -------------------------------------------------
+  /// Preserved exactly as supplied. Never written from an estimate.
+  actualShape                  String?
+  actualColor                  String?
+  actualClarity                String?
+  actualLabName                String?
+  actualCut                    String?
+  actualPolish                 String?
+  actualSymmetry               String?
+  actualFluorescence           String?
+  actualTable                  String?
+  actualDepth                  String?
+  actualRatio                  String?
+  actualTone                   String?
+  actualFancyColor             String?
+  /// Populated only when `Weight` parsed. A rejected value leaves this null and records
+  /// its reason code, rather than becoming zero.
+  actualWeight                 Decimal?
+  actualWeightState            String?
+
+  /// --- Estimated attributes, stored separately and never merged ------------
+  /// Opaque provider identifiers. Not grades, and not resolved without an approved lookup.
+  estimatedShapeId             String?
+  estimatedColorId             String?
+  estimatedClarityId           String?
+  estimatedShapeIdState        String?
+  estimatedColorIdState        String?
+  estimatedClarityIdState      String?
+  estimatedWeight              Decimal?
+  estimatedWeightState         String?
+  /// Difference between the two raw weight numbers when both parsed. Advisory only: the
+  /// two fields have separately unconfirmed units, so this is not a correction.
+  weightDivergence             Decimal?
+
+  /// --- Provenance ----------------------------------------------------------
+  shapeProvenance              String   @default("NONE") // ACTUAL | ESTIMATED | NONE
+  colorProvenance              String   @default("NONE")
+  clarityProvenance            String   @default("NONE")
+  weightProvenance             String   @default("NONE")
+  estimationMethod             String   @default("NOT_ESTIMATED")
+  containsEstimatedValues      Boolean  @default(false)
+  /// True only when every usable attribute is measured, so the record may count against
+  /// confirmed physical shortage.
+  eligibleForConfirmedShortage Boolean  @default(false)
+
+  /// --- Quantity and weight safety -----------------------------------------
+  quantityRawValue             Decimal?
+  quantityState                String   // USABLE | SEMANTICS_NOT_CONFIGURED | UNSUPPORTED_VALUE | INVALID | MISSING
+  quantityPieces               Int?
+  quantitySemantics            String
+  weightUnit                   String
+  /// Set only when a unit profile is configured and the measured weight parsed.
+  weightUsableCarats           Decimal?
+  /// Parsed secondary weights, each kept separate. No relationship between them is assumed.
+  averageWeight                Decimal?
+  originalWeight               Decimal?
+  totalDiamondWeight           Decimal?
+  metalWeight                  Decimal?
+  metWeight                    Decimal?
+  /// Per-field rejection codes for the secondary weights. Codes only.
+  secondaryWeightStatesJson    String?
+  /// `Size`, `M1`, `M2`, `M3` preserved verbatim under keys marked unconfirmed. They are
+  /// carried so nothing is lost, and interpreted nowhere.
+  unconfirmedDimensionsJson    String?
+
+  /// --- Structure (jewellery / multi-stone protection) ----------------------
+  metalId                      String?
+  metalColorRaw                String?
+  itemName                     String?
+  structureReviewRequired      Boolean  @default(false)
+  /// Comma-separated fixed risk codes. Never free text.
+  structureRiskCodes           String?
+
+  /// PROJECTED | REVIEW_REQUIRED | QUARANTINED
+  candidateState               String
+  /// Comma-separated fixed reason codes explaining review or quarantine.
+  reviewReasonCodes            String?
+
+  createdAt                    DateTime @default(now())
+
+  /// One candidate per source row per run; a re-run is a new run, never an overwrite.
+  @@unique([runId, sourceRowNumber])
+  @@index([runId, candidateState])
+  @@index([projectionIdentityKey])
+  @@index([legacyLotId])
+  @@index([runId, inventoryClass])
+  @@index([rowHash])
 }

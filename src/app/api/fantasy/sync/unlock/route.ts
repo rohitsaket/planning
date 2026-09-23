@@ -9,7 +9,7 @@ const unlockSchema = z.object({
 });
 
 export const POST = withApi({
-  permission: "fantasy.sync",
+  permission: "fantasy.sync.unlock",
   body: unlockSchema,
 }, async (_req, _ctx, { principal, body, audit }) => {
   const result = await unlockSynchronization(principal.username, body?.reason);

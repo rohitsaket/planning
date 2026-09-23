@@ -1,10 +1,10 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "./harness";
 import { readFileSync } from "node:fs";
 import { execSync } from "node:child_process";
 import path from "node:path";
 import { csvSafeCell, toCsv, columnExportValue, type CsvColumn } from "@/lib/csv-export";
 
-const ROOT = path.resolve(import.meta.dir, "../..");
+const ROOT = process.cwd();
 const read = (f: string) => readFileSync(path.join(ROOT, f), "utf8");
 
 describe("CSV formula neutralisation (SEC-006)", () => {

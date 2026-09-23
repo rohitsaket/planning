@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useApi } from "@/lib/api-client";
+import { useGlobalFilter } from "@/stores/global-filter";
 import { KpiCard } from "@/components/diamond/shared/kpi-card";
 import { Section, PageHeader } from "@/components/diamond/shared/page-header";
 import { DataTable, Column } from "@/components/diamond/shared/data-table";
@@ -72,7 +73,12 @@ export function DemandHistoryView() {
     `/api/demand/history?page=${page}&pageSize=50`,
   );
 
-  const rows = data?.rows ?? [];
+  const globalFilter = useGlobalFilter();
+  const rawRows = data?.rows ?? [];
+  const rows = useMemo(() => {
+    const matching = rawRows.filter((r) => r.windowDays === globalFilter.windowDays);
+    return matching.length > 0 ? matching : rawRows;
+  }, [rawRows, globalFilter.windowDays]);
   const summary = data?.summary;
 
   // Sparkline: last 7 runs' shortage (oldest→newest). Rows come newest-first.
@@ -96,6 +102,7 @@ export function DemandHistoryView() {
     {
       key: "runDate",
       header: "Run Date",
+      align: "center",
       sortable: true,
       sortValue: (r) => r.runDate,
       cell: (r) => (

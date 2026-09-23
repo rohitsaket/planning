@@ -1,13 +1,13 @@
 import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
 import { withApi, qStr, paging, paged } from "@/lib/api/with-api";
-import { getFantasyConfig } from "@/lib/fantasy/config";
+import { resolveFantasySourceStateWithHistory } from "@/lib/fantasy/config";
 import { formatIST } from "@/lib/fantasy/time";
 
 export const GET = withApi({ permission: "overall.read" }, async (req: Request) => {
   const url = new URL(req.url);
   const p = paging(url);
-  const config = getFantasyConfig();
+  const sourceState = await resolveFantasySourceStateWithHistory(db);
 
   const q = qStr(url, "q");
   const isCurrentParam = qStr(url, "isCurrent");
@@ -61,8 +61,8 @@ export const GET = withApi({ permission: "overall.read" }, async (req: Request) 
   const pg = paged(rawLots, p);
 
   return ok({
-    sourceMode: config.sourceMode,
-    isSimulated: config.isSimulation,
+    sourceMode: sourceState.effectiveState,
+    isSimulated: sourceState.isSimulated,
     summary: {
       total: totalCount,
       active: activeCount,

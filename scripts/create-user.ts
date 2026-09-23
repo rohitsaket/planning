@@ -27,13 +27,50 @@ async function main() {
   const db = new PrismaClient();
   try {
     const passwordHash = await hashPassword(password!);
-    const user = await db.user.upsert({
-      where: { username },
-      create: { username, role, displayName, email: email || null, passwordHash },
-      update: { role, displayName, email: email || null, passwordHash, status: "ACTIVE", failedLoginCount: 0, lockedUntil: null },
+    // The local CLI remains the recovery path when nobody can sign in, so it writes the
+    // role assignment as well as the legacy column and stays audited.
+    const user = await db.$transaction(async (tx) => {
+      const u = await tx.user.upsert({
+        where: { username },
+        create: { username, role, displayName, email: email || null, passwordHash, passwordChangedAt: new Date() },
+        update: {
+          role,
+          displayName,
+          email: email || null,
+          passwordHash,
+          status: "ACTIVE",
+          failedLoginCount: 0,
+          lockedUntil: null,
+          // A password set from the console is chosen by the operator, not a temporary
+          // credential handed to someone else, so no forced change is imposed.
+          mustChangePassword: false,
+          passwordChangedAt: new Date(),
+          deactivatedAt: null,
+          suspendedAt: null,
+          version: { increment: 1 },
+        },
+      });
+      const roleRow = await tx.role.findUnique({ where: { code: role! }, select: { id: true, status: true } });
+      if (!roleRow) throw new Error(`role ${role} has no Role record — run \`prisma migrate deploy\` first`);
+      if (roleRow.status !== "ACTIVE") throw new Error(`role ${role} is not active`);
+      await tx.userRole.deleteMany({ where: { userId: u.id } });
+      await tx.userRole.create({
+        data: { userId: u.id, roleId: roleRow.id, reason: "Assigned from the local administration CLI" },
+      });
+      await tx.auditLog.create({
+        data: {
+          actor: "cli",
+          action: "USER_UPSERT_CLI",
+          entity: "User",
+          entityId: u.id,
+          after: JSON.stringify({ username, role }),
+          outcome: "SUCCESS",
+          category: "SECURITY",
+        },
+      });
+      return u;
     });
     await db.session.updateMany({ where: { userId: user.id, revokedAt: null }, data: { revokedAt: new Date() } });
-    await db.auditLog.create({ data: { actor: "cli", action: "USER_UPSERT_CLI", entity: "User", entityId: user.id, after: JSON.stringify({ username, role }) } });
     console.log(`user ${username} (${role}) ready`);
     if (generate) console.log(`generated password (shown once): ${password}`);
   } finally {

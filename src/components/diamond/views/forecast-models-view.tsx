@@ -105,6 +105,8 @@ export function ForecastModelsView() {
           exportable
           exportPermission="analysis.export"
           exportFilename="forecast-models.csv"
+          pagination
+          pageSize={25}
         />
       </Section>
 
@@ -118,6 +120,8 @@ export function ForecastModelsView() {
           exportable
           exportPermission="analysis.export"
           exportFilename="forecast-runs.csv"
+          pagination
+          pageSize={25}
         />
       </Section>
 

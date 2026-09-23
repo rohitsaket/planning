@@ -495,6 +495,8 @@ export function AnomalyDetectionView() {
             return "bg-sky-50/40 dark:bg-sky-950/20";
           }}
           maxHeight="600px"
+          pagination
+          pageSize={25}
         />
       </Section>
 

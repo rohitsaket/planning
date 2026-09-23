@@ -73,6 +73,8 @@ export function ShapeMappingsView() {
           searchable
           searchPlaceholder="Search raw, normalized, or category..."
           searchFn={(r, q) => [r.rawShape, r.normalizedShape, r.category].some((f) => f.toLowerCase().includes(q.toLowerCase()))}
+          pagination
+          pageSize={25}
         />
       </Section>
     </div>

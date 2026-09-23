@@ -59,8 +59,8 @@ export function FantasyLocationsView() {
         </div>
       ),
     },
-    { key: "country", header: "Country", sortable: true, sortValue: (r) => r.country, cell: (r) => <span>{r.country}</span> },
-    { key: "branch", header: "Branch", sortable: true, sortValue: (r) => r.branch, cell: (r) => <span>{r.branch}</span> },
+    { key: "country", header: "Country", align: "center", sortable: true, sortValue: (r) => r.country, cell: (r) => <span>{r.country}</span> },
+    { key: "branch", header: "Branch", align: "center", sortable: true, sortValue: (r) => r.branch, cell: (r) => <span>{r.branch}</span> },
   ];
 
   return (
@@ -104,6 +104,8 @@ export function FantasyLocationsView() {
             (r.department?.fantasyDeptId ?? "").toLowerCase().includes(lq)
           );
         }}
+        pagination
+        pageSize={25}
       />
     </div>
   );

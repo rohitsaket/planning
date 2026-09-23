@@ -26,13 +26,13 @@ interface AuditData {
 }
 
 const columns: Column<AuditRow>[] = [
-  { key: "timestamp", header: "Timestamp", cell: (r) => <span className="tabular-nums text-[10px]">{new Date(r.timestamp).toLocaleString()}</span>, sortable: true, sortValue: (r) => r.timestamp, sticky: "left" },
+  { key: "timestamp", header: "Timestamp", align: "center", cell: (r) => <span className="tabular-nums text-[10px]">{new Date(r.timestamp).toLocaleString()}</span>, sortable: true, sortValue: (r) => r.timestamp, sticky: "left" },
   { key: "actor", header: "Actor", cell: (r) => <span className="text-[10px] font-medium">{r.actor}</span>, sortable: true, sortValue: (r) => r.actor },
-  { key: "action", header: "Action", cell: (r) => <span className="font-mono text-[10px]">{r.action}</span>, sortable: true, sortValue: (r) => r.action },
-  { key: "entity", header: "Entity", cell: (r) => <span className="text-[10px]">{r.entity}</span>, sortable: true, sortValue: (r) => r.entity },
-  { key: "entityId", header: "Entity ID", cell: (r) => <span className="font-mono text-[10px]">{r.entityId ? r.entityId.slice(0, 8) : "—"}</span> },
+  { key: "action", header: "Action", align: "center", cell: (r) => <span className="font-mono text-[10px]">{r.action}</span>, sortable: true, sortValue: (r) => r.action },
+  { key: "entity", header: "Entity", align: "center", cell: (r) => <span className="text-[10px]">{r.entity}</span>, sortable: true, sortValue: (r) => r.entity },
+  { key: "entityId", header: "Entity ID", align: "center", cell: (r) => <span className="font-mono text-[10px]">{r.entityId ? r.entityId.slice(0, 8) : "—"}</span> },
   { key: "reason", header: "Reason", cell: (r) => <span className="text-[10px]">{r.reason ?? "—"}</span> },
-  { key: "correlationId", header: "Correlation ID", cell: (r) => <span className="font-mono text-[10px]">{r.correlationId ? r.correlationId.slice(0, 8) : "—"}</span> },
+  { key: "correlationId", header: "Correlation ID", align: "center", cell: (r) => <span className="font-mono text-[10px]">{r.correlationId ? r.correlationId.slice(0, 8) : "—"}</span> },
 ];
 
 export function AuditLogView() {
@@ -123,9 +123,8 @@ export function AuditLogView() {
           loading={isLoading}
           emptyMessage="No audit entries match the current filters"
           maxHeight="640px"
-          exportable
-          exportPermission="audit.export"
-          exportFilename="audit-log.csv"
+          pagination
+          pageSize={25}
         />
       </Section>
     </div>

@@ -44,13 +44,11 @@ const ITEMS: PaletteItem[] = [
   { id: "analysis-excess", label: "Excess Stock", group: "Analysis", icon: <Package className="h-4 w-4" />, keywords: ["excess", "surplus", "overstock"] },
   { id: "analysis-aging", label: "Stock Aging", group: "Analysis", icon: <CalendarClock className="h-4 w-4" />, keywords: ["aging", "slow moving", "days", "old stock"] },
   { id: "analysis-reorder-signals", label: "Reorder Signals", group: "Analysis", icon: <Star className="h-4 w-4" />, advisory: true, keywords: ["reorder", "repeat customer", "prediction"] },
-  { id: "demand-history", label: "Demand Run History", group: "Analysis", icon: <History className="h-4 w-4" />, keywords: ["demand", "run", "history", "calculation"] },
-  { id: "analysis-demand-trace", label: "Demand Trace", group: "Analysis", icon: <Calculator className="h-4 w-4" />, keywords: ["demand", "trace", "formula", "calculation", "lots"] },
   { id: "transfer-analyzer", label: "Transfer Analyzer", group: "Analysis", icon: <ArrowLeftRight className="h-4 w-4" />, advisory: true, keywords: ["transfer", "country", "branch", "excess", "shortage"] },
   { id: "aging-dashboard", label: "Aging Dashboard", group: "Analysis", icon: <LayoutDashboard className="h-4 w-4" />, keywords: ["aging", "dashboard", "slow moving", "inventory"] },
 
   // 3. Fantasy ERP
-  { id: "fantasy-live", label: "Live Data", group: "Fantasy ERP", icon: <Boxes className="h-4 w-4" />, keywords: ["rough stock", "polished stock", "departments", "locations", "erp", "live"] },
+  { id: "fantasy-live", label: "Current Data", group: "Fantasy ERP", icon: <Boxes className="h-4 w-4" />, keywords: ["rough stock", "polished stock", "departments", "locations", "erp", "live data", "current"] },
   { id: "fantasy-sync", label: "Sync Monitor", group: "Fantasy ERP", icon: <RefreshCw className="h-4 w-4" />, keywords: ["sync", "reconciliation", "monitor", "integration", "dashboard"] },
 
   // 4. Overall Data
@@ -59,9 +57,10 @@ const ITEMS: PaletteItem[] = [
   // 5. Data Quality
   { id: "data-quality-issues", label: "Data Quality Issues", group: "Data Quality", icon: <AlertTriangle className="h-4 w-4" />, keywords: ["quality", "unmapped", "labs", "shapes", "issues", "anomalies"] },
 
-  // 6. Demand and Inventory
-  { id: "demand-overview", label: "Demand Overview", group: "Demand and Inventory", icon: <Activity className="h-4 w-4" />, keywords: ["demand calculation", "categories", "shortage", "wip coverage", "demand run history"] },
-  { id: "stock-strategy", label: "Stock Strategy", group: "Demand and Inventory", icon: <ArrowLeftRight className="h-4 w-4" />, keywords: ["strategic posture", "classifications", "shortage need", "supply demand alignment", "excess"] },
+  // 6. Demand
+  { id: "demand-overview", label: "Demand Overview", group: "Demand", icon: <Activity className="h-4 w-4" />, keywords: ["demand calculation", "categories", "shortage", "wip coverage", "demand run history"] },
+  { id: "demand-history", label: "Demand Run History", group: "Demand", icon: <History className="h-4 w-4" />, keywords: ["demand", "run", "history", "calculation"] },
+  { id: "analysis-demand-trace", label: "Demand Trace", group: "Demand", icon: <Calculator className="h-4 w-4" />, keywords: ["demand", "trace", "formula", "calculation", "lots"] },
 
   // 6. Requirements and Priority
   { id: "requirements-matrix", label: "Requirement Matrix", group: "Requirements and Priority", icon: <Hash className="h-4 w-4" />, keywords: ["requirement", "matrix", "demand", "target", "carat"] },

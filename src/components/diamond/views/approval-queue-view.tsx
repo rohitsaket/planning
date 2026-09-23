@@ -193,6 +193,7 @@ export function ApprovalQueueView() {
     {
       key: "stoneName",
       header: "Stone Name",
+      align: "center",
       width: "150px",
       cell: (r) => r.stoneName ?? "—",
     },
@@ -221,6 +222,7 @@ export function ApprovalQueueView() {
     {
       key: "planningDate",
       header: "Plan Date",
+      align: "center",
       width: "90px",
       sortable: true,
       sortValue: (r) => r.planningDate,
@@ -431,6 +433,8 @@ export function ApprovalQueueView() {
         exportFilename="approval-queue.csv"
         initialSortKey="planningDate"
         initialSortDir="asc"
+        pagination
+        pageSize={25}
         rowClassName={(r) =>
           r.status === "REPLAN_REQUIRED"
             ? "bg-rose-50/40 dark:bg-rose-950/10"
@@ -458,7 +462,7 @@ export function ApprovalQueueView() {
           if (!o) cancelReplan();
         }}
       >
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-lg sm:max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-sm">
               <RefreshCw className="h-4 w-4 text-amber-600 dark:text-amber-400" />

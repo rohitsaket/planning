@@ -201,6 +201,8 @@ export function PlanVsActualView() {
               r.status.toLowerCase().includes(lq)
             );
           }}
+          pagination
+          pageSize={25}
         />
       </Section>
     </div>

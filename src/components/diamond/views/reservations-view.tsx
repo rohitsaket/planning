@@ -145,18 +145,21 @@ export function ReservationsView() {
     {
       key: "stoneName",
       header: "Stone Name",
+      align: "center",
       width: "150px",
       cell: (r) => r.stoneName ?? "—",
     },
     {
       key: "kapan",
       header: "Kapan",
+      align: "center",
       width: "80px",
       cell: (r) => r.kapan ?? "—",
     },
     {
       key: "packet",
       header: "Packet",
+      align: "center",
       width: "70px",
       cell: (r) => r.packet ?? "—",
     },
@@ -172,6 +175,7 @@ export function ReservationsView() {
     {
       key: "status",
       header: "Status",
+      align: "center",
       width: "110px",
       cell: (r) => <StatusBadge status={r.status} />,
     },
@@ -184,6 +188,7 @@ export function ReservationsView() {
     {
       key: "reservedAt",
       header: "Reserved At",
+      align: "center",
       width: "100px",
       sortable: true,
       sortValue: (r) => r.reservedAt,
@@ -192,6 +197,7 @@ export function ReservationsView() {
     {
       key: "releasedAt",
       header: "Released At",
+      align: "center",
       width: "100px",
       cell: (r) => fmtDate(r.releasedAt),
     },
@@ -291,6 +297,8 @@ export function ReservationsView() {
         excelExportFilename="rough-reservations.xlsx"
         initialSortKey="reservedAt"
         initialSortDir="desc"
+        pagination
+        pageSize={25}
         rowClassName={(r) =>
           r.status === "RESERVED"
             ? "bg-amber-50/40 dark:bg-amber-950/10"
@@ -300,7 +308,7 @@ export function ReservationsView() {
 
       {/* New Reservation Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="max-w-lg sm:max-w-lg">
           <DialogHeader>
             <DialogTitle className="text-sm flex items-center gap-2">
               <Lock className="h-4 w-4" />

@@ -68,6 +68,8 @@ export function WeightBandsView() {
           searchable
           searchPlaceholder="Search code or label..."
           searchFn={(r, q) => [r.code, r.label].some((f) => f.toLowerCase().includes(q.toLowerCase()))}
+          pagination
+          pageSize={25}
         />
       </Section>
     </div>

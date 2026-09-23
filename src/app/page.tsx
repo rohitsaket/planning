@@ -11,6 +11,7 @@ import { AccessRestricted } from "@/components/diamond/shared/access-restricted"
 
 // Core and Direct Views
 import { DashboardView } from "@/components/diamond/views/dashboard-view";
+import { ExecutiveAnalysisView } from "@/components/diamond/views/executive-analysis-view";
 import { OverallDataView } from "@/components/diamond/views/overall-data-view";
 import { DataQualityView } from "@/components/diamond/views/data-quality-view";
 import { DemandTraceView } from "@/components/diamond/views/demand-trace-view";
@@ -92,7 +93,12 @@ const VIEW_REGISTRY: Record<string, React.ComponentType> = {
   // 4. Data Quality
   "data-quality-issues": DataQualityView,
 
-  // 5. Demand and Inventory
+  // 5. Demand
+  //
+  // `stock-strategy` is intentionally still registered while being absent from the
+  // sidebar and command palette: it belongs to the later planning/replenishment phase,
+  // and its route, component, permission and tests are untouched so listing it again is
+  // a one-line navigation change.
   "demand-overview": DemandOverviewView,
   "inventory-position": InventoryPositionView,
   "customers-orders": CustomersOrdersView,
@@ -133,7 +139,9 @@ const VIEW_REGISTRY: Record<string, React.ComponentType> = {
   "admin-audit-log": AuditLogView,
 
   // Analysis Section Direct Views
-  "analysis-executive": DashboardView,
+  // Its own page: past sales → demand → available inventory → shortage/excess. It is
+  // deliberately NOT the Executive Dashboard component, which it used to reuse.
+  "analysis-executive": ExecutiveAnalysisView,
   // "Sales Analysis & Trends": both former pages are tabs of one host (?tab=analysis|trends).
   "analysis-sales": SalesAnalysisTrendsView,
   // Legacy id — the nav store rewrites it to #analysis-sales?tab=trends; kept so a direct

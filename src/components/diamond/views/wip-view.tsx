@@ -106,6 +106,7 @@ const outcomeColumns: Column<WipDimensionRow>[] = [
   {
     key: "dimension",
     header: "Classification",
+    align: "center",
     cell: (r) => <Badge variant={OUTCOME_VARIANT[r.dimension] ?? "neutral"}>{OUTCOME_LABEL[r.dimension] ?? r.dimension}</Badge>,
     sortable: true,
     sortValue: (r) => r.dimension,
@@ -115,19 +116,20 @@ const outcomeColumns: Column<WipDimensionRow>[] = [
 
 const detailColumns: Column<WipDetailRow>[] = [
   { key: "lotId", header: "Lot ID", cell: (r) => <span className="font-mono text-[11px]">{r.lotId}</span>, sortable: true, sortValue: (r) => r.lotId },
-  { key: "stage", header: "Stage", cell: (r) => <span className="font-mono text-[11px]">{r.stage}</span>, sortable: true, sortValue: (r) => r.stage },
+  { key: "stage", header: "Stage", align: "center", cell: (r) => <span className="font-mono text-[11px]">{r.stage}</span>, sortable: true, sortValue: (r) => r.stage },
   {
     key: "outcome",
     header: "Classification",
+    align: "center",
     cell: (r) => <Badge variant={OUTCOME_VARIANT[r.outcome] ?? "neutral"}>{OUTCOME_LABEL[r.outcome] ?? r.outcome}</Badge>,
     sortable: true,
     sortValue: (r) => r.outcome,
   },
-  { key: "category", header: "Planning Category", cell: (r) => <span className="text-[11px]">{r.category ?? "—"}</span> },
-  { key: "shape", header: "Shape", cell: (r) => <span className="text-[11px]">{r.shape}</span> },
-  { key: "weightBand", header: "Weight Band", cell: (r) => <span className="text-[11px]">{r.weightBand ?? "—"}</span> },
+  { key: "category", header: "Planning Category", align: "center", cell: (r) => <span className="text-[11px]">{r.category ?? "—"}</span> },
+  { key: "shape", header: "Shape", align: "center", cell: (r) => <span className="text-[11px]">{r.shape}</span> },
+  { key: "weightBand", header: "Weight Band", align: "center", cell: (r) => <span className="text-[11px]">{r.weightBand ?? "—"}</span> },
   { key: "quantity", header: "Qty", cell: (r) => <NumberCell value={r.quantity} />, align: "right", sortable: true, sortValue: (r) => r.quantity },
-  { key: "country", header: "Location", cell: (r) => <span className="text-[11px]">{r.country} / {r.branch}</span> },
+  { key: "country", header: "Location", align: "center", cell: (r) => <span className="text-[11px]">{r.country} / {r.branch}</span> },
   { key: "reason", header: "Reason", cell: (r) => <span className="text-[10px] text-muted-foreground">{r.reason}</span> },
 ];
 

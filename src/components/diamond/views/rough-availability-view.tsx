@@ -110,37 +110,42 @@ export function RoughAvailabilityView() {
       sortable: true,
       sortValue: (r) => r.fantasyRoughId ?? "",
       cell: (r) => (
-        <span className="font-medium">{r.fantasyRoughId ?? "—"}</span>
+        <span className="font-medium font-mono">{r.fantasyRoughId ?? "—"}</span>
       ),
     },
     {
       key: "kapan",
       header: "Kapan",
       width: "90px",
-      cell: (r) => r.kapan ?? "—",
+      align: "center",
+      cell: (r) => <span className="font-mono">{r.kapan ?? "—"}</span>,
     },
     {
       key: "packet",
       header: "Packet",
       width: "80px",
-      cell: (r) => r.packet ?? "—",
+      align: "center",
+      cell: (r) => <span className="font-mono">{r.packet ?? "—"}</span>,
     },
     {
       key: "stoneName",
       header: "Stone Name",
       width: "150px",
-      cell: (r) => r.stoneName ?? "—",
+      align: "center",
+      cell: (r) => <span className="font-mono font-medium">{r.stoneName ?? "—"}</span>,
     },
     {
       key: "signer",
       header: "Signer",
-      width: "70px",
-      cell: (r) => r.signer ?? "—",
+      width: "80px",
+      align: "center",
+      cell: (r) => <span className="font-mono text-muted-foreground">{r.signer ?? "—"}</span>,
     },
     {
       key: "stoneType",
       header: "Type",
       width: "80px",
+      align: "center",
       cell: (r) => (
         <Badge variant={r.stoneType === "BLUE" ? "info" : "default"}>
           {r.stoneType ?? "—"}
@@ -154,24 +159,27 @@ export function RoughAvailabilityView() {
       align: "right",
       sortable: true,
       sortValue: (r) => r.roughWeight,
-      cell: (r) => <span className="tabular-nums">{r.roughWeight.toFixed(3)}</span>,
+      cell: (r) => <span className="tabular-nums font-medium">{r.roughWeight.toFixed(3)}</span>,
     },
     {
       key: "country",
       header: "Country",
       width: "80px",
-      cell: (r) => r.country ?? "—",
+      align: "center",
+      cell: (r) => <span className="font-mono">{r.country ?? "—"}</span>,
     },
     {
       key: "branch",
       header: "Branch",
-      width: "80px",
-      cell: (r) => r.branch ?? "—",
+      width: "90px",
+      align: "center",
+      cell: (r) => <span>{r.branch ?? "—"}</span>,
     },
     {
       key: "fantasyStatus",
       header: "Fantasy Status",
-      width: "110px",
+      width: "120px",
+      align: "center",
       cell: (r) => (
         <Badge variant="neutral">{r.fantasyStatus ?? "—"}</Badge>
       ),
@@ -192,15 +200,17 @@ export function RoughAvailabilityView() {
       key: "planningStatus",
       header: "Plan Status",
       width: "130px",
+      align: "center",
       cell: (r) => <StatusBadge status={r.planningStatus} />,
     },
     {
       key: "lastMovement",
       header: "Last Move",
       width: "90px",
+      align: "center",
       sortable: true,
       sortValue: (r) => r.lastMovement ?? "",
-      cell: (r) => fmtDate(r.lastMovement),
+      cell: (r) => <span className="text-muted-foreground">{fmtDate(r.lastMovement)}</span>,
     },
   ];
 

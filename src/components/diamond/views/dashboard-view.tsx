@@ -4,19 +4,19 @@ import { useAuthStore } from "@/stores/auth-store";
 import { useApi } from "@/lib/api-client";
 import { KpiCard } from "@/components/diamond/shared/kpi-card";
 import { Section, PageHeader } from "@/components/diamond/shared/page-header";
-import { Badge, StatusBadge } from "@/components/diamond/shared/badges";
 import { useNavStore } from "@/stores/nav-store";
+import { useGlobalFilter } from "@/stores/global-filter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiPost } from "@/lib/api-client";
 import {
-  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  PieChart, Pie, Cell, Legend, ComposedChart, Area, AreaChart,
+  ResponsiveContainer, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
+  PieChart, Pie, Cell, Legend, ComposedChart,
 } from "recharts";
 import { useMemo, useState } from "react";
 import {
-  AlertTriangle, Package, Gem, Boxes, ShoppingCart, FileWarning,
-  Activity, RefreshCw, TrendingUp, TrendingDown, Gem as GemIcon,
-  ShieldCheck, Clock, Zap, History, type LucideIcon,
+  AlertTriangle, Gem, Boxes, ShoppingCart, FileWarning,
+  RefreshCw, TrendingUp, TrendingDown,
+  ShieldCheck, Clock, Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -45,58 +45,7 @@ interface DashboardKpi {
   demandRunDate?: string | null;
 }
 
-interface AuditEvent {
-  id: string;
-  actor: string;
-  action: string;
-  entity: string;
-  entityId: string | null;
-  reason: string | null;
-  timestamp: string;
-  correlationId: string | null;
-}
-
 const PIE_COLORS = ["#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#ec4899", "#84cc16", "#f97316"];
-
-const ACTION_ICONS: Record<string, LucideIcon> = {
-  PLAN_CREATED: Gem,
-  PLAN_APPROVED: ShieldCheck,
-  PLAN_REJECTED: FileWarning,
-  PLAN_REPLAN: RefreshCw,
-  RESERVATION: Gem,
-  DEMAND_RUN: Activity,
-  RULE_CHANGE: ShieldCheck,
-  FANTASY_SYNC: RefreshCw,
-  FORECAST_PUBLISH: TrendingUp,
-  REQUIREMENT_PRIORITY_OVERRIDE: AlertTriangle,
-  FEATURE_FLAG_TOGGLE: ShieldCheck,
-};
-
-const ACTION_COLORS: Record<string, string> = {
-  PLAN_CREATED: "text-sky-600 bg-sky-100 dark:bg-sky-950/40 dark:text-sky-300",
-  PLAN_APPROVED: "text-emerald-600 bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300",
-  PLAN_REJECTED: "text-rose-600 bg-rose-100 dark:bg-rose-950/40 dark:text-rose-300",
-  PLAN_REPLAN: "text-amber-600 bg-amber-100 dark:bg-amber-950/40 dark:text-amber-300",
-  RESERVATION: "text-violet-600 bg-violet-100 dark:bg-violet-950/40 dark:text-violet-300",
-  DEMAND_RUN: "text-cyan-600 bg-cyan-100 dark:bg-cyan-950/40 dark:text-cyan-300",
-  RULE_CHANGE: "text-amber-600 bg-amber-100 dark:bg-amber-950/40 dark:text-amber-300",
-  FANTASY_SYNC: "text-sky-600 bg-sky-100 dark:bg-sky-950/40 dark:text-sky-300",
-  FORECAST_PUBLISH: "text-emerald-600 bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300",
-  REQUIREMENT_PRIORITY_OVERRIDE: "text-rose-600 bg-rose-100 dark:bg-rose-950/40 dark:text-rose-300",
-  FEATURE_FLAG_TOGGLE: "text-amber-600 bg-amber-100 dark:bg-amber-950/40 dark:text-amber-300",
-};
-
-function relativeTime(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const sec = Math.floor(diff / 1000);
-  if (sec < 60) return `${sec}s ago`;
-  const min = Math.floor(sec / 60);
-  if (min < 60) return `${min}m ago`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}h ago`;
-  const day = Math.floor(hr / 24);
-  return `${day}d ago`;
-}
 
 // Compact USD formatter — keeps KPI values short enough to fit alongside sparklines
 function fmtMoney(v: number): string {
@@ -108,13 +57,23 @@ function fmtMoney(v: number): string {
 export function DashboardView() {
   const setView = useNavStore((s) => s.setView);
   const qc = useQueryClient();
+  const globalFilter = useGlobalFilter();
   const [runningDemand, setRunningDemand] = useState(false);
 
-  const { data: kpi, isLoading } = useApi<DashboardKpi>("/api/dashboard");
+  const filterQs = useMemo(() => {
+    const params = new URLSearchParams();
+    if (globalFilter.country) params.set("country", globalFilter.country);
+    if (globalFilter.branch) params.set("branch", globalFilter.branch);
+    if (globalFilter.lab) params.set("lab", globalFilter.lab);
+    if (globalFilter.windowDays !== 90) params.set("windowDays", String(globalFilter.windowDays));
+    const qs = params.toString();
+    return qs ? `?${qs}` : "";
+  }, [globalFilter.country, globalFilter.branch, globalFilter.lab, globalFilter.windowDays]);
+
+  const { data: kpi, isLoading } = useApi<DashboardKpi>(`/api/dashboard${filterQs}`);
   // Widgets are fetched only when the role may read them (UX only — the API enforces it anyway).
   const perms = useAuthStore((s) => s.user?.permissions ?? []);
   const canSales = perms.includes("sales.read");
-  const canAudit = perms.includes("audit.read");
   const canRunDemand = perms.includes("demand.run");
 
   const demandMutation = useMutation({
@@ -122,8 +81,10 @@ export function DashboardView() {
     onMutate: () => setRunningDemand(true),
     onSuccess: (r) => {
       toast.success(`Demand recalculated — ${r.categoriesProcessed} categories, shortage ${r.totalShortage} pcs`);
-      qc.invalidateQueries({ queryKey: ["/api/dashboard"] });
-      qc.invalidateQueries({ queryKey: ["/api/audit/recent"] });
+      qc.invalidateQueries({
+        predicate: (q) =>
+          typeof q.queryKey[0] === "string" && q.queryKey[0].startsWith("/api/dashboard"),
+      });
     },
     onError: (e) => toast.error(`Demand run failed: ${(e as Error).message}`),
     onSettled: () => setRunningDemand(false),
@@ -131,26 +92,38 @@ export function DashboardView() {
 
   // Sales trend (sparkline data)
   const { data: trendData } = useQuery({
-    queryKey: ["dashboard-trend"],
+    queryKey: ["dashboard-trend", globalFilter.country, globalFilter.branch, globalFilter.lab, globalFilter.windowDays],
     enabled: canSales,
     queryFn: async () => {
-      const tr = await apiFetch<{ rows: Array<{ key: string; prev30: number; mid30: number; latest30: number; total90: number; trend: string }> }>(`/api/analysis/sales/trend?groupBy=shape`);
+      const params = new URLSearchParams({ groupBy: "shape" });
+      if (globalFilter.country) params.set("country", globalFilter.country);
+      if (globalFilter.branch) params.set("branch", globalFilter.branch);
+      if (globalFilter.lab) params.set("lab", globalFilter.lab);
+      if (globalFilter.windowDays) params.set("windowDays", String(globalFilter.windowDays));
+      const tr = await apiFetch<{ rows: Array<{ key: string; prev30: number; mid30: number; latest30: number; total90: number; trend: string }> }>(`/api/analysis/sales/trend?${params.toString()}`);
       return tr.rows.slice(0, 8).map((r) => ({ name: r.key, prev30: r.prev30, mid30: r.mid30, latest30: r.latest30, total90: r.total90 }));
     },
   });
 
   const { data: countryData } = useQuery({
-    queryKey: ["dashboard-country"],
+    queryKey: ["dashboard-country", globalFilter.country],
     queryFn: async () => {
       const cd = await apiFetch<{ rows: Array<{ country: string; physicalShortage: number; target: number; available: number; wip: number; planCov: number }> }>(`/api/analysis/countries`);
+      if (globalFilter.country) {
+        return cd.rows.filter((r) => r.country.toUpperCase() === globalFilter.country?.toUpperCase());
+      }
       return cd.rows;
     },
   });
 
   const { data: priorityBreakdown } = useQuery({
-    queryKey: ["dashboard-priority"],
+    queryKey: ["dashboard-priority", globalFilter.country, globalFilter.branch, globalFilter.lab],
     queryFn: async () => {
-      const r = await apiFetch<{ data: Array<{ requirementPriority: string | null; remainingUnplanned: number; type: string }> }>(`/api/requirements?pageSize=500`);
+      const params = new URLSearchParams({ pageSize: "500" });
+      if (globalFilter.country) params.set("country", globalFilter.country);
+      if (globalFilter.branch) params.set("branch", globalFilter.branch);
+      if (globalFilter.lab) params.set("lab", globalFilter.lab);
+      const r = await apiFetch<{ data: Array<{ requirementPriority: string | null; remainingUnplanned: number; type: string }> }>(`/api/requirements?${params.toString()}`);
       const byPriority = new Map<string, number>();
       const byType = new Map<string, number>();
       for (const row of r.data) {
@@ -167,14 +140,6 @@ export function DashboardView() {
     },
   });
 
-  // Live activity feed (recent audit events)
-  const { data: auditData } = useQuery({
-    queryKey: ["/api/audit/recent"],
-    enabled: canAudit,
-    queryFn: () => apiFetch<{ rows: AuditEvent[] }>("/api/audit/recent?limit=12"),
-    refetchInterval: 30_000, // auto-refresh every 30s
-  });
-
   // Demand run history — for real sparkline data (last 7 runs chronologically)
   const { data: demandHistoryRaw } = useQuery({
     queryKey: ["demand-history-spark"],
@@ -188,23 +153,32 @@ export function DashboardView() {
 
   // Forecast predictions — for forecast signal sparkline (top categories' prediction90d)
   const { data: forecastData } = useQuery({
-    queryKey: ["forecast-predictions-spark"],
+    queryKey: ["forecast-predictions-spark", globalFilter.lab],
     queryFn: async () => {
       const r = await apiFetch<{
         rows: Array<{ category: string; prediction90d: number }>;
       }>("/api/analysis/forecast");
+      if (globalFilter.lab) {
+        return {
+          rows: r.rows.filter((row) => row.category.toUpperCase().startsWith(globalFilter.lab!.toUpperCase())),
+        };
+      }
       return r;
     },
   });
 
   // Memo analysis — for memo exposure sparkline (top customers' values)
   const { data: memoData } = useQuery({
-    queryKey: ["memo-spark"],
+    queryKey: ["memo-spark", globalFilter.country, globalFilter.branch],
     enabled: canSales,
     queryFn: async () => {
+      const params = new URLSearchParams();
+      if (globalFilter.country) params.set("country", globalFilter.country);
+      if (globalFilter.branch) params.set("branch", globalFilter.branch);
+      const qs = params.toString() ? `?${params.toString()}` : "";
       const r = await apiFetch<{
         byCustomer: Array<{ value: number }>;
-      }>("/api/analysis/memo");
+      }>(`/api/analysis/memo${qs}`);
       return r;
     },
   });
@@ -417,8 +391,8 @@ export function DashboardView() {
         </Section>
       </div>
 
-      {/* Lower row: priority pies + activity feed */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+      {/* Lower row: priority pies */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         <Section title="Unplanned by Priority" description="Open requirement pieces by priority class">
           <div className="h-56 flex items-center justify-center">
             <ResponsiveContainer width="100%" height="100%">
@@ -442,39 +416,6 @@ export function DashboardView() {
                 <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8 }} />
               </PieChart>
             </ResponsiveContainer>
-          </div>
-        </Section>
-
-        <Section
-          title="Live Activity Feed"
-          description="Recent audit events (auto-refresh 30s)"
-          actions={<Badge variant="info" className="gap-1"><Activity className="h-2.5 w-2.5" /> Live</Badge>}
-        >
-          <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
-            {(!auditData?.rows || auditData.rows.length === 0) && (
-              <div className="text-center text-[11px] text-muted-foreground py-4">No recent activity</div>
-            )}
-            {auditData?.rows.slice(0, 10).map((evt) => {
-              const Icon = ACTION_ICONS[evt.action] ?? History;
-              const colorClass = ACTION_COLORS[evt.action] ?? "text-muted-foreground bg-muted";
-              return (
-                <div key={evt.id} className="flex items-start gap-2 py-1 border-b border-border/40 last:border-0">
-                  <div className={`p-1 rounded ${colorClass} flex-shrink-0 mt-0.5`}>
-                    <Icon className="h-2.5 w-2.5" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-baseline justify-between gap-2">
-                      <span className="text-[11px] font-medium truncate">{evt.action.replace(/_/g, " ")}</span>
-                      <span className="text-[9px] text-muted-foreground flex-shrink-0">{relativeTime(evt.timestamp)}</span>
-                    </div>
-                    <p className="text-[10px] text-muted-foreground truncate">
-                      <span className="font-medium text-foreground/80">{evt.actor}</span>
-                      {evt.reason && <span> — {evt.reason}</span>}
-                    </p>
-                  </div>
-                </div>
-              );
-            })}
           </div>
         </Section>
       </div>

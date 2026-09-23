@@ -178,7 +178,7 @@ function CustomerDetailDialog({
 
   return (
     <Dialog open={!!customer} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-4xl max-h-[92vh] overflow-y-auto">
+      <DialogContent className="max-w-5xl sm:max-w-5xl max-h-[92vh] overflow-y-auto p-6">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 flex-wrap">
             <Users className="h-4 w-4 text-muted-foreground" />
@@ -424,8 +424,8 @@ export function CustomersView() {
       key: "name", header: "Customer", sortable: true, sortValue: (r) => r.name,
       cell: (r) => <span className="font-medium">{r.name}</span>,
     },
-    { key: "country", header: "Country", sortable: true, sortValue: (r) => r.country, cell: (r) => r.country, width: "90px" },
-    { key: "branch", header: "Branch", sortable: true, sortValue: (r) => r.branch, cell: (r) => r.branch, width: "90px" },
+    { key: "country", header: "Country", align: "center", sortable: true, sortValue: (r) => r.country, cell: (r) => r.country, width: "90px" },
+    { key: "branch", header: "Branch", align: "center", sortable: true, sortValue: (r) => r.branch, cell: (r) => r.branch, width: "90px" },
     { key: "accountOwner", header: "Account Owner", sortable: true, sortValue: (r) => r.accountOwner, cell: (r) => r.accountOwner, width: "120px" },
     {
       key: "businessPriority", header: "Priority", sortable: true, sortValue: (r) => r.businessPriority,
@@ -444,7 +444,7 @@ export function CustomersView() {
       cell: (r) => <NumberCell value={r.openOrders} intent={r.openOrders > 0 ? "info" : undefined} /> },
     { key: "memoExposure", header: "Memo Exposure", sortable: true, sortValue: (r) => r.memoExposure, align: "right", width: "110px",
       cell: (r) => <Money value={r.memoExposure} /> },
-    { key: "lastPurchase", header: "Last Purchase", sortable: true, sortValue: (r) => r.lastPurchase ?? "", align: "right", width: "110px",
+    { key: "lastPurchase", header: "Last Purchase", align: "center", sortable: true, sortValue: (r) => r.lastPurchase ?? "", width: "110px",
       cell: (r) => <span className="tabular-nums text-muted-foreground">{formatDate(r.lastPurchase)}</span> },
   ];
 

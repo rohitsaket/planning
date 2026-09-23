@@ -82,36 +82,36 @@ export function FantasyPolishedView() {
   const certCount = rows.filter((r) => !!r.certificate).length;
 
   const columns: Column<PolishedRow>[] = [
-    { key: "fantasyLotId", header: "Lot ID", sticky: "left", sortable: true, sortValue: (r) => r.fantasyLotId, cell: (r) => <span className="font-medium">{r.fantasyLotId}</span> },
-    { key: "fantasyDepartmentId", header: "Dept ID", cell: (r) => <span className="text-muted-foreground">{r.fantasyDepartmentId ?? "—"}</span> },
-    { key: "fantasyLocationId", header: "Loc ID", cell: (r) => <span className="text-muted-foreground">{r.fantasyLocationId ?? "—"}</span> },
-    { key: "country", header: "Country", cell: (r) => <span>{r.country}</span> },
-    { key: "branch", header: "Branch", cell: (r) => <span>{r.branch}</span> },
+    { key: "fantasyLotId", header: "Lot ID", sticky: "left", sortable: true, sortValue: (r) => r.fantasyLotId, cell: (r) => <span className="font-medium font-mono">{r.fantasyLotId}</span> },
+    { key: "fantasyDepartmentId", header: "Dept ID", align: "center", cell: (r) => <span className="text-muted-foreground font-mono">{r.fantasyDepartmentId ?? "—"}</span> },
+    { key: "fantasyLocationId", header: "Loc ID", align: "center", cell: (r) => <span className="text-muted-foreground font-mono">{r.fantasyLocationId ?? "—"}</span> },
+    { key: "country", header: "Country", align: "center", cell: (r) => <span className="font-mono">{r.country}</span> },
+    { key: "branch", header: "Branch", align: "center", cell: (r) => <span>{r.branch}</span> },
     {
       key: "fantasyStatus", header: "Fantasy Status", align: "center",
       cell: (r) => <StatusBadge status={r.fantasyStatus} />,
     },
-    { key: "labRaw", header: "Lab (raw)", cell: (r) => <span className="text-muted-foreground">{r.labRaw ?? "—"}</span> },
+    { key: "labRaw", header: "Lab (raw)", align: "center", cell: (r) => <span className="text-muted-foreground">{r.labRaw ?? "—"}</span> },
     {
       key: "labNormalized", header: "Lab (norm)", align: "center",
       cell: (r) => <Badge variant={r.labNormalized === "GIA" ? "info" : "neutral"}>{r.labNormalized ?? "Non-Cert"}</Badge>,
     },
-    { key: "shape", header: "Shape", cell: (r) => <span>{r.shape}</span> },
-    { key: "shapeNormalized", header: "Shape (norm)", cell: (r) => <span className="text-muted-foreground">{r.shapeNormalized ?? "—"}</span> },
+    { key: "shape", header: "Shape", align: "center", cell: (r) => <span>{r.shape}</span> },
+    { key: "shapeNormalized", header: "Shape (norm)", align: "center", cell: (r) => <span className="text-muted-foreground">{r.shapeNormalized ?? "—"}</span> },
     {
       key: "weight", header: "Weight (ct)", align: "right", sortable: true, sortValue: (r) => r.weight,
       cell: (r) => <NumberCell value={r.weight} intent="info" />,
     },
-    { key: "weightBand", header: "Weight Band", cell: (r) => <span className="text-muted-foreground">{r.weightBand ?? "—"}</span> },
-    { key: "color", header: "Color", cell: (r) => <span>{r.color ?? "—"}</span> },
-    { key: "clarity", header: "Clarity", cell: (r) => <span>{r.clarity ?? "—"}</span> },
-    { key: "certificate", header: "Certificate", cell: (r) => <span className="text-muted-foreground text-[10px]">{r.certificate ?? "—"}</span> },
-    { key: "treatment", header: "Treatment", cell: (r) => <span className="text-muted-foreground">{r.treatment ?? "—"}</span> },
+    { key: "weightBand", header: "Weight Band", align: "center", cell: (r) => <span className="text-muted-foreground font-mono">{r.weightBand ?? "—"}</span> },
+    { key: "color", header: "Color", align: "center", cell: (r) => <span className="font-mono">{r.color ?? "—"}</span> },
+    { key: "clarity", header: "Clarity", align: "center", cell: (r) => <span className="font-mono">{r.clarity ?? "—"}</span> },
+    { key: "certificate", header: "Certificate", align: "center", cell: (r) => <span className="text-muted-foreground text-[10px] font-mono">{r.certificate ?? "—"}</span> },
+    { key: "treatment", header: "Treatment", align: "center", cell: (r) => <span className="text-muted-foreground">{r.treatment ?? "—"}</span> },
     {
       key: "planningClass", header: "Plan Class", align: "center",
       cell: (r) => <StatusBadge status={r.planningClass} />,
     },
-    { key: "lastUpdated", header: "Last Updated", sortable: true, sortValue: (r) => r.lastUpdated, cell: (r) => <span className="text-muted-foreground">{fmtDate(r.lastUpdated)}</span> },
+    { key: "lastUpdated", header: "Last Updated", align: "center", sortable: true, sortValue: (r) => r.lastUpdated, cell: (r) => <span className="text-muted-foreground">{fmtDate(r.lastUpdated)}</span> },
   ];
 
   return (
@@ -179,6 +179,8 @@ export function FantasyPolishedView() {
             r.shape.toLowerCase().includes(lq)
           );
         }}
+        pagination
+        pageSize={25}
       />
     </div>
   );

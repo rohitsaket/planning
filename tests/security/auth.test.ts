@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, test } from "bun:test";
+import { beforeAll, describe, expect, test } from "./harness";
 import { call, db, makeUser, resetDb, testPassword } from "./helpers";
 import { GET as me } from "@/app/api/auth/me/route";
 import { POST as login } from "@/app/api/auth/login/route";

@@ -1,12 +1,14 @@
 import { db } from "@/lib/db";
-import { ok } from "@/lib/api-utils";
+import { err, ok } from "@/lib/api-utils";
 import { withApi } from "@/lib/api/with-api";
 import { runSynchronization } from "@/lib/fantasy/sync-service";
-import { getFantasyConfig } from "@/lib/fantasy/config";
+import { resolveFantasySourceState, resolveFantasySourceStateWithHistory } from "@/lib/fantasy/config";
 
 // GET: Fantasy Sync Dashboard — sync runs, active checkpoint & honest reconciliation summary
 export const GET = withApi({ permission: "fantasy.read" }, async () => {
-  const config = getFantasyConfig();
+  // One centrally derived source state. This route never decides for itself what
+  // "simulated", "live" or "degraded" means.
+  const sourceState = await resolveFantasySourceStateWithHistory(db);
 
   const checkpoint = await db.syncCheckpoint.findUnique({
     where: { source: "FANTASY" },
@@ -105,8 +107,8 @@ export const GET = withApi({ permission: "fantasy.read" }, async () => {
   }
 
   return ok({
-    sourceMode: config.sourceMode,
-    isSimulated: config.isSimulation,
+    // Sanitized: no credential, environment value, provider URL or cursor token.
+    sourceState,
     hasEverRun,
     checkpoint: checkpoint?.currentCheckpoint ?? 0,
     isLocked: checkpoint?.isLocked ?? false,
@@ -170,7 +172,14 @@ export const GET = withApi({ permission: "fantasy.read" }, async () => {
 });
 
 // POST: Trigger real incremental synchronization batch
-export const POST = withApi({ permission: "fantasy.sync" }, async (_req, _ctx, { principal, audit }) => {
+export const POST = withApi({ permission: "fantasy.sync.run" }, async (_req, _ctx, { principal, audit }) => {
+  // Fails closed on an unconfigured or unsupported source: no lock, no run record and
+  // a fixed safe explanation instead of an unhandled provider error.
+  const sourceState = resolveFantasySourceState();
+  if (sourceState.effectiveState === "NOT_CONFIGURED") {
+    return err(sourceState.statusExplanation, 409);
+  }
+
   const result = await runSynchronization({
     actor: principal.username,
     actorUserId: principal.userId,

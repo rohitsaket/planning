@@ -7,6 +7,7 @@ import { Badge } from "@/components/diamond/shared/badges";
 import { KpiCard } from "@/components/diamond/shared/kpi-card";
 import { NumberCell, EmptyState } from "@/components/diamond/shared/empty-state";
 import { useNavStore } from "@/stores/nav-store";
+import { useGlobalFilter } from "@/stores/global-filter";
 import { useMemo } from "react";
 import { AlertTriangle, ArrowRight } from "lucide-react";
 
@@ -72,18 +73,21 @@ function buildCols(priorityLabel: string): Column<ReqRow>[] {
     {
       key: "country",
       header: "Country",
+      align: "center",
       width: "80px",
       cell: (r) => r.country ?? "—",
     },
     {
       key: "shape",
       header: "Shape",
+      align: "center",
       width: "90px",
       cell: (r) => r.shape ?? "—",
     },
     {
       key: "weightBand",
       header: "Wt Band",
+      align: "center",
       width: "110px",
       cell: (r) => r.weightBand ?? "—",
     },
@@ -127,6 +131,7 @@ function buildCols(priorityLabel: string): Column<ReqRow>[] {
     {
       key: "requiredBy",
       header: "Req By",
+      align: "center",
       width: "90px",
       cell: (r) => fmtDate(r.requiredBy),
     },
@@ -197,17 +202,27 @@ function PrioritySection({
 
 export function PriorityQueueView() {
   const setView = useNavStore((s) => s.setView);
+  const globalFilter = useGlobalFilter();
+
+  const filterQs = useMemo(() => {
+    const params = new URLSearchParams();
+    if (globalFilter.country) params.set("country", globalFilter.country);
+    if (globalFilter.branch) params.set("branch", globalFilter.branch);
+    if (globalFilter.lab) params.set("lab", globalFilter.lab);
+    const qs = params.toString();
+    return qs ? `&${qs}` : "";
+  }, [globalFilter.country, globalFilter.branch, globalFilter.lab]);
 
   // Three priority bands, each fetching requirements with priority filter & remainingUnplanned > 0
   // The API does not directly filter remainingUnplanned > 0, so we filter client-side
   const { data: criticalData, isLoading: cLoading } = useApi<ApiResponse>(
-    `/api/requirements?pageSize=500&priority=CRITICAL`
+    `/api/requirements?pageSize=500&priority=CRITICAL${filterQs}`
   );
   const { data: highData, isLoading: hLoading } = useApi<ApiResponse>(
-    `/api/requirements?pageSize=500&priority=HIGH`
+    `/api/requirements?pageSize=500&priority=HIGH${filterQs}`
   );
   const { data: normalData, isLoading: nLoading } = useApi<ApiResponse>(
-    `/api/requirements?pageSize=500&priority=NORMAL`
+    `/api/requirements?pageSize=500&priority=NORMAL${filterQs}`
   );
 
   const critical = useMemo(

@@ -2,7 +2,7 @@ import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
 import { withApi, qStr, qInt } from "@/lib/api/with-api";
-import { getFantasyConfig } from "@/lib/fantasy/config";
+import { resolveFantasySourceStateWithHistory } from "@/lib/fantasy/config";
 import { formatIST } from "@/lib/fantasy/time";
 import { loadWipPolicy } from "@/lib/demand/wip-classification";
 import {
@@ -12,10 +12,10 @@ import {
   toBusinessStatus,
   toCategoryLabel,
   toRecordType,
-  toSourceMode,
   toWipCoverageState,
   type RecordType,
 } from "@/lib/demand/demand-result-presentation";
+import { deriveHistoricalSourceState } from "@/lib/fantasy/source-state";
 
 /**
  * DEMAND RESULT DETAILS — safe browser response.
@@ -34,7 +34,7 @@ const USABLE_RUN_STATUSES = ["COMPLETED", "REVIEW_REQUIRED"];
 
 export const GET = withApi({ permission: "analysis.read" }, async (req: Request, _ctx, { principal }) => {
   const url = new URL(req.url);
-  const config = getFantasyConfig();
+  const sourceState = await resolveFantasySourceStateWithHistory(db);
   const runIdParam = qStr(url, "runId");
   const selectedCategoryParam = qStr(url, "category", 200);
   const recordTypeParam = qStr(url, "recordType", 40);
@@ -73,8 +73,8 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request,
       windowDays: 90,
       lookbackStart: null,
       lookbackEnd: null,
-      sourceMode: toSourceMode(config.isSimulation, config.sourceMode),
-      isSimulated: config.isSimulation,
+      sourceMode: sourceState.effectiveState,
+      isSimulated: sourceState.isSimulated,
       recordsConsidered: { sales: 0, inventory: 0, manufacturing: 0, approvedPlanPieces: 0, excluded: 0 },
       wipCoverage: toWipCoverageState({ policyConfigured: wipPolicy.appliesCoverage, appliedInRun: false }),
       canViewSupportingRecords: canSeeRecords,
@@ -241,7 +241,7 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request,
     windowDays: targetRun.windowDays,
     lookbackStart: targetRun.lookbackStart?.toISOString() ?? null,
     lookbackEnd: targetRun.lookbackEnd?.toISOString() ?? null,
-    sourceMode: toSourceMode(targetRun.isSimulated, targetRun.sourceMode),
+    sourceMode: deriveHistoricalSourceState(targetRun.isSimulated, targetRun.sourceMode),
     isSimulated: targetRun.isSimulated,
     recordsConsidered: {
       sales: targetRun.salesCount,

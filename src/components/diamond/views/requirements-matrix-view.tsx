@@ -362,36 +362,42 @@ export function RequirementsMatrixView() {
     {
       key: "orderNumber",
       header: "Order #",
+      align: "center",
       width: "120px",
       cell: (r) => r.orderNumber ?? "—",
     },
     {
       key: "country",
       header: "Country",
+      align: "center",
       width: "90px",
       cell: (r) => r.country ?? "—",
     },
     {
       key: "branch",
       header: "Branch",
+      align: "center",
       width: "90px",
       cell: (r) => r.branch ?? "—",
     },
     {
       key: "lab",
       header: "Lab",
+      align: "center",
       width: "80px",
       cell: (r) => r.lab ?? "—",
     },
     {
       key: "shape",
       header: "Shape",
+      align: "center",
       width: "90px",
       cell: (r) => r.shape ?? "—",
     },
     {
       key: "weightBand",
       header: "Wt Band",
+      align: "center",
       width: "110px",
       cell: (r) => r.weightBand ?? "—",
     },
@@ -479,6 +485,7 @@ export function RequirementsMatrixView() {
     {
       key: "requiredBy",
       header: "Req By",
+      align: "center",
       width: "90px",
       cell: (r) => fmtDate(r.requiredBy),
     },
@@ -819,7 +826,7 @@ export function RequirementsMatrixView() {
           }
         }}
       >
-        <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-4xl sm:max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-sm">
               <span>{detail?.requirementCode ?? "Loading…"}</span>
@@ -1029,34 +1036,36 @@ export function RequirementsMatrixView() {
 
               {/* Allocations */}
               <div className="rounded-md border border-border overflow-hidden">
-                <div className="px-2 py-1.5 border-b border-border bg-muted/40 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                <div className="px-2.5 py-1.5 border-b border-border bg-muted/40 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                   Plan Allocations ({detail.allocations.length})
                 </div>
                 {detail.allocations.length === 0 ? (
                   <div className="px-3 py-3 text-[11px] text-muted-foreground">No allocations yet.</div>
                 ) : (
-                  <table className="w-full text-[11px]">
-                    <thead className="bg-muted/30 text-[10px] uppercase text-muted-foreground">
-                      <tr>
-                        <th className="px-2 py-1 text-left">Option Code</th>
-                        <th className="px-2 py-1 text-right">Allocated Qty</th>
-                        <th className="px-2 py-1 text-left">By</th>
-                        <th className="px-2 py-1 text-left">At</th>
-                        <th className="px-2 py-1 text-left">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {detail.allocations.map((a) => (
-                        <tr key={a.id} className="border-t border-border/60">
-                          <td className="px-2 py-1 font-medium">{a.planOptionCode ?? "—"}</td>
-                          <td className="px-2 py-1 text-right tabular-nums">{a.allocatedQty}</td>
-                          <td className="px-2 py-1">{a.allocatedBy}</td>
-                          <td className="px-2 py-1">{fmtDate(a.allocatedAt)}</td>
-                          <td className="px-2 py-1"><StatusBadge status={a.status} /></td>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-[11px] border-collapse">
+                      <thead className="bg-muted text-[10px] uppercase text-muted-foreground border-b border-border">
+                        <tr>
+                          <th className="px-2 py-1 text-left border-r border-border/40">Option Code</th>
+                          <th className="px-2 py-1 text-right border-r border-border/40">Allocated Qty</th>
+                          <th className="px-2 py-1 text-left border-r border-border/40">By</th>
+                          <th className="px-2 py-1 text-left border-r border-border/40">At</th>
+                          <th className="px-2 py-1 text-center">Status</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {detail.allocations.map((a) => (
+                          <tr key={a.id} className="border-b border-border/40 last:border-b-0 hover:bg-muted/30">
+                            <td className="px-2 py-1 font-medium border-r border-border/40">{a.planOptionCode ?? "—"}</td>
+                            <td className="px-2 py-1 text-right tabular-nums font-semibold border-r border-border/40">{a.allocatedQty}</td>
+                            <td className="px-2 py-1 border-r border-border/40">{a.allocatedBy}</td>
+                            <td className="px-2 py-1 border-r border-border/40">{fmtDate(a.allocatedAt)}</td>
+                            <td className="px-2 py-1 text-center"><StatusBadge status={a.status} /></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 )}
               </div>
 

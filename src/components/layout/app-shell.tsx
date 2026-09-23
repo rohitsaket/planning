@@ -65,8 +65,8 @@ export const NAV: NavGroup[] = [
       { id: "analysis-excess", label: "Excess Stock", icon: <Package className="h-3.5 w-3.5" /> },
       { id: "analysis-aging", label: "Stock Aging", icon: <CalendarClock className="h-3.5 w-3.5" /> },
       { id: "analysis-reorder-signals", label: "Reorder Signals", icon: <Star className="h-3.5 w-3.5" />, advisory: true },
-      { id: "demand-history", label: "Demand Run History", icon: <History className="h-3.5 w-3.5" /> },
-      { id: "analysis-demand-trace", label: "Demand Trace", icon: <Calculator className="h-3.5 w-3.5" /> },
+      // Demand Run History and Demand Trace moved to the Demand section. Their view ids,
+      // hashes, routes and components are unchanged — only the sidebar placement moved.
       { id: "transfer-analyzer", label: "Transfer Analyzer", icon: <ArrowLeftRight className="h-3.5 w-3.5" />, advisory: true },
       { id: "aging-dashboard", label: "Aging Dashboard", icon: <LayoutDashboard className="h-3.5 w-3.5" /> },
     ],
@@ -77,7 +77,7 @@ export const NAV: NavGroup[] = [
     label: "Fantasy ERP",
     icon: <Database className="h-4 w-4" />,
     items: [
-      { id: "fantasy-live", label: "Live Data", icon: <Boxes className="h-3.5 w-3.5" /> },
+      { id: "fantasy-live", label: "Current Data", icon: <Boxes className="h-3.5 w-3.5" /> },
       { id: "fantasy-sync", label: "Sync Monitor", icon: <RefreshCw className="h-3.5 w-3.5" /> },
     ],
   },
@@ -99,14 +99,19 @@ export const NAV: NavGroup[] = [
       { id: "data-quality-issues", label: "Data Quality Issues", icon: <AlertTriangle className="h-3.5 w-3.5" /> },
     ],
   },
-  // 5. Demand and Inventory (Market & Position)
+  // 5. Demand (Market signal and its calculation history)
+  //
+  // Inventory stays in Analysis; this section is only about demand. Stock Strategy is
+  // hidden here because it belongs to the later planning/replenishment phase — its view
+  // id, route, component, permission and tests are all untouched, so re-listing it is a
+  // one-line change when that phase starts.
   {
-    id: "demand-inventory-group",
-    label: "Demand and Inventory",
+    id: "demand-group",
+    label: "Demand",
     icon: <BarChart3 className="h-4 w-4" />,
     items: [
       { id: "demand-overview", label: "Demand Overview", icon: <Activity className="h-3.5 w-3.5" /> },
-      { id: "stock-strategy", label: "Stock Strategy", icon: <ArrowLeftRight className="h-3.5 w-3.5" /> },
+      { id: "analysis-demand-trace", label: "Demand Trace", icon: <Calculator className="h-3.5 w-3.5" /> },
     ],
   },
   // 6. Requirements and Priority (Demand Translation)

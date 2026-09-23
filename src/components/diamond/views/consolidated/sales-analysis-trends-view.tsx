@@ -6,10 +6,12 @@ import { SalesTrendsView } from "@/components/diamond/views/sales-trends-view";
 import { TrendingUp, Activity } from "lucide-react";
 
 // Sidebar module "Sales Analysis & Trends" (view id `analysis-sales`).
-// The two former Analysis pages are composed unchanged as tabs. Only the active tab is
-// mounted, so only its query runs; each tab keeps its own API (/api/analysis/sales and
-// /api/analysis/sales/trend) and its own local controls (dimension vs. group-by), while
-// the shared country / branch / lab / window filters come from the global filter bar.
+// Two tabs over one authoritative sales snapshot: what sold and in which category
+// (/api/analysis/sales, /api/analysis/sales/records), and how activity moved between
+// periods (/api/analysis/sales/trend, /movement, /contribution). Only the active tab is
+// mounted, so only its queries run.
+// Country / branch / lab come from the global filter bar; the page-level filters and the
+// selected category are shared by both tabs so a drill-down survives a tab switch.
 // Deep links: #analysis-sales?tab=analysis | #analysis-sales?tab=trends.
 // The legacy id `analysis-sales-trends` is redirected to the trends tab by the nav store.
 export const SALES_ANALYSIS_TABS: HostTabItem[] = [
@@ -23,7 +25,7 @@ export function SalesAnalysisTrendsView() {
   return (
     <TabbedHostView
       title="Sales Analysis & Trends"
-      subtitle="Confirmed invoice lots by dimension, and descriptive 30-day trend windows"
+      subtitle="Confirmed historical sales from the authoritative sales snapshot — quantity, carat weight and record count kept separate"
       tabs={SALES_ANALYSIS_TABS}
       defaultTab={SALES_ANALYSIS_DEFAULT_TAB}
     />

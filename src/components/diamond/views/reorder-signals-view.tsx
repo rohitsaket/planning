@@ -141,6 +141,7 @@ export function ReorderSignalsView() {
     {
       key: "likelyReorderWindow",
       header: "Likely Reorder",
+      align: "center",
       cell: (r) => r.likelyReorderWindow ? <span className="font-medium text-xs">{r.likelyReorderWindow}</span> : <span className="text-muted-foreground/50">—</span>,
     },
     {

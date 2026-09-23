@@ -1,31 +1,39 @@
 import { ok } from "@/lib/api-utils";
-import { withApi, qInt, qStr } from "@/lib/api/with-api";
-import { forbidden } from "@/lib/api/errors";
-import { analyticsTimeZone } from "@/lib/analytics/reporting-date";
-import { extraPermissionsFor } from "@/lib/analytics/sales-dimensions";
-import { getSalesAnalysis, parseSalesDimension } from "@/lib/analytics/sales-analysis";
+import { withApi } from "@/lib/api/with-api";
+import { CATEGORY_SORT_KEYS, type CategorySortKey } from "@/lib/analytics/sales-history-contract";
+import { getCategorySalesSummary, getSalesReadiness, resolveSalesSnapshot } from "@/lib/analytics/sales-history";
+import { assertRequestedWindow, parseSalesFilters, parseSalesPaging, parseSort } from "@/lib/analytics/sales-history-request";
 
-// Sales Analysis — Invoice rows grouped by dimension (lab, shape, weightBand, color, clarity,
-// treatment, customer, country, branch, month). Window = run business date + previous N-1 dates.
-// Honors global filter params: country, branch, lab.
+/**
+ * Sales Analysis — readiness of the confirmed sales history, and the category summary
+ * (Lab + Shape + Weight Band) for the authoritative snapshot.
+ *
+ * Confirmed-sales eligibility, lifecycle deduplication and category normalization are
+ * the demand calculation's centralized policy; this route reads its persisted result and
+ * re-derives none of it. When no authoritative snapshot exists the readiness state is
+ * NOT_RUN and no rows are invented in its place.
+ *
+ * Filtering, searching, sorting and paging are all server-side, and the response always
+ * carries the real total so a page is never mistaken for the whole table.
+ */
 export const GET = withApi({ permission: "sales.read" }, async (req: Request, _ctx, api) => {
   const url = new URL(req.url);
-  const dimension = parseSalesDimension(url.searchParams.get("dimension"));
-  // Customer grouping exposes customer names and revenue: it also needs customers.read.
-  if (!extraPermissionsFor(dimension).every((p) => api.principal.permissions.includes(p as never))) {
-    throw forbidden("Grouping sales by customer requires the customers.read permission.");
+  const readiness = await getSalesReadiness();
+  const snapshot = await resolveSalesSnapshot();
+  assertRequestedWindow(url, snapshot?.windowDays ?? null);
+
+  if (!snapshot) {
+    return ok({
+      readiness,
+      rows: [],
+      paging: { page: 1, pageSize: 0, total: 0, hasMore: false },
+      totals: { confirmedQuantity: 0, confirmedWeight: 0, recordCount: 0, categories: 0 },
+    });
   }
-  const result = await getSalesAnalysis(
-    {
-      dimension,
-      windowDays: qInt(url, "windowDays", { def: 90, min: 1, max: 730 }),
-      country: qStr(url, "country"),
-      branch: qStr(url, "branch"),
-      lab: qStr(url, "lab"),
-      now: new Date(),
-      timezone: analyticsTimeZone(),
-    },
-    api.requestId,
-  );
-  return ok(result);
+
+  const filters = parseSalesFilters(url, api.principal.permissions);
+  const sort = parseSort<CategorySortKey>(url, CATEGORY_SORT_KEYS, "total90", "desc");
+  const summary = await getCategorySalesSummary(snapshot, filters, sort, parseSalesPaging(url));
+
+  return ok({ readiness, ...summary });
 });

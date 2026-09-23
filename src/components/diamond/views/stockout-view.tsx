@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import { useApi } from "@/lib/api-client";
+import { useGlobalFilter } from "@/stores/global-filter";
 import { KpiCard } from "@/components/diamond/shared/kpi-card";
 import { Section, PageHeader } from "@/components/diamond/shared/page-header";
 import { DataTable, type Column } from "@/components/diamond/shared/data-table";
@@ -96,32 +97,46 @@ const RISK_RANK: Record<string, number> = {
 };
 
 export function StockoutView() {
+  const globalFilter = useGlobalFilter();
   const { data, isLoading } = useApi<StockoutData>("/api/analysis/stockout");
 
+  const rawRows = data?.rows ?? [];
+  const rows = useMemo(() => {
+    if (!globalFilter.lab) return rawRows;
+    return rawRows.filter((r) => {
+      if (globalFilter.lab === "Non-Cert") return r.category.toUpperCase().includes("NON-CERT") || !r.category.includes("|");
+      if (globalFilter.lab === "Other") return !r.category.toUpperCase().startsWith("GIA") && !r.category.toUpperCase().includes("NON-CERT");
+      return r.category.toUpperCase().startsWith((globalFilter.lab as string).toUpperCase());
+    });
+  }, [rawRows, globalFilter.lab]);
+
+  const criticalCount = useMemo(() => (globalFilter.lab ? rows.filter((r) => r.stockoutRisk === "CRITICAL").length : (data?.critical ?? 0)), [rows, globalFilter.lab, data?.critical]);
+  const highCount = useMemo(() => (globalFilter.lab ? rows.filter((r) => r.stockoutRisk === "HIGH").length : (data?.high ?? 0)), [rows, globalFilter.lab, data?.high]);
+  const mediumCount = useMemo(() => (globalFilter.lab ? rows.filter((r) => r.stockoutRisk === "MEDIUM").length : (data?.medium ?? 0)), [rows, globalFilter.lab, data?.medium]);
+
   const criticalSpark = useMemo(() => {
-    const base = data?.critical ?? 1;
+    const base = criticalCount || 1;
     return [base * 0.7, base * 0.85, base * 0.9, base * 0.95, base, base * 1.05, base * 1.1];
-  }, [data?.critical]);
+  }, [criticalCount]);
   const highSpark = useMemo(() => {
-    const base = data?.high ?? 1;
+    const base = highCount || 1;
     return [base * 1.1, base * 1.05, base * 1.0, base * 0.95, base * 0.9, base * 0.92, base];
-  }, [data?.high]);
+  }, [highCount]);
   const mediumSpark = useMemo(() => {
-    const base = data?.medium ?? 1;
+    const base = mediumCount || 1;
     return [base * 0.85, base * 0.9, base * 0.95, base * 1.0, base * 1.05, base * 0.95, base];
-  }, [data?.medium]);
+  }, [mediumCount]);
 
   // Top 8 categories by risk (highest risk first, then by prediction90d)
   const projectionRows = useMemo(() => {
-    if (!data) return [];
-    const sorted = [...data.rows].sort((a, b) => {
+    const sorted = [...rows].sort((a, b) => {
       const ra = a.stockoutRisk ? RISK_RANK[a.stockoutRisk] ?? 9 : 9;
       const rb = b.stockoutRisk ? RISK_RANK[b.stockoutRisk] ?? 9 : 9;
       if (ra !== rb) return ra - rb;
       return b.prediction90d - a.prediction90d;
     });
     return sorted.slice(0, 8);
-  }, [data]);
+  }, [rows]);
 
   // Transform top 8 into per-category chart format with day buckets
   // For each category we get 4 points (Day 0, 30, 60, 90)
@@ -184,9 +199,9 @@ export function StockoutView() {
       ) : (
         <>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
-            <KpiCard label="Critical Risk" value={data?.critical ?? 0} intent="critical" hint="Categories at CRITICAL risk" icon={AlertTriangle} sparkline={criticalSpark} />
-            <KpiCard label="High Risk" value={data?.high ?? 0} intent="warning" hint="Categories at HIGH risk" icon={AlertTriangle} sparkline={highSpark} />
-            <KpiCard label="Medium Risk" value={data?.medium ?? 0} intent="default" hint="Categories at MEDIUM risk" icon={Clock} sparkline={mediumSpark} />
+            <KpiCard label="Critical Risk" value={criticalCount} intent="critical" hint="Categories at CRITICAL risk" icon={AlertTriangle} sparkline={criticalSpark} />
+            <KpiCard label="High Risk" value={highCount} intent="warning" hint="Categories at HIGH risk" icon={AlertTriangle} sparkline={highSpark} />
+            <KpiCard label="Medium Risk" value={mediumCount} intent="default" hint="Categories at MEDIUM risk" icon={Clock} sparkline={mediumSpark} />
           </div>
 
           {/* Projected Inventory Balance chart — top 8 categories by risk */}
@@ -320,7 +335,7 @@ export function StockoutView() {
           <Section title="Projected Position by Category" description="Color-coded: red ≤ 0, amber ≤ 10, green > 10">
             <DataTable
               columns={stockoutColumns}
-              rows={data?.rows ?? []}
+              rows={rows}
               loading={isLoading}
               emptyMessage="No stockout predictions"
               maxHeight="560px"
@@ -330,6 +345,8 @@ export function StockoutView() {
               searchable
               searchPlaceholder="Search category..."
               searchFn={(r, q) => r.category.toLowerCase().includes(q.toLowerCase())}
+              pagination
+              pageSize={25}
             />
           </Section>
         </>

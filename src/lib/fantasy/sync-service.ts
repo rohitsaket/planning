@@ -22,7 +22,15 @@ import {
   validateCanonicalRecord,
 } from "./canonical";
 import { getFantasyProvider, FantasyBatchPayload } from "./provider";
-import { getFantasyConfig } from "./config";
+import { getFantasySourceConfiguration, resolveFantasySourceState } from "./config";
+import {
+  classifyFantasyRecord,
+  isMirroredInventoryClass,
+  legacyFixtureClassificationInput,
+  toLegacyPlanningClass,
+  type ClassificationProfile,
+} from "./classification";
+import { LEGACY_FIXTURE_PROFILE, loadClassificationProfile } from "./classification-profile";
 import { nowUTC } from "./time";
 
 export interface SyncRunOptions {
@@ -96,8 +104,59 @@ async function loadLabMappings(tx?: Prisma.TransactionClient): Promise<Map<strin
  */
 export async function runSynchronization(options: SyncRunOptions = {}): Promise<SyncRunResult> {
   const startTime = Date.now();
-  const config = getFantasyConfig();
-  const provider = getFantasyProvider(config.sourceMode);
+  const config = getFantasySourceConfiguration();
+  // Fails closed before any lock, run record or write. Both conditions are checked: an
+  // unconfigured or unsupported source mode can no longer reach the provider factory,
+  // and a live mode whose connector is not installed is refused here rather than
+  // reaching a stub that throws from inside a run.
+  if (config.canonicalSourceMode === null || resolveFantasySourceState().effectiveState === "NOT_CONFIGURED") {
+    throw new Error("Synchronization is unavailable: no supported Fantasy data source is configured.");
+  }
+  const canonicalSourceMode = config.canonicalSourceMode;
+  const isSimulatedSource = canonicalSourceMode === "FIXTURE";
+  const provider = getFantasyProvider(canonicalSourceMode);
+
+  // One classification authority for the whole run. Loaded before any lock is taken so a
+  // missing profile fails the run cleanly instead of part-way through.
+  const classificationProfile = await loadClassificationProfile(LEGACY_FIXTURE_PROFILE);
+  if (classificationProfile === null) {
+    throw new Error(
+      "Synchronization is unavailable: the classification profile is not configured. Run `prisma migrate deploy`.",
+    );
+  }
+
+  /**
+   * Classifies one fixture canonical record. Replaces the four copies of
+   * `currentStatus === "STOCK" ? "PHYSICAL" : "MEMO"`, the unconditional `"PHYSICAL"` on
+   * the replay path, and the `STOCK || MEMO` mirror gate.
+   */
+  const classifyRecord = (currentStatus: string, departmentName?: string | null, previousDepartment?: string | null) =>
+    classifyFantasyRecord(
+      legacyFixtureClassificationInput({
+        currentStatus,
+        currentDepartment: departmentName ?? null,
+        previousDepartment: previousDepartment ?? null,
+      }),
+      classificationProfile satisfies ClassificationProfile,
+    );
+
+  /**
+   * The classification columns written onto a canonical current or history record.
+   * Every downstream consumer reads these instead of reinterpreting the raw status.
+   */
+  const classificationColumns = (c: ReturnType<typeof classifyRecord>) => ({
+    holdState: c.holdState,
+    canonicalLifecycle: c.lifecycle,
+    inventoryClass: c.inventoryClass,
+    classificationAvailable: c.available,
+    classificationPlanningEligible: c.planningEligible,
+    classificationReviewRequired: c.reviewRequired,
+    classificationTerminal: c.terminal,
+    classificationReasons: c.exclusionReasons.length ? c.exclusionReasons.join(",") : null,
+    classificationProfile: c.profileCode,
+    classificationProfileVersion: c.profileVersion,
+    classificationState: c.state,
+  });
 
   // 1. Ensure checkpoint record exists
   let checkpointRecord = await db.syncCheckpoint.findUnique({
@@ -109,7 +168,7 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
       checkpointRecord = await db.syncCheckpoint.create({
         data: {
           source: "FANTASY",
-          mode: config.sourceMode,
+          mode: canonicalSourceMode,
           currentCheckpoint: 0,
           isLocked: false,
         },
@@ -151,8 +210,8 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
       source: "Fantasy",
       entity: "ALL",
       status: "RUNNING",
-      sourceMode: config.sourceMode,
-      isSimulated: config.isSimulation,
+      sourceMode: canonicalSourceMode,
+      isSimulated: isSimulatedSource,
       startingCheckpoint: currentCheckpoint,
       endingCheckpoint: currentCheckpoint,
       triggeredBy: options.actor ?? "SYSTEM",
@@ -216,10 +275,10 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
       throw new Error(`Batch ending checkpoint (${batch.endingCheckpoint}) must be strictly greater than starting checkpoint (${batch.startingCheckpoint}). Monotonic advancement violation.`);
     }
 
-    if (config.sourceMode === "FANTASY_API" && batch.isSimulated) {
+    if (canonicalSourceMode === "FANTASY_API" && batch.isSimulated) {
       throw new Error("Fixture batch rejected while source mode is configured as live FANTASY_API.");
     }
-    if (config.sourceMode === "FIXTURE" && !batch.isSimulated) {
+    if (canonicalSourceMode === "FIXTURE" && !batch.isSimulated) {
       throw new Error("Live batch rejected while source mode is configured as simulation FIXTURE.");
     }
 
@@ -376,8 +435,10 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
 
         if (!existing) {
           // --- INSERT NEW LOT MASTER RECORD ---
+          const insertClassification = classifyRecord(rec.currentStatus, rec.departmentName, null);
           const newMaster = await tx.lotMasterRecord.create({
             data: {
+              ...classificationColumns(insertClassification),
               lotId: rec.lotId,
               sourceRecordId: rec.sourceRecordId ?? null,
               sourceType: rec.sourceType,
@@ -429,6 +490,7 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
           // Create Version 1 in immutable history
           await tx.lotHistoryRecord.create({
             data: {
+              ...classificationColumns(insertClassification),
               lotId: newMaster.lotId,
               sourceRecordId: rec.sourceRecordId ?? null,
               version: 1,
@@ -470,8 +532,11 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
             },
           });
 
-          // Sync into operational PolishedStone mirror if active polished
-          if (rec.roughOrPolished === "POLISHED" && rec.isCurrent && (rec.currentStatus === "STOCK" || rec.currentStatus === "MEMO")) {
+          // Sync into the operational PolishedStone mirror when the classifier places
+          // this record in a mirrored inventory class. Replaces the literal
+          // `currentStatus === "STOCK" || === "MEMO"` gate.
+          const mirrorClassification = classifyRecord(rec.currentStatus, rec.departmentName, null);
+          if (rec.roughOrPolished === "POLISHED" && rec.isCurrent && isMirroredInventoryClass(mirrorClassification.inventoryClass)) {
             await tx.polishedStone.upsert({
               where: { fantasyLotId: rec.lotId },
               create: {
@@ -490,7 +555,7 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
                 clarity: rec.clarity ?? null,
                 certificate: rec.certificate ?? null,
                 treatment: rec.treatment ?? null,
-                planningClass: rec.currentStatus === "STOCK" ? "PHYSICAL" : "MEMO",
+                planningClass: toLegacyPlanningClass(mirrorClassification.inventoryClass),
                 lastUpdated: sourceUpdatedAt,
               },
               update: {
@@ -508,7 +573,7 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
                 clarity: rec.clarity ?? null,
                 certificate: rec.certificate ?? null,
                 treatment: rec.treatment ?? null,
-                planningClass: rec.currentStatus === "STOCK" ? "PHYSICAL" : "MEMO",
+                planningClass: toLegacyPlanningClass(mirrorClassification.inventoryClass),
                 lastUpdated: sourceUpdatedAt,
               },
             });
@@ -595,9 +660,11 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
               : `ATTRIBUTE_UPDATE_${diffs.slice(0, 3).join("_").toUpperCase()}`;
 
             // Update master record (support explicitly clearing nullable fields to null)
+            const changeClassification = classifyRecord(rec.currentStatus, rec.departmentName, existing.currentStatus);
             await tx.lotMasterRecord.update({
               where: { lotId: rec.lotId },
               data: {
+                ...classificationColumns(changeClassification),
                 sourceRecordId: rec.sourceRecordId ?? null,
                 currentStatus: rec.currentStatus,
                 previousStatus: existing.currentStatus,
@@ -642,6 +709,7 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
             // Create EXACTLY ONE new immutable history version
             await tx.lotHistoryRecord.create({
               data: {
+                ...classificationColumns(changeClassification),
                 lotId: rec.lotId,
                 sourceRecordId: rec.sourceRecordId ?? null,
                 version: nextVersion,
@@ -683,8 +751,10 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
               },
             });
 
-            // Update or remove from operational PolishedStone mirror
-            if (rec.roughOrPolished === "POLISHED" && rec.isCurrent && (rec.currentStatus === "STOCK" || rec.currentStatus === "MEMO")) {
+            // Update or remove from the operational PolishedStone mirror, on the same
+            // classifier decision as the create path above.
+            const updateClassification = classifyRecord(rec.currentStatus, rec.departmentName, null);
+            if (rec.roughOrPolished === "POLISHED" && rec.isCurrent && isMirroredInventoryClass(updateClassification.inventoryClass)) {
               await tx.polishedStone.upsert({
                 where: { fantasyLotId: rec.lotId },
                 create: {
@@ -703,7 +773,7 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
                   clarity: rec.clarity ?? null,
                   certificate: rec.certificate ?? null,
                   treatment: rec.treatment ?? null,
-                  planningClass: rec.currentStatus === "STOCK" ? "PHYSICAL" : "MEMO",
+                  planningClass: toLegacyPlanningClass(updateClassification.inventoryClass),
                   lastUpdated: sourceUpdatedAt,
                 },
                 update: {
@@ -721,7 +791,7 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
                   clarity: rec.clarity ?? null,
                   certificate: rec.certificate ?? null,
                   treatment: rec.treatment ?? null,
-                  planningClass: rec.currentStatus === "STOCK" ? "PHYSICAL" : "MEMO",
+                  planningClass: toLegacyPlanningClass(updateClassification.inventoryClass),
                   lastUpdated: sourceUpdatedAt,
                 },
               });
@@ -815,9 +885,11 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
 
         const isStillLive = rem.removalReason === "MEMO_RETURN";
 
+        const removalClassification = classifyRecord(newStatus, existing.departmentName, existing.currentStatus);
         await tx.lotMasterRecord.update({
           where: { lotId: rem.lotId },
           data: {
+            ...classificationColumns(removalClassification),
             currentStatus: newStatus,
             previousStatus: existing.currentStatus,
             isCurrent: isStillLive,
@@ -834,6 +906,7 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
 
         await tx.lotHistoryRecord.create({
           data: {
+            ...classificationColumns(removalClassification),
             lotId: rem.lotId,
             sourceRecordId: existing.sourceRecordId,
             version: nextVersion,
@@ -876,6 +949,10 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
         });
 
         if (isStillLive) {
+          // `isStillLive` is only ever MEMO_RETURN, whose computed status is STOCK, so
+          // this classifies to the same result the removed literal produced — but it now
+          // travels through the classifier rather than asserting PHYSICAL unconditionally.
+          const reinstated = classifyRecord(newStatus, existing.departmentName, existing.currentStatus);
           await tx.polishedStone.upsert({
             where: { fantasyLotId: rem.lotId },
             create: {
@@ -884,7 +961,7 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
               fantasyLocationId: existing.locationId,
               country: existing.country,
               branch: existing.branch,
-              fantasyStatus: "STOCK",
+              fantasyStatus: newStatus,
               labRaw: existing.labRaw,
               labNormalized: existing.labNormalized,
               shape: existing.shape,
@@ -894,12 +971,12 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
               clarity: existing.clarity,
               certificate: existing.certificate,
               treatment: existing.treatment,
-              planningClass: "PHYSICAL",
+              planningClass: toLegacyPlanningClass(reinstated.inventoryClass),
               lastUpdated: removedDate,
             },
             update: {
-              fantasyStatus: "STOCK",
-              planningClass: "PHYSICAL",
+              fantasyStatus: newStatus,
+              planningClass: toLegacyPlanningClass(reinstated.inventoryClass),
               lastUpdated: removedDate,
             },
           });

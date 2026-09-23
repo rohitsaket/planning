@@ -77,12 +77,12 @@ export function AccessRequestsView() {
       { key: "username", header: "Username", cell: (r) => <span className="font-mono text-[11px] font-medium">{r.username}</span>, sortable: true, sortValue: (r) => r.username, sticky: "left" },
       { key: "displayName", header: "Name", cell: (r) => <span className="text-[11px]">{r.displayName}</span>, sortable: true, sortValue: (r) => r.displayName },
       { key: "email", header: "Email", cell: (r) => <span className="text-[11px]">{r.email ?? "—"}</span> },
-      { key: "department", header: "Department", cell: (r) => <span className="text-[11px]">{r.department ?? "—"}</span> },
+      { key: "department", header: "Department", align: "center", cell: (r) => <span className="text-[11px]">{r.department ?? "—"}</span> },
       { key: "justification", header: "Justification", cell: (r) => <span className="text-[11px] line-clamp-2">{r.justification}</span>, width: "320px" },
       { key: "status", header: "Status", align: "center", cell: (r) => <StatusBadge status={r.status} />, sortable: true, sortValue: (r) => r.status },
-      { key: "createdAt", header: "Requested", cell: (r) => <span className="tabular-nums text-[10px]">{fmtDate(r.createdAt)}</span>, sortable: true, sortValue: (r) => r.createdAt },
-      { key: "reviewedBy", header: "Reviewed By", cell: (r) => <span className="text-[10px]">{r.reviewedBy ?? "—"}</span> },
-      { key: "reviewedAt", header: "Reviewed", cell: (r) => <span className="tabular-nums text-[10px]">{fmtDate(r.reviewedAt)}</span> },
+      { key: "createdAt", header: "Requested", align: "center", cell: (r) => <span className="tabular-nums text-[10px]">{fmtDate(r.createdAt)}</span>, sortable: true, sortValue: (r) => r.createdAt },
+      { key: "reviewedBy", header: "Reviewed By", align: "center", cell: (r) => <span className="text-[10px]">{r.reviewedBy ?? "—"}</span> },
+      { key: "reviewedAt", header: "Reviewed", align: "center", cell: (r) => <span className="tabular-nums text-[10px]">{fmtDate(r.reviewedAt)}</span> },
       {
         key: "actions",
         header: "Review",
@@ -134,12 +134,12 @@ export function AccessRequestsView() {
       </div>
 
       <Section title="Requests" bodyClassName="p-0">
-        <DataTable columns={columns} rows={rows} loading={isLoading} emptyMessage="No access requests." maxHeight="620px" searchable searchFn={(r, q) => [r.username, r.displayName, r.email ?? "", r.department ?? "", r.justification].some((f) => f.toLowerCase().includes(q))} exportable exportPermission="user.manage" exportFilename="access-requests" />
+        <DataTable columns={columns} rows={rows} loading={isLoading} emptyMessage="No access requests." maxHeight="620px" pagination pageSize={25} searchable searchFn={(r, q) => [r.username, r.displayName, r.email ?? "", r.department ?? "", r.justification].some((f) => f.toLowerCase().includes(q))}  />
       </Section>
 
       {/* Review dialog */}
       <Dialog open={!!active} onOpenChange={(o) => !o && close()}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-xl sm:max-w-xl">
           <DialogHeader>
             <DialogTitle className="text-base">Review access request</DialogTitle>
           </DialogHeader>
@@ -203,7 +203,7 @@ export function AccessRequestsView() {
 
       {/* Temporary password — shown once, never retrievable again. */}
       <Dialog open={!!issued} onOpenChange={(o) => !o && setIssued(null)}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-lg sm:max-w-lg">
           <DialogHeader>
             <DialogTitle className="text-base">Account created</DialogTitle>
           </DialogHeader>

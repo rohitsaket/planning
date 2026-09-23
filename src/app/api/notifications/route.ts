@@ -20,7 +20,7 @@ export const GET = withApi({ permission: "notification.read" }, async () => {
 
 const bodySchema = z.object({ id: idSchema, read: z.boolean().optional() });
 
-export const POST = withApi({ permission: "notification.read", body: bodySchema }, async (_req, _ctx, api) => {
+export const POST = withApi({ permission: "notification.manage", body: bodySchema }, async (_req, _ctx, api) => {
   const n = await db.notification.update({ where: { id: api.body.id }, data: { read: !!api.body.read } });
   return ok({ id: n.id, read: n.read });
 });

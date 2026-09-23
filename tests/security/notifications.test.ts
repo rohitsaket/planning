@@ -1,26 +1,56 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "./harness";
 import { spawn, type ChildProcess } from "node:child_process";
 import path from "node:path";
 import { call, makeUser, resetDb, db } from "./helpers";
 import { POST as broadcast } from "@/app/api/notifications/broadcast/route";
 
-const ROOT = path.resolve(import.meta.dir, "../..");
-const PORT = 3911;
+const ROOT = process.cwd();
+// Random per run: a fixed port lets a service left over from an earlier run answer the
+// health check with a stale token, which shows up as a confusing 401.
+const PORT = 3900 + Math.floor(Math.random() * 90);
 const TOKEN = "t".repeat(16) + Math.random().toString(36).slice(2).padEnd(24, "x");
 const URL_ = `http://127.0.0.1:${PORT}`;
 let svc: ChildProcess;
+let svcStartError: string | null = null;
 
 beforeAll(async () => {
   await resetDb();
-  svc = spawn("bun", ["index.ts"], { cwd: path.join(ROOT, "mini-services/notifications-service"), env: { ...process.env, NOTIFY_PORT: String(PORT), NOTIFY_SERVICE_TOKEN: TOKEN, ALLOWED_ORIGINS: "https://planning.example.com" }, stdio: "ignore" });
+  // The service declares `tsx index.ts` as its start command; spawning `bun` here was a
+  // leftover from the Bun test runner and simply fails on a Node install.
+  svc = spawn("npx", ["tsx", "index.ts"], {
+    cwd: path.join(ROOT, "mini-services/notifications-service"),
+    env: { ...process.env, NOTIFY_PORT: String(PORT), NOTIFY_SERVICE_TOKEN: TOKEN, ALLOWED_ORIGINS: "https://planning.example.com" },
+    stdio: "ignore",
+    shell: process.platform === "win32",
+  });
+  // Without this listener a spawn failure raises an unhandled 'error' event and kills the
+  // whole run instead of failing this suite.
+  svc.on("error", (e) => {
+    svcStartError = e.message;
+  });
   for (let i = 0; i < 50; i++) {
     if (await fetch(`${URL_}/health`).then((r) => r.ok).catch(() => false)) break;
     await new Promise((r) => setTimeout(r, 100));
   }
   process.env.NOTIFY_SERVICE_TOKEN = TOKEN;
   process.env.NOTIFY_INTERNAL_URL = URL_;
+  const up = await fetch(`${URL_}/health`).then((r) => r.ok).catch(() => false);
+  if (!up) throw new Error(`notifications service did not start${svcStartError ? `: ${svcStartError}` : " (no /health response)"}`);
 });
-afterAll(() => void svc?.kill());
+afterAll(() => {
+  if (!svc?.pid) return;
+  // On Windows the shell wrapper is the direct child; killing only it orphans the
+  // service and leaves the port held.
+  if (process.platform === "win32") {
+    try {
+      spawn("taskkill", ["/pid", String(svc.pid), "/T", "/F"], { stdio: "ignore" });
+    } catch {
+      svc.kill();
+    }
+  } else {
+    svc.kill();
+  }
+});
 
 const post = (body: string, headers: Record<string, string> = {}) => fetch(`${URL_}/broadcast`, { method: "POST", body, headers: { "content-type": "application/json", ...headers } });
 const good = JSON.stringify({ type: "TEST_EVENT", title: "hello", message: "m", severity: "info" });

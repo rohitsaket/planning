@@ -903,18 +903,21 @@ function BlockCard({ block, idx }: { block: StoneNameBlock; idx: number }) {
           {/* Rows table */}
           <div className="rounded-md border border-border overflow-x-auto bg-card">
             <table className="w-full text-xs border-collapse min-w-[920px]">
-              <thead className="bg-muted/60 border-b border-border">
+              <thead className="bg-muted border-b border-border">
                 <tr>
-                  {["Row#", "Stone Name", "Rough Cut", "Shape", "Polish Wt", "Clarity", "Color", "Depth %", "Ratio", "Length", "Width", "Depth mm", "Yield %"].map(
-                    (h) => (
-                      <th
-                        key={h}
-                        className="px-2 py-1.5 text-left font-semibold text-muted-foreground uppercase tracking-wide text-[10px] whitespace-nowrap"
-                      >
-                        {h}
-                      </th>
-                    )
-                  )}
+                  <th className="px-2 py-1.5 text-center font-semibold text-muted-foreground uppercase tracking-wide text-[10px] whitespace-nowrap border-r border-border/40">Row#</th>
+                  <th className="px-2 py-1.5 text-left font-semibold text-muted-foreground uppercase tracking-wide text-[10px] whitespace-nowrap border-r border-border/40">Stone Name</th>
+                  <th className="px-2 py-1.5 text-left font-semibold text-muted-foreground uppercase tracking-wide text-[10px] whitespace-nowrap border-r border-border/40">Rough Cut</th>
+                  <th className="px-2 py-1.5 text-left font-semibold text-muted-foreground uppercase tracking-wide text-[10px] whitespace-nowrap border-r border-border/40">Shape</th>
+                  <th className="px-2 py-1.5 text-right font-semibold text-muted-foreground uppercase tracking-wide text-[10px] whitespace-nowrap border-r border-border/40">Polish Wt</th>
+                  <th className="px-2 py-1.5 text-left font-semibold text-muted-foreground uppercase tracking-wide text-[10px] whitespace-nowrap border-r border-border/40">Clarity</th>
+                  <th className="px-2 py-1.5 text-left font-semibold text-muted-foreground uppercase tracking-wide text-[10px] whitespace-nowrap border-r border-border/40">Color</th>
+                  <th className="px-2 py-1.5 text-right font-semibold text-muted-foreground uppercase tracking-wide text-[10px] whitespace-nowrap border-r border-border/40">Depth %</th>
+                  <th className="px-2 py-1.5 text-right font-semibold text-muted-foreground uppercase tracking-wide text-[10px] whitespace-nowrap border-r border-border/40">Ratio</th>
+                  <th className="px-2 py-1.5 text-right font-semibold text-muted-foreground uppercase tracking-wide text-[10px] whitespace-nowrap border-r border-border/40">Length</th>
+                  <th className="px-2 py-1.5 text-right font-semibold text-muted-foreground uppercase tracking-wide text-[10px] whitespace-nowrap border-r border-border/40">Width</th>
+                  <th className="px-2 py-1.5 text-right font-semibold text-muted-foreground uppercase tracking-wide text-[10px] whitespace-nowrap border-r border-border/40">Depth mm</th>
+                  <th className="px-2 py-1.5 text-right font-semibold text-muted-foreground uppercase tracking-wide text-[10px] whitespace-nowrap">Yield %</th>
                 </tr>
               </thead>
               <tbody>
@@ -924,16 +927,16 @@ function BlockCard({ block, idx }: { block: StoneNameBlock; idx: number }) {
                     <tr
                       key={r.rowIndex}
                       className={cn(
-                        "border-b border-border/40 last:border-0 transition-colors",
-                        pastel || "hover:bg-muted/40"
+                        "border-b border-border/50 last:border-b-0 transition-colors",
+                        pastel || "hover:bg-muted/30"
                       )}
                     >
-                      <td className="px-2 py-1.5 text-muted-foreground tabular-nums">{r.rowIndex}</td>
-                      <td className="px-2 py-1.5">
+                      <td className="px-2 py-1.5 text-center text-muted-foreground tabular-nums border-r border-border/40">{r.rowIndex}</td>
+                      <td className="px-2 py-1.5 border-r border-border/40">
                         <code className="font-mono text-[11px]">{r.stoneName}</code>
                       </td>
-                      <td className="px-2 py-1.5 text-muted-foreground">{r.roughCut || "—"}</td>
-                      <td className="px-2 py-1.5">
+                      <td className="px-2 py-1.5 text-muted-foreground border-r border-border/40">{r.roughCut || "—"}</td>
+                      <td className="px-2 py-1.5 border-r border-border/40">
                         <div className="flex items-center gap-1">
                           <code className="font-mono text-[10px]">{r.shapeRaw || "—"}</code>
                           <ChevronRight className="h-2.5 w-2.5 text-muted-foreground/50" />
@@ -944,25 +947,25 @@ function BlockCard({ block, idx }: { block: StoneNameBlock; idx: number }) {
                           )}
                         </div>
                       </td>
-                      <td className="px-2 py-1.5 tabular-nums">{formatEstWeight(r.polishWeight)}</td>
-                      <td className="px-2 py-1.5">{r.clarity || "—"}</td>
-                      <td className="px-2 py-1.5">{r.color || "—"}</td>
-                      <td className="px-2 py-1.5 tabular-nums">
+                      <td className="px-2 py-1.5 text-right tabular-nums border-r border-border/40">{formatEstWeight(r.polishWeight)}</td>
+                      <td className="px-2 py-1.5 border-r border-border/40">{r.clarity || "—"}</td>
+                      <td className="px-2 py-1.5 border-r border-border/40">{r.color || "—"}</td>
+                      <td className="px-2 py-1.5 text-right tabular-nums border-r border-border/40">
                         {r.totalDepthPct != null ? r.totalDepthPct.toFixed(2) : "—"}
                       </td>
-                      <td className="px-2 py-1.5 tabular-nums">
+                      <td className="px-2 py-1.5 text-right tabular-nums border-r border-border/40">
                         {r.ratio != null ? r.ratio.toFixed(2) : "—"}
                       </td>
-                      <td className="px-2 py-1.5 tabular-nums">
+                      <td className="px-2 py-1.5 text-right tabular-nums border-r border-border/40">
                         {r.length != null ? r.length.toFixed(2) : "—"}
                       </td>
-                      <td className="px-2 py-1.5 tabular-nums">
+                      <td className="px-2 py-1.5 text-right tabular-nums border-r border-border/40">
                         {r.width != null ? r.width.toFixed(2) : "—"}
                       </td>
-                      <td className="px-2 py-1.5 tabular-nums">
+                      <td className="px-2 py-1.5 text-right tabular-nums border-r border-border/40">
                         {r.totalDepthMm != null ? r.totalDepthMm.toFixed(2) : "—"}
                       </td>
-                      <td className="px-2 py-1.5 tabular-nums font-medium">
+                      <td className="px-2 py-1.5 text-right tabular-nums font-medium">
                         {formatYield(r.yieldPct)}
                       </td>
                     </tr>

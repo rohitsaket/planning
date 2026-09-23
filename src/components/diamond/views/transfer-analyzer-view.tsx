@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useApi } from "@/lib/api-client";
+import { useGlobalFilter } from "@/stores/global-filter";
 import { KpiCard } from "@/components/diamond/shared/kpi-card";
 import { Section, PageHeader } from "@/components/diamond/shared/page-header";
 import { DataTable, type Column } from "@/components/diamond/shared/data-table";
@@ -81,9 +82,35 @@ export function TransferAnalyzerView() {
     `/api/analysis/transfer-candidates?page=${page}&pageSize=50`,
   );
 
-  const candidates = data?.rows ?? [];
+  const globalFilter = useGlobalFilter();
+  const rawCandidates = data?.rows ?? [];
+  const candidates = useMemo(() => {
+    return rawCandidates.filter((c) => {
+      if (globalFilter.country) {
+        const matchCountry =
+          c.fromCountry.toUpperCase() === (globalFilter.country as string).toUpperCase() ||
+          c.toCountry.toUpperCase() === (globalFilter.country as string).toUpperCase();
+        if (!matchCountry) return false;
+      }
+      if (globalFilter.lab) {
+        if (globalFilter.lab === "Non-Cert") {
+          if (c.lab !== "Non-Cert" && c.lab) return false;
+        } else if (globalFilter.lab === "Other") {
+          if (c.lab === "GIA" || c.lab === "Non-Cert") return false;
+        } else if (c.lab.toUpperCase() !== (globalFilter.lab as string).toUpperCase()) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [rawCandidates, globalFilter.country, globalFilter.lab]);
+
   const summary = data?.summary;
-  const countryBalance = data?.countryBalance ?? [];
+  const countryBalance = useMemo(() => {
+    const raw = data?.countryBalance ?? [];
+    if (!globalFilter.country) return raw;
+    return raw.filter((c) => c.country.toUpperCase() === (globalFilter.country as string).toUpperCase());
+  }, [data?.countryBalance, globalFilter.country]);
 
   // Mobile advisory banner — Show more / Show less toggle (mirrors demand-trace-view pattern)
   const [showFullAdvisory, setShowFullAdvisory] = useState(false);

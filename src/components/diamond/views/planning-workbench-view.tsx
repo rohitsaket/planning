@@ -188,12 +188,14 @@ export function PlanningWorkbenchView() {
     {
       key: "kapan",
       header: "Kapan",
+      align: "center",
       width: "70px",
       cell: (r) => r.kapan ?? "—",
     },
     {
       key: "packet",
       header: "Pkt",
+      align: "center",
       width: "60px",
       cell: (r) => r.packet ?? "—",
     },
@@ -398,22 +400,30 @@ export function PlanningWorkbenchView() {
 
                           {/* Pieces list */}
                           {o.pieces.length > 0 && (
-                            <div className="mt-1.5 rounded border border-border/40 bg-background/60 overflow-hidden">
-                              <div className="text-[9px] uppercase tracking-wide text-muted-foreground bg-muted/30 px-1.5 py-0.5">
-                                Pieces ({o.pieces.length})
+                            <div className="mt-1.5 rounded border border-border bg-background/60 overflow-hidden">
+                              <div className="text-[9px] uppercase tracking-wide font-semibold text-muted-foreground bg-muted px-2 py-0.5 border-b border-border">
+                                Pieces Breakdown ({o.pieces.length})
                               </div>
-                              <table className="w-full text-[10px]">
+                              <table className="w-full text-[10px] border-collapse">
+                                <thead className="bg-muted/40 text-[9px] uppercase text-muted-foreground border-b border-border/50">
+                                  <tr>
+                                    <th className="px-1.5 py-0.5 text-left border-r border-border/40">Code</th>
+                                    <th className="px-1.5 py-0.5 text-left border-r border-border/40">Shape</th>
+                                    <th className="px-1.5 py-0.5 text-right border-r border-border/40">Weight</th>
+                                    <th className="px-1.5 py-0.5 text-left">Category</th>
+                                  </tr>
+                                </thead>
                                 <tbody>
                                   {o.pieces.slice(0, 6).map((p, i) => (
-                                    <tr key={i} className="border-t border-border/30">
-                                      <td className="px-1.5 py-0.5 font-mono">{p.pieceCode}</td>
-                                      <td className="px-1.5 py-0.5">{p.expectedShape ?? "—"}</td>
-                                      <td className="px-1.5 py-0.5 text-right tabular-nums">{p.expectedWeight.toFixed(3)}</td>
+                                    <tr key={i} className="border-b border-border/30 last:border-b-0 hover:bg-muted/30">
+                                      <td className="px-1.5 py-0.5 font-mono border-r border-border/40">{p.pieceCode}</td>
+                                      <td className="px-1.5 py-0.5 border-r border-border/40">{p.expectedShape ?? "—"}</td>
+                                      <td className="px-1.5 py-0.5 text-right tabular-nums font-medium border-r border-border/40">{p.expectedWeight.toFixed(3)}</td>
                                       <td className="px-1.5 py-0.5 text-muted-foreground">{p.expectedCategory ?? "—"}</td>
                                     </tr>
                                   ))}
                                   {o.pieces.length > 6 && (
-                                    <tr className="border-t border-border/30">
+                                    <tr className="border-t border-border/30 bg-muted/10">
                                       <td colSpan={4} className="px-1.5 py-0.5 text-muted-foreground text-center">
                                         +{o.pieces.length - 6} more…
                                       </td>

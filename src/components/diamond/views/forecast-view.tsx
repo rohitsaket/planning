@@ -129,6 +129,8 @@ export function ForecastView() {
           searchable
           searchPlaceholder="Search category..."
           searchFn={(r, q) => r.category.toLowerCase().includes(q.toLowerCase())}
+          pagination
+          pageSize={25}
         />
       </Section>
 

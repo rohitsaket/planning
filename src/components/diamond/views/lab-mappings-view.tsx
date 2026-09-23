@@ -61,6 +61,8 @@ export function LabMappingsView() {
           searchable
           searchPlaceholder="Search raw or normalized lab..."
           searchFn={(r, q) => [r.rawLab, r.normalizedLab].some((f) => f.toLowerCase().includes(q.toLowerCase()))}
+          pagination
+          pageSize={25}
         />
       </Section>
     </div>

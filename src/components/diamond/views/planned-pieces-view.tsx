@@ -111,12 +111,14 @@ export function PlannedPiecesView() {
     {
       key: "optionCode",
       header: "Opt",
+      align: "center",
       width: "80px",
       cell: (r) => r.optionCode,
     },
     {
       key: "expectedShape",
       header: "Exp Shape",
+      align: "center",
       width: "100px",
       cell: (r) => r.expectedShape ?? "—",
     },
@@ -132,12 +134,14 @@ export function PlannedPiecesView() {
     {
       key: "expectedColor",
       header: "Exp Color",
+      align: "center",
       width: "80px",
       cell: (r) => r.expectedColor ?? "—",
     },
     {
       key: "expectedClarity",
       header: "Exp Clar",
+      align: "center",
       width: "80px",
       cell: (r) => r.expectedClarity ?? "—",
     },
@@ -165,18 +169,21 @@ export function PlannedPiecesView() {
     {
       key: "fantasyChildId",
       header: "Fantasy Child",
+      align: "center",
       width: "130px",
       cell: (r) => r.fantasyChildId ?? "—",
     },
     {
       key: "actualPolishedLotId",
       header: "Actual Lot",
+      align: "center",
       width: "130px",
       cell: (r) => r.actualPolishedLotId ?? "—",
     },
     {
       key: "actualShape",
       header: "Act Shape",
+      align: "center",
       width: "100px",
       cell: (r) => r.actualShape ?? "—",
     },

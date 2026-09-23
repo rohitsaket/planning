@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useApi } from "@/lib/api-client";
 import { useNavStore } from "@/stores/nav-store";
+import { useGlobalFilter } from "@/stores/global-filter";
 import { resolveCategorySelection } from "@/lib/demand/demand-category-selection";
 import { KpiCard } from "@/components/diamond/shared/kpi-card";
 import { Section, PageHeader } from "@/components/diamond/shared/page-header";
@@ -17,6 +18,10 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import {
+  FANTASY_SOURCE_STATE_LABELS,
+  type FantasyEffectiveSourceState,
+} from "@/lib/fantasy/source-state";
 import {
   Layers, AlertTriangle, Package, Boxes, Target, ShieldCheck, Lock,
   ShoppingCart, Archive, FileText, Factory, ClipboardCheck, Ban, Search,
@@ -83,7 +88,7 @@ interface DemandResultDetailsResponse {
   calculatedAtIst: string | null;
   businessDateIst: string | null;
   windowDays: number;
-  sourceMode: "FIXTURE_SIMULATION" | "LIVE";
+  sourceMode: FantasyEffectiveSourceState;
   isSimulated: boolean;
   recordsConsidered: {
     sales: number;
@@ -123,11 +128,6 @@ const RECORD_TABS = [
   { id: "APPROVED_PLAN_COVERAGE", label: "Approved Plan Coverage", icon: ClipboardCheck },
   { id: "EXCLUDED", label: "Excluded Records", icon: Ban },
 ] as const;
-
-const SOURCE_MODE_LABEL: Record<string, string> = {
-  FIXTURE_SIMULATION: "Fixture Simulation",
-  LIVE: "Live Fantasy",
-};
 
 function formatDate(iso: string | null): string {
   if (!iso) return "—";
@@ -231,11 +231,23 @@ export function DemandTraceView() {
     setPage(1);
   }
 
+  const globalFilter = useGlobalFilter();
   const filteredCategories = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return categories;
-    return categories.filter((c) => c.label.toLowerCase().includes(q));
-  }, [categories, search]);
+    return categories.filter((c) => {
+      if (globalFilter.lab) {
+        if (globalFilter.lab === "Non-Cert") {
+          if (c.lab !== "Non-Cert" && c.lab) return false;
+        } else if (globalFilter.lab === "Other") {
+          if (c.lab === "GIA" || c.lab === "Non-Cert") return false;
+        } else if (c.lab.toUpperCase() !== (globalFilter.lab as string).toUpperCase()) {
+          return false;
+        }
+      }
+      if (q && !c.label.toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }, [categories, search, globalFilter.lab]);
 
   const recordColumns: Column<SupportingRecord>[] = [
     {
@@ -256,13 +268,13 @@ export function DemandTraceView() {
         </Badge>
       ),
     },
-    { key: "docDate", header: "Date", sortable: true, sortValue: (r) => r.docDate ?? "", align: "right", cell: (r) => <span className="tabular-nums text-[11px] text-muted-foreground">{formatDate(r.docDate)}</span> },
+    { key: "docDate", header: "Date", align: "center", sortable: true, sortValue: (r) => r.docDate ?? "", cell: (r) => <span className="tabular-nums text-[11px] text-muted-foreground">{formatDate(r.docDate)}</span> },
     { key: "quantity", header: "Qty", align: "right", sortable: true, sortValue: (r) => r.quantity, cell: (r) => <NumberCell value={r.quantity} /> },
     { key: "weight", header: "Carats", align: "right", sortable: true, sortValue: (r) => r.weight ?? 0, cell: (r) => (r.weight === null ? <span className="text-muted-foreground">—</span> : <NumberCell value={r.weight} />) },
-    { key: "lab", header: "Lab", cell: (r) => <span className="text-[11px]">{r.lab ?? "—"}</span> },
-    { key: "shape", header: "Shape", cell: (r) => <span className="text-[11px]">{r.shape ?? "—"}</span> },
-    { key: "weightBand", header: "Weight Band", cell: (r) => <span className="text-[11px]">{r.weightBand ?? "—"}</span> },
-    { key: "manufacturingStage", header: "Stage", cell: (r) => <span className="text-[11px]">{r.manufacturingStage ?? "—"}</span> },
+    { key: "lab", header: "Lab", align: "center", cell: (r) => <span className="text-[11px]">{r.lab ?? "—"}</span> },
+    { key: "shape", header: "Shape", align: "center", cell: (r) => <span className="text-[11px]">{r.shape ?? "—"}</span> },
+    { key: "weightBand", header: "Weight Band", align: "center", cell: (r) => <span className="text-[11px]">{r.weightBand ?? "—"}</span> },
+    { key: "manufacturingStage", header: "Stage", align: "center", cell: (r) => <span className="text-[11px]">{r.manufacturingStage ?? "—"}</span> },
     { key: "customerName", header: "Customer", cell: (r) => <span className="text-[11px]">{r.customerName ?? "—"}</span> },
     { key: "reason", header: "Reason", cell: (r) => <span className="text-[10px] text-muted-foreground">{r.reason ?? "—"}</span> },
   ];
@@ -291,8 +303,8 @@ export function DemandTraceView() {
         subtitle="Review the final demand position and the business records contributing to it."
         meta={
           <div className="flex items-center gap-2 flex-wrap">
-            <Badge variant={data?.sourceMode === "LIVE" ? "success" : "warning"}>
-              {SOURCE_MODE_LABEL[data?.sourceMode ?? "FIXTURE_SIMULATION"]}
+            <Badge variant={data?.sourceMode === "LIVE_FANTASY" ? "success" : "warning"}>
+              {FANTASY_SOURCE_STATE_LABELS[data?.sourceMode ?? "NOT_CONFIGURED"]}
             </Badge>
             {data?.hasEverRun && <Badge variant="info">{data.statusLabel}</Badge>}
             {data?.calculatedAtIst && (

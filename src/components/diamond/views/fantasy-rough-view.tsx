@@ -78,10 +78,10 @@ export function FantasyRoughView() {
 
   const columns: Column<RoughRow>[] = [
     { key: "fantasyRoughId", header: "Rough ID", sticky: "left", sortable: true, sortValue: (r) => r.fantasyRoughId, cell: (r) => <span className="font-medium">{r.fantasyRoughId}</span> },
-    { key: "kapan", header: "Kapan", sortable: true, sortValue: (r) => r.kapan, cell: (r) => <span>{r.kapan}</span> },
-    { key: "packet", header: "Packet", cell: (r) => <span>{r.packet}</span> },
-    { key: "stoneName", header: "Stone Name", sortable: true, sortValue: (r) => r.stoneName, cell: (r) => <span className="font-medium">{r.stoneName}</span> },
-    { key: "signer", header: "Signer", cell: (r) => <span className="text-muted-foreground">{r.signer ?? "—"}</span> },
+    { key: "kapan", header: "Kapan", align: "center", sortable: true, sortValue: (r) => r.kapan, cell: (r) => <span className="font-mono">{r.kapan}</span> },
+    { key: "packet", header: "Packet", align: "center", cell: (r) => <span className="font-mono">{r.packet}</span> },
+    { key: "stoneName", header: "Stone Name", align: "center", sortable: true, sortValue: (r) => r.stoneName, cell: (r) => <span className="font-medium font-mono">{r.stoneName}</span> },
+    { key: "signer", header: "Signer", align: "center", cell: (r) => <span className="text-muted-foreground font-mono">{r.signer ?? "—"}</span> },
     {
       key: "stoneType", header: "Stone Type", align: "center",
       cell: (r) => <Badge variant={r.stoneType === "BLUE" ? "info" : "neutral"}>{r.stoneType}</Badge>,
@@ -90,10 +90,10 @@ export function FantasyRoughView() {
       key: "roughWeight", header: "Weight (ct)", align: "right", sortable: true, sortValue: (r) => r.roughWeight,
       cell: (r) => <NumberCell value={r.roughWeight} intent={r.roughWeight >= 10 ? "info" : "default"} />,
     },
-    { key: "country", header: "Country", cell: (r) => <span>{r.country}</span> },
-    { key: "branch", header: "Branch", cell: (r) => <span>{r.branch}</span> },
-    { key: "fantasyDepartmentId", header: "Dept ID", cell: (r) => <span className="text-muted-foreground">{r.fantasyDepartmentId ?? "—"}</span> },
-    { key: "fantasyLocationId", header: "Loc ID", cell: (r) => <span className="text-muted-foreground">{r.fantasyLocationId ?? "—"}</span> },
+    { key: "country", header: "Country", align: "center", cell: (r) => <span className="font-mono">{r.country}</span> },
+    { key: "branch", header: "Branch", align: "center", cell: (r) => <span>{r.branch}</span> },
+    { key: "fantasyDepartmentId", header: "Dept ID", align: "center", cell: (r) => <span className="text-muted-foreground font-mono">{r.fantasyDepartmentId ?? "—"}</span> },
+    { key: "fantasyLocationId", header: "Loc ID", align: "center", cell: (r) => <span className="text-muted-foreground font-mono">{r.fantasyLocationId ?? "—"}</span> },
     {
       key: "fantasyStatus", header: "Fantasy Status", align: "center",
       cell: (r) => <StatusBadge status={r.fantasyStatus} />,
@@ -106,9 +106,9 @@ export function FantasyRoughView() {
       key: "planningStatus", header: "Plan Status", align: "center",
       cell: (r) => <StatusBadge status={r.planningStatus} />,
     },
-    { key: "parentRoughId", header: "Parent Rough", cell: (r) => <span className="text-muted-foreground">{r.parentRoughId ?? "—"}</span> },
-    { key: "lastMovement", header: "Last Movement", cell: (r) => <span className="text-muted-foreground">{fmtDate(r.lastMovement)}</span> },
-    { key: "lastUpdated", header: "Last Updated", sortable: true, sortValue: (r) => r.lastUpdated, cell: (r) => <span className="text-muted-foreground">{fmtDate(r.lastUpdated)}</span> },
+    { key: "parentRoughId", header: "Parent Rough", align: "center", cell: (r) => <span className="text-muted-foreground font-mono">{r.parentRoughId ?? "—"}</span> },
+    { key: "lastMovement", header: "Last Movement", align: "center", cell: (r) => <span className="text-muted-foreground">{fmtDate(r.lastMovement)}</span> },
+    { key: "lastUpdated", header: "Last Updated", align: "center", sortable: true, sortValue: (r) => r.lastUpdated, cell: (r) => <span className="text-muted-foreground">{fmtDate(r.lastUpdated)}</span> },
   ];
 
   return (
@@ -203,6 +203,8 @@ export function FantasyRoughView() {
             (r.signer ?? "").toLowerCase().includes(lq)
           );
         }}
+        pagination
+        pageSize={25}
       />
     </div>
   );

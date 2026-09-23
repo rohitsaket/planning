@@ -147,17 +147,8 @@ export function toBusinessStatus(input: {
   return { code: "COVERED", label: "Covered", intent: "success" };
 }
 
-export type SourceMode = "FIXTURE_SIMULATION" | "LIVE";
-
-/** Honest source labelling: fixture simulation is never presented as live data. */
-export function toSourceMode(isSimulated: boolean, internalSourceMode: string): SourceMode {
-  return isSimulated || internalSourceMode === "FIXTURE" ? "FIXTURE_SIMULATION" : "LIVE";
-}
-
-export const SOURCE_MODE_LABELS: Record<SourceMode, string> = {
-  FIXTURE_SIMULATION: "Fixture Simulation",
-  LIVE: "Live Fantasy",
-};
+// Source labelling lives in `@/lib/fantasy/source-state`. It is the single derivation
+// for every page and route, so it is deliberately not duplicated here.
 
 export interface WipCoverageState {
   available: boolean;
@@ -197,4 +188,48 @@ export function toWipCoverageState(input: { policyConfigured: boolean; appliedIn
 /** Display label for a category, built from confirmed business dimensions only. */
 export function toCategoryLabel(lab: string, shape: string, weightBand: string): string {
   return [lab, shape, weightBand].filter(Boolean).join(" | ");
+}
+
+// ---------------------------------------------------------------------------
+// Sales trend direction
+// ---------------------------------------------------------------------------
+
+/**
+ * Trend labels derived from two factual sales windows.
+ *
+ * This is a description of what already happened, not a prediction: it compares the
+ * count of sales in the earliest 30 days of a window with the count in the latest 30.
+ * No forecast, no model, no confidence.
+ */
+export const SALES_TREND_DIRECTIONS = [
+  "Strong Growth",
+  "Growth",
+  "Stable",
+  "Declining",
+  "Strong Decline",
+  "New Demand",
+  "Volatile",
+  "Dormant",
+] as const;
+export type SalesTrendDirection = (typeof SALES_TREND_DIRECTIONS)[number];
+
+/**
+ * Classifies the direction between an earlier and a later 30-day sales count.
+ *
+ * Extracted so Sales Trends and Executive Analysis cannot drift apart: two copies of
+ * these thresholds would eventually disagree about the same category.
+ */
+export function toSalesTrendDirection(earliest30: number, latest30: number): SalesTrendDirection {
+  if (earliest30 === 0 && latest30 === 0) return "Dormant";
+  if (earliest30 === 0 && latest30 > 0) return "New Demand";
+  // One side zero with the other non-zero, after the two cases above, means the later
+  // window collapsed to nothing — reported as volatile rather than as a clean decline.
+  if (earliest30 === 0 || latest30 === 0) return "Volatile";
+
+  const pct = ((latest30 - earliest30) / earliest30) * 100;
+  if (pct >= 50) return "Strong Growth";
+  if (pct >= 10) return "Growth";
+  if (pct <= -50) return "Strong Decline";
+  if (pct <= -10) return "Declining";
+  return "Stable";
 }

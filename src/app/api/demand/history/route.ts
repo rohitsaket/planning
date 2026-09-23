@@ -1,12 +1,12 @@
 import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
 import { withApi, qInt } from "@/lib/api/with-api";
-import { getFantasyConfig } from "@/lib/fantasy/config";
+import { resolveFantasySourceStateWithHistory } from "@/lib/fantasy/config";
 
 // Demand Run History — past demand runs, newest first, paginated on the server.
 // Summary aggregates are computed across every run, not only the visible page.
 export const GET = withApi({ permission: "analysis.read" }, async (req: Request) => {
-  const config = getFantasyConfig();
+  const sourceState = await resolveFantasySourceStateWithHistory(db);
   const url = new URL(req.url);
   const page = qInt(url, "page", { def: 1, min: 1, max: 1_000_000 });
   const pageSize = qInt(url, "pageSize", { def: 50, min: 1, max: 200 });
@@ -65,8 +65,8 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request)
   const lastRun = latestRun;
 
   return ok({
-    sourceMode: config.sourceMode,
-    isSimulated: config.isSimulation,
+    sourceMode: sourceState.effectiveState,
+    isSimulated: sourceState.isSimulated,
     isLocked: lock?.isLocked ?? false,
     lockedAt: lock?.lockedAt?.toISOString() ?? null,
     lockedBy: lock?.lockedBy ?? null,

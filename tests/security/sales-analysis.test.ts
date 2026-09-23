@@ -1,278 +1,629 @@
-import { beforeAll, beforeEach, describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import path from "node:path";
-import { call, makeUser, resetDb } from "./helpers";
-import { customer, repeat, resetSales, sales } from "./sales-fixtures";
+/**
+ * SALES ANALYSIS & TRENDS — behavioural and authorization suite.
+ *
+ * Every assertion below goes through the real route handler, against a real database,
+ * over a snapshot produced by the real demand calculation from real canonical lifecycle
+ * records. Nothing here is asserted against a reconstructed array.
+ */
+
+import { afterAll, beforeAll, describe, expect, test } from "./harness";
+import { call, db, makeUser, resetDb } from "./helpers";
+import {
+  BULK_LOT_COUNT,
+  CATEGORY_A,
+  CATEGORY_B,
+  cleanupSalesWorld,
+  cutoffIst,
+  ensureWorld,
+  invalidateWorld,
+  lot,
+  recordSuccessfulSync,
+  resetSalesWorld,
+  runSnapshot,
+  seedMappings,
+  sold,
+} from "./sales-fixtures";
 import { GET as salesRoute } from "@/app/api/analysis/sales/route";
-import { getSalesAnalysis, parseSalesDimension, type SalesFilters } from "@/lib/analytics/sales-analysis";
-import { chartRowsByPieces, chartTitle, dimensionsAllowed, SALES_DIMENSIONS } from "@/lib/analytics/sales-dimensions";
-import { analyticsTimeZone, businessWindow, businessMonth } from "@/lib/analytics/reporting-date";
-import { formatCompactCurrency, formatPercent, roundPercent } from "@/lib/format";
-import { toCsv, type CsvColumn } from "@/lib/csv-export";
+import { GET as trendRoute } from "@/app/api/analysis/sales/trend/route";
+import { GET as movementRoute } from "@/app/api/analysis/sales/movement/route";
+import { GET as contributionRoute } from "@/app/api/analysis/sales/contribution/route";
+import { GET as recordsRoute } from "@/app/api/analysis/sales/records/route";
+import { GET as exportRoute } from "@/app/api/analysis/sales/export/route";
 import { permissionsFor } from "@/lib/auth/permissions";
+import { salesWindows } from "@/lib/analytics/sales-history";
+import { contributionsAllowed, SALES_WINDOW_SIZE_DAYS } from "@/lib/analytics/sales-history-contract";
 
-const ROOT = path.resolve(import.meta.dir, "../..");
-const NOW = new Date("2026-09-19T10:00:00Z");
-const run = (o: Partial<SalesFilters> = {}) =>
-  getSalesAnalysis({ dimension: "shape", windowDays: 90, now: NOW, timezone: "UTC", ...o });
-const byName = <T extends { dimension: string }>(rows: T[], name: string) => rows.find((r) => r.dimension === name)!;
+type User = Awaited<ReturnType<typeof makeUser>>;
+let admin: User, analyst: User, scientist: User, salesViewer: User, viewer: User;
 
-let admin: Awaited<ReturnType<typeof makeUser>>, scientist: typeof admin, viewer: typeof admin, salesViewer: typeof admin;
-let c1: { id: string }, c2: { id: string };
+const SUMMARY = "/api/analysis/sales";
+
+const get = (handler: Parameters<typeof call>[0], path: string, user?: User) =>
+  call(handler, { path, cookie: user?.cookie });
+
+/** The category row for one category id, from a page sized to hold every category. */
+async function categoryRow(user: User, categoryId: string, extra = "") {
+  const r = await get(salesRoute, `${SUMMARY}?pageSize=200${extra}`, user);
+  expect(r.status).toBe(200);
+  return r.json.rows.find((x: { categoryId: string }) => x.categoryId === categoryId);
+}
 
 beforeAll(async () => {
   await resetDb();
-  admin = await makeUser("sa.root", "SUPER_ADMIN");
-  scientist = await makeUser("sa.scientist", "DATA_SCIENTIST");
-  viewer = await makeUser("sa.viewer", "VIEWER");
-  salesViewer = await makeUser("sa.salesviewer", "SALES_VIEWER");
-});
-beforeEach(async () => {
-  await resetSales();
-  c1 = await customer("C1", "Alpha Diamonds");
-  c2 = await customer("C2", "Beta Jewels");
+  admin = await makeUser("sales.root", "SUPER_ADMIN");
+  analyst = await makeUser("sales.analyst", "DATA_ANALYST");
+  scientist = await makeUser("sales.scientist", "DATA_SCIENTIST");
+  salesViewer = await makeUser("sales.viewer", "SALES_VIEWER");
+  viewer = await makeUser("sales.plain", "VIEWER");
 });
 
-describe("SA-01 authorization", () => {
-  beforeEach(() => sales(c1.id, [{ docDate: "2026-09-10T12:00:00Z" }]));
-  test("anonymous → 401", async () => {
-    expect((await call(salesRoute, { path: "/api/analysis/sales" })).status).toBe(401);
+// ---------------------------------------------------------------------------
+
+describe("SH-01 authorization is enforced on the server for every route", () => {
+  beforeAll(() => ensureWorld("core"));
+  const routes: Array<[string, Parameters<typeof call>[0], string]> = [
+    ["summary", salesRoute, SUMMARY],
+    ["trend", trendRoute, "/api/analysis/sales/trend"],
+    ["movement", movementRoute, "/api/analysis/sales/movement"],
+    ["contribution", contributionRoute, "/api/analysis/sales/contribution"],
+    ["records", recordsRoute, "/api/analysis/sales/records"],
+  ];
+
+  test("anonymous callers receive 401 on every sales route", async () => {
+    for (const [name, handler, path] of routes) {
+      expect({ name, status: (await get(handler, path)).status }).toEqual({ name, status: 401 });
+    }
+    expect((await get(exportRoute, "/api/analysis/sales/export")).status).toBe(401);
   });
-  test("authenticated without sales.read (Viewer) → 403", async () => {
+
+  test("a signed-in user without sales.read receives 403 on every sales route", async () => {
     expect(permissionsFor("VIEWER")).not.toContain("sales.read");
-    expect((await call(salesRoute, { cookie: viewer.cookie, path: "/api/analysis/sales" })).status).toBe(403);
+    for (const [name, handler, path] of routes) {
+      expect({ name, status: (await get(handler, path, viewer)).status }).toEqual({ name, status: 403 });
+    }
   });
-  test("Data Scientist (sales.read, no customers.read): Shape → 200, Customer → 403", async () => {
+
+  test("an authorized analyst can read every sales route", async () => {
+    for (const [name, handler, path] of routes) {
+      expect({ name, status: (await get(handler, path, analyst)).status }).toEqual({ name, status: 200 });
+    }
+  });
+
+  test("customer contribution requires customers.read on top of sales.read", async () => {
     expect(permissionsFor("DATA_SCIENTIST")).toContain("sales.read");
     expect(permissionsFor("DATA_SCIENTIST")).not.toContain("customers.read");
-    expect((await call(salesRoute, { cookie: scientist.cookie, path: "/api/analysis/sales?dimension=shape" })).status).toBe(200);
-    const r = await call(salesRoute, { cookie: scientist.cookie, path: "/api/analysis/sales?dimension=customer" });
-    expect(r.status).toBe(403);
-    expect(JSON.stringify(r.json)).not.toContain("Alpha Diamonds");
+    const denied = await get(contributionRoute, "/api/analysis/sales/contribution?dimension=customer", scientist);
+    expect(denied.status).toBe(403);
+    expect(JSON.stringify(denied.json)).not.toContain("Alpha Diamonds");
+
+    const allowed = await get(contributionRoute, "/api/analysis/sales/contribution?dimension=customer", admin);
+    expect(allowed.status).toBe(200);
+    expect(allowed.json.rows.map((r: { label: string }) => r.label)).toContain("Alpha Diamonds");
   });
-  test("Super Admin and Sales Viewer (both permissions) → Customer 200 with names", async () => {
-    for (const u of [admin, salesViewer]) {
-      const r = await call(salesRoute, { cookie: u.cookie, path: "/api/analysis/sales?dimension=customer" });
-      expect(r.status).toBe(200);
-      expect(r.json.rows[0].dimension).toBe("Alpha Diamonds");
+
+  test("a customer filter is refused rather than silently ignored", async () => {
+    // Quietly dropping the parameter would answer a different question from the one asked.
+    expect((await get(salesRoute, `${SUMMARY}?customerCode=C-IN`, scientist)).status).toBe(403);
+    expect((await get(salesRoute, `${SUMMARY}?customerCode=C-IN`, admin)).status).toBe(200);
+  });
+
+  test("supporting records expose customer identity only to customers.read", async () => {
+    const withoutPermission = await get(recordsRoute, "/api/analysis/sales/records?pageSize=200", scientist);
+    expect(withoutPermission.status).toBe(200);
+    expect(withoutPermission.json.rows.length).toBeGreaterThan(0);
+    expect(Object.keys(withoutPermission.json.rows[0])).not.toContain("customerName");
+    expect(JSON.stringify(withoutPermission.json)).not.toContain("Alpha Diamonds");
+
+    const withPermission = await get(recordsRoute, "/api/analysis/sales/records?pageSize=200", salesViewer);
+    expect(JSON.stringify(withPermission.json)).toContain("Alpha Diamonds");
+  });
+
+  test("the browser control set matches the server decision", () => {
+    expect(contributionsAllowed(permissionsFor("DATA_SCIENTIST"))).not.toContain("customer");
+    expect(contributionsAllowed(permissionsFor("SALES_VIEWER"))).toContain("customer");
+  });
+});
+
+// ---------------------------------------------------------------------------
+
+describe("SH-02 the IST window is exact, and the three 30-day windows tile it", () => {
+  beforeAll(() => ensureWorld("core"));
+
+  test("the three windows do not overlap and leave no gap across the 90 days", async () => {
+    const summary = await get(salesRoute, SUMMARY, admin);
+    const cutoff = summary.json.readiness.snapshot.salesCutoffIst;
+    const windows = salesWindows(cutoff);
+    expect(windows.map((w) => w.key)).toEqual(["previous30", "middle30", "latest30"]);
+
+    const day = (d: string) => Date.parse(`${d}T00:00:00Z`) / 86_400_000;
+    for (const w of windows) expect(day(w.endDate) - day(w.startDate) + 1).toBe(SALES_WINDOW_SIZE_DAYS);
+    // Each window starts the day after the previous one ends: no overlap, no gap.
+    expect(day(windows[1].startDate) - day(windows[0].endDate)).toBe(1);
+    expect(day(windows[2].startDate) - day(windows[1].endDate)).toBe(1);
+    expect(windows[2].endDate).toBe(cutoff);
+    expect(day(windows[2].endDate) - day(windows[0].startDate) + 1).toBe(90);
+    // The snapshot's own cutoff is the one authority; nothing is recomputed from "now".
+    expect(cutoff).toBe(cutoffIst());
+  });
+
+  test("month and year boundaries do not shift a window edge", () => {
+    for (const cutoff of ["2027-01-15", "2026-03-01", "2026-12-31", "2028-02-29"]) {
+      const w = salesWindows(cutoff);
+      const day = (d: string) => Date.parse(`${d}T00:00:00Z`) / 86_400_000;
+      expect(day(w[2].endDate) - day(w[0].startDate) + 1).toBe(90);
+      expect(day(w[1].startDate) - day(w[0].endDate)).toBe(1);
+      expect(day(w[2].startDate) - day(w[1].endDate)).toBe(1);
     }
   });
-  test("frontend dimension list hides Customer without customers.read", () => {
-    expect(dimensionsAllowed(permissionsFor("DATA_SCIENTIST")).map((d) => d.value)).not.toContain("customer");
-    expect(dimensionsAllowed(permissionsFor("SUPER_ADMIN")).map((d) => d.value)).toContain("customer");
+
+  test("the window edges include and exclude the exact business dates they should", async () => {
+    const records = await get(recordsRoute, "/api/analysis/sales/records?pageSize=200", admin);
+    const lots: string[] = records.json.rows.map((r: { lotId: string }) => r.lotId);
+    // 23:00 IST on the cutoff date is the last included instant.
+    expect(lots).toContain("SA-EDGE-IN");
+    // The first included business date of the window is D-89, at its very start.
+    expect(lots).toContain("SA-A-7");
+    // One hour before the window opens, and any instant after the cutoff day ends.
+    expect(lots).not.toContain("SA-EDGE-BEFORE");
+    expect(lots).not.toContain("SA-EDGE-AFTER");
   });
-  test("CSV export has no server path of its own: it serialises rows the API already authorised", () => {
-    const table = readFileSync(path.join(ROOT, "src/components/diamond/shared/data-table.tsx"), "utf8");
-    expect(table).not.toMatch(/\bfetch\(|apiFetch|useApi/);
-    const view = readFileSync(path.join(ROOT, "src/components/diamond/views/sales-analysis-view.tsx"), "utf8");
-    expect(view).toContain("rows={rows}");
+
+  test("each sale lands in exactly one of the three windows", async () => {
+    const a = await categoryRow(admin, CATEGORY_A);
+    expect(a.previous30Quantity + a.middle30Quantity + a.latest30Quantity).toBe(a.total90Quantity);
+    const b = await categoryRow(admin, CATEGORY_B);
+    expect(b.previous30Quantity + b.middle30Quantity + b.latest30Quantity).toBe(b.total90Quantity);
   });
 });
 
-describe("SA-06 dimension validation", () => {
-  beforeEach(() => sales(c1.id, [{ docDate: "2026-09-10T12:00:00Z" }]));
-  test("all 10 supported dimensions → 200", async () => {
-    expect(SALES_DIMENSIONS.length).toBe(10);
-    for (const d of SALES_DIMENSIONS) {
-      const r = await call(salesRoute, { cookie: admin.cookie, path: `/api/analysis/sales?dimension=${d.value}` });
-      expect({ d: d.value, s: r.status }).toEqual({ d: d.value, s: 200 });
-      expect(r.json.dimension).toBe(d.value);
+// ---------------------------------------------------------------------------
+
+describe("SH-03 only confirmed sales are counted", () => {
+  beforeAll(() => ensureWorld("core"));
+
+  test("memo, reservation, transfer, work in progress, stock and open orders never appear", async () => {
+    const records = await get(recordsRoute, "/api/analysis/sales/records?pageSize=200", admin);
+    const lots: string[] = records.json.rows.map((r: { lotId: string }) => r.lotId);
+    for (const excluded of ["SA-MEMO", "SA-RESERVED", "SA-TRANSFER", "SA-WIP", "SA-STOCK"]) {
+      expect({ excluded, present: lots.includes(excluded) }).toEqual({ excluded, present: false });
     }
+    // The open order exists and is deliberately absent from every sales figure.
+    expect(await db.salesOrderLine.count({ where: { qtyOutstanding: { gt: 0 } } })).toBe(1);
+    const summary = await get(salesRoute, `${SUMMARY}?pageSize=200`, admin);
+    const quantity = summary.json.rows.reduce((s: number, r: { total90Quantity: number }) => s + r.total90Quantity, 0);
+    expect(quantity).toBe(summary.json.totals.confirmedQuantity);
+    // 25 ordered pieces would be impossible to miss if an open order had leaked in.
+    expect(quantity).toBeLessThan(25);
   });
-  test("dimension=banana → 400 INVALID_DIMENSION, no silent fallback", async () => {
-    const r = await call(salesRoute, { cookie: admin.cookie, path: "/api/analysis/sales?dimension=banana" });
-    expect([r.status, r.json.error.code]).toEqual([400, "INVALID_DIMENSION"]);
-    expect(() => parseSalesDimension("Shape")).toThrow(); // exact repository casing only
+
+  test("one business sale reported twice by the lifecycle is counted once", async () => {
+    const records = await get(recordsRoute, "/api/analysis/sales/records?pageSize=200", admin);
+    const dedup = records.json.rows.filter((r: { lotId: string }) => r.lotId === "SA-DEDUP");
+    expect(dedup).toHaveLength(1);
+    expect(dedup[0].confirmedQuantity).toBe(1);
   });
-  test("omitted or empty dimension → default Shape", async () => {
-    for (const p of ["/api/analysis/sales", "/api/analysis/sales?dimension="]) {
-      const r = await call(salesRoute, { cookie: admin.cookie, path: p });
-      expect([r.status, r.json.dimension]).toEqual([200, "shape"]);
-    }
+
+  test("a genuine second sale episode is counted separately", async () => {
+    const records = await get(recordsRoute, "/api/analysis/sales/records?pageSize=200", admin);
+    const episode = records.json.rows.filter((r: { lotId: string }) => r.lotId === "SA-EPISODE");
+    expect(episode).toHaveLength(2);
+    // The two episodes fall in different 30-day windows, so they are visible separately.
+    expect(new Set(episode.map((r: { docDate: string }) => r.docDate)).size).toBe(2);
+  });
+
+  test("the snapshot holds no duplicate lifecycle events at all", async () => {
+    const readiness = (await get(salesRoute, SUMMARY, admin)).json.readiness;
+    expect(readiness.duplicateLifecycleEvents).toBe(0);
+    expect(readiness.eligibleSalesRecords).toBeGreaterThan(0);
+  });
+
+  test("an invoice later cancelled is reported exactly as the centralized policy recorded it", async () => {
+    // The page applies no reversal rule of its own: it reports the sale events the demand
+    // calculation admitted, and the snapshot is the authority on what those are.
+    const snapshot = await db.demandRun.findFirst({ orderBy: { runDate: "desc" }, select: { id: true } });
+    const traced = await db.demandMetricTraceItem.count({
+      where: { runId: snapshot!.id, traceType: "SALE", isIncluded: true, lotId: "SA-CANCEL" },
+    });
+    const records = await get(recordsRoute, "/api/analysis/sales/records?pageSize=200", admin);
+    const shown = records.json.rows.filter((r: { lotId: string }) => r.lotId === "SA-CANCEL").length;
+    expect(shown).toBe(traced);
   });
 });
 
-describe("calculations (unchanged business rules)", () => {
-  beforeEach(() =>
-    sales(c1.id, [
-      { docDate: "2026-09-18T08:00:00Z", shape: "Oval", weight: 2, value: 20000 },
-      { docDate: "2026-09-01T08:00:00Z", shape: "Oval", weight: 1, value: 13000 },
-      { docDate: "2026-08-15T08:00:00Z", shape: "Round", weight: 1.5, value: 12000 },
-      { docDate: "2026-09-10T08:00:00Z", shape: "Round", weight: 1, value: null }, // null value counts 0
-      { docDate: "2026-09-10T08:00:00Z", shape: "Oval", status: "Memo", weight: 9, value: 99999 },
-      { docDate: "2026-09-10T08:00:00Z", shape: "Oval", status: "Stock", weight: 9, value: 99999 },
-      { docDate: "2026-09-10T08:00:00Z", shape: "Pear", country: "BE", weight: 1, value: 5000 },
-      { docDate: "2026-09-10T08:00:00Z", shape: "Pear", branch: "MUM", lab: "IGI", weight: 1, value: 5000 },
-    ]),
-  );
-  test("totals, weighted Avg $/ct, value-based mix; Memo/Stock excluded", async () => {
-    const r = await run();
-    expect([r.totalPieces, r.totalCarats, r.totalValue]).toEqual([6, 7.5, 55000]);
-    const oval = byName(r.rows, "Oval");
-    expect([oval.pieces, oval.carats, oval.value]).toEqual([2, 3, 33000]);
-    expect(oval.avgPerCt).toBeCloseTo(11000, 6); // 33000 / 3, not the mean of per-stone prices
-    expect(oval.pct).toBeCloseTo((33000 / 55000) * 100, 9);
-    const round = byName(r.rows, "Round");
-    expect([round.pieces, round.value]).toEqual([2, 12000]);
-    expect(r.rows.map((x) => x.dimension)).toEqual(["Oval", "Round", "Pear"]); // table sorted by value
+// ---------------------------------------------------------------------------
+
+describe("SH-04 quantity, weight and record count stay three different figures", () => {
+  beforeAll(() => ensureWorld("core"));
+
+  test("a three-piece sale contributes three to quantity and one to the record count", async () => {
+    const records = await get(recordsRoute, "/api/analysis/sales/records?pageSize=200", admin);
+    const qty = records.json.rows.filter((r: { lotId: string }) => r.lotId === "SA-A-QTY");
+    expect(qty).toHaveLength(1);
+    expect(qty[0].confirmedQuantity).toBe(3);
   });
-  test("country, branch and lab filters exclude mismatches", async () => {
-    expect((await run({ country: "IN" })).totalPieces).toBe(5);
-    expect((await run({ branch: "SRT" })).totalPieces).toBe(5);
-    expect((await run({ lab: "GIA" })).totalPieces).toBe(5);
-    expect((await run({ country: "BE" })).totalValue).toBe(5000);
+
+  test("the category summary never equates record count with piece quantity", async () => {
+    const a = await categoryRow(admin, CATEGORY_A);
+    expect(a.total90Quantity).toBeGreaterThan(a.recordCount);
+    expect(a.total90Weight).toBeGreaterThan(0);
+    // Weight is a measurement, quantity is a count: they are reported side by side and
+    // never summed into one figure.
+    expect(a.total90Weight).not.toBe(a.total90Quantity);
+  });
+
+  test("readiness reports quantity confirmation as its own figure", async () => {
+    const readiness = (await get(salesRoute, SUMMARY, admin)).json.readiness;
+    // Quantity semantics are decided by the centralized policy before the snapshot is
+    // written; this page reports what that produced and converts nothing itself.
+    expect(readiness.recordsWithUnconfirmedQuantity).toBe(0);
+    expect(readiness.eligibleConfirmedQuantity).toBeGreaterThan(readiness.eligibleSalesRecords);
   });
 });
 
-describe("SA-07 pieces = stone rows; qty ≠ 1 is a data-quality anomaly", () => {
-  test("A qty1 + B qty1 → 2; add C qty3 → 3 pieces (not 5), anomaly count 1", async () => {
-    await sales(c1.id, [{ docDate: "2026-09-10T08:00:00Z" }, { docDate: "2026-09-10T08:00:00Z" }]);
-    expect((await run()).totalPieces).toBe(2);
-    expect((await run()).dataQuality.qtyNotOneCount).toBe(0);
-    await sales(c1.id, [{ docDate: "2026-09-10T08:00:00Z", qty: 3 }]);
-    const r = await run();
-    expect(r.totalPieces).toBe(3);
-    expect(r.trendSeries.pieces.reduce((s, p) => s + p.value, 0)).toBeLessThanOrEqual(3);
-    expect(r.dataQuality.qtyNotOneCount).toBe(1);
+// ---------------------------------------------------------------------------
+
+describe("SH-05 readiness states are honest", () => {
+  test("no completed snapshot reports NOT RUN and shows nothing in its place", async () => {
+    invalidateWorld();
+    process.env.FANTASY_SOURCE_MODE = "FIXTURE";
+    await resetSalesWorld();
+    await seedMappings();
+    const r = await get(salesRoute, SUMMARY, admin);
+    expect(r.status).toBe(200);
+    expect(r.json.readiness.state).toBe("NOT_RUN");
+    expect(r.json.readiness.snapshot.snapshotId).toBeNull();
+    expect(r.json.readiness.eligibleSalesRecords).toBeNull();
+    expect(r.json.rows).toHaveLength(0);
+    expect(r.json.totals.confirmedQuantity).toBe(0);
+    // Every other surface refuses to invent a figure too.
+    expect((await get(trendRoute, "/api/analysis/sales/trend", admin)).json.available).toBe(false);
+    expect((await get(movementRoute, "/api/analysis/sales/movement", admin)).json.available).toBe(false);
+    expect((await get(exportRoute, "/api/analysis/sales/export", admin)).status).toBe(409);
+  });
+
+  test("a fixture snapshot is labelled SIMULATED and never as a live connection", async () => {
+    await resetSalesWorld();
+    await seedMappings();
+    await recordSuccessfulSync();
+    await lot(sold("SA-SIM-1", 3));
+    await runSnapshot();
+    invalidateWorld();
+
+    const readiness = (await get(salesRoute, SUMMARY, admin)).json.readiness;
+    expect(readiness.state).toBe("SIMULATED");
+    expect(readiness.snapshot.isSimulated).toBe(true);
+    expect(readiness.snapshot.sourceState).toBe("FIXTURE_SIMULATION");
+    expect(readiness.explanation).toMatch(/simulation fixtures/i);
+    expect(readiness.lastSuccessfulSyncAt).toBeDefined();
+    expect(readiness.historyCoverageStart).toBeDefined();
+    expect(readiness.snapshot.approvedWindowLayout).toBe(true);
+  });
+
+  test("records the policy could not attribute to a category are reported, not absorbed", async () => {
+    await ensureWorld("quality");
+    const readiness = (await get(salesRoute, SUMMARY, admin)).json.readiness;
+    expect(readiness.state).toBe("INCOMPLETE");
+    expect(readiness.recordsBlockedByMissingCategory).toBeGreaterThan(0);
+    expect(readiness.excludedRecords).toBeGreaterThan(0);
+
+    // The blocked sale contributes to no category total.
+    const records = await get(recordsRoute, "/api/analysis/sales/records?pageSize=200", admin);
+    const lots: string[] = records.json.rows.map((r: { lotId: string }) => r.lotId);
+    expect(lots).toContain("SAQ-OK");
+    expect(lots).not.toContain("SAQ-UNMAPPED");
+  });
+
+  test("a snapshot outside the approved window layout says so instead of showing three windows", async () => {
+    await resetSalesWorld();
+    await seedMappings();
+    await lot(sold("SA-W30-1", 3));
+    await runSnapshot(30);
+    invalidateWorld();
+
+    const summary = await get(salesRoute, SUMMARY, admin);
+    expect(summary.json.readiness.snapshot.windowDays).toBe(30);
+    expect(summary.json.readiness.snapshot.approvedWindowLayout).toBe(false);
+    expect(summary.json.readiness.snapshot.windows).toHaveLength(0);
+    const movement = await get(movementRoute, "/api/analysis/sales/movement", admin);
+    expect(movement.json.available).toBe(false);
+    expect(movement.json.rows).toHaveLength(0);
+    expect((await get(trendRoute, "/api/analysis/sales/trend?interval=window30", admin)).json.available).toBe(false);
+    // A calendar interval is still meaningful and is offered rather than refused.
+    expect((await get(trendRoute, "/api/analysis/sales/trend?interval=day", admin)).json.available).toBe(true);
   });
 });
 
-describe("SA-08 calendar-date window and reporting timezone", () => {
-  test("90D = run date + previous 89 dates: 2026-06-22 included, 2026-06-21 excluded", async () => {
-    const w = businessWindow(NOW, 90, "UTC");
-    expect([w.startDate, w.endDate]).toEqual(["2026-06-22", "2026-09-19"]);
-    await sales(c1.id, [
-      { docDate: "2026-06-22T00:00:00Z", shape: "In" },
-      { docDate: "2026-06-21T23:59:59Z", shape: "Out" },
-      { docDate: "2026-09-19T23:59:59Z", shape: "RunDayLate" },
-      { docDate: "2026-09-20T00:00:00Z", shape: "Tomorrow" },
-    ]);
-    const names = (await run()).rows.map((r) => r.dimension).sort();
-    expect(names).toEqual(["In", "RunDayLate"]);
+// ---------------------------------------------------------------------------
+
+describe("SH-06 category normalization matches the demand snapshot exactly", () => {
+  beforeAll(() => ensureWorld("core"));
+
+  test("every category shown is a category the demand run itself produced", async () => {
+    const snapshot = await db.demandRun.findFirst({ orderBy: { runDate: "desc" }, select: { id: true } });
+    const metrics = await db.demandMetric.findMany({ where: { runId: snapshot!.id }, select: { planningCategory: true } });
+    const known = new Set(metrics.map((m) => m.planningCategory));
+    const rows = (await get(salesRoute, `${SUMMARY}?pageSize=200`, admin)).json.rows;
+    expect(rows.length).toBeGreaterThan(0);
+    for (const r of rows) expect({ c: r.categoryId, known: known.has(r.categoryId) }).toEqual({ c: r.categoryId, known: true });
   });
-  test("results do not drift during the run day (morning vs night give the same window)", async () => {
-    await sales(c1.id, [{ docDate: "2026-06-22T05:00:00Z" }]);
-    const morning = await run({ now: new Date("2026-09-19T00:00:01Z") });
-    const night = await run({ now: new Date("2026-09-19T23:59:59Z") });
-    expect(morning.totalPieces).toBe(1);
-    expect(night.totalPieces).toBe(1);
-  });
-  test("midnight boundary follows the reporting timezone (Asia/Kolkata example)", async () => {
-    const now = new Date("2026-09-19T20:00:00Z"); // 01:30 on 2026-09-20 in Kolkata
-    await sales(c1.id, [
-      { docDate: "2026-09-19T18:29:59Z", shape: "PrevDay" }, // 23:59:59 IST on 09-19
-      { docDate: "2026-09-19T18:30:00Z", shape: "RunDay" }, // 00:00:00 IST on 09-20
-    ]);
-    const ist = await run({ now, windowDays: 1, timezone: "Asia/Kolkata" });
-    expect(ist.window.endDate).toBe("2026-09-20");
-    expect(ist.rows.map((r) => r.dimension)).toEqual(["RunDay"]);
-    const utc = await run({ now, windowDays: 1, timezone: "UTC" });
-    expect(utc.rows.map((r) => r.dimension).sort()).toEqual(["PrevDay", "RunDay"]);
-  });
-  test("Month uses the reporting timezone, independent of the server TZ", async () => {
-    await sales(c1.id, [{ docDate: "2026-08-31T20:00:00Z" }]); // Aug in UTC, Sep 1 in Kolkata
-    const saved = process.env.TZ;
-    try {
-      for (const serverTz of ["America/Los_Angeles", "Pacific/Kiritimati", "UTC"]) {
-        process.env.TZ = serverTz;
-        expect((await run({ dimension: "month", timezone: "UTC" })).rows[0].dimension).toBe("2026-08");
-        expect((await run({ dimension: "month", timezone: "Asia/Kolkata" })).rows[0].dimension).toBe("2026-09");
-      }
-    } finally {
-      process.env.TZ = saved;
-    }
-    expect(businessMonth(new Date("2026-08-31T20:00:00Z"), "Asia/Kolkata")).toBe("2026-09");
-  });
-  test("ANALYTICS_TIMEZONE: default UTC (explicit), valid override honoured, invalid rejected", () => {
-    const saved = process.env.ANALYTICS_TIMEZONE;
-    try {
-      delete process.env.ANALYTICS_TIMEZONE;
-      expect(analyticsTimeZone()).toBe("UTC");
-      process.env.ANALYTICS_TIMEZONE = "Asia/Kolkata";
-      expect(analyticsTimeZone()).toBe("Asia/Kolkata");
-      process.env.ANALYTICS_TIMEZONE = "Not/AZone";
-      expect(() => analyticsTimeZone()).toThrow();
-    } finally {
-      if (saved === undefined) delete process.env.ANALYTICS_TIMEZONE;
-      else process.env.ANALYTICS_TIMEZONE = saved;
-    }
+
+  test("the category identity is lab, shape and weight band, and its parts agree with it", async () => {
+    const a = await categoryRow(admin, CATEGORY_A);
+    expect([a.lab, a.shape, a.weightBand].join("|")).toBe(a.categoryId);
+    expect(a.dataState).toBe("CONFIRMED");
   });
 });
 
-describe("SA-02 chronological KPI trends", () => {
-  test("weekly buckets 10, 20, 30 for pieces, carats and value — not ranked categories", async () => {
-    // 21D window → 3 full weeks ending on the run date: 08-30..09-05, 09-06..09-12, 09-13..09-19
-    await sales(c1.id, [
-      ...repeat(10, { docDate: "2026-09-01T08:00:00Z", shape: "Big", weight: 1, value: 100 }),
-      ...repeat(20, { docDate: "2026-09-08T08:00:00Z", shape: "Mid", weight: 1, value: 100 }),
-      ...repeat(30, { docDate: "2026-09-15T08:00:00Z", shape: "Small", weight: 1, value: 100 }),
-    ]);
-    const r = await run({ windowDays: 21 });
-    expect(r.trendSeries.bucketDays).toBe(7);
-    expect(r.trendSeries.pieces.map((p) => p.value)).toEqual([10, 20, 30]);
-    expect(r.trendSeries.carats.map((p) => p.value)).toEqual([10, 20, 30]);
-    expect(r.trendSeries.value.map((p) => p.value)).toEqual([1000, 2000, 3000]);
-    expect(r.trendSeries.pieces.map((p) => [p.periodStart, p.periodEnd])).toEqual([
-      ["2026-08-30", "2026-09-05"], ["2026-09-06", "2026-09-12"], ["2026-09-13", "2026-09-19"],
-    ]);
-    // Value-ranked groups would read 30, 20, 10 — the old "declining" artefact.
-    expect(r.rows.map((x) => x.pieces)).toEqual([30, 20, 10]);
-    expect(r.trendSeries.excludedPartialPeriod).toBeNull();
+// ---------------------------------------------------------------------------
+
+describe("SH-07 filters, sorting and paging are server-side and consistent", () => {
+  beforeAll(() => ensureWorld("core"));
+
+  test("country and lab filters narrow the totals, the records and the contribution alike", async () => {
+    const all = await get(salesRoute, `${SUMMARY}?pageSize=200`, admin);
+    const be = await get(salesRoute, `${SUMMARY}?pageSize=200&country=BE`, admin);
+    expect(be.json.totals.confirmedQuantity).toBeGreaterThan(0);
+    expect(be.json.totals.confirmedQuantity).toBeLessThan(all.json.totals.confirmedQuantity);
+
+    const beRecords = await get(recordsRoute, "/api/analysis/sales/records?pageSize=200&country=BE", admin);
+    expect(beRecords.json.paging.total).toBe(be.json.totals.recordCount);
+    for (const r of beRecords.json.rows) expect(r.country).toBe("BE");
+
+    const beContribution = await get(contributionRoute, "/api/analysis/sales/contribution?dimension=country&country=BE", admin);
+    expect(beContribution.json.rows).toHaveLength(1);
+    expect(beContribution.json.rows[0].confirmedQuantity).toBe(be.json.totals.confirmedQuantity);
+
+    const igi = await get(salesRoute, `${SUMMARY}?pageSize=200&lab=IGI`, admin);
+    expect(igi.json.rows.map((r: { lab: string }) => r.lab)).toEqual(["IGI"]);
   });
-  test("90D: 12 full weeks plotted, the leading 6-day partial period reported not plotted; daily buckets ≤ 14D", async () => {
-    const r = await run();
-    expect(r.trendSeries.pieces.length).toBe(12);
-    expect(r.trendSeries.excludedPartialPeriod).toEqual({ startDate: "2026-06-22", endDate: "2026-06-27" });
-    expect(r.trendSeries.pieces.at(-1)).toMatchObject({ periodStart: "2026-09-13", periodEnd: "2026-09-19" });
-    expect((await run({ windowDays: 7 })).trendSeries).toMatchObject({ bucketDays: 1 });
+
+  test("an exact category drill-down returns only that category's records", async () => {
+    const a = await categoryRow(admin, CATEGORY_A);
+    const drill = await get(recordsRoute, `/api/analysis/sales/records?pageSize=200&categoryId=${encodeURIComponent(CATEGORY_A)}`, admin);
+    expect(drill.json.paging.total).toBe(a.recordCount);
+    for (const r of drill.json.rows) expect(r.categoryId).toBe(CATEGORY_A);
+    const quantity = drill.json.rows.reduce((s: number, r: { confirmedQuantity: number }) => s + r.confirmedQuantity, 0);
+    expect(quantity).toBe(a.total90Quantity);
   });
-  test("the page no longer derives sparklines from grouped rows, and states what the line shows", () => {
-    const view = readFileSync(path.join(ROOT, "src/components/diamond/views/sales-analysis-view.tsx"), "utf8");
-    expect(view).not.toMatch(/rows\.slice\(0, 7\)/);
-    expect(view).toContain("trend?.pieces");
-    expect(view).toContain("sparklineTitle=");
+
+  test("an unsupported filter or sort value is refused, never silently defaulted", async () => {
+    expect((await get(salesRoute, `${SUMMARY}?sortKey=drop`, admin)).status).toBe(400);
+    expect((await get(salesRoute, `${SUMMARY}?sortDir=sideways`, admin)).status).toBe(400);
+    expect((await get(salesRoute, `${SUMMARY}?trend=Excellent`, admin)).status).toBe(400);
+    expect((await get(salesRoute, `${SUMMARY}?dataState=FINE`, admin)).status).toBe(400);
+    expect((await get(trendRoute, "/api/analysis/sales/trend?interval=fortnight", admin)).status).toBe(400);
+    expect((await get(contributionRoute, "/api/analysis/sales/contribution?dimension=salesperson", admin)).status).toBe(400);
+  });
+
+  test("a trend filter selects categories by the shared trend rule", async () => {
+    const b = await categoryRow(admin, CATEGORY_B);
+    // Category B sold only in the latest window, so the shared rule calls it New Demand.
+    expect(b.trend).toBe("New Demand");
+    const filtered = await get(salesRoute, `${SUMMARY}?pageSize=200&trend=New%20Demand`, admin);
+    expect(filtered.json.rows.map((r: { categoryId: string }) => r.categoryId)).toContain(CATEGORY_B);
+    for (const r of filtered.json.rows) expect(r.trend).toBe("New Demand");
   });
 });
 
-describe("SA-03 / SA-09 chart ranking and title", () => {
-  test("pieces chart ranks by pieces: A (50 pcs, $100) outranks B (20 pcs, $1000)", () => {
-    const rows = [{ dimension: "B", pieces: 20, value: 1000 }, { dimension: "A", pieces: 50, value: 100 }];
-    expect(chartRowsByPieces(rows).map((r) => r.dimension)).toEqual(["A", "B"]);
-  });
-  test("Top N uses the displayed count: 10 groups → Top 10, 15 groups → Top 12", () => {
-    const make = (n: number) => Array.from({ length: n }, (_, i) => ({ dimension: `S${i}`, pieces: i, value: n - i }));
-    expect(chartTitle("shape", chartRowsByPieces(make(10)).length)).toBe("Top 10 Shapes by Pieces");
-    const top = chartRowsByPieces(make(15));
-    expect(chartTitle("shape", top.length)).toBe("Top 12 Shapes by Pieces");
-    expect(top[0].dimension).toBe("S14"); // highest pieces, lowest value
-    expect(chartTitle("customer", 1)).toBe("Top 1 Customer by Pieces");
-  });
-});
+// ---------------------------------------------------------------------------
 
-describe("SA-04 / SA-05 / SA-10 formatting and CSV", () => {
-  test("one compact currency formatter", () => {
-    expect(formatCompactCurrency(7_832_258.67)).toBe("$7.83M");
-    expect(formatCompactCurrency(952_880)).toBe("$952.88K");
-    expect(formatCompactCurrency(10_023.14)).toBe("$10.02K");
-    expect(formatCompactCurrency(950)).toBe("$950");
-    expect(formatCompactCurrency(-2_500)).toBe("-$2.50K");
-    const money = readFileSync(path.join(ROOT, "src/components/diamond/shared/empty-state.tsx"), "utf8");
-    expect(money).toContain("formatCompactCurrency(value)");
-    expect(money).not.toMatch(/toFixed\(1\)\}K/);
+describe("SH-08 trend and movement stay descriptive", () => {
+  beforeAll(() => ensureWorld("core"));
+
+  test("a zero earlier window yields no percentage at all", async () => {
+    const movement = await get(movementRoute, "/api/analysis/sales/movement?pageSize=200", admin);
+    expect(movement.json.available).toBe(true);
+    const b = movement.json.rows.find((r: { categoryId: string }) => r.categoryId === CATEGORY_B);
+    expect(b.previous30Quantity).toBe(0);
+    expect(b.latest30Quantity).toBeGreaterThan(0);
+    expect(b.percentChange).toBeNull();
+    expect(b.comparability).toBe("NOT_COMPARABLE");
+    expect(b.absoluteChange).toBe(b.latest30Quantity);
   });
-  test("Value Mix: UI 12.2%, CSV 12.2, header renamed, formula safety intact", () => {
-    expect(formatPercent(12.166435)).toBe("12.2%");
-    expect(roundPercent(12.166435)).toBe(12.2);
-    const cols: CsvColumn<{ dimension: string; pct: number }>[] = [
-      { key: "dimension", header: "Dimension", cell: () => ({ $$typeof: Symbol.for("react.element") }) },
-      { key: "pct", header: "Value Mix %", cell: () => ({ $$typeof: Symbol.for("react.element") }), exportValue: (r) => roundPercent(r.pct) },
+
+  test("a valid denominator yields a percentage consistent with the two windows", async () => {
+    const movement = await get(movementRoute, "/api/analysis/sales/movement?pageSize=200", admin);
+    const a = movement.json.rows.find((r: { categoryId: string }) => r.categoryId === CATEGORY_A);
+    expect(a.comparability).toBe("COMPARABLE");
+    expect(a.absoluteChange).toBe(a.latest30Quantity - a.previous30Quantity);
+    expect(a.percentChange).toBeCloseTo(((a.latest30Quantity - a.previous30Quantity) / a.previous30Quantity) * 100, 1);
+  });
+
+  test("no sales surface offers a forecast, a priority or a reorder quantity", async () => {
+    const payloads = [
+      JSON.stringify((await get(salesRoute, `${SUMMARY}?pageSize=200`, admin)).json),
+      JSON.stringify((await get(trendRoute, "/api/analysis/sales/trend", admin)).json),
+      JSON.stringify((await get(movementRoute, "/api/analysis/sales/movement?pageSize=200", admin)).json),
     ];
-    const csv = toCsv(cols, [{ dimension: "=HYPERLINK(\"http://x\")", pct: 12.166435 }]).split("\r\n");
-    expect(csv[0]).toBe('"Dimension","Value Mix %"');
-    expect(csv[1]).toBe(`"'=HYPERLINK(""http://x"")",12.2`);
-    const view = readFileSync(path.join(ROOT, "src/components/diamond/views/sales-analysis-view.tsx"), "utf8");
-    expect(view).toContain('header: "Value Mix %"');
-    expect(view).not.toContain('header: "Mix %"');
+    for (const body of payloads) {
+      for (const forbidden of ["forecast", "priority", "reorder", "predicted", "recommend", "planCoverage", "pipelineNeed", "shortage"]) {
+        expect({ forbidden, present: body.toLowerCase().includes(forbidden.toLowerCase()) }).toEqual({ forbidden, present: false });
+      }
+    }
+  });
+
+  test("the period trend adds up to the same confirmed quantity as the summary", async () => {
+    const summary = await get(salesRoute, `${SUMMARY}?pageSize=200`, admin);
+    for (const interval of ["day", "week", "window30"]) {
+      const trend = await get(trendRoute, `/api/analysis/sales/trend?interval=${interval}`, admin);
+      const total = trend.json.rows.reduce((s: number, r: { confirmedQuantity: number }) => s + r.confirmedQuantity, 0);
+      const records = trend.json.rows.reduce((s: number, r: { recordCount: number }) => s + r.recordCount, 0);
+      expect({ interval, total }).toEqual({ interval, total: summary.json.totals.confirmedQuantity });
+      expect({ interval, records }).toEqual({ interval, records: summary.json.totals.recordCount });
+    }
   });
 });
 
+// ---------------------------------------------------------------------------
+
+describe("SH-09 nothing internal leaks to the browser", () => {
+  beforeAll(() => ensureWorld("quality"));
+
+  test("no payload carries stored reasons, batch identifiers, raw source data or query text", async () => {
+    const bodies = [
+      JSON.stringify((await get(salesRoute, `${SUMMARY}?pageSize=200`, admin)).json),
+      JSON.stringify((await get(recordsRoute, "/api/analysis/sales/records?pageSize=200", admin)).json),
+      JSON.stringify((await get(movementRoute, "/api/analysis/sales/movement?pageSize=200", admin)).json),
+      JSON.stringify((await get(contributionRoute, "/api/analysis/sales/contribution?dimension=branch", admin)).json),
+      JSON.stringify((await get(trendRoute, "/api/analysis/sales/trend", admin)).json),
+    ];
+    const banned = [
+      "Unapproved planning mapping",
+      "metadataJson",
+      "syncBatchId",
+      "SA-B1",
+      "DemandMetricTraceItem",
+      "SELECT ",
+      "planningCategory",
+      "traceType",
+      "lotStatusDb",
+      "removalReason",
+      "EXPLICIT_SALE",
+    ];
+    for (const body of bodies) {
+      for (const needle of banned) {
+        expect({ needle, present: body.includes(needle) }).toEqual({ needle, present: false });
+      }
+    }
+  });
+
+  test("supporting records carry only allowlisted business fields", async () => {
+    const r = await get(recordsRoute, "/api/analysis/sales/records?pageSize=5", admin);
+    const allowed = new Set([
+      "recordId", "lotId", "docDate", "lifecycle", "categoryId", "confirmedQuantity", "measuredWeight",
+      "country", "branch", "customerCode", "customerName", "sourceState", "dataState",
+    ]);
+    for (const row of r.json.rows) {
+      for (const key of Object.keys(row)) expect({ key, allowed: allowed.has(key) }).toEqual({ key, allowed: true });
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+
+describe("SH-10 export is separately authorized, bounded and spreadsheet-safe", () => {
+  beforeAll(() => ensureWorld("quality"));
+
+  const exportCsv = async (user: User, query = "") => {
+    const res = await exportRoute(
+      new Request(`http://localhost:3000/api/analysis/sales/export${query}`, { headers: { cookie: user.cookie } }),
+      { params: Promise.resolve({}) },
+    );
+    return { status: res.status, headers: res.headers, text: await res.text() };
+  };
+
+  test("reading sales on screen does not imply exporting them", async () => {
+    expect(permissionsFor("SALES_VIEWER")).toContain("sales.read");
+    expect(permissionsFor("SALES_VIEWER")).not.toContain("sales.export");
+    expect((await exportCsv(salesViewer)).status).toBe(403);
+    expect((await exportCsv(scientist)).status).toBe(200);
+  });
+
+  test("a value a spreadsheet would execute is neutralised", async () => {
+    const csv = await exportCsv(admin);
+    expect(csv.status).toBe(200);
+    // The fixture contains an approved shape whose value begins with a formula trigger.
+    expect(csv.text).toContain("=CMD");
+    expect(csv.text).toContain(`"'=CMD"`);
+    for (const line of csv.text.split("\r\n").slice(1)) {
+      for (const cell of line.split(",")) {
+        expect({ cell, unsafe: /^"[=+@]/.test(cell) }).toEqual({ cell, unsafe: false });
+      }
+    }
+  });
+
+  test("the export uses the same filters as the screen and states its own limits", async () => {
+    const filtered = await exportCsv(admin, "?lab=GIA&sortKey=category&sortDir=asc");
+    const screen = await get(salesRoute, `${SUMMARY}?pageSize=200&lab=GIA&sortKey=category&sortDir=asc`, admin);
+    expect(filtered.text.split("\r\n").length - 1).toBe(screen.json.paging.total);
+    expect(filtered.headers.get("x-sales-export-total")).toBe(String(screen.json.paging.total));
+    expect(filtered.headers.get("x-sales-export-truncated")).toBe("false");
+    expect(Number(filtered.headers.get("x-sales-export-limit"))).toBeGreaterThan(0);
+  });
+
+  test("every export leaves an audit record naming the authenticated actor", async () => {
+    await db.auditLog.deleteMany({ where: { action: "SALES_ANALYSIS_EXPORTED" } });
+    await exportCsv(analyst);
+    const rows = await db.auditLog.findMany({ where: { action: "SALES_ANALYSIS_EXPORTED" } });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].actorUserId).toBe(analyst.user.id);
+    expect(rows[0].entity).toBe("DemandRun");
+  });
+});
+
+// ---------------------------------------------------------------------------
+
+describe("SH-11 reading sales changes nothing", () => {
+  beforeAll(() => ensureWorld("core"));
+
+  test("no sales, inventory or demand record is created, altered or removed by a read", async () => {
+    const census = async () => ({
+      runs: await db.demandRun.count(),
+      metrics: await db.demandMetric.count(),
+      trace: await db.demandMetricTraceItem.count(),
+      masters: await db.lotMasterRecord.count(),
+      history: await db.lotHistoryRecord.count(),
+      issues: await db.dataQualityIssue.count(),
+      orders: await db.salesOrderLine.count(),
+      updatedAt: (await db.lotMasterRecord.findMany({ select: { updatedAt: true }, orderBy: { updatedAt: "desc" }, take: 1 }))[0]?.updatedAt ?? null,
+    });
+
+    const before = await census();
+    for (const path of [
+      `${SUMMARY}?pageSize=200`,
+      `${SUMMARY}?country=BE`,
+    ]) await get(salesRoute, path, admin);
+    await get(trendRoute, "/api/analysis/sales/trend?interval=day", admin);
+    await get(movementRoute, "/api/analysis/sales/movement?pageSize=200", admin);
+    await get(contributionRoute, "/api/analysis/sales/contribution?dimension=customer", admin);
+    await get(recordsRoute, "/api/analysis/sales/records?pageSize=200", admin);
+    expect(await census()).toEqual(before);
+  });
+});
+
+// ---------------------------------------------------------------------------
+
+describe("SH-12 large data is paged, never silently shortened", () => {
+  beforeAll(() => ensureWorld("bulk"));
+  afterAll(cleanupSalesWorld);
+
+  test("every confirmed record is reachable through stable paging, with no gap or repeat", async () => {
+    const first = await get(recordsRoute, "/api/analysis/sales/records?pageSize=50&sortKey=docDate&sortDir=desc", admin);
+    expect(first.json.paging.total).toBe(BULK_LOT_COUNT);
+    expect(first.json.paging.hasMore).toBe(true);
+
+    const seen = new Set<string>();
+    const pages = Math.ceil(BULK_LOT_COUNT / 50);
+    for (let page = 1; page <= pages; page++) {
+      const r = await get(recordsRoute, `/api/analysis/sales/records?pageSize=50&page=${page}&sortKey=docDate&sortDir=desc`, admin);
+      expect({ page, total: r.json.paging.total }).toEqual({ page, total: BULK_LOT_COUNT });
+      for (const row of r.json.rows) seen.add(row.recordId);
+    }
+    expect(seen.size).toBe(BULK_LOT_COUNT);
+  });
+
+  test("repeating a page returns the same rows in the same order", async () => {
+    const url = "/api/analysis/sales/records?pageSize=25&page=4&sortKey=quantity&sortDir=desc";
+    const a = await get(recordsRoute, url, admin);
+    const b = await get(recordsRoute, url, admin);
+    expect(a.json.rows.map((r: { recordId: string }) => r.recordId)).toEqual(b.json.rows.map((r: { recordId: string }) => r.recordId));
+  });
+
+  test("server-side sorting orders the whole result, not the loaded page", async () => {
+    const desc = await get(salesRoute, `${SUMMARY}?pageSize=3&sortKey=total90&sortDir=desc`, admin);
+    const asc = await get(salesRoute, `${SUMMARY}?pageSize=3&sortKey=total90&sortDir=asc`, admin);
+    expect(desc.json.paging.total).toBeGreaterThan(3);
+    expect(desc.json.rows[0].total90Quantity).toBeGreaterThanOrEqual(asc.json.rows[0].total90Quantity);
+    const quantities = desc.json.rows.map((r: { total90Quantity: number }) => r.total90Quantity);
+    expect(quantities).toEqual([...quantities].sort((x, y) => y - x));
+  });
+
+  test("the reported totals are the real totals, and a page is not mistaken for them", async () => {
+    const page = await get(salesRoute, `${SUMMARY}?pageSize=2`, admin);
+    const everything = await get(salesRoute, `${SUMMARY}?pageSize=200`, admin);
+    expect(page.json.rows).toHaveLength(2);
+    expect(page.json.paging.total).toBe(everything.json.paging.total);
+    expect(page.json.totals.confirmedQuantity).toBe(everything.json.totals.confirmedQuantity);
+    expect(page.json.totals.confirmedQuantity).toBe(BULK_LOT_COUNT);
+  });
+});

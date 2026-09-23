@@ -305,24 +305,28 @@ export function PlanningCasesView() {
     {
       key: "stoneName",
       header: "Stone Name",
+      align: "center",
       width: "150px",
       cell: (r) => r.stoneName ?? "—",
     },
     {
       key: "kapan",
       header: "Kapan",
+      align: "center",
       width: "80px",
       cell: (r) => r.kapan ?? "—",
     },
     {
       key: "packet",
       header: "Packet",
+      align: "center",
       width: "70px",
       cell: (r) => r.packet ?? "—",
     },
     {
       key: "signer",
       header: "Signer",
+      align: "center",
       width: "70px",
       cell: (r) => r.signer ?? "—",
     },
@@ -355,6 +359,7 @@ export function PlanningCasesView() {
     {
       key: "planningDate",
       header: "Plan Date",
+      align: "center",
       width: "90px",
       sortable: true,
       sortValue: (r) => r.planningDate,
@@ -539,7 +544,7 @@ export function PlanningCasesView() {
 
       {/* Detail Sheet */}
       <Sheet open={!!selectedId} onOpenChange={(o) => !o && setSelectedId(null)}>
-        <SheetContent side="right" className="sm:max-w-2xl w-full flex flex-col gap-3 overflow-y-auto p-4">
+        <SheetContent side="right" className="max-w-3xl sm:max-w-3xl w-full flex flex-col gap-3 overflow-y-auto p-5">
           <SheetHeader>
             <SheetTitle className="text-sm flex items-center gap-2">
               <FileText className="h-4 w-4" />
@@ -632,26 +637,28 @@ export function PlanningCasesView() {
                 {detail.reservations.length === 0 ? (
                   <p className="text-[11px] text-muted-foreground">No reservations.</p>
                 ) : (
-                  <table className="w-full text-[11px]">
-                    <thead className="text-[10px] uppercase text-muted-foreground">
-                      <tr>
-                        <th className="px-1 py-0.5 text-left">By</th>
-                        <th className="px-1 py-0.5 text-left">Status</th>
-                        <th className="px-1 py-0.5 text-left">Reserved At</th>
-                        <th className="px-1 py-0.5 text-left">Released At</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {detail.reservations.map((r) => (
-                        <tr key={r.id} className="border-t border-border/40">
-                          <td className="px-1 py-0.5">{r.reservedBy}</td>
-                          <td className="px-1 py-0.5"><StatusBadge status={r.status} /></td>
-                          <td className="px-1 py-0.5">{fmtDate(r.reservedAt)}</td>
-                          <td className="px-1 py-0.5">{fmtDate(r.releasedAt)}</td>
+                  <div className="overflow-x-auto rounded border border-border">
+                    <table className="w-full text-[11px] border-collapse">
+                      <thead className="text-[10px] uppercase text-muted-foreground bg-muted border-b border-border">
+                        <tr>
+                          <th className="px-2 py-1 text-left border-r border-border/40">By</th>
+                          <th className="px-2 py-1 text-center border-r border-border/40">Status</th>
+                          <th className="px-2 py-1 text-left border-r border-border/40">Reserved At</th>
+                          <th className="px-2 py-1 text-left">Released At</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {detail.reservations.map((r) => (
+                          <tr key={r.id} className="border-b border-border/40 last:border-b-0 hover:bg-muted/30">
+                            <td className="px-2 py-1 border-r border-border/40">{r.reservedBy}</td>
+                            <td className="px-2 py-1 text-center border-r border-border/40"><StatusBadge status={r.status} /></td>
+                            <td className="px-2 py-1 border-r border-border/40">{fmtDate(r.reservedAt)}</td>
+                            <td className="px-2 py-1">{fmtDate(r.releasedAt)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 )}
               </Section>
 
@@ -701,27 +708,27 @@ export function PlanningCasesView() {
                             )}
 
                             {/* Pieces list */}
-                            <div className="mt-2 max-h-32 overflow-y-auto rounded border border-border/60 bg-background">
-                              <table className="w-full text-[10px]">
-                                <thead className="text-[9px] uppercase text-muted-foreground bg-muted/40 sticky top-0">
+                            <div className="mt-2 max-h-36 overflow-y-auto rounded border border-border bg-background">
+                              <table className="w-full text-[10px] border-collapse">
+                                <thead className="text-[9px] uppercase text-muted-foreground bg-muted sticky top-0 border-b border-border">
                                   <tr>
-                                    <th className="px-1 py-0.5 text-left">Seq</th>
-                                    <th className="px-1 py-0.5 text-left">Piece Code</th>
-                                    <th className="px-1 py-0.5 text-left">Shape</th>
-                                    <th className="px-1 py-0.5 text-right">Wt</th>
-                                    <th className="px-1 py-0.5 text-left">Color/Clarity</th>
-                                    <th className="px-1 py-0.5 text-left">Cat</th>
+                                    <th className="px-1.5 py-0.5 text-center border-r border-border/40">Seq</th>
+                                    <th className="px-1.5 py-0.5 text-left border-r border-border/40">Piece Code</th>
+                                    <th className="px-1.5 py-0.5 text-left border-r border-border/40">Shape</th>
+                                    <th className="px-1.5 py-0.5 text-right border-r border-border/40">Wt</th>
+                                    <th className="px-1.5 py-0.5 text-left border-r border-border/40">Color/Clarity</th>
+                                    <th className="px-1.5 py-0.5 text-left">Cat</th>
                                   </tr>
                                 </thead>
                                 <tbody>
                                   {o.pieces.map((p) => (
-                                    <tr key={p.id} className="border-t border-border/40">
-                                      <td className="px-1 py-0.5 tabular-nums">{p.sequence}</td>
-                                      <td className="px-1 py-0.5">{p.pieceCode}</td>
-                                      <td className="px-1 py-0.5">{p.expectedShape ?? "—"}</td>
-                                      <td className="px-1 py-0.5 text-right tabular-nums">{p.expectedWeight.toFixed(3)}</td>
-                                      <td className="px-1 py-0.5">{p.expectedColor ?? "—"} / {p.expectedClarity ?? "—"}</td>
-                                      <td className="px-1 py-0.5">{p.expectedCategory ?? "—"}</td>
+                                    <tr key={p.id} className="border-b border-border/40 last:border-b-0 hover:bg-muted/30">
+                                      <td className="px-1.5 py-0.5 text-center tabular-nums border-r border-border/40">{p.sequence}</td>
+                                      <td className="px-1.5 py-0.5 font-mono border-r border-border/40">{p.pieceCode}</td>
+                                      <td className="px-1.5 py-0.5 border-r border-border/40">{p.expectedShape ?? "—"}</td>
+                                      <td className="px-1.5 py-0.5 text-right tabular-nums font-medium border-r border-border/40">{p.expectedWeight.toFixed(3)}</td>
+                                      <td className="px-1.5 py-0.5 border-r border-border/40">{p.expectedColor ?? "—"} / {p.expectedClarity ?? "—"}</td>
+                                      <td className="px-1.5 py-0.5">{p.expectedCategory ?? "—"}</td>
                                     </tr>
                                   ))}
                                 </tbody>

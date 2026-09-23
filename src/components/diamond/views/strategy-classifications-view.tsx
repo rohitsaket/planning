@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from "react";
 import { useApi } from "@/lib/api-client";
+import { useGlobalFilter } from "@/stores/global-filter";
 import { KpiCard } from "@/components/diamond/shared/kpi-card";
 import { Section, PageHeader } from "@/components/diamond/shared/page-header";
 import { DataTable, Column } from "@/components/diamond/shared/data-table";
@@ -102,9 +103,20 @@ const CLASSIFICATION_META: Record<
 };
 
 export function StrategyClassificationsView() {
+  const globalFilter = useGlobalFilter();
   const { data, isLoading } = useApi<{ categories: CategoryMetric[]; summary: any }>("/api/analysis/demand-trace");
   const [selectedClass, setSelectedClass] = useState<string>("ALL");
-  const categories = data?.categories;
+
+  const rawCategories = data?.categories;
+  const categories = useMemo(() => {
+    if (!rawCategories) return [];
+    if (!globalFilter.lab) return rawCategories;
+    return rawCategories.filter((c) => {
+      if (globalFilter.lab === "Non-Cert") return c.lab === "Non-Cert" || !c.lab;
+      if (globalFilter.lab === "Other") return c.lab !== "GIA" && c.lab !== "Non-Cert";
+      return c.lab.toUpperCase() === (globalFilter.lab as string).toUpperCase();
+    });
+  }, [rawCategories, globalFilter.lab]);
 
   const classifiedRows: ClassifiedCategory[] = useMemo(() => {
     if (!categories) return [];
@@ -368,6 +380,8 @@ export function StrategyClassificationsView() {
           exportable
           exportPermission="analysis.export"
           exportFilename="strategy-classifications.csv"
+          pagination
+          pageSize={25}
           maxHeight="540px"
         />
       </Section>

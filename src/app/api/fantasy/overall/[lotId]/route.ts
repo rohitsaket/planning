@@ -1,13 +1,16 @@
 import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
 import { notFound } from "@/lib/api/errors";
-import { withApi } from "@/lib/api/with-api";
-import { getFantasyConfig } from "@/lib/fantasy/config";
+import { withApi, idSchema } from "@/lib/api/with-api";
+import { resolveFantasySourceStateWithHistory } from "@/lib/fantasy/config";
 import { formatIST } from "@/lib/fantasy/time";
 
 export const GET = withApi<{ lotId: string }>({ permission: "overall.read" }, async (_req, ctx) => {
-  const { lotId } = await ctx.params;
-  const config = getFantasyConfig();
+  // Validated before it reaches the database. Without this an absent or malformed path
+  // segment was handed straight to Prisma, which raised a driver error and surfaced as a
+  // 500 — a bad identifier is a client mistake, not a server failure.
+  const lotId = idSchema.parse((await ctx.params).lotId);
+  const sourceState = await resolveFantasySourceStateWithHistory(db);
 
   const master = await db.lotMasterRecord.findUnique({
     where: { lotId },
@@ -23,8 +26,8 @@ export const GET = withApi<{ lotId: string }>({ permission: "overall.read" }, as
   }
 
   return ok({
-    sourceMode: config.sourceMode,
-    isSimulated: config.isSimulation,
+    sourceMode: sourceState.effectiveState,
+    isSimulated: sourceState.isSimulated,
     lot: {
       id: master.id,
       lotId: master.lotId,

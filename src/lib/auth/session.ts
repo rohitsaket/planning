@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { db } from "@/lib/db";
-import { permissionsFor, type Permission } from "@/lib/auth/permissions";
+import { type Permission } from "@/lib/auth/permissions";
+import { ASSIGNED_ROLE_SELECT, resolveEffectiveAccess } from "@/lib/auth/effective-permissions";
 
 export const SESSION_COOKIE = "dp_session";
 const ABSOLUTE_TTL_MS = Number(process.env.SESSION_TTL_HOURS || 12) * 3600_000;
@@ -11,9 +12,17 @@ export interface Principal {
   userId: string;
   username: string;
   displayName: string;
+  /** Legacy single-role code. Kept for audit attribution and display, never for authorization. */
   role: string;
+  /** Codes of the active roles actually assigned to this user. */
+  roleCodes: string[];
   permissions: Permission[];
   sessionId: string;
+  /**
+   * True while the account is on a temporary password. A restricted session may reach
+   * only its own identity, the password-change endpoint and logout.
+   */
+  mustChangePassword: boolean;
 }
 
 function sha256(v: string): string {
@@ -64,7 +73,10 @@ export async function createSession(userId: string, meta: { ip: string | null; u
 export async function resolvePrincipal(req: Request): Promise<Principal | null> {
   const token = readCookie(req, SESSION_COOKIE);
   if (!token || token.length > 200) return null;
-  const session = await db.session.findUnique({ where: { tokenHash: sha256(token) }, include: { user: true } });
+  const session = await db.session.findUnique({
+    where: { tokenHash: sha256(token) },
+    include: { user: { include: { roleAssignments: { select: ASSIGNED_ROLE_SELECT } } } },
+  });
   if (!session || session.revokedAt) return null;
   const now = Date.now();
   if (session.expiresAt.getTime() <= now) return null;
@@ -73,13 +85,22 @@ export async function resolvePrincipal(req: Request): Promise<Principal | null> 
   if (now - session.lastSeenAt.getTime() > TOUCH_INTERVAL_MS) {
     await db.session.update({ where: { id: session.id }, data: { lastSeenAt: new Date(now) } }).catch(() => undefined);
   }
+  // Authorization always comes from the database, per request: a role change therefore
+  // takes effect on the very next request without revoking the session.
+  const access = resolveEffectiveAccess(
+    session.user.roleAssignments.map((a) => a.role),
+    session.user.role,
+  );
+
   return {
     userId: session.user.id,
     username: session.user.username,
     displayName: session.user.displayName,
     role: session.user.role,
-    permissions: permissionsFor(session.user.role),
+    roleCodes: access.roleCodes,
+    permissions: access.permissions,
     sessionId: session.id,
+    mustChangePassword: session.user.mustChangePassword,
   };
 }
 
@@ -87,6 +108,23 @@ export async function revokeSession(sessionId: string) {
   await db.session.updateMany({ where: { id: sessionId, revokedAt: null }, data: { revokedAt: new Date() } });
 }
 
-export async function revokeAllSessions(userId: string) {
-  await db.session.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date() } });
+/**
+ * Ends every live session for a user and reports how many were ended, so the count can
+ * be audited. `exceptSessionId` keeps the caller's own session alive — used by the
+ * password-change flow, where the user should stay signed in on the device they just
+ * used while every other session is invalidated.
+ */
+export async function revokeAllSessions(
+  userId: string,
+  options: { exceptSessionId?: string } = {},
+): Promise<number> {
+  const result = await db.session.updateMany({
+    where: {
+      userId,
+      revokedAt: null,
+      ...(options.exceptSessionId ? { id: { not: options.exceptSessionId } } : {}),
+    },
+    data: { revokedAt: new Date() },
+  });
+  return result.count;
 }

@@ -31,10 +31,13 @@ import {
   loadWipPolicy,
   type WipPolicy,
 } from "@/lib/demand/wip-classification";
-import { getFantasyConfig } from "@/lib/fantasy/config";
+import { resolveFantasySourceState } from "@/lib/fantasy/config";
 import { getISTDateString, parseISTDateToUTC, nowUTC } from "@/lib/fantasy/time";
 import { roundHalfUpInt } from "@/lib/domain/diamond-rules";
 import crypto from "crypto";
+import { resolveEffectiveClassification } from "@/lib/fantasy/classification";
+import { LEGACY_FIXTURE_PROFILE, loadClassificationProfile } from "@/lib/fantasy/classification-profile";
+import { loadConfirmedSaleFacts } from "@/lib/demand/confirmed-sales";
 
 export type DemandSourcePolicy = "CANONICAL_FANTASY" | "LEGACY_SALES";
 
@@ -276,7 +279,33 @@ export async function unlockDemandCalculation(
  */
 export async function runDemandCalculation(options: DemandRunOptions = {}): Promise<DemandRunResult> {
   const startTime = Date.now();
-  const config = getFantasyConfig();
+  // Stamped on the run so a historical result always says what it was calculated from.
+  // The value is the centrally derived effective state; `deriveHistoricalSourceState`
+  // reads both it and the legacy vocabulary already stored on older runs, so no
+  // historical value is rewritten.
+  const sourceState = resolveFantasySourceState();
+  // One classification authority for the run. Records written by the synchronization
+  // service already carry their classification; anything else is classified on read
+  // through this same profile rather than by reinterpreting the raw status here.
+  const classificationProfile = await loadClassificationProfile(LEGACY_FIXTURE_PROFILE);
+  // Memoized per record: the chain below consults the classification several times and
+  // must not re-derive it each time.
+  const classificationCache = new Map<string, ReturnType<typeof resolveEffectiveClassification>>();
+  /**
+   * The classification to act on for one inventory record. The operational mirror is
+   * passed in so a stale or hand-written mirror can only ever make the answer more
+   * restrictive, never more permissive.
+   */
+  const classificationOf = (
+    record: Parameters<typeof resolveEffectiveClassification>[0] & { lotId: string },
+    mirrorPlanningClass: string | null,
+  ) => {
+    const hit = classificationCache.get(record.lotId);
+    if (hit) return hit;
+    const resolved = resolveEffectiveClassification(record, classificationProfile, mirrorPlanningClass);
+    classificationCache.set(record.lotId, resolved);
+    return resolved;
+  };
   const sourcePolicy: DemandSourcePolicy = options.sourcePolicy ?? "CANONICAL_FANTASY";
   await ensureLockRecord();
 
@@ -319,8 +348,8 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
       businessDateIst,
       lookbackStart,
       lookbackEnd,
-      sourceMode: config.sourceMode,
-      isSimulated: config.isSimulation,
+      sourceMode: sourceState.effectiveState,
+      isSimulated: sourceState.isSimulated,
       lockToken,
       actor: options.actor ?? "SYSTEM",
       actorUserId: options.actorUserId ?? null,
@@ -361,135 +390,19 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
     const currentCheckpoint = checkpointRecord?.currentCheckpoint ?? 0;
     const lastBatchId = checkpointRecord?.lastBatchId ?? lastSyncRun?.batchId ?? null;
     const actualSourceCutoff = lastSyncRun?.sourceCutoff ?? null;
-
     // 4. FETCH SALES EVENTS ACCORDING TO SOURCE POLICY
-    interface ConfirmedSaleFact {
-      eventKey: string;
-      lotId: string;
-      sourceRecordId?: string | null;
-      docDate: Date;
-      shape: string;
-      weight: number;
-      labRaw?: string | null;
-      labNormalized?: string | null;
-      saleTotalUsd?: number | null;
-      customerName?: string | null;
-      quantity: number;
-    }
-
-    const confirmedSaleFacts: ConfirmedSaleFact[] = [];
-    const seenSaleEventKeys = new Set<string>();
-
-    if (sourcePolicy === "CANONICAL_FANTASY") {
-      // Find candidate lotIds with sale events in lookback window
-      const candidateLots = await db.lotHistoryRecord.findMany({
-        where: {
-          docDate: {
-            gte: lookbackStart,
-            lte: lookbackEnd,
-          },
-          OR: [
-            { status: { in: ["SOLD", "INVOICE"] } },
-            { removalReason: "EXPLICIT_SALE" },
-          ],
-        },
-        select: { lotId: true },
-        distinct: ["lotId"],
-      });
-
-      const lotIds = candidateLots.map((c) => c.lotId);
-
-      const historyRecords = await db.lotHistoryRecord.findMany({
-        where: {
-          lotId: { in: lotIds },
-        },
-        orderBy: [
-          { lotId: "asc" },
-          { version: "asc" },
-        ],
-      });
-
-      // Lifecycle deduplication per lotId
-      const lotSalesState = new Map<string, { inSaleEpisode: boolean; episodeIndex: number }>();
-
-      for (const h of historyRecords) {
-        let state = lotSalesState.get(h.lotId);
-        if (!state) {
-          state = { inSaleEpisode: false, episodeIndex: 1 };
-          lotSalesState.set(h.lotId, state);
-        }
-
-        const isSaleStatus = h.status === "SOLD" || h.status === "INVOICE" || h.removalReason === "EXPLICIT_SALE";
-
-        if (!isSaleStatus) {
-          // Lot returned to non-sale status (e.g. STOCK or MEMO) -> start of potential next episode
-          state.inSaleEpisode = false;
-          state.episodeIndex++;
-          continue;
-        }
-
-        // If this record is part of an already-counted active sale episode, avoid double-counting
-        if (state.inSaleEpisode) {
-          continue;
-        }
-
-        state.inSaleEpisode = true;
-
-        // Check if this sale event falls in the 90-day window
-        if (h.docDate < lookbackStart || h.docDate > lookbackEnd) {
-          continue;
-        }
-
-        const eventKey = h.sourceRecordId ? `SRC_${h.sourceRecordId}` : `FANTASY_${h.lotId}_EP${state.episodeIndex}`;
-
-        if (!seenSaleEventKeys.has(eventKey)) {
-          seenSaleEventKeys.add(eventKey);
-          confirmedSaleFacts.push({
-            eventKey,
-            lotId: h.lotId,
-            sourceRecordId: h.sourceRecordId,
-            docDate: h.docDate,
-            shape: h.shape,
-            weight: Number(h.weight),
-            labRaw: h.labRaw,
-            labNormalized: h.labNormalized,
-            saleTotalUsd: h.saleTotalUsd ? Number(h.saleTotalUsd) : null,
-            customerName: h.customerName,
-            quantity: Number(h.quantity) > 0 ? Number(h.quantity) : 1,
-          });
-        }
-      }
-    } else {
-      // LEGACY_SALES source policy
-      const legacySales = await db.salesRecord.findMany({
-        where: {
-          docDate: {
-            gte: lookbackStart,
-            lte: lookbackEnd,
-          },
-        },
-      });
-
-      for (const s of legacySales) {
-        const eventKey = `LEGACY_${s.lotId}_${s.id}`;
-        if (!seenSaleEventKeys.has(eventKey)) {
-          seenSaleEventKeys.add(eventKey);
-          confirmedSaleFacts.push({
-            eventKey,
-            lotId: s.lotId,
-            sourceRecordId: null,
-            docDate: s.docDate,
-            shape: s.shape,
-            weight: Number(s.weight),
-            labRaw: s.labRaw,
-            labNormalized: s.labNormalized,
-            saleTotalUsd: s.saleTotalUsd ? Number(s.saleTotalUsd) : null,
-            customerName: null,
-            quantity: Number(s.qty) > 0 ? Number(s.qty) : 1,
-          });
-        }
-      }
-    }
+    //
+    // Delegated to the shared confirmed-sales service. The window, the SOLD/INVOICE and
+    // explicit-sale eligibility, the lifecycle episode deduplication, the deterministic
+    // event identity and the quantity provenance all live there, so the demand run and
+    // the Analysis pages cannot disagree about what a confirmed sale is.
+    const confirmedSales = await loadConfirmedSaleFacts({
+      windowDays,
+      policy: sourcePolicy,
+      referenceDate: refDate,
+      client: db,
+    });
+    const confirmedSaleFacts = confirmedSales.facts;
 
     // 5. FETCH FINISHED INVENTORY & RECONCILE OPERATIONAL MIRROR
     const [currentInventoryLots, polishedMirrors] = await Promise.all([
@@ -668,6 +581,29 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
             reason: `Unapproved planning mapping for sale event`,
             isIncluded: false,
           });
+        } else {
+          // No weight band means no category to file this under — but a confirmed sale
+          // event must never leave the trace empty-handed. Without this row the event is
+          // counted in salesCount, raises a data-quality issue, and then cannot be found
+          // by anyone asking "which sales did this run see?".
+          //
+          // The quarantine bucket exists for exactly this: visible and reviewable,
+          // without inventing a category to hold it.
+          traceItemsToPersist.push({
+            runId: initialRun.id,
+            planningCategory: QUARANTINE_CATEGORY,
+            traceType: "EXCLUSION",
+            lotId: rec.lotId,
+            sourceRecordId: rec.sourceRecordId,
+            eventKey: rec.eventKey,
+            quantity: rec.quantity,
+            weight: rec.weight,
+            lab: rec.labRaw,
+            shape: rec.shape,
+            weightBand: undefined,
+            reason: `Unapproved planning mapping for sale event`,
+            isIncluded: false,
+          });
         }
         continue;
       }
@@ -838,7 +774,10 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
           reason,
           isIncluded: false,
         });
-      } else if (inv.currentStatus === "STOCK" && (mirror.planningClass === "PHYSICAL" || mirror.planningClass === "PLANNING_AVAILABLE")) {
+      // Availability comes from the persisted canonical classification, not from a
+      // second reading of the raw status. A record the classifier did not classify — a
+      // null, from before classification existed — is never treated as available.
+      } else if (classificationOf(inv, mirror.planningClass).available) {
         trace.availableStock += Math.round(qty);
         trace.physicalStockLots.push({
           lotId: inv.lotId,
@@ -863,7 +802,7 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
           weightBand: band.label,
           isIncluded: true,
         });
-      } else if (inv.currentStatus === "MEMO" || mirror.planningClass === "MEMO") {
+      } else if (classificationOf(inv, mirror.planningClass).inventoryClass === "MEMO") {
         trace.memoQty += Math.round(qty);
         trace.memoLots.push({
           lotId: inv.lotId,
@@ -886,7 +825,7 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
           reason: "Memo consignment stock — does NOT reduce physical shortage",
           isIncluded: true,
         });
-      } else if (inv.currentStatus === "RESERVED" || mirror.planningClass === "RESERVED") {
+      } else if (classificationOf(inv, mirror.planningClass).inventoryClass === "RESERVED") {
         trace.reservedQty += Math.round(qty);
         traceItemsToPersist.push({
           runId: initialRun.id,
@@ -913,7 +852,7 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
           lab: normLab,
           shape: normShape,
           weightBand: band.label,
-          reason: `Stock status ${inv.currentStatus} / class ${mirror.planningClass} — blocked from availability`,
+          reason: `Excluded by canonical classification (${classificationOf(inv, mirror.planningClass).inventoryClass})${classificationOf(inv, mirror.planningClass).reasons ? `: ${classificationOf(inv, mirror.planningClass).reasons}` : ""}`,
           isIncluded: false,
         });
       }
@@ -1289,7 +1228,7 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
       checkpoint: currentCheckpoint,
       lastBatchId,
       sourceCutoff: actualSourceCutoff ? actualSourceCutoff.toISOString() : null,
-      isSimulated: config.isSimulation,
+      isSimulated: sourceState.isSimulated,
       durationMs,
       categories: finalCategories,
     };

@@ -165,12 +165,12 @@ export function PolishedView() {
 
   const detailColumns: Column<PolishedDetailRow>[] = [
     { key: "fantasyLotId", header: "Lot ID", sortable: true, sortValue: (r) => r.fantasyLotId, cell: (r) => <span className="font-mono text-[11px]">{r.fantasyLotId}</span> },
-    { key: "planningClass", header: "Class", cell: (r) => <span className="text-[11px]">{r.planningClass}</span> },
-    { key: "lab", header: "Lab", cell: (r) => <span className="text-[11px]">{r.lab ?? "—"}</span> },
-    { key: "shape", header: "Shape", cell: (r) => <span className="text-[11px]">{r.shape}</span> },
-    { key: "weightBand", header: "Weight Band", cell: (r) => <span className="text-[11px]">{r.weightBand ?? "—"}</span> },
+    { key: "planningClass", header: "Class", align: "center", cell: (r) => <span className="text-[11px]">{r.planningClass}</span> },
+    { key: "lab", header: "Lab", align: "center", cell: (r) => <span className="text-[11px]">{r.lab ?? "—"}</span> },
+    { key: "shape", header: "Shape", align: "center", cell: (r) => <span className="text-[11px]">{r.shape}</span> },
+    { key: "weightBand", header: "Weight Band", align: "center", cell: (r) => <span className="text-[11px]">{r.weightBand ?? "—"}</span> },
     { key: "weight", header: "Carats", align: "right", sortable: true, sortValue: (r) => r.weight, cell: (r) => <NumberCell value={r.weight} /> },
-    { key: "country", header: "Location", cell: (r) => <span className="text-[11px]">{r.country} / {r.branch}</span> },
+    { key: "country", header: "Location", align: "center", cell: (r) => <span className="text-[11px]">{r.country} / {r.branch}</span> },
     {
       key: "estimatedValue",
       header: "Est. Value",
@@ -178,7 +178,7 @@ export function PolishedView() {
       exportValue: (r) => (r.estimatedValue === null ? "UNAVAILABLE" : r.estimatedValue),
       cell: (r) => (r.estimatedValue === null ? <span className="text-[10px] font-mono text-muted-foreground">—</span> : <Money value={r.estimatedValue} />),
     },
-    { key: "lastUpdated", header: "Last Updated", sortable: true, sortValue: (r) => r.lastUpdated, cell: (r) => <span className="text-[11px]">{new Date(r.lastUpdated).toLocaleDateString()}</span> },
+    { key: "lastUpdated", header: "Last Updated", align: "center", sortable: true, sortValue: (r) => r.lastUpdated, cell: (r) => <span className="text-[11px]">{new Date(r.lastUpdated).toLocaleDateString()}</span> },
   ];
 
   return (

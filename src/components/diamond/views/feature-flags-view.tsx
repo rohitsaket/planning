@@ -87,6 +87,8 @@ export function FeatureFlagsView() {
           searchable
           searchPlaceholder="Search by code or name..."
           searchFn={(r, q) => [r.code, r.name, r.description ?? ""].some((f) => f.toLowerCase().includes(q.toLowerCase()))}
+          pagination
+          pageSize={25}
         />
       </Section>
     </div>

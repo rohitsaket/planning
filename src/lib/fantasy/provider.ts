@@ -5,6 +5,7 @@
  * without coupling UI or business logic to fixtures.
  */
 
+import type { LegacyCanonicalSyncMode } from "./source-state";
 import {
   CanonicalSourceMode,
   CanonicalRecord,
@@ -942,12 +943,11 @@ export class LiveFantasyProvider implements FantasyDataProvider {
 // FACTORY
 // ---------------------------------------------------------------------------
 
-export function getFantasyProvider(mode: CanonicalSourceMode = "FIXTURE"): FantasyDataProvider {
-  if (mode === "FIXTURE") {
-    return new FixtureFantasyProvider();
-  }
-  if (mode === "FANTASY_API") {
-    return new LiveFantasyProvider();
-  }
-  throw new Error(`Unsupported source mode: "${mode}"`);
+/**
+ * `FILE_IMPORT` is unrepresentable here: no importer, route or provider ever existed
+ * for it, and it is now refused during configuration validation rather than accepted
+ * and thrown on at run time.
+ */
+export function getFantasyProvider(mode: LegacyCanonicalSyncMode = "FIXTURE"): FantasyDataProvider {
+  return mode === "FANTASY_API" ? new LiveFantasyProvider() : new FixtureFantasyProvider();
 }

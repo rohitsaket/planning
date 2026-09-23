@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import { useApi } from "@/lib/api-client";
+import { useGlobalFilter } from "@/stores/global-filter";
 import { KpiCard } from "@/components/diamond/shared/kpi-card";
 import { Section, PageHeader } from "@/components/diamond/shared/page-header";
 import { DataTable, Column } from "@/components/diamond/shared/data-table";
@@ -27,9 +28,21 @@ interface ExcessResponse {
 }
 
 export function ExcessView() {
+  const globalFilter = useGlobalFilter();
   const { data, isLoading } = useApi<ExcessResponse>("/api/analysis/excess");
 
-  const rows = data?.rows ?? [];
+  const rawRows = data?.rows ?? [];
+  const rows = useMemo(() => {
+    if (!globalFilter.lab) return rawRows;
+    return rawRows.filter((r) => {
+      if (globalFilter.lab === "Non-Cert") return r.category.toUpperCase().includes("NON-CERT") || !r.category.includes("|");
+      if (globalFilter.lab === "Other") return !r.category.toUpperCase().startsWith("GIA") && !r.category.toUpperCase().includes("NON-CERT");
+      return r.category.toUpperCase().startsWith((globalFilter.lab as string).toUpperCase());
+    });
+  }, [rawRows, globalFilter.lab]);
+
+  const totalExcess = useMemo(() => (globalFilter.lab ? rows.reduce((s, r) => s + r.excessQty, 0) : (data?.totalExcess ?? 0)), [rows, globalFilter.lab, data?.totalExcess]);
+
   const excessSpark = useMemo(() => {
     const slice = rows.slice(0, 7).map((r) => r.excessQty);
     while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 1);
@@ -71,7 +84,7 @@ export function ExcessView() {
       <PageHeader
         title="Excess Stock Analysis"
         subtitle="MAX(0, Available − Target) per planning category — descriptive, does NOT change shortage"
-        meta={<span className="text-[10px] text-muted-foreground">{data?.rows.length ?? 0} categories with excess</span>}
+        meta={<span className="text-[10px] text-muted-foreground">{rows.length} categories with excess</span>}
       />
 
       <InfoBanner variant="info">
@@ -79,10 +92,10 @@ export function ExcessView() {
       </InfoBanner>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-        <KpiCard label="Total Excess" value={data?.totalExcess ?? 0} unit="pcs" intent="warning" hint="Σ MAX(0, Avail − Tgt)" icon={Package} sparkline={excessSpark} />
-        <KpiCard label="Categories with Excess" value={data?.rows.length ?? 0} intent="info" hint="Count of categories" icon={Layers} sparkline={catCountSpark} />
+        <KpiCard label="Total Excess" value={totalExcess} unit="pcs" intent="warning" hint="Σ MAX(0, Avail − Tgt)" icon={Package} sparkline={excessSpark} />
+        <KpiCard label="Categories with Excess" value={rows.length} intent="info" hint="Count of categories" icon={Layers} sparkline={catCountSpark} />
         <KpiCard label="Avg Excess / Category" value={
-          data && data.rows.length > 0 ? Math.round(data.totalExcess / data.rows.length) : 0
+          rows.length > 0 ? Math.round(totalExcess / rows.length) : 0
         } unit="pcs" intent="default" hint="Mean excess qty" icon={TrendingUp} sparkline={avgSpark} />
       </div>
 
@@ -120,7 +133,7 @@ export function ExcessView() {
       <Section title="Excess Detail" description="Sortable category breakdown with excess, available, target and shortage">
         <DataTable<ExcessRow>
           columns={columns}
-          rows={data?.rows ?? []}
+          rows={rows}
           loading={isLoading}
           emptyMessage="No excess categories found."
           initialSortKey="excessQty"
@@ -131,6 +144,8 @@ export function ExcessView() {
           searchable
           searchPlaceholder="Search category..."
           searchFn={(r, q) => r.category.toLowerCase().includes(q.toLowerCase())}
+          pagination
+          pageSize={25}
           maxHeight="500px"
         />
       </Section>

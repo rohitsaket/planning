@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, test } from "bun:test";
+import { beforeAll, describe, expect, test } from "./harness";
 import * as XLSX from "xlsx";
 import { BASE, call, db, makeCase, makeRough, makeUser, resetDb } from "./helpers";
 import { POST as approvals } from "@/app/api/planning/approvals/route";
@@ -12,32 +12,36 @@ import { inspectXlsxContainer } from "@/lib/domain/workbook-guard";
 import { PAGE_DEFAULT, PAGE_MAX, SCAN_MAX, scanned } from "@/lib/api/with-api";
 import { resetRateLimits } from "@/lib/api/rate-limit";
 
-let admin: Awaited<ReturnType<typeof makeUser>>, planner: typeof admin, viewer: typeof admin;
+let admin: Awaited<ReturnType<typeof makeUser>>, planner: typeof admin, viewer: typeof admin, approver: typeof admin;
 beforeAll(async () => {
   await resetDb();
   admin = await makeUser("vadmin", "ADMIN");
   planner = await makeUser("vplanner", "PLANNER");
   viewer = await makeUser("vviewer", "VIEWER");
+  // ADMIN deliberately lacks plan.approve, so it is refused before the body is ever
+  // parsed. Body-validation behaviour has to be exercised by a principal that is
+  // actually authorized for the route.
+  approver = await makeUser("vapprover", "PLANNING_MANAGER");
   await makeRough();
   for (let i = 0; i < 3; i++) await makeCase();
 });
 
 describe("input handling (REL-002)", () => {
   test("malformed JSON → 400, not 500", async () => {
-    const r = await call(approvals, { method: "POST", cookie: admin.cookie, raw: "{not json" });
+    const r = await call(approvals, { method: "POST", cookie: approver.cookie, raw: "{not json" });
     expect([r.status, r.json.error.code]).toEqual([400, "BAD_REQUEST"]);
   });
   test("wrong types / missing fields → 400 with field details, no stack", async () => {
-    const r = await call(approvals, { method: "POST", cookie: admin.cookie, body: { caseId: 42, action: "explode" } });
+    const r = await call(approvals, { method: "POST", cookie: approver.cookie, body: { caseId: 42, action: "explode" } });
     expect([r.status, r.json.error.code]).toEqual([400, "VALIDATION_FAILED"]);
     expect(JSON.stringify(r.json)).not.toMatch(/at .*\.ts|node_modules/);
   });
   test("oversized JSON body → 413", async () => {
-    const r = await call(approvals, { method: "POST", cookie: admin.cookie, raw: JSON.stringify({ caseId: "x", action: "approve", comment: "a".repeat(80_000) }) });
+    const r = await call(approvals, { method: "POST", cookie: approver.cookie, raw: JSON.stringify({ caseId: "x", action: "approve", comment: "a".repeat(80_000) }) });
     expect(r.status).toBe(413);
   });
   test("cross-origin state-changing request → 403", async () => {
-    const r = await call(approvals, { method: "POST", cookie: admin.cookie, body: { caseId: "x", action: "approve" }, headers: { origin: "https://evil.example" } });
+    const r = await call(approvals, { method: "POST", cookie: approver.cookie, body: { caseId: "x", action: "approve" }, headers: { origin: "https://evil.example" } });
     expect(r.status).toBe(403);
   });
   for (const bad of ["abc", "-5", "0", "1e9", "99999", "12.5", ""]) {

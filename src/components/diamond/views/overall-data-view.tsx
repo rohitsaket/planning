@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useApi, apiFetch } from "@/lib/api-client";
+import { useGlobalFilter } from "@/stores/global-filter";
 import { PageHeader, Section } from "@/components/diamond/shared/page-header";
 import { KpiCard } from "@/components/diamond/shared/kpi-card";
 import { DataTable, type Column } from "@/components/diamond/shared/data-table";
@@ -124,13 +125,20 @@ interface LotTimelineResponse {
 }
 
 export function OverallDataView() {
+  const globalFilter = useGlobalFilter();
   const [filterMode, setFilterMode] = useState<"all" | "current" | "historical">("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedLotId, setSelectedLotId] = useState<string | null>(null);
 
-  const queryUrl = `/api/fantasy/overall?isCurrent=${
-    filterMode === "current" ? "true" : filterMode === "historical" ? "false" : "all"
-  }${searchQuery.trim() ? `&q=${encodeURIComponent(searchQuery.trim())}` : ""}`;
+  const queryUrl = useMemo(() => {
+    const params = new URLSearchParams();
+    params.set("isCurrent", filterMode === "current" ? "true" : filterMode === "historical" ? "false" : "all");
+    if (searchQuery.trim()) params.set("q", searchQuery.trim());
+    if (globalFilter.country) params.set("country", globalFilter.country);
+    if (globalFilter.branch) params.set("branch", globalFilter.branch);
+    if (globalFilter.lab) params.set("lab", globalFilter.lab);
+    return `/api/fantasy/overall?${params.toString()}`;
+  }, [filterMode, searchQuery, globalFilter.country, globalFilter.branch, globalFilter.lab]);
 
   const { data, isLoading, refetch } = useApi<OverallDataResponse>(queryUrl);
   const { data: detailData, isLoading: detailLoading } = useApi<LotTimelineResponse>(
@@ -142,12 +150,12 @@ export function OverallDataView() {
 
   const handleExport = async () => {
     try {
-      window.open(
-        `/api/fantasy/overall/export?isCurrent=${
-          filterMode === "current" ? "true" : filterMode === "historical" ? "false" : "all"
-        }`,
-        "_blank"
-      );
+      const params = new URLSearchParams();
+      params.set("isCurrent", filterMode === "current" ? "true" : filterMode === "historical" ? "false" : "all");
+      if (globalFilter.country) params.set("country", globalFilter.country);
+      if (globalFilter.branch) params.set("branch", globalFilter.branch);
+      if (globalFilter.lab) params.set("lab", globalFilter.lab);
+      window.open(`/api/fantasy/overall/export?${params.toString()}`, "_blank");
       toast.success("Export initiated", { description: "Overall Data CSV export download started." });
     } catch {
       toast.error("Export failed", { description: "Failed to download Overall Data export." });
@@ -286,6 +294,7 @@ export function OverallDataView() {
     {
       key: "lastSeen",
       header: "Last Seen (IST)",
+      align: "center",
       sortable: true,
       sortValue: (r) => r.lastSeenAtIST,
       cell: (r) => <span className="text-xs text-muted-foreground">{r.lastSeenAtIST}</span>,
@@ -329,7 +338,7 @@ export function OverallDataView() {
           hint="All lots ever synchronized"
         />
         <KpiCard
-          label="Active Live Stock"
+          label="Active Current Stock"
           value={summary?.active ?? 0}
           intent="success"
           hint="Currently in physical/memo stock"
@@ -403,6 +412,8 @@ export function OverallDataView() {
           rows={rows}
           loading={isLoading}
           emptyMessage="No lot records found matching the selected filters."
+          pagination
+          pageSize={25}
           maxHeight="540px"
           initialSortKey="lotId"
           initialSortDir="asc"
@@ -411,7 +422,7 @@ export function OverallDataView() {
 
       {/* Historical Timeline Drawer / Dialog */}
       <Dialog open={!!selectedLotId} onOpenChange={(open) => !open && setSelectedLotId(null)}>
-        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+        <DialogContent className="max-w-4xl sm:max-w-4xl max-h-[88vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-base">
               <History className="h-5 w-5 text-primary" />
@@ -435,7 +446,7 @@ export function OverallDataView() {
                     <span className="font-bold text-sm text-foreground">{detailData.lot.lotId}</span>
                     <StatusBadge status={detailData.lot.currentStatus} />
                     {detailData.lot.isCurrent ? (
-                      <Badge variant="success">Active Live</Badge>
+                      <Badge variant="success">Current Record</Badge>
                     ) : (
                       <Badge variant="neutral">Historical Record</Badge>
                     )}

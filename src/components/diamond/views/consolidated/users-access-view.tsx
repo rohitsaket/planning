@@ -6,15 +6,15 @@ import { AccessRequestsView } from "@/components/diamond/views/access-requests-v
 import { Users, UserPlus } from "lucide-react";
 
 const TABS: HostTabItem[] = [
-  { id: "users", label: "Users & Roles", icon: <Users className="h-3.5 w-3.5" />, permission: "user.manage", component: UsersView },
-  { id: "requests", label: "Access Requests", icon: <UserPlus className="h-3.5 w-3.5" />, permission: "user.manage", component: AccessRequestsView },
+  { id: "users", label: "Users & Roles", icon: <Users className="h-3.5 w-3.5" />, permission: "user.read", component: UsersView },
+  { id: "requests", label: "Access Requests", icon: <UserPlus className="h-3.5 w-3.5" />, permission: "access_request.review", component: AccessRequestsView },
 ];
 
 export function UsersAccessView() {
   return (
     <TabbedHostView
       title="Users and Access"
-      subtitle="Enterprise role-based access control, user accounts, and self-service registration approval queue"
+      subtitle="Accounts, roles and the self-service registration approval queue, each governed by its own permission"
       tabs={TABS}
       defaultTab="users"
     />

@@ -3,14 +3,16 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { ok } from "@/lib/api-utils";
 import { withApi, paging, paged, idSchema, qEnum, reasonSchema } from "@/lib/api/with-api";
-import { badRequest, conflict, notFound } from "@/lib/api/errors";
+import { conflict, forbidden, notFound } from "@/lib/api/errors";
 import { ROLES } from "@/lib/auth/permissions";
 import { hashPassword } from "@/lib/auth/password";
+import { replaceUserRoles, resolveAssignableRoles } from "@/lib/auth/role-service";
 
-// Review queue for self-service registration requests. `user.manage` only — the
-// same permission that governs every other account operation.
+// Review queue for self-service registration requests. Governed by
+// `access_request.review`, which is separate from the rest of account administration:
+// deciding who gets an account is not the same authority as resetting a password.
 
-export const GET = withApi({ permission: "user.manage" }, async (_req, _ctx, api) => {
+export const GET = withApi({ permission: "access_request.review" }, async (_req, _ctx, api) => {
   const p = paging(api.url);
   const status = qEnum(api.url, "status", ["PENDING", "APPROVED", "REJECTED", "ALL"] as const, "PENDING");
   const rows = await db.accessRequest.findMany({
@@ -48,7 +50,7 @@ const bodySchema = z.discriminatedUnion("op", [
   z.object({ op: z.literal("reject"), id: idSchema, reason: reasonSchema }),
 ]);
 
-export const POST = withApi({ permission: "user.manage", body: bodySchema }, async (_req, _ctx, api) => {
+export const POST = withApi({ permission: "access_request.review", body: bodySchema }, async (_req, _ctx, api) => {
   const b = api.body;
   const reqRow = await db.accessRequest.findUnique({ where: { id: b.id } });
   if (!reqRow) throw notFound("Access request");
@@ -61,13 +63,13 @@ export const POST = withApi({ permission: "user.manage", body: bodySchema }, asy
         data: { status: "REJECTED", pendingKey: null, reviewedBy: api.principal.username, reviewedByUserId: api.principal.userId, reviewedAt: new Date(), decisionNote: b.reason },
       });
       if (claimed.count !== 1) throw conflict("ALREADY_DECIDED", "That request has already been decided.");
-      await api.audit(tx, { action: "ACCESS_REQUEST_REJECTED", entity: "AccessRequest", entityId: b.id, before: { status: "PENDING" }, after: { status: "REJECTED" }, reason: b.reason });
+      await api.audit(tx, { action: "ACCESS_REQUEST_REJECTED", entity: "AccessRequest", entityId: b.id, before: { status: "PENDING" }, after: { status: "REJECTED" }, reason: b.reason, category: "SECURITY" });
     });
     return ok({ id: b.id, status: "REJECTED" });
   }
 
   // Approval mints a real account — the same guard the admin create path uses.
-  if (b.role === "SUPER_ADMIN" && api.principal.role !== "SUPER_ADMIN") throw badRequest("Only a Super Admin can assign the Super Admin role.");
+  if (b.role === "SUPER_ADMIN" && !api.principal.permissions.includes("user.super_admin.assign")) throw forbidden("Assigning the Super Admin role requires a separate authority.");
   if (await db.user.findUnique({ where: { username: reqRow.username }, select: { id: true } })) {
     throw conflict("USERNAME_TAKEN", "An account with that username now exists. Reject this request instead.");
   }
@@ -80,17 +82,34 @@ export const POST = withApi({ permission: "user.manage", body: bodySchema }, asy
   const user = await db.$transaction(async (tx) => {
     const claimed = await tx.accessRequest.updateMany({ where: { id: b.id, status: "PENDING" }, data: { status: "APPROVED" } });
     if (claimed.count !== 1) throw conflict("ALREADY_DECIDED", "That request has already been decided.");
+    const roles = await resolveAssignableRoles(tx, [b.role]);
     const u = await tx.user.create({
-      data: { username: reqRow.username, displayName: reqRow.displayName, email: reqRow.email, role: b.role, passwordHash },
+      data: {
+        username: reqRow.username,
+        displayName: reqRow.displayName,
+        email: reqRow.email,
+        role: b.role,
+        passwordHash,
+        // Issued password is temporary: the account is restricted until it is changed.
+        mustChangePassword: true,
+        passwordChangedAt: new Date(),
+        createdByUserId: api.principal.userId,
+      },
+    });
+    await replaceUserRoles(tx, {
+      userId: u.id,
+      roles,
+      assignedByUserId: api.principal.userId,
+      reason: "Initial role assigned when the access request was approved",
     });
     await tx.accessRequest.update({
       where: { id: b.id },
       data: { pendingKey: null, createdUserId: u.id, reviewedBy: api.principal.username, reviewedByUserId: api.principal.userId, reviewedAt: new Date(), decisionNote: b.note ?? null },
     });
-    await api.audit(tx, { action: "ACCESS_REQUEST_APPROVED", entity: "AccessRequest", entityId: b.id, before: { status: "PENDING" }, after: { status: "APPROVED", userId: u.id, role: b.role }, reason: b.note ?? null });
+    await api.audit(tx, { action: "ACCESS_REQUEST_APPROVED", entity: "AccessRequest", entityId: b.id, before: { status: "PENDING" }, after: { status: "APPROVED", userId: u.id, role: b.role }, reason: b.note ?? null, category: "SECURITY" });
     // Second row against the User, so account creation is visible when auditing
     // by entity=User regardless of how the account came about.
-    await api.audit(tx, { action: "USER_CREATED", entity: "User", entityId: u.id, after: { username: u.username, role: u.role, via: "ACCESS_REQUEST" } });
+    await api.audit(tx, { action: "USER_CREATED", entity: "User", entityId: u.id, after: { username: u.username, roles: roles.map((r) => r.code), via: "ACCESS_REQUEST" }, category: "SECURITY" });
     return u;
   });
 

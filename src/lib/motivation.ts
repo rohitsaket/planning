@@ -15,7 +15,7 @@
 // for `date` first, then fall through to the provider chain already here.
 
 import { businessDate, daysBetween } from "@/lib/analytics/reporting-date";
-import { log } from "@/lib/api/with-api";
+import { log } from "@/lib/api/log";
 
 export interface Motivation {
   title: string;

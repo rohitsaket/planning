@@ -1,6 +1,16 @@
 // Single mapping for view permission requirements.
-// Frontend UX lock states use this to display lock icons and access restricted gates.
-// The backend API enforces authorization on every endpoint independently.
+//
+// Fails closed: a view id with no explicit entry has no permission and is denied to
+// everyone, Super Admin included. There is deliberately no prefix rule and no default —
+// an unmapped page used to resolve to `analysis.read`, the most widely held permission
+// in the system, so a newly added page was visible to almost every role before anyone
+// chose a permission for it.
+//
+// Each entry is the permission the page's own data API enforces, so a page is never
+// shown to someone whose first request would be a 403.
+//
+// Frontend lock states use this. The backend API enforces authorization on every
+// endpoint independently; this is UX, not the security boundary.
 
 const EXACT: Record<string, string> = {
   // Consolidated Workflow Views
@@ -21,18 +31,22 @@ const EXACT: Record<string, string> = {
   "orders-exceptions": "orders.read",
   "replenishment-allocation": "requirement.read",
   "planning-rough-availability": "rough.read",
-  "planning-workbook-import": "plan.read",
+  // Executing an import is a create: the route enforces plan.create.
+  "planning-workbook-import": "plan.create",
   "planning-workbench": "plan.read",
   "planning-comparison": "plan.read",
-  "planning-approval-queue": "plan.approve",
+  // Reading the queue needs plan.read; approving/rejecting needs plan.approve and is
+  // enforced on POST /api/planning/approvals and gated per button.
+  "planning-approval-queue": "plan.read",
   "manufacturing-overview": "fantasy.read",
-  "manufacturing-traceability": "fantasy.read",
+  // /api/traceability/[query] resolves rough, cases, plans and pieces: plan.read.
+  "manufacturing-traceability": "plan.read",
   "plan-vs-actual": "plan.read",
   "data-science-forecasting": "analysis.read",
   "data-science-predictive-models": "analysis.read",
   "data-science-prediction-monitoring": "analysis.read",
   "reports": "analysis.read",
-  "admin-users-access": "user.manage",
+  "admin-users-access": "user.read",
   "admin-rules-mappings": "business_rule.read",
   "admin-system-settings": "feature_flag.read",
   "admin-audit-log": "audit.read",
@@ -67,25 +81,66 @@ const EXACT: Record<string, string> = {
   "data-quality-unmapped-shapes": "config.read",
   "admin-business-rules": "business_rule.read",
   "admin-feature-flags": "feature_flag.read",
-  "admin-users": "user.manage",
-  "admin-access-requests": "user.manage",
+  "admin-users": "user.read",
+  "admin-access-requests": "access_request.review",
   "admin-weight-bands": "config.read",
   "admin-lab-mappings": "config.read",
   "admin-shape-mappings": "config.read",
+
+  // Fantasy subpages. Rough stock is served by /api/fantasy/rough, which enforces
+  // rough.read — not fantasy.read.
+  "fantasy-rough": "rough.read",
+  "fantasy-polished": "fantasy.read",
+  "fantasy-departments": "fantasy.read",
+  "fantasy-locations": "fantasy.read",
+  "fantasy-reconciliation": "fantasy.read",
+
+  // Manufacturing subpages.
+  "manufacturing-departments": "fantasy.read",
+  "manufacturing-locations": "fantasy.read",
+  "manufacturing-tracking": "fantasy.read",
+  "manufacturing-wip": "analysis.read",
+  "manufacturing-plan-vs-actual": "plan.read",
+
+  // Planning subpages.
+  "planning-cases": "plan.read",
+  "planning-planned-pieces": "plan.read",
+
+  // Requirements subpages (all render the requirements matrix).
+  "requirements-allocation": "requirement.read",
+  "requirements-backorders": "requirement.read",
+  "requirements-forecast-signals": "requirement.read",
+  "requirements-replenishment": "requirement.read",
+  "requirements-special": "requirement.read",
+
+  // Data-science subpages.
+  "data-science-forecast": "analysis.read",
+  "data-science-forecast-accuracy": "analysis.read",
+  "data-science-models": "analysis.read",
+  "data-science-anomaly-detection": "analysis.read",
+  "data-science-yield-prediction": "analysis.read",
 };
 
-export function viewPermission(viewId: string): string {
-  if (EXACT[viewId]) return EXACT[viewId];
-  if (viewId.startsWith("requirements-")) return "requirement.read";
-  if (viewId.startsWith("planning-")) return "plan.read";
-  if (viewId.startsWith("fantasy-") || viewId.startsWith("manufacturing-")) return "fantasy.read";
-  if (viewId.startsWith("admin-")) return "business_rule.read";
-  return "analysis.read";
+/**
+ * The permission a view requires, or null when the view has no mapping.
+ *
+ * Null means denied. It is never substituted with a default: an unmapped page must be
+ * unreachable until someone decides, explicitly, who may see it.
+ */
+export function viewPermission(viewId: string): string | null {
+  return Object.prototype.hasOwnProperty.call(EXACT, viewId) ? EXACT[viewId] : null;
+}
+
+/** Every view id that has an explicit mapping. Used by tests and the admin matrix. */
+export function mappedViewIds(): string[] {
+  return Object.keys(EXACT).sort();
 }
 
 export function isViewAuthorized(userPerms: string[] | undefined | null, viewId: string): boolean {
   if (!userPerms || userPerms.length === 0) return false;
   const reqPerm = viewPermission(viewId);
+  // No mapping → denied, for every role. There is no wildcard.
+  if (reqPerm === null) return false;
   return userPerms.includes(reqPerm);
 }
 
@@ -117,7 +172,6 @@ export const PERMISSION_LABELS: Record<string, string> = {
   "forecast.run": "Forecast Model Execution",
   "forecast.publish": "Forecast Publishing",
   "fantasy.read": "Fantasy ERP & Manufacturing Data Access",
-  "fantasy.sync": "Fantasy Sync & Integration Management",
   "overall.read": "Overall Historical Data Access",
   "overall.export": "Overall Historical Data Export",
   "data_quality.read": "Data Quality Issues & Diagnostics Access",
@@ -129,5 +183,23 @@ export const PERMISSION_LABELS: Record<string, string> = {
   "feature_flag.read": "System Settings & Flags Access",
   "feature_flag.manage": "Feature Flags Management",
   "audit.read": "Audit Trail & System Logs Access",
-  "user.manage": "User & Access Management",
+  "user.read": "User Directory Access",
+  "user.create": "Account Creation",
+  "user.update": "Account Profile Update",
+  "user.status.manage": "Account Activation & Suspension",
+  "user.roles.assign": "Role Assignment",
+  "user.password.reset": "Password Reset Authority",
+  "user.sessions.read": "Session Visibility",
+  "user.sessions.revoke": "Session Revocation",
+  "user.super_admin.assign": "Protected Administrator Assignment",
+  "access_request.review": "Access Request Review",
+  "role.read": "Role & Permission Matrix Access",
+  "role.manage": "Role Administration",
+  "role.permissions.assign": "Role Permission Assignment",
+  "security_audit.read": "Access Security History",
+  "security_audit.export": "Access Security History Export",
+  "fantasy.sync.run": "Fantasy Synchronization Execution",
+  "fantasy.sync.retry": "Fantasy Synchronization Retry",
+  "fantasy.sync.unlock": "Fantasy Synchronization Lock Release",
+  "notification.manage": "Notification Triage",
 };

@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useApi, apiPost } from "@/lib/api-client";
 import { useAuthStore } from "@/stores/auth-store";
 import { useNavStore } from "@/stores/nav-store";
+import { useGlobalFilter } from "@/stores/global-filter";
 import { useQueryClient, useMutation } from "@tanstack/react-query";
 import { KpiCard } from "@/components/diamond/shared/kpi-card";
 import { Section, PageHeader } from "@/components/diamond/shared/page-header";
@@ -17,6 +18,10 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import {
+  FANTASY_SOURCE_STATE_LABELS,
+  type FantasyEffectiveSourceState,
+} from "@/lib/fantasy/source-state";
 import {
   Calculator, AlertTriangle, Package, Boxes, ShieldCheck,
   TrendingDown, TrendingUp, RefreshCw, Zap, Lock, Unlock,
@@ -62,7 +67,7 @@ interface DemandOverviewSummary {
 
 interface DemandOverviewResponse {
   hasEverRun: boolean;
-  sourceMode: "FIXTURE_SIMULATION" | "LIVE";
+  sourceMode: FantasyEffectiveSourceState;
   isSimulated: boolean;
   runId: string | null;
   calculatedAt: string | null;
@@ -135,8 +140,36 @@ export function DemandCalculationOverview() {
     unlockMutation.mutate(reason);
   };
 
-  const summary = data?.summary;
-  const categories = data?.categories ?? [];
+  const globalFilter = useGlobalFilter();
+  const rawCategories = data?.categories ?? [];
+  const categories = useMemo(() => {
+    if (!globalFilter.lab) return rawCategories;
+    return rawCategories.filter((c) => {
+      if (globalFilter.lab === "Non-Cert") return c.lab === "Non-Cert" || !c.lab;
+      if (globalFilter.lab === "Other") return c.lab !== "GIA" && c.lab !== "Non-Cert";
+      return c.lab.toUpperCase() === (globalFilter.lab as string).toUpperCase();
+    });
+  }, [rawCategories, globalFilter.lab]);
+
+  const summary = useMemo(() => {
+    if (!globalFilter.lab || !data?.summary) return data?.summary;
+    return {
+      totalCategories: categories.length,
+      totalShortage: categories.reduce((s, c) => s + c.physicalShortage, 0),
+      totalExcess: categories.reduce((s, c) => s + c.excessStock, 0),
+      totalTarget: categories.reduce((s, c) => s + c.roundedTarget, 0),
+      totalPhysicalStock: categories.reduce((s, c) => s + c.availableStock, 0),
+      totalMemo: categories.reduce((s, c) => s + c.memoQty, 0),
+      totalWipCoverage: categories.reduce((s, c) => s + (c.wipCoverage ?? 0), 0),
+      totalPipelineNeed: categories.reduce((s, c) => s + c.pipelineNeed, 0),
+      totalApprovedPlanCoverage: categories.reduce((s, c) => s + c.approvedPlanCoverage, 0),
+      totalRemainingUnplanned: categories.reduce((s, c) => s + c.remainingUnplanned, 0),
+      categoriesWithShortage: categories.filter((c) => c.physicalShortage > 0).length,
+      categoriesWithExcess: categories.filter((c) => c.excessStock > 0).length,
+      categoriesRequiringReview: data.summary.categoriesRequiringReview,
+    };
+  }, [categories, globalFilter.lab, data?.summary]);
+
   const hasEverRun = data?.hasEverRun ?? false;
   const wipApplied = data?.wipCoverage?.appliedInRun ?? false;
 
@@ -343,7 +376,7 @@ export function DemandCalculationOverview() {
       <div className="flex items-center justify-between gap-2 px-3 py-2 rounded-lg border border-amber-500/30 bg-amber-50/50 dark:bg-amber-950/20 text-xs">
         <div className="flex items-center gap-2">
           <Badge variant="warning" className="uppercase font-bold tracking-wider text-[9px]">
-            {data?.isSimulated ? "Simulated Mode" : "Live Mode"}
+            {FANTASY_SOURCE_STATE_LABELS[data?.sourceMode ?? "NOT_CONFIGURED"]}
           </Badge>
           {data?.businessDateIst && (
             <span className="text-muted-foreground text-[11px]">
@@ -514,6 +547,8 @@ export function DemandCalculationOverview() {
               exportable
               exportPermission="demand.export"
               exportFilename="demand-categories.csv"
+              pagination
+              pageSize={25}
               maxHeight="600px"
               rowClassName={(r) =>
                 r.physicalShortage > 0
@@ -527,7 +562,7 @@ export function DemandCalculationOverview() {
 
       {/* Unlock Justification Modal */}
       <Dialog open={unlockModalOpen} onOpenChange={setUnlockModalOpen}>
-        <DialogContent className="sm:max-w-[425px]">
+        <DialogContent className="max-w-lg sm:max-w-lg">
           <form onSubmit={handleUnlockSubmit}>
             <DialogHeader>
               <DialogTitle className="text-sm font-semibold flex items-center gap-2">

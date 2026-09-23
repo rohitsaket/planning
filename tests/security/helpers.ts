@@ -9,7 +9,7 @@ export const BASE = "http://localhost:3000";
 const PW = "test-only-password-" + Math.random().toString(36).slice(2);
 export const testPassword = () => PW;
 
-const TABLES = ["Session", "User", "AuditLog", "RequirementAllocation", "RoughReservation", "PlanOptionPiece", "PlanOption", "PlanVersion", "PlanningCase", "Requirement", "RoughStone", "FeatureFlag", "BusinessRule", "Notification"];
+const TABLES = ["UserRole", "Session", "User", "AuditLog", "RequirementAllocation", "RoughReservation", "PlanOptionPiece", "PlanOption", "PlanVersion", "PlanningCase", "Requirement", "RoughStone", "FeatureFlag", "BusinessRule", "Notification"];
 
 export async function resetDb() {
   await db.$executeRawUnsafe(`TRUNCATE ${TABLES.map((t) => `"${t}"`).join(", ")} CASCADE`);
@@ -20,6 +20,12 @@ let pwHash: string | null = null;
 export async function makeUser(username: string, role: Role, displayName = username) {
   pwHash ??= await hashPassword(PW);
   const user = await db.user.create({ data: { username, displayName, role, passwordHash: pwHash } });
+  // Assign the real role record as well as the legacy column, so tests exercise the
+  // assignment-based principal resolution rather than only the transitional fallback.
+  const roleRow = await db.role.findUnique({ where: { code: role }, select: { id: true } });
+  if (roleRow) {
+    await db.userRole.create({ data: { userId: user.id, roleId: roleRow.id, reason: "test fixture" } });
+  }
   const { token, session } = await createSession(user.id, { ip: null, userAgent: "test" });
   return { user, session, cookie: `${SESSION_COOKIE}=${token}` };
 }
