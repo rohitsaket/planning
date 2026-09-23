@@ -6,31 +6,33 @@ import {
   CUSTOMERS_PAGE_MAX,
   CUSTOMER_DATA_STATES,
   readCustomerDetail,
+  readCustomerSnapshotSummary,
   readCustomerSummary,
-  readCustomersOrdersReadiness,
-  resolveOrderSourceState,
   type CustomerDataState,
   type CustomerFilters,
   type CustomerSortKey,
 } from "@/lib/analysis/customers-orders";
 
 /**
- * CUSTOMERS AND ORDERS — one bounded read endpoint.
+ * CUSTOMER SALES — bounded read endpoint for the customer sections only.
  *
  * Read-only: the handler performs no write of any kind.
  *
- * Authorization is layered. `customers.read` admits the customer sections; the orders
- * section additionally requires `orders.read`, so holding one does not grant the other.
+ * Orders live at `./orders` under `orders.read`. They were previously a branch of this
+ * handler, which meant its `customers.read` guard refused an orders-only user before the
+ * branch could run, and the customer summary carried order diagnostics to every customer
+ * reader. Each section now carries exactly its own permission.
+ *
  * Customer names are withheld at the service, not hidden in the browser.
  */
 
-const SECTIONS = ["readiness", "customers", "customer-detail", "orders"] as const;
+const SECTIONS = ["summary", "customers", "customer-detail"] as const;
 const SORTS = ["confirmedQuantity", "measuredWeight", "saleRecordCount", "latestSaleDate", "customerCode"] as const;
 const DIRECTIONS = ["asc", "desc"] as const;
 
 export const GET = withApi({ permission: "customers.read" }, async (req: Request, _ctx, { principal }) => {
   const url = new URL(req.url);
-  const section = qEnum(url, "section", SECTIONS, "readiness");
+  const section = qEnum(url, "section", SECTIONS, "summary");
 
   const filters: CustomerFilters = {
     country: qStr(url, "country", 60),
@@ -52,9 +54,8 @@ export const GET = withApi({ permission: "customers.read" }, async (req: Request
   };
 
   // A customer NAME is personal information; the code is the business identifier. The
-  // page works without names, so they are granted separately rather than assumed.
+  // wrapper has already established `customers.read`, which is what grants the name.
   const canSeeCustomerNames = principal.permissions.includes("customers.read");
-  const canSeeOrders = principal.permissions.includes("orders.read");
 
   const activeFilters = Object.entries(filters)
     .filter(([, v]) => v !== null && v !== "")
@@ -93,27 +94,11 @@ export const GET = withApi({ permission: "customers.read" }, async (req: Request
       return ok({ section, available: true, unavailableReason: null, activeFilters, ...result });
     }
 
-    case "orders": {
-      if (!canSeeOrders) {
-        // Order access is its own authority; holding customers.read does not grant it.
-        throw new ApiError(403, "FORBIDDEN", "You do not have permission to read order data.");
-      }
-      const orderSource = await resolveOrderSourceState();
-      return ok({
-        section,
-        // There is no authoritative order source, so there are no rows and no totals —
-        // and deliberately no seeded rows presented as if there were.
-        available: false,
-        unavailableReason: orderSource.reasonCode,
-        orderSource,
-        rows: [],
-        activeFilters,
-      });
-    }
-
     default: {
-      const readiness = await readCustomersOrdersReadiness();
-      return ok({ section: "readiness", activeFilters, ...readiness });
+      // Customer provenance only. No order state is read here, so a customer reader
+      // never receives order information as a side effect.
+      const summary = await readCustomerSnapshotSummary();
+      return ok({ section: "summary", activeFilters, ...summary });
     }
   }
 });

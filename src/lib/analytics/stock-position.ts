@@ -148,7 +148,8 @@ export async function computeCountryCategoryPositions(client: DbClient = db): Pr
   // 3. Eligible WIP — shared classifier, so the country view matches the demand engine.
   const wip = await classifyCurrentWip(client);
   for (const r of wip.results) {
-    if (!r.countsAsCoverage || !r.weightBandCode || !r.weightBandLabel) continue;
+    // Unconfirmed quantity is not coverage: it is a record, not a countable piece.
+    if (!r.countsAsCoverage || !r.weightBandCode || !r.weightBandLabel || r.quantity === null) continue;
     const row = touch(r.country, r.branch, canonicalKey(r.lab), canonicalKey(r.shape), {
       code: r.weightBandCode,
       label: r.weightBandLabel,
@@ -420,9 +421,11 @@ export function computeTransferCandidates(
     totalTransferQty: candidates.reduce((s, c) => s + c.transferQty, 0),
     countriesWithExcess: new Set(candidates.map((c) => c.fromCountry)).size,
     countriesWithShortage: new Set(candidates.map((c) => c.toCountry)).size,
+    // The transfer policy's identity is configuration detail; what a planner needs is
+    // whether it is approved and whether anything was executed.
     message: confirmed
-      ? `Advisory candidates matched per confirmed rule ${TRANSFER_RULE_ID}. Transfers are never executed automatically.`
-      : `Advisory only: cross-country transfer eligibility (${TRANSFER_RULE_ID}) is ${ruleStatus ?? "not defined"}, not client-confirmed. Candidate pairs are shown for review and no transfer is created.`,
+      ? "Advisory candidates matched under the approved transfer policy. Transfers are never executed automatically."
+      : "Transfer policy is not yet approved. These candidates are advisory only; they are shown for review and no transfer is executed.",
   };
 }
 

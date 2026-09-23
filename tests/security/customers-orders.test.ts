@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, test } from "./harness";
 import { call, db, makeUser, resetDb } from "./helpers";
 import { resetRateLimits } from "@/lib/api/rate-limit";
 import { GET as customersOrders } from "@/app/api/analysis/customers-orders/route";
+import { GET as orderAvailability } from "@/app/api/analysis/customers-orders/orders/route";
 import { resolveSalesSnapshot } from "@/lib/analytics/sales-history";
 import { runDemandCalculation } from "@/lib/demand/demand-service";
 import {
@@ -80,11 +81,13 @@ describe("Customers and Orders — authorization", () => {
   beforeAll(async () => { await resetDb(); await clearFixtures(); });
 
   test("anonymous requests are denied on every section", async () => {
-    for (const section of ["readiness", "customers", "customer-detail", "orders"]) {
+    for (const section of ["summary", "customers", "customer-detail"]) {
       resetRateLimits();
       const res = await call(customersOrders, { path: `/api/analysis/customers-orders?section=${section}` });
       expect({ section, status: res.status }).toEqual({ section, status: 401 });
     }
+    resetRateLimits();
+    expect((await call(orderAvailability, { path: "/api/analysis/customers-orders/orders" })).status).toBe(401);
   });
 
   test("a user without customers.read is denied", async () => {
@@ -97,33 +100,22 @@ describe("Customers and Orders — authorization", () => {
     expect(res.status).toBe(403);
   });
 
-  test("order data requires orders.read on top of customers.read", async () => {
-    // DATA_ANALYST holds both; SALES_VIEWER is used to prove the sections are separable
-    // only where the role set allows. Here the analyst path is the positive case.
+  test("a user holding both permissions reaches both sections", async () => {
     const analyst = await makeUser("co.analyst", "DATA_ANALYST");
     resetRateLimits();
-    const customers = await call(customersOrders, {
+    expect((await call(customersOrders, {
       path: "/api/analysis/customers-orders?section=customers", cookie: analyst.cookie,
-    });
-    expect(customers.status).toBe(200);
+    })).status).toBe(200);
 
     resetRateLimits();
-    const orders = await call(customersOrders, {
-      path: "/api/analysis/customers-orders?section=orders", cookie: analyst.cookie,
-    });
-    expect(orders.status).toBe(200);
-
-    // The handler checks orders.read explicitly rather than inheriting customers.read.
-    const source = await import("node:fs").then((fs) =>
-      fs.readFileSync("src/app/api/analysis/customers-orders/route.ts", "utf8"),
-    );
-    expect(/canSeeOrders/.test(source)).toBe(true);
-    expect(/permissions\.includes\("orders\.read"\)/.test(source)).toBe(true);
+    expect((await call(orderAvailability, {
+      path: "/api/analysis/customers-orders/orders", cookie: analyst.cookie,
+    })).status).toBe(200);
   });
 
-  test("an authorized analyst can read every section", async () => {
+  test("an authorized analyst can read every customer section", async () => {
     const analyst = await makeUser("co.reader", "ANALYSIS_MANAGER");
-    for (const section of ["readiness", "customers", "orders"]) {
+    for (const section of ["summary", "customers"]) {
       resetRateLimits();
       const res = await call(customersOrders, {
         path: `/api/analysis/customers-orders?section=${section}`, cookie: analyst.cookie,
@@ -150,19 +142,33 @@ describe("Customers and Orders — order source", () => {
     }
   });
 
-  test("seeded orders are disclosed but never presented as order data", async () => {
-    // Seeded rows exist in this database.
+  test("the service still sees the seeded rows, so their exclusion is a decision not an accident", async () => {
+    // This is the server-side consumer of the internal capability structure: it proves
+    // the seeded SalesOrder rows exist and are deliberately kept out of reporting.
     const seeded = await db.salesOrder.count();
+    const source = await resolveOrderSourceState();
+    expect(source.seededOrderCount).toBe(seeded);
+    expect(source.state).toBe("NOT_CONFIGURED");
+  });
+
+  test("the browser receives the state and nothing about the database behind it", async () => {
     resetRateLimits();
-    const res = await call(customersOrders, { path: "/api/analysis/customers-orders?section=orders", cookie });
+    const res = await call(orderAvailability, { path: "/api/analysis/customers-orders/orders", cookie });
 
     expect({ available: res.json.available, rows: res.json.rows.length }).toEqual({ available: false, rows: 0 });
-    expect(res.json.unavailableReason).toBe("FANTASY_ORDER_ENTITY_NOT_SUPPLIED");
-    // The count is disclosed so the rows are not mistaken for missing data …
-    expect(res.json.orderSource.seededOrderCount).toBe(seeded);
-    // … but no order row, status or quantity is returned.
+    expect(res.json.state).toBe("NOT_CONFIGURED");
+    // Exactly the approved fields, nothing more.
+    expect(Object.keys(res.json).sort()).toEqual(["available", "message", "nextStep", "rows", "state"]);
+
     const payload = JSON.stringify(res.json);
-    expect(/"orderNumber"|"requiredDate"|"promisedDate"/.test(payload)).toBe(false);
+    for (const internal of [
+      "seededOrderCount", "seededOrderLineCount", "fieldsAvailable", "fieldsUnavailable",
+      "FANTASY_ORDER_ENTITY_NOT_SUPPLIED", "reasonCode", "ORDER_IDENTITY",
+      "REQUESTED_QUANTITY", "FULFILLED_QUANTITY", "SalesOrder", "orderNumber",
+      "requiredDate", "promisedDate",
+    ]) {
+      expect(payload.includes(internal)).toBe(false);
+    }
   });
 
   test("an invoice is never reported as an open order", async () => {
@@ -172,9 +178,10 @@ describe("Customers and Orders — order source", () => {
     await runDemandCalculation({ actor: "co-test", actorUserId: null, windowDays: 90, sourcePolicy: "CANONICAL_FANTASY" });
 
     resetRateLimits();
-    const orders = await call(customersOrders, { path: "/api/analysis/customers-orders?section=orders", cookie });
+    const orders = await call(orderAvailability, { path: "/api/analysis/customers-orders/orders", cookie });
     // The sale exists and is counted as a sale; the orders tab still reports no orders.
     expect(orders.json.rows.length).toBe(0);
+    expect(orders.json.available).toBe(false);
 
     resetRateLimits();
     const customers = await call(customersOrders, { path: "/api/analysis/customers-orders?section=customers", cookie });
@@ -353,18 +360,27 @@ describe("Customers and Orders — customer attribution", () => {
 
   test("the fixture snapshot is labelled simulated on this page too", async () => {
     resetRateLimits();
-    const readiness = await call(customersOrders, { path: "/api/analysis/customers-orders?section=readiness", cookie });
-    expect(readiness.json.isSimulated).toBe(true);
-    expect(readiness.json.sourceLabel).toBe("Source: Fixture Simulation");
-    const origin = readiness.json.rows.find((r: { key: string }) => r.key === "sourceKind");
-    expect({ value: origin.value, state: origin.state }).toEqual({ value: "Fixture Simulation", state: "SIMULATED" });
+    const summary = await call(customersOrders, { path: "/api/analysis/customers-orders?section=summary", cookie });
+    expect(summary.json.sourceState).toBe("SIMULATION");
+    expect(summary.json.sourceLabel).toBe("Fixture Simulation");
+    // Provenance and completeness are separate dimensions. Whatever the identity
+    // coverage turns out to be, it must not make a simulated snapshot read as live, and
+    // the two are reported as distinct fields rather than one blended badge.
+    expect(["COMPLETE", "PARTIAL", "UNKNOWN"].includes(summary.json.identityCompleteness)).toBe(true);
+    expect(summary.json.sourceState).toBe("SIMULATION");
+    // Usability is its own dimension too: this fixture run completed REVIEW_REQUIRED,
+    // which is reported as INCOMPLETE without changing what the source is.
+    const run = await resolveSalesSnapshot();
+    expect(summary.json.snapshotState).toBe(run?.status === "REVIEW_REQUIRED" ? "INCOMPLETE" : "AVAILABLE");
+    // No legacy blended state survives.
+    expect(JSON.stringify(summary.json).includes("CURRENT")).toBe(false);
   });
 
   test("no raw payload, remark or internal identifier leaks", async () => {
     const payloads: string[] = [];
     for (const path of [
-      "section=readiness", "section=customers&pageSize=50",
-      "section=customer-detail&customerKey=CUST-A", "section=orders",
+      "section=summary", "section=customers&pageSize=50",
+      "section=customer-detail&customerKey=CUST-A",
     ]) {
       resetRateLimits();
       const res = await call(customersOrders, { path: `/api/analysis/customers-orders?${path}`, cookie });
@@ -386,11 +402,13 @@ describe("Customers and Orders — customer attribution", () => {
         db.salesOrder.count(), db.salesOrderLine.count(), db.customer.count(),
       ]);
     const before = await snapshot();
-    for (const path of ["section=readiness", "section=customers", "section=customer-detail&customerKey=CUST-A", "section=orders"]) {
+    for (const path of ["section=summary", "section=customers", "section=customer-detail&customerKey=CUST-A"]) {
       resetRateLimits();
       const res = await call(customersOrders, { path: `/api/analysis/customers-orders?${path}`, cookie });
       expect(res.status).toBe(200);
     }
+    resetRateLimits();
+    expect((await call(orderAvailability, { path: "/api/analysis/customers-orders/orders", cookie })).status).toBe(200);
     expect(await snapshot()).toEqual(before);
   });
 });
@@ -411,12 +429,14 @@ describe("Customers and Orders — no snapshot", () => {
     });
 
     resetRateLimits();
-    const readiness = await call(customersOrders, { path: "/api/analysis/customers-orders?section=readiness", cookie });
-    expect(readiness.json.hasSnapshot).toBe(false);
+    const summary = await call(customersOrders, { path: "/api/analysis/customers-orders?section=summary", cookie });
+    expect(summary.json.hasSnapshot).toBe(false);
     // Null, not 0 — nothing has been counted.
-    expect(readiness.json.recordsWithIdentity).toBe(null);
-    expect(readiness.json.recordsMissingIdentity).toBe(null);
-    const snapRow = readiness.json.rows.find((r: { key: string }) => r.key === "snapshot");
-    expect({ state: snapRow.state, value: snapRow.value }).toEqual({ state: "NOT_RUN", value: "Not run" });
+    expect(summary.json.recordsWithIdentity).toBe(null);
+    expect(summary.json.recordsMissingIdentity).toBe(null);
+    expect(summary.json.snapshotState).toBe("UNAVAILABLE");
+    expect(summary.json.snapshotWarning).toBe(
+      "Customer activity is unavailable because no completed 90-day sales snapshot exists.",
+    );
   });
 });

@@ -2,6 +2,7 @@ import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
 import { withApi, qInt } from "@/lib/api/with-api";
 import { resolveFantasySourceStateWithHistory } from "@/lib/fantasy/config";
+import { readPublicFailure } from "@/lib/api/operational-failure";
 
 // Demand Run History — past demand runs, newest first, paginated on the server.
 // Summary aggregates are computed across every run, not only the visible page.
@@ -29,15 +30,20 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request)
     include: { _count: { select: { metrics: true } } },
   });
 
+  // Explicit allow-list. The run row carries provenance the engine needs — the mapping
+  // fingerprint, the sync cursor, the batch key, the internal source-policy and rule
+  // version — none of which a planner can act on and all of which describe how the
+  // system is built. They stay server-side; what is published is the run's business
+  // identity, its window, its outcome and its honest state.
   const rows = runs.map((r) => ({
     id: r.id,
     runDate: r.runDate.toISOString(),
     businessDateIst: r.businessDateIst,
     windowDays: r.windowDays,
-    ruleVersion: r.ruleVersion,
-    sourcePolicy: r.sourcePolicy,
-    mappingFingerprint: r.mappingFingerprint,
-    mappingVersion: r.mappingVersion,
+    lookbackStart: r.lookbackStart?.toISOString() ?? null,
+    lookbackEnd: r.lookbackEnd?.toISOString() ?? null,
+    startedAt: r.startedAt.toISOString(),
+    finishedAt: r.finishedAt?.toISOString() ?? null,
     status: r.status,
     totalShortage: r.totalShortage,
     totalExcess: r.totalExcess,
@@ -46,16 +52,18 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request)
     wipCount: r.wipCount,
     planCount: r.planCount,
     excludedCount: r.excludedCount,
-    checkpoint: r.checkpoint,
-    lastBatchId: r.lastBatchId,
     sourceCutoff: r.sourceCutoff?.toISOString() ?? null,
     isSimulated: r.isSimulated,
     actor: r.actor || "system",
     durationMs: r.durationMs,
     metricCount: r._count.metrics,
-    errorSummary: r.errorSummary,
+    // Response boundary: the stored value is never returned as text. Runs recorded
+    // before failures were sanitized hold raw exception detail, so the column is
+    // re-sanitized on every read rather than trusted.
+    failure: readPublicFailure(r.errorSummary),
+    // Policy status and the stages it covers are operationally relevant; the rule's
+    // internal version is not.
     wipPolicyStatus: r.wipPolicyStatus,
-    wipRuleVersion: r.wipRuleVersion,
     wipEligibleStages: r.wipEligibleStages ? r.wipEligibleStages.split(",").filter(Boolean) : [],
   }));
 
@@ -86,7 +94,6 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request)
       lastShortage: lastRun?.totalShortage ?? 0,
       lastExcess: lastRun?.totalExcess ?? 0,
       lastMetricCount: lastRun?._count.metrics ?? 0,
-      lastCheckpoint: lastRun?.checkpoint ?? 0,
       lastWipPolicyStatus: lastRun?.wipPolicyStatus ?? null,
     },
   });

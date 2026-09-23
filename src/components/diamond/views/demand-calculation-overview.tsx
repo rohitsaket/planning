@@ -464,7 +464,7 @@ export function DemandCalculationOverview() {
               unit="pcs"
               intent="critical"
               icon={AlertTriangle}
-              hint="MAX(0, Target − Stock)"
+              hint="Shortfall against target stock"
             />
             <KpiCard
               label="Eligible WIP"
@@ -480,7 +480,7 @@ export function DemandCalculationOverview() {
               unit="pcs"
               intent="warning"
               icon={TrendingDown}
-              hint={wipApplied ? "MAX(0, Shortage − Eligible WIP)" : "Equals physical shortage while WIP coverage is unavailable"}
+              hint={wipApplied ? "Shortfall remaining after eligible WIP" : "Equals physical shortage while WIP coverage is unavailable"}
             />
             <KpiCard
               label="Plan Coverage"

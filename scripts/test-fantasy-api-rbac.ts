@@ -20,13 +20,17 @@ async function main() {
   assert(hasPermission("ADMIN", "overall.read"), "ADMIN role has overall.read");
   assert(hasPermission("ADMIN", "overall.export"), "ADMIN role has overall.export");
   assert(hasPermission("ADMIN", "fantasy.read"), "ADMIN role has fantasy.read");
-  assert(hasPermission("ADMIN", "fantasy.sync.run"), "ADMIN role has fantasy.sync.run");
-  assert(hasPermission("ADMIN", "fantasy.sync.unlock"), "ADMIN role has fantasy.sync.unlock");
+  // Reading Fantasy data is administrative; running a synchronization is operational —
+  // it pulls real source data and advances the checkpoint — so it is assigned rather
+  // than inherited. FANTASY_INTEGRATION is the role that holds it.
+  assert(!hasPermission("ADMIN", "fantasy.sync.run"), "ADMIN role does NOT automatically have fantasy.sync.run");
+  assert(!hasPermission("ADMIN", "fantasy.sync.unlock"), "ADMIN role does NOT automatically have fantasy.sync.unlock");
+  assert(hasPermission("FANTASY_INTEGRATION", "fantasy.sync.run"), "FANTASY_INTEGRATION role has fantasy.sync.run");
 
   assert(hasPermission("PLANNER", "overall.read"), "PLANNER role has overall.read");
   assert(!hasPermission("PLANNER", "overall.export"), "PLANNER role does NOT have overall.export");
   assert(hasPermission("PLANNER", "fantasy.read"), "PLANNER role has fantasy.read");
-  assert(!hasPermission("PLANNER", "fantasy.sync.run"), "PLANNER role does NOT have fantasy.sync.run (restricted to Admin/Fantasy Integration)");
+  assert(!hasPermission("PLANNER", "fantasy.sync.run"), "PLANNER role does NOT have fantasy.sync.run (restricted to Fantasy Integration)");
 
   assert(hasPermission("VIEWER", "overall.read"), "VIEWER role has overall.read");
   assert(!hasPermission("VIEWER", "overall.export"), "VIEWER role does NOT have overall.export");

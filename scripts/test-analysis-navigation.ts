@@ -36,7 +36,7 @@ const fakeWindow = {
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { NAV } from "../src/components/layout/app-shell";
-import { viewPermission, isViewAuthorized } from "../src/lib/auth/view-permissions";
+import { viewPermission, viewPermissions, isViewAuthorized } from "../src/lib/auth/view-permissions";
 import { permissionsFor, PERMISSIONS, ROLES } from "../src/lib/auth/permissions";
 import {
   useNavStore, initNavFromHash, parseNavHash, resolveViewAlias, navHash, DEMAND_TRACE_VIEW,
@@ -53,16 +53,18 @@ const EXPECTED_DEMAND_PAGES = [
 ];
 
 const EXPECTED_ANALYSIS_PAGES = [
-  { id: "analysis-executive", label: "Executive Analysis", perm: "analysis.read" },
-  { id: "analysis-sales", label: "Sales Analysis & Trends", perm: "sales.read" },
-  { id: "analysis-customers-orders", label: "Customers & Orders", perm: "customers.read" },
-  { id: "analysis-inventory-position", label: "Inventory", perm: "analysis.read" },
-  { id: "analysis-stockout", label: "Stockout Risk", perm: "analysis.read" },
-  { id: "analysis-excess", label: "Excess Stock", perm: "analysis.read" },
-  { id: "analysis-aging", label: "Stock Aging", perm: "analysis.read" },
-  { id: "analysis-reorder-signals", label: "Reorder Signals", perm: "analysis.read" },
-  { id: "transfer-analyzer", label: "Transfer Analyzer", perm: "analysis.read" },
-  { id: "aging-dashboard", label: "Aging Dashboard", perm: "analysis.read" },
+  { id: "analysis-executive", label: "Executive Analysis", perms: ["analysis.read"] },
+  { id: "analysis-sales", label: "Sales Analysis & Trends", perms: ["sales.read"] },
+  // Two tabs, two permissions: either admits the page, and each tab still enforces its
+  // own. Mapping this page to customers.read alone locked out an orders-only user.
+  { id: "analysis-customers-orders", label: "Customers & Orders", perms: ["customers.read", "orders.read"] },
+  { id: "analysis-inventory-position", label: "Inventory", perms: ["analysis.read"] },
+  { id: "analysis-stockout", label: "Stockout Risk", perms: ["analysis.read"] },
+  { id: "analysis-excess", label: "Excess Stock", perms: ["analysis.read"] },
+  { id: "analysis-aging", label: "Stock Aging", perms: ["analysis.read"] },
+  { id: "analysis-reorder-signals", label: "Reorder Signals", perms: ["analysis.read"] },
+  { id: "transfer-analyzer", label: "Transfer Analyzer", perms: ["analysis.read"] },
+  { id: "aging-dashboard", label: "Aging Dashboard", perms: ["analysis.read"] },
 ];
 
 function assert(cond: boolean, msg: string) {
@@ -206,8 +208,16 @@ async function main() {
   // 5. Centralized Permission Mapping
   console.log("\n--- TEST 5: Centralized View Permission Verification ---");
   for (const exp of EXPECTED_ANALYSIS_PAGES) {
-    const mappedPerm = viewPermission(exp.id);
-    assert(mappedPerm === exp.perm, `View '${exp.id}' requires '${exp.perm}' (got '${mappedPerm}')`);
+    const mapped = [...viewPermissions(exp.id)].sort();
+    const expected = [...exp.perms].sort();
+    assert(
+      mapped.length === expected.length && mapped.every((p, i) => p === expected[i]),
+      `View '${exp.id}' is admitted by '${expected.join(" | ")}' (got '${mapped.join(" | ")}')`,
+    );
+    // A single-permission page still reports that one permission for display.
+    if (expected.length === 1) {
+      assert(viewPermission(exp.id) === expected[0], `View '${exp.id}' names its single permission`);
+    }
   }
 
   // 6. Role-by-Role Authorization Matrix
@@ -238,10 +248,15 @@ async function main() {
     const hasSalesRead = perms.includes("sales.read");
     assert(canSales === hasSalesRead, `${role} can access analysis-sales: ${canSales}`);
 
-    // Customers & Orders -> requires customers.read
+    // Customers & Orders -> admitted by customers.read OR orders.read
     const canCustOrders = isViewAuthorized(perms, "analysis-customers-orders");
-    const hasCustRead = perms.includes("customers.read");
-    assert(canCustOrders === hasCustRead, `${role} can access analysis-customers-orders: ${canCustOrders}`);
+    const hasEitherSection = perms.includes("customers.read") || perms.includes("orders.read");
+    assert(canCustOrders === hasEitherSection, `${role} can access analysis-customers-orders: ${canCustOrders}`);
+    // Entry does not imply either section: each API enforces its own permission.
+    assert(
+      !canCustOrders || hasEitherSection,
+      `${role} entering Customers & Orders holds at least one section permission`,
+    );
 
     // Inventory Position -> requires analysis.read
     const canInvPos = isViewAuthorized(perms, "analysis-inventory-position");
@@ -579,7 +594,9 @@ async function main() {
   const viewRegistrySource = readFileSync(path.join(process.cwd(), "src/app/page.tsx"), "utf8");
   const registryIds = [...viewRegistrySource.matchAll(/^\s+"([a-z0-9-]+)":\s+\w+View,/gm)].map((m) => m[1]);
   assert(registryIds.length > 50, `View registry parsed (${registryIds.length} views)`);
-  const unmappedRegistered = registryIds.filter((id) => viewPermission(id) === null);
+  // Unmapped means no permission admits it. A page admitted by several is mapped, so
+  // this counts permissions rather than asking for exactly one.
+  const unmappedRegistered = registryIds.filter((id) => viewPermissions(id).length === 0);
   assert(unmappedRegistered.length === 0, `Every registered view has an explicit permission${unmappedRegistered.length ? `: ${unmappedRegistered.join(", ")}` : ""}`);
 
   // --- UI/API permission agreement (RBAC-A) ---

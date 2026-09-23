@@ -19,6 +19,11 @@
  */
 
 import { db } from "@/lib/db";
+import {
+  isCountableQuantity,
+  measurementProfileFor,
+  resolveCanonicalQuantity,
+} from "@/lib/fantasy/quantity-weight";
 import { getISTDateString, parseISTDateToUTC } from "@/lib/fantasy/time";
 
 if (typeof window !== "undefined") {
@@ -146,7 +151,12 @@ export function resolveQuantityProvenance(record: {
   sourceType: string | null;
   isSimulated: boolean;
 }): QuantityProvenance {
-  return record.sourceType === "FIXTURE" && record.isSimulated ? "EXPLICIT_FIXTURE" : "UNCONFIRMED";
+  // A *source-level* question: may this source's quantities be counted at all? The
+  // per-record question — is this particular value usable — is `resolveCanonicalQuantity`,
+  // which the loader below calls directly. Both read the same measurement profile, so
+  // there is one rule expressed at two granularities rather than two rules.
+  const profile = measurementProfileFor(record.sourceType === "FIXTURE" && record.isSimulated);
+  return profile.quantitySemantics === "PIECE_COUNT" ? "EXPLICIT_FIXTURE" : "UNCONFIRMED";
 }
 
 /**
@@ -223,6 +233,9 @@ async function loadCanonicalSaleFacts(
       saleTotalUsd: true,
       customerName: true,
       quantity: true,
+      // Recorded at ingestion. Read here so the decision uses what the source actually
+      // established, rather than re-inferring it from the row's columns.
+      quantityProvenance: true,
       sourceRecordId: true,
       isSimulated: true,
       // The canonical source lives on the master record, not on each history version.
@@ -277,11 +290,20 @@ async function loadCanonicalSaleFacts(
     sourceModes.add(sourceType);
     if (!h.isSimulated) allSimulated = false;
 
-    const quantityProvenance = resolveQuantityProvenance({ sourceType, isSimulated: h.isSimulated });
-    const rawQuantity = Number(h.quantity);
+    // One decision, shared with inventory and the demand calculation, so the same
+    // record cannot be countable on one page and not on another.
+    const decision = resolveCanonicalQuantity({
+      quantity: h.quantity,
+      sourceType,
+      isSimulated: h.isSimulated,
+      quantityProvenance: h.quantityProvenance ?? null,
+    });
+    const quantityProvenance: QuantityProvenance = isCountableQuantity(decision.provenance)
+      ? "EXPLICIT_FIXTURE"
+      : "UNCONFIRMED";
     // No `?? 1` and no `> 0 ? q : 1`. An unusable quantity stays unusable: turning it
     // into one confirmed piece is the invention this service exists to prevent.
-    const quantity = Number.isFinite(rawQuantity) && rawQuantity > 0 ? rawQuantity : 0;
+    const quantity = decision.pieces ?? 0;
 
     if (quantityProvenance === "EXPLICIT_FIXTURE" && quantity > 0) {
       confirmedPieces += quantity;

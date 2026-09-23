@@ -195,8 +195,8 @@ export function OrdersView() {
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2">
         <KpiCard label="Open Orders" value={totalOrders} intent="info" hint="Active sales orders" icon={FileText} sparkline={openOrdersSpark} />
         <KpiCard label="Overdue Orders" value={overdueCount} intent="critical" hint="Required date past + outstanding > 0" icon={AlertTriangle} sparkline={overdueSpark} />
-        <KpiCard label="Outstanding Qty" value={totalOutstanding} unit="pcs" intent="warning" hint="Σ qtyOutstanding" icon={Boxes} sparkline={outstandingSpark} />
-        <KpiCard label="Backorder Qty" value={totalBackorder} unit="pcs" intent="default" hint="Σ backorderQty" icon={Clock} sparkline={backorderSpark} />
+        <KpiCard label="Outstanding Qty" value={totalOutstanding} unit="pcs" intent="warning" hint="Total outstanding across open orders" icon={Boxes} sparkline={outstandingSpark} />
+        <KpiCard label="Backorder Qty" value={totalBackorder} unit="pcs" intent="default" hint="Total on backorder" icon={Clock} sparkline={backorderSpark} />
       </div>
 
       <Section title="Orders" description="Rows are tinted rose when required date is past and outstanding > 0">

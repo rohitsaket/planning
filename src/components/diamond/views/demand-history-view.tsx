@@ -21,13 +21,11 @@ interface DemandHistoryRow {
   id: string;
   runDate: string;
   windowDays: number;
-  ruleVersion: string;
   status: string;
   totalShortage: number;
   totalExcess: number;
   metricCount: number;
   actor: string;
-  reason: string | null;
 }
 
 interface DemandHistorySummary {
@@ -109,15 +107,6 @@ export function DemandHistoryView() {
         <span className="tabular-nums text-xs">{formatDateTime(r.runDate)}</span>
       ),
       width: "160px",
-    },
-    {
-      key: "ruleVersion",
-      header: "Rule Version",
-      sortable: true,
-      sortValue: (r) => r.ruleVersion,
-      align: "center",
-      width: "120px",
-      cell: (r) => <Badge variant="info">{r.ruleVersion}</Badge>,
     },
     {
       key: "windowDays",
@@ -335,7 +324,7 @@ export function DemandHistoryView() {
           searchable
           searchPlaceholder="Search actor, rule version, status..."
           searchFn={(r, q) =>
-            `${r.actor} ${r.ruleVersion} ${r.status} ${r.id}`.toLowerCase().includes(q.toLowerCase())
+            `${r.actor} ${r.status} ${r.id}`.toLowerCase().includes(q.toLowerCase())
           }
           exportScope="current-page"
           maxHeight="540px"

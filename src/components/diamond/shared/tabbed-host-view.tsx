@@ -17,11 +17,27 @@ export interface HostTabItem {
   component: React.ComponentType;
 }
 
-/** Active tab for a host: the URL/nav tab when it belongs to this host, else the default, else the first. */
-export function resolveActiveTab(tabs: ReadonlyArray<{ id: string }>, navTab: string | null | undefined, defaultTab?: string): string | undefined {
-  if (navTab && tabs.some((t) => t.id === navTab)) return navTab;
-  if (defaultTab && tabs.some((t) => t.id === defaultTab)) return defaultTab;
-  return tabs[0]?.id;
+/**
+ * Active tab for a host: the URL/nav tab when it belongs to this host, else the default,
+ * else the first.
+ *
+ * When permissions are supplied, an unauthorized candidate is skipped rather than
+ * selected. A page a user reaches through one tab's permission therefore opens on a tab
+ * they may actually read, instead of opening on the default and showing Access
+ * Restricted. The selected tab is still authorized again before it renders, and each
+ * tab's API enforces its own permission, so this is navigation, not a security decision.
+ *
+ * Returns undefined when no tab is authorized — the caller shows Access Restricted.
+ */
+export function resolveActiveTab(
+  tabs: ReadonlyArray<{ id: string; permission?: string }>,
+  navTab: string | null | undefined,
+  defaultTab?: string,
+  userPerms?: readonly string[],
+): string | undefined {
+  const allowed = (t: { permission?: string }) => !userPerms || !t.permission || userPerms.includes(t.permission);
+  const pick = (id: string | null | undefined) => tabs.find((t) => t.id === id && allowed(t))?.id;
+  return pick(navTab) ?? pick(defaultTab) ?? tabs.find(allowed)?.id;
 }
 
 interface TabbedHostViewProps {
@@ -46,7 +62,7 @@ export function TabbedHostView({
   const userPerms = useAuthStore((s) => s.user?.permissions ?? []);
   const activeNavTab = useNavStore((s) => s.tab);
   const setNavTab = useNavStore((s) => s.setTab);
-  const activeTab = resolveActiveTab(tabs, activeNavTab, defaultTab);
+  const activeTab = resolveActiveTab(tabs, activeNavTab, defaultTab, userPerms);
   const idBase = useId();
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const tabId = (id: string) => `${idBase}-tab-${id}`;
@@ -70,8 +86,9 @@ export function TabbedHostView({
     tabRefs.current[nextId]?.focus();
   };
 
-  const currentTab = tabs.find((t) => t.id === activeTab) || tabs[0];
-  const isTabAuthorized = !currentTab?.permission || userPerms.includes(currentTab.permission);
+  // `activeTab` is undefined only when the user may read none of them.
+  const currentTab = tabs.find((t) => t.id === activeTab);
+  const isTabAuthorized = Boolean(currentTab) && (!currentTab!.permission || userPerms.includes(currentTab!.permission));
   const ActiveComponent = currentTab?.component;
 
   return (
@@ -162,9 +179,13 @@ export function TabbedHostView({
       >
         {!isTabAuthorized ? (
           <AccessRestricted
-            title={`Access Restricted: ${currentTab.label}`}
-            requiredPermission={currentTab.permission}
-            description="You do not have the required permission to view this specific tab within this module."
+            title={currentTab ? `Access Restricted: ${currentTab.label}` : "Access Restricted"}
+            requiredPermission={currentTab?.permission}
+            description={
+              currentTab
+                ? "You do not have the required permission to view this specific tab within this module."
+                : "You do not have permission to view any section of this module."
+            }
           />
         ) : ActiveComponent ? (
           <ActiveComponent />

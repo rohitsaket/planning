@@ -129,6 +129,5 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request)
     yieldVariance,
     demandRunId: latestRun?.id ?? null,
     demandRunDate: latestRun?.runDate?.toISOString() ?? null,
-    ruleVersion: latestRun?.ruleVersion ?? null,
   });
 });

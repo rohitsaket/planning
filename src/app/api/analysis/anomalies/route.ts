@@ -1,6 +1,13 @@
 import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
 import { withApi, SCAN_MAX, scanned } from "@/lib/api/with-api";
+import {
+  ANOMALY_DIRECTIONS,
+  ANOMALY_NONE_FLAGGED,
+  ANOMALY_SEVERITY_LABELS,
+  type AnomalyDirection,
+  type AnomalySeverity,
+} from "@/lib/analysis/business-language";
 
 // Anomaly Detection — statistical outliers in monthly sales velocity per
 // planning category (lab|shape|weightBand). Spec §61 — data science
@@ -101,17 +108,20 @@ export const GET = withApi({ permission: "analysis.read" }, async () => {
   }
 
   // Compute anomalies.
+  // `outlierMagnitude` is the internal ordering key. It stays in this array and is
+  // dropped before serialization, so ranking is preserved without publishing the measure
+  // that produced it.
   const rows: Array<{
     category: string;
     metric: string;
     observed: number;
     expected: number;
     deviation: number;
-    zScore: number;
-    severity: "HIGH" | "MEDIUM" | "LOW";
-    type: "SPIKE" | "DROP";
+    severity: AnomalySeverity;
+    direction: AnomalyDirection;
     description: string;
     recommendedAction: string;
+    outlierMagnitude: number;
   }> = [];
 
   for (const [rawCategory, months] of byCategory.entries()) {
@@ -143,14 +153,14 @@ export const GET = withApi({ permission: "analysis.read" }, async () => {
 
     if (Math.abs(zScore) <= 2) continue; // not an outlier
 
-    const type: "SPIKE" | "DROP" = zScore > 0 ? "SPIKE" : "DROP";
+    const direction: AnomalyDirection = zScore > 0 ? "UNUSUALLY_HIGH" : "UNUSUALLY_LOW";
     const absZ = Math.abs(zScore);
-    const severity: "HIGH" | "MEDIUM" | "LOW" =
+    const severity: AnomalySeverity =
       absZ > 3 ? "HIGH" : absZ > 2.5 ? "MEDIUM" : "LOW";
     const deviation = expected > 0 ? num((observed - expected) / expected) : observed > 0 ? 1 : 0;
 
     const recommendedAction =
-      type === "SPIKE"
+      direction === "UNUSUALLY_HIGH"
         ? "Investigate demand driver — possible bulk order or market shift"
         : "Investigate demand drop — possible stockout, lost customer, or seasonality";
 
@@ -160,28 +170,46 @@ export const GET = withApi({ permission: "analysis.read" }, async () => {
       observed,
       expected: num(expected),
       deviation,
-      zScore,
       severity,
-      type,
-      description: `Sales velocity ${observed} vs expected ${expected.toFixed(1)} (z-score ${zScore.toFixed(2)})`,
+      direction,
+      description: ANOMALY_DIRECTIONS[direction],
       recommendedAction,
+      outlierMagnitude: absZ,
     });
   }
 
-  // Sort: highest severity first, then largest |z|
+  // Sort: highest severity first, then furthest outside the established range. The
+  // ordering is identical to before; only the field it reads is now internal.
   const sevRank: Record<string, number> = { HIGH: 3, MEDIUM: 2, LOW: 1 };
   rows.sort((a, b) => {
     const s = sevRank[b.severity] - sevRank[a.severity];
     if (s !== 0) return s;
-    return Math.abs(b.zScore) - Math.abs(a.zScore);
+    return b.outlierMagnitude - a.outlierMagnitude;
   });
 
   const summary = {
     totalAnomalies: rows.length,
-    spikes: rows.filter((r) => r.type === "SPIKE").length,
-    drops: rows.filter((r) => r.type === "DROP").length,
+    spikes: rows.filter((r) => r.direction === "UNUSUALLY_HIGH").length,
+    drops: rows.filter((r) => r.direction === "UNUSUALLY_LOW").length,
     highSeverity: rows.filter((r) => r.severity === "HIGH").length,
+    noneFlaggedMessage: rows.length === 0 ? ANOMALY_NONE_FLAGGED : null,
   };
 
-  return ok({ rows, summary, windowStart: windowStart.toISOString(), latestMonthEnd: latestMonthEnd.toISOString() });
+  // Serialized field by field. `outlierMagnitude` is deliberately absent: the server has
+  // already applied the ordering, and `rank` carries it without exposing the measure.
+  const publicRows = rows.map((r, i) => ({
+    rank: i + 1,
+    category: r.category,
+    metric: r.metric,
+    observed: r.observed,
+    expected: r.expected,
+    deviation: r.deviation,
+    severity: r.severity,
+    severityLabel: ANOMALY_SEVERITY_LABELS[r.severity],
+    direction: r.direction,
+    description: r.description,
+    recommendedAction: r.recommendedAction,
+  }));
+
+  return ok({ rows: publicRows, summary, windowStart: windowStart.toISOString(), latestMonthEnd: latestMonthEnd.toISOString() });
 });

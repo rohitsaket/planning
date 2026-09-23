@@ -228,84 +228,131 @@ export async function resolveOrderSourceState(client = db): Promise<OrderSourceS
 // Readiness
 // ---------------------------------------------------------------------------
 
-export const READINESS_STATES = [
-  "CURRENT", "SIMULATED", "STALE", "INCOMPLETE", "NOT_RUN", "NOT_CONFIGURED",
-  "UNAVAILABLE", "BLOCKED_BY_DATA_QUALITY",
-] as const;
-export type ReadinessState = (typeof READINESS_STATES)[number];
-
-export interface ReadinessRow {
-  readonly key: string;
-  readonly label: string;
-  readonly value: string;
-  readonly state: ReadinessState;
-}
-
-export interface CustomersOrdersReadiness {
-  readonly rows: readonly ReadinessRow[];
-  readonly hasSnapshot: boolean;
-  readonly isSimulated: boolean;
-  readonly sourceLabel: string;
-  readonly snapshotId: string | null;
-  readonly businessDateIst: string | null;
-  readonly windowDays: number | null;
-  readonly orderSource: OrderSourceStatus;
-  readonly recordsWithIdentity: number | null;
-  readonly recordsMissingIdentity: number | null;
+/**
+ * What a browser may learn about the order source.
+ *
+ * `OrderSourceStatus` above stays internal. Its seeded counts and field inventory exist
+ * so a server-side test can prove the seeded `SalesOrder` rows are excluded from
+ * operational reporting and that nothing is claimed as available — that verification is
+ * real and is kept, but it is engineering evidence, not something an ordinary user needs
+ * or should receive.
+ */
+export interface PublicOrderAvailability {
+  readonly available: boolean;
+  readonly state: OrderSourceState;
+  readonly message: string;
+  /** Shown only when there is an action to take; null once a source exists. */
+  readonly nextStep: string | null;
 }
 
 /**
- * The readiness table.
- *
- * Every figure is either a measured value or an explicit state. Nothing shows zero
- * because a source has not run: an absent snapshot yields NOT_RUN and null counts.
+ * The allow-listed projection. Built field by field so the internal object is never
+ * spread, and driven by the source's real state so it cannot claim the wrong one: if an
+ * approved source is configured later, this reports available rather than continuing to
+ * say NOT CONFIGURED.
  */
-export async function readCustomersOrdersReadiness(client = db): Promise<CustomersOrdersReadiness> {
-  const [run, orderSource, lastSync, blockingIssues] = await Promise.all([
+export function toPublicOrderAvailability(source: OrderSourceStatus): PublicOrderAvailability {
+  if (source.state === "AVAILABLE") {
+    return {
+      available: true,
+      state: "AVAILABLE",
+      message: "An approved order source is configured.",
+      nextStep: null,
+    };
+  }
+  // FIXTURE_DEMO is not an authoritative source either, and is reported as not configured
+  // rather than as data a user could act on.
+  return {
+    available: false,
+    state: "NOT_CONFIGURED",
+    message:
+      "No authoritative order source is currently configured. Fantasy does not provide a confirmed " +
+      "order identity or order lifecycle, so open orders, fulfilment and backorders cannot yet be reported.",
+    nextStep: "Configure an approved order source before using this section.",
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Customer snapshot summary
+// ---------------------------------------------------------------------------
+
+/**
+ * Three independent dimensions, deliberately not collapsed into one badge.
+ *
+ * The previous readiness table mixed them: a simulated snapshot could show one row as
+ * SIMULATED and the next as CURRENT, which reads as a contradiction. Provenance says
+ * where the figures came from; snapshot state says whether they are usable; identity
+ * completeness says whether every confirmed sale could be attributed to a buyer. A
+ * simulated snapshot with complete identity is still simulated.
+ */
+export const CUSTOMER_SOURCE_STATES = ["SIMULATION", "LIVE"] as const;
+export type CustomerSourceState = (typeof CUSTOMER_SOURCE_STATES)[number];
+
+export const CUSTOMER_SNAPSHOT_STATES = ["AVAILABLE", "INCOMPLETE", "UNAVAILABLE"] as const;
+export type CustomerSnapshotState = (typeof CUSTOMER_SNAPSHOT_STATES)[number];
+
+export const CUSTOMER_IDENTITY_COMPLETENESS = ["COMPLETE", "PARTIAL", "UNKNOWN"] as const;
+export type CustomerIdentityCompleteness = (typeof CUSTOMER_IDENTITY_COMPLETENESS)[number];
+
+/**
+ * What a reader needs to interpret the customer figures — and nothing about how the
+ * system is built. There is no `sourceMode` enum, no sync timestamp, and no order
+ * information: orders are a different section with a different permission.
+ */
+export interface CustomerSnapshotSummary {
+  readonly hasSnapshot: boolean;
+  readonly sourceState: CustomerSourceState;
+  /** "Fixture Simulation" or "Live Fantasy". */
+  readonly sourceLabel: string;
+  readonly snapshotState: CustomerSnapshotState;
+  /** "Past 90 days", or the real window when a run used a different one. */
+  readonly periodLabel: string;
+  readonly windowDays: number | null;
+  /** When the snapshot was generated, in IST. */
+  readonly snapshotGeneratedIst: string | null;
+  /** The business cutoff the window ends on, in IST. */
+  readonly businessDateIst: string | null;
+  readonly identityCompleteness: CustomerIdentityCompleteness;
+  /** Null rather than zero when nothing has been counted. */
+  readonly recordsWithIdentity: number | null;
+  readonly recordsMissingIdentity: number | null;
+  /** Open blocking issues that may affect these figures. Paired with an action in the UI. */
+  readonly blockingIssueCount: number;
+  /** Shown only when it applies; null means there is nothing to warn about. */
+  readonly identityWarning: string | null;
+  readonly snapshotWarning: string | null;
+}
+
+/**
+ * The compact summary the Customers tab shows.
+ *
+ * Nothing here is a verification result. Every value is either a measured figure or an
+ * explicit state, and an absent snapshot yields UNAVAILABLE with null counts rather than
+ * zeros.
+ */
+export async function readCustomerSnapshotSummary(client = db): Promise<CustomerSnapshotSummary> {
+  const [run, blockingIssueCount] = await Promise.all([
     resolveSalesSnapshot(),
-    resolveOrderSourceState(client),
-    client.integrationSyncRun.findFirst({
-      where: { source: { in: ["FANTASY", "Fantasy"] }, status: "SUCCESS" },
-      orderBy: { finishedAt: "desc" },
-      select: { finishedAt: true },
-    }),
     client.dataQualityIssue.count({ where: { severity: "BLOCKING", status: { in: ["OPEN", "IN_REVIEW"] } } }),
   ]);
 
-  const orderRows: ReadinessRow[] = [
-    {
-      key: "orderSource",
-      label: "Order source",
-      value: orderSource.state.replace(/_/g, " "),
-      state: "NOT_CONFIGURED",
-    },
-    {
-      key: "orderFreshness",
-      label: "Open-order data freshness",
-      // No source means no freshness to report — not "fresh", and not zero.
-      value: "Unavailable — no authoritative order source",
-      state: "UNAVAILABLE",
-    },
-  ];
-
   if (!run) {
     return {
-      rows: [
-        { key: "snapshot", label: "Sales snapshot", value: "Not run", state: "NOT_RUN" },
-        { key: "sourceMode", label: "Effective source mode", value: "Unavailable", state: "UNAVAILABLE" },
-        { key: "identity", label: "Customer identity availability", value: "Unavailable", state: "UNAVAILABLE" },
-        ...orderRows,
-      ],
       hasSnapshot: false,
-      isSimulated: false,
+      sourceState: "SIMULATION",
       sourceLabel: "No sales snapshot",
-      snapshotId: null,
-      businessDateIst: null,
+      snapshotState: "UNAVAILABLE",
+      periodLabel: "Past 90 days",
       windowDays: null,
-      orderSource,
-      // Null, not zero: nothing has been counted.
+      snapshotGeneratedIst: null,
+      businessDateIst: null,
+      identityCompleteness: "UNKNOWN",
       recordsWithIdentity: null,
       recordsMissingIdentity: null,
+      blockingIssueCount,
+      identityWarning: null,
+      snapshotWarning:
+        "Customer activity is unavailable because no completed 90-day sales snapshot exists.",
     };
   }
 
@@ -323,85 +370,28 @@ export async function readCustomersOrdersReadiness(client = db): Promise<Custome
   const total = identity[0]?.total ?? 0;
 
   const simulated = run.isSimulated;
-  const finishedAt = run.finishedAt ?? run.runDate;
-  const identityState: ReadinessState =
-    total === 0 ? "UNAVAILABLE" : missingIdentity > 0 ? "INCOMPLETE" : simulated ? "SIMULATED" : "CURRENT";
-
-  const rows: ReadinessRow[] = [
-    {
-      key: "sourceMode",
-      label: "Effective source mode",
-      value: run.sourceMode,
-      state: simulated ? "SIMULATED" : "CURRENT",
-    },
-    {
-      key: "sourceKind",
-      label: "Data origin",
-      value: simulated ? "Fixture Simulation" : "Live Fantasy",
-      state: simulated ? "SIMULATED" : "CURRENT",
-    },
-    {
-      key: "snapshot",
-      label: "Selected sales snapshot",
-      value: formatIST(finishedAt, false),
-      state: run.status === "REVIEW_REQUIRED" ? "INCOMPLETE" : simulated ? "SIMULATED" : "CURRENT",
-    },
-    {
-      key: "businessDate",
-      label: "Snapshot business date (IST)",
-      value: run.businessDateIst,
-      state: "CURRENT",
-    },
-    {
-      key: "window",
-      label: "Sales window",
-      value: `${run.windowDays} days`,
-      state: run.windowDays === 90 ? "CURRENT" : "INCOMPLETE",
-    },
-    {
-      key: "lastSync",
-      label: "Latest successful Fantasy sync",
-      value: lastSync?.finishedAt ? formatIST(lastSync.finishedAt, false) : "Never",
-      state: lastSync?.finishedAt ? (simulated ? "SIMULATED" : "CURRENT") : "UNAVAILABLE",
-    },
-    {
-      key: "identity",
-      label: "Customer identity availability",
-      value: total === 0 ? "No confirmed sales" : `${withIdentity} of ${total} records identified`,
-      state: identityState,
-    },
-    {
-      key: "withIdentity",
-      label: "Confirmed sales with customer identity",
-      value: String(withIdentity),
-      state: withIdentity > 0 ? "CURRENT" : "UNAVAILABLE",
-    },
-    {
-      key: "missingIdentity",
-      label: "Confirmed sales missing customer identity",
-      value: String(missingIdentity),
-      state: missingIdentity > 0 ? "INCOMPLETE" : "CURRENT",
-    },
-    ...orderRows,
-    {
-      key: "blocked",
-      label: "Blocking data-quality issues",
-      value: String(blockingIssues),
-      state: blockingIssues > 0 ? "BLOCKED_BY_DATA_QUALITY" : "CURRENT",
-    },
-  ];
+  const reviewRequired = run.status === "REVIEW_REQUIRED";
 
   return {
-    rows,
     hasSnapshot: true,
-    isSimulated: simulated,
-    sourceLabel: simulated ? "Source: Fixture Simulation" : "Source: Live Fantasy",
-    snapshotId: run.id,
-    businessDateIst: run.businessDateIst,
+    sourceState: simulated ? "SIMULATION" : "LIVE",
+    sourceLabel: simulated ? "Fixture Simulation" : "Live Fantasy",
+    snapshotState: reviewRequired ? "INCOMPLETE" : "AVAILABLE",
+    periodLabel: run.windowDays === 90 ? "Past 90 days" : `Past ${run.windowDays} days`,
     windowDays: run.windowDays,
-    orderSource,
+    snapshotGeneratedIst: formatIST(run.finishedAt ?? run.runDate, false),
+    businessDateIst: run.businessDateIst,
+    identityCompleteness: total === 0 ? "UNKNOWN" : missingIdentity > 0 ? "PARTIAL" : "COMPLETE",
     recordsWithIdentity: withIdentity,
     recordsMissingIdentity: missingIdentity,
+    blockingIssueCount,
+    identityWarning:
+      missingIdentity > 0
+        ? "Some confirmed sales could not be assigned to a customer and are excluded from customer totals."
+        : null,
+    snapshotWarning: reviewRequired
+      ? "This snapshot completed with items that need review, so customer totals may be incomplete."
+      : null,
   };
 }
 

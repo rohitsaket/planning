@@ -36,7 +36,14 @@ const MODULES = [
   "../tests/security/executive-analysis.test",
   "../tests/security/fantasy-analysis-pipeline.test",
   "../tests/security/customers-orders.test",
+  "../tests/security/customers-orders-rbac.test",
   "../tests/security/inventory-position.test",
+  "../tests/security/failure-exposure.test",
+  "../tests/security/metadata-exposure.test",
+  "../tests/security/stockout.test",
+  "../tests/security/quantity-weight-provenance.test",
+  "../tests/security/canonical-state-claim.test",
+  "../tests/security/excess-analysis.test",
 ] as const;
 
 async function main() {

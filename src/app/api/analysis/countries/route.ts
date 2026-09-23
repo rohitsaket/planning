@@ -93,13 +93,11 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request)
     wipPolicy: {
       status: wipPolicy.status,
       message: wipPolicy.message,
-      ruleId: wipPolicy.ruleId,
       eligibleStages: wipPolicy.eligibleStages,
     },
     wipCoverageUnavailable,
     transfer: {
       status: transfers.status,
-      ruleId: transfers.ruleId,
       ruleStatus: transfers.ruleStatus,
       candidateCount: transfers.candidateCount,
       message: transfers.message,

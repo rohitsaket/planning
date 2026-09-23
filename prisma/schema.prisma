@@ -390,6 +390,12 @@ model DemandRun {
   isSimulated        Boolean                 @default(true)
   checkpoint         Int                     @default(0)
   lastBatchId        String?
+  /// The IntegrationSyncRun this calculation was bound to. Deliberately not a foreign
+  /// key: demand history is permanent operational record and must survive whatever
+  /// retention is later applied to synchronization runs. Null on runs recorded before
+  /// binding existed, which read as "source identity unavailable" rather than being
+  /// backfilled with a guess.
+  sourceSyncRunId    String?
   sourceCutoff       DateTime?
   salesCount         Int                     @default(0)
   inventoryCount     Int                     @default(0)
@@ -440,6 +446,10 @@ model DemandMetric {
 
   @@index([runId])
   @@index([planningCategory])
+  // Stockout Risk filters one run and orders by stored shortage, with the category key
+  // as the tie-breaker; the detail drill-down looks one category up inside one run.
+  @@index([runId, physicalShortage])
+  @@index([runId, planningCategory])
 }
 
 model DemandMetricTraceItem {
@@ -453,6 +463,9 @@ model DemandMetricTraceItem {
   sourceRecordId   String?
   eventKey         String?
   quantity         Decimal    @default(1)
+  /// Provenance of the quantity on this trace row, carried so an excluded record stays
+  /// explainable without re-deriving the decision.
+  quantityProvenance String?
   weight           Decimal?
   lab              String?
   shape            String?
@@ -853,6 +866,34 @@ model IntegrationSyncRun {
   @@index([batchId])
 }
 
+/// Mutual exclusion over the canonical Fantasy records themselves.
+///
+/// The sync lock and the demand lock each guard their own operation; neither knew about
+/// the other, so a synchronization could commit a batch while a demand calculation was
+/// part-way through reading the rows it was changing. This row is the one thing both
+/// must claim, so those two operations can never overlap.
+///
+/// A singleton: one canonical state, one claim.
+model CanonicalStateClaim {
+  id            String    @id @default("FANTASY_CANONICAL_STATE")
+  /// SYNC | DEMAND | null when free.
+  holder        String?
+  /// Unique per claim. A release must present it, so no operation can clear another's.
+  ownerToken    String?
+  /// Actor recorded for audit. Never accepted from a request body.
+  claimedBy     String?
+  claimedAt     DateTime?
+  /// When the claim stops being honoured, so a crashed worker cannot hold it forever.
+  expiresAt     DateTime?
+  /// Monotonic. Incremented on every claim and every forced release, so a worker whose
+  /// claim was broken cannot finalize afterwards even if it still holds its own token.
+  fencingVersion Int      @default(0)
+  /// Set by a forced release so the displaced worker can see why it was fenced.
+  lastForcedBy  String?
+  lastForcedAt  DateTime?
+  updatedAt     DateTime  @updatedAt
+}
+
 model SyncCheckpoint {
   id                String    @id @default(cuid())
   source            String    @unique @default("FANTASY")
@@ -863,6 +904,12 @@ model SyncCheckpoint {
   isLocked          Boolean   @default(false)
   lockedAt          DateTime?
   lockedBy          String?
+  /// Unique per claim. A release must present it, so one worker cannot clear another
+  /// worker's lock — the safety property the demand lock already had and this one did not.
+  lockToken         String?
+  /// When this claim stops being honoured. A crashed worker cannot hold the lock forever,
+  /// and an expired lock is reclaimable without a manual unlock.
+  lockExpiresAt     DateTime?
   updatedAt         DateTime  @updatedAt
 }
 
@@ -877,6 +924,14 @@ model LotMasterRecord {
   statusEffectiveDate DateTime
   docDate             DateTime
   quantity            Decimal   @default(1)
+  /// How this quantity was established. Null on rows written before provenance was
+  /// recorded, which `resolveCanonicalQuantity` reports as LEGACY_DEFAULT_AMBIGUOUS
+  /// rather than treating the column default of 1 as a supplied value.
+  quantityProvenance  String?
+  /// Pieces that may enter an authoritative total. Null whenever the provenance is not
+  /// countable — deliberately nullable so "no confirmed pieces" is distinguishable from
+  /// a confirmed zero.
+  confirmedPieces     Int?
   shape               String
   shapeNormalized     String?
   weight              Decimal
@@ -962,6 +1017,14 @@ model LotHistoryRecord {
   docDate             DateTime
   statusEffectiveDate DateTime
   quantity            Decimal   @default(1)
+  /// How this quantity was established. Null on rows written before provenance was
+  /// recorded, which `resolveCanonicalQuantity` reports as LEGACY_DEFAULT_AMBIGUOUS
+  /// rather than treating the column default of 1 as a supplied value.
+  quantityProvenance  String?
+  /// Pieces that may enter an authoritative total. Null whenever the provenance is not
+  /// countable — deliberately nullable so "no confirmed pieces" is distinguishable from
+  /// a confirmed zero.
+  confirmedPieces     Int?
   shape               String
   shapeNormalized     String?
   weight              Decimal

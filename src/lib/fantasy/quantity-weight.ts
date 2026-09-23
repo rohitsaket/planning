@@ -74,6 +74,14 @@ export function parseSourceNumeric(raw: unknown, options: NumericParseOptions = 
 
   if (raw === null || raw === undefined) return MISSING;
   if (typeof raw === "boolean") return invalid("NOT_NUMERIC");
+  // Prisma returns Decimal for every numeric canonical column. It is the project's own
+  // type, not arbitrary provider input, so it is normalized here rather than at each of
+  // the dozen call sites — which is where a missed conversion would silently read as
+  // "not numeric" and quietly zero a real quantity.
+  if (typeof raw === "object" && raw !== null && typeof (raw as { toString?: unknown }).toString === "function") {
+    const asText = String(raw);
+    if (/^-?\d+(\.\d+)?$/.test(asText)) return parseSourceNumeric(asText, options);
+  }
 
   let text: string;
   if (typeof raw === "number") {
@@ -389,3 +397,190 @@ export const FIXTURE_MEASUREMENT_PROFILE: MeasurementProfile = {
 export function measurementProfileFor(simulated: boolean): MeasurementProfile {
   return simulated ? FIXTURE_MEASUREMENT_PROFILE : LIVE_MEASUREMENT_PROFILE;
 }
+
+// ---------------------------------------------------------------------------
+// Canonical record provenance — the one decision every consumer shares
+// ---------------------------------------------------------------------------
+
+/**
+ * Why a stored quantity may or may not be counted as confirmed pieces.
+ *
+ * `LotMasterRecord.quantity`, `LotHistoryRecord.quantity` and
+ * `DemandMetricTraceItem.quantity` are all `Decimal @default(1)`, so a stored `1` is
+ * indistinguishable from a value the source never supplied. That ambiguity is why these
+ * codes exist, and why `LEGACY_DEFAULT_AMBIGUOUS` is not the same answer as
+ * `EXPLICIT_FIXTURE`.
+ */
+export const CANONICAL_QUANTITY_PROVENANCES = [
+  /** Supplied by the approved fixture contract, which emits a quantity on every row. */
+  "EXPLICIT_FIXTURE",
+  /** Supplied by a live source whose quantity semantics the client has confirmed. */
+  "LIVE_CONFIRMED",
+  /** The source supplied nothing. */
+  "MISSING",
+  /** The source supplied something that is not a usable number. */
+  "INVALID",
+  /** A number this build cannot interpret as a piece count (fractional, or unsupported). */
+  "UNSUPPORTED",
+  /** Written before provenance was recorded; the column default makes it unreadable. */
+  "LEGACY_DEFAULT_AMBIGUOUS",
+  /** Parsed, but what it counts is not confirmed for this source. */
+  "SEMANTICS_NOT_CONFIGURED",
+] as const;
+export type CanonicalQuantityProvenance = (typeof CANONICAL_QUANTITY_PROVENANCES)[number];
+
+/** The provenances whose pieces may enter an authoritative total. */
+const COUNTABLE_PROVENANCES: readonly CanonicalQuantityProvenance[] = ["EXPLICIT_FIXTURE", "LIVE_CONFIRMED"];
+
+export function isCountableQuantity(provenance: CanonicalQuantityProvenance): boolean {
+  return COUNTABLE_PROVENANCES.includes(provenance);
+}
+
+export interface CanonicalQuantityDecision {
+  readonly provenance: CanonicalQuantityProvenance;
+  /** Pieces that may be summed. Null whenever the provenance is not countable. */
+  readonly pieces: number | null;
+  /** The parsed value, preserved for traceability even when it may not be counted. */
+  readonly rawValue: number | null;
+  /** Fixed code for a data-quality issue. Null when nothing is wrong. */
+  readonly reviewCode: CanonicalQuantityProvenance | null;
+}
+
+/** What a stored canonical row carries about its own quantity. */
+export interface StoredQuantityInput {
+  readonly quantity: unknown;
+  readonly sourceType: string | null;
+  readonly isSimulated: boolean;
+  /**
+   * The provenance recorded at ingestion. Absent on rows written before the column
+   * existed, which is precisely what `LEGACY_DEFAULT_AMBIGUOUS` reports.
+   */
+  readonly quantityProvenance?: string | null;
+}
+
+/**
+ * The single quantity decision shared by ingestion, inventory, confirmed sales, the
+ * demand calculation and every export.
+ *
+ * There is deliberately no branch that turns a missing, zero, negative, fractional or
+ * uninterpretable value into one piece. A row that cannot be counted is still returned —
+ * with its parsed value and a review code — so it stays traceable rather than vanishing.
+ */
+export function resolveCanonicalQuantity(input: StoredQuantityInput): CanonicalQuantityDecision {
+  const stored = input.quantityProvenance;
+
+  // A row that recorded its own provenance is trusted over any inference from columns.
+  if (stored && (CANONICAL_QUANTITY_PROVENANCES as readonly string[]).includes(stored)) {
+    const provenance = stored as CanonicalQuantityProvenance;
+    if (!isCountableQuantity(provenance)) {
+      const parsed = parseSourceNumeric(input.quantity, { allowNegative: false, allowZero: true, maxDecimals: 3 });
+      return { provenance, pieces: null, rawValue: parsed.value, reviewCode: provenance };
+    }
+    const parsed = parseSourceNumeric(input.quantity, { allowNegative: false, allowZero: false, maxDecimals: 0 });
+    return parsed.state === "VALID" && parsed.value !== null && Number.isInteger(parsed.value)
+      ? { provenance, pieces: parsed.value, rawValue: parsed.value, reviewCode: null }
+      : { provenance: "INVALID", pieces: null, rawValue: parsed.value, reviewCode: "INVALID" };
+  }
+
+  // No recorded provenance. The profile decides what this source's numbers mean at all.
+  const simulated = input.sourceType === "FIXTURE" && input.isSimulated;
+  const profile = measurementProfileFor(simulated);
+  // `simulated: false` on purpose. The simulation branch of `interpretQuantity` exists
+  // for *raw provider rows*, where a value other than 1 may mean the row is not a single
+  // loose stone — a structural risk the projection path must refuse. A canonical record
+  // has already passed that boundary, and the fixture provider emits an explicit
+  // quantity per record, which the demand engine has always counted. Applying the raw
+  // structural rule here would silently stop counting multi-piece fixture sales.
+  //
+  // What still applies is the part that matters for live readiness: `semantics` comes
+  // from the profile, so a live record remains NOT_CONFIGURED and countable by nothing.
+  const interpreted = interpretQuantity(input.quantity, {
+    semantics: profile.quantitySemantics,
+    simulated: false,
+  });
+
+  switch (interpreted.state) {
+    case "USABLE":
+      // Zero parses, but a record holding zero pieces is not a countable piece quantity —
+      // and `Qty` of 0 has no confirmed meaning. It is reported, never summed.
+      if (interpreted.pieces === 0) {
+        return { provenance: "UNSUPPORTED", pieces: null, rawValue: 0, reviewCode: "UNSUPPORTED" };
+      }
+      // A live row only reaches USABLE once a confirmed live profile exists; until then
+      // `LIVE_MEASUREMENT_PROFILE` keeps its semantics unconfigured.
+      return {
+        provenance: simulated ? "EXPLICIT_FIXTURE" : "LIVE_CONFIRMED",
+        pieces: interpreted.pieces,
+        rawValue: interpreted.rawValue,
+        reviewCode: null,
+      };
+    case "MISSING":
+      return { provenance: "MISSING", pieces: null, rawValue: null, reviewCode: "MISSING" };
+    case "INVALID":
+      return { provenance: "INVALID", pieces: null, rawValue: null, reviewCode: "INVALID" };
+    case "UNSUPPORTED_VALUE":
+      return { provenance: "UNSUPPORTED", pieces: null, rawValue: interpreted.rawValue, reviewCode: "UNSUPPORTED" };
+    default:
+      return {
+        provenance: "SEMANTICS_NOT_CONFIGURED",
+        pieces: null,
+        rawValue: interpreted.rawValue,
+        reviewCode: "SEMANTICS_NOT_CONFIGURED",
+      };
+  }
+}
+
+/** Business wording for a review code. An internal enum key never reaches a user. */
+export const QUANTITY_REVIEW_REASONS: Record<CanonicalQuantityProvenance, string> = {
+  EXPLICIT_FIXTURE: "Quantity supplied by the simulation source.",
+  LIVE_CONFIRMED: "Quantity supplied by the source under a confirmed contract.",
+  MISSING: "The source supplied no quantity for this record, so its pieces are not counted.",
+  INVALID: "The quantity supplied for this record could not be read, so its pieces are not counted.",
+  UNSUPPORTED: "The quantity supplied for this record is not a whole number of pieces, so it is not counted.",
+  LEGACY_DEFAULT_AMBIGUOUS:
+    "This record was created before quantities were recorded with their source, so its pieces are not counted.",
+  SEMANTICS_NOT_CONFIGURED:
+    "The meaning of this source quantity has not been confirmed, so its pieces are not counted.",
+};
+
+// ---------------------------------------------------------------------------
+// Weight, for category assignment
+// ---------------------------------------------------------------------------
+
+export interface CanonicalWeightDecision {
+  /** Carats usable for a weight band. Null whenever the unit is unconfirmed or invalid. */
+  readonly carats: number | null;
+  readonly state: WeightState;
+  readonly rawValue: number | null;
+  readonly reviewCode: string | null;
+}
+
+/**
+ * Whether a stored weight may be used to assign a weight band.
+ *
+ * A weight band is one third of the planning category, so assigning one from a column
+ * whose unit nobody has confirmed would put an unconfirmed assumption inside the
+ * identity of every downstream figure. Without a configured unit the value is preserved
+ * and refused.
+ */
+export function resolveCanonicalWeight(input: {
+  weight: unknown;
+  sourceType: string | null;
+  isSimulated: boolean;
+}): CanonicalWeightDecision {
+  const profile = measurementProfileFor(input.sourceType === "FIXTURE" && input.isSimulated);
+  const interpreted = interpretWeight(input.weight, { unit: profile.weightUnit, simulated: profile.simulated });
+  return {
+    carats: interpreted.carats,
+    state: interpreted.state,
+    rawValue: interpreted.rawValue,
+    reviewCode: interpreted.state === "USABLE" ? null : interpreted.reason,
+  };
+}
+
+export const WEIGHT_REVIEW_REASONS: Record<Exclude<WeightState, "USABLE">, string> = {
+  UNIT_NOT_CONFIGURED:
+    "The unit of this source weight has not been confirmed, so a weight band cannot be assigned.",
+  INVALID: "The weight supplied for this record could not be read, so a weight band cannot be assigned.",
+  MISSING: "The source supplied no weight for this record, so a weight band cannot be assigned.",
+};

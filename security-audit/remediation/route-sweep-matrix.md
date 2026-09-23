@@ -22,10 +22,12 @@ Statuses for permitted roles are whatever the handler returns for an empty/dummy
 | GET /api/analysis/aging | analysis.read | 401 | 200 | 200 | 200 | 200 | 200 | 200 |
 | GET /api/analysis/anomalies | analysis.read | 401 | 200 | 200 | 200 | 200 | 200 | 200 |
 | GET /api/analysis/countries | analysis.read | 401 | 200 | 200 | 200 | 200 | 200 | 200 |
+| GET /api/analysis/customers-orders/orders | orders.read | 401 | 403 (denied) | 200 | 200 | 200 | 200 | 200 |
 | GET /api/analysis/customers-orders | customers.read | 401 | 403 (denied) | 200 | 403 (denied) | 403 (denied) | 200 | 200 |
 | GET /api/analysis/customers/[id]/timeline | customers.read | 401 | 403 (denied) | 404 | 403 (denied) | 403 (denied) | 404 | 404 |
 | GET /api/analysis/customers | customers.read | 401 | 403 (denied) | 200 | 403 (denied) | 403 (denied) | 200 | 200 |
 | GET /api/analysis/demand-trace | analysis.read | 401 | 200 | 200 | 200 | 200 | 200 | 200 |
+| GET /api/analysis/excess/export | analysis.export | 401 | 403 (denied) | 409 | 403 (denied) | 409 | 409 | 409 |
 | GET /api/analysis/excess | analysis.read | 401 | 200 | 200 | 200 | 200 | 200 | 200 |
 | GET /api/analysis/executive | analysis.read | 401 | 200 | 200 | 200 | 200 | 200 | 200 |
 | GET /api/analysis/forecast | analysis.read | 401 | 200 | 200 | 200 | 200 | 200 | 200 |
@@ -33,7 +35,7 @@ Statuses for permitted roles are whatever the handler returns for an empty/dummy
 | GET /api/analysis/memo | sales.read | 401 | 403 (denied) | 200 | 403 (denied) | 403 (denied) | 200 | 200 |
 | GET /api/analysis/orders | orders.read | 401 | 403 (denied) | 200 | 200 | 200 | 200 | 200 |
 | GET /api/analysis/polished | analysis.read | 401 | 200 | 200 | 200 | 200 | 200 | 200 |
-| POST /api/analysis/refresh | demand.run | 401 | 403 (denied) | 403 (denied) | 403 (denied) | 403 (denied) | 200 | 200 |
+| POST /api/analysis/refresh | demand.run | 401 | 403 (denied) | 403 (denied) | 403 (denied) | 403 (denied) | 403 (denied) | 200 |
 | GET /api/analysis/reorder-signals | analysis.read | 401 | 200 | 200 | 200 | 200 | 200 | 200 |
 | GET /api/analysis/sales/contribution | sales.read | 401 | 403 (denied) | 200 | 403 (denied) | 403 (denied) | 200 | 200 |
 | GET /api/analysis/sales/export | sales.export | 401 | 403 (denied) | 200 | 403 (denied) | 403 (denied) | 200 | 200 |
@@ -41,6 +43,7 @@ Statuses for permitted roles are whatever the handler returns for an empty/dummy
 | GET /api/analysis/sales/records | sales.read | 401 | 403 (denied) | 200 | 403 (denied) | 403 (denied) | 200 | 200 |
 | GET /api/analysis/sales | sales.read | 401 | 403 (denied) | 200 | 403 (denied) | 403 (denied) | 200 | 200 |
 | GET /api/analysis/sales/trend | sales.read | 401 | 403 (denied) | 200 | 403 (denied) | 403 (denied) | 200 | 200 |
+| GET /api/analysis/stockout/export | analysis.export | 401 | 403 (denied) | 409 | 403 (denied) | 409 | 409 | 409 |
 | GET /api/analysis/stockout | analysis.read | 401 | 200 | 200 | 200 | 200 | 200 | 200 |
 | GET /api/analysis/transfer-candidates | analysis.read | 401 | 200 | 200 | 200 | 200 | 200 | 200 |
 | GET /api/analysis/wip | analysis.read | 401 | 200 | 200 | 200 | 200 | 200 | 200 |
@@ -54,9 +57,9 @@ Statuses for permitted roles are whatever the handler returns for an empty/dummy
 | GET /api/data-quality | data_quality.read | 401 | 403 (denied) | 200 | 200 | 200 | 200 | 200 |
 | GET /api/demand/export | demand.export | 401 | 403 (denied) | 200 | 403 (denied) | 403 (denied) | 200 | 200 |
 | GET /api/demand/history | analysis.read | 401 | 200 | 200 | 200 | 200 | 200 | 200 |
-| POST /api/demand/run | demand.run | 401 | 403 (denied) | 403 (denied) | 403 (denied) | 403 (denied) | 200 | 200 |
-| POST /api/demand/run/unlock | demand.unlock | 401 | 403 (denied) | 403 (denied) | 403 (denied) | 403 (denied) | 400 | 400 |
-| POST /api/fantasy/classification-refresh | fantasy.sync.run | 401 | 403 (denied) | 403 (denied) | 403 (denied) | 403 (denied) | 200 | 200 |
+| POST /api/demand/run | demand.run | 401 | 403 (denied) | 403 (denied) | 403 (denied) | 403 (denied) | 403 (denied) | 200 |
+| POST /api/demand/run/unlock | demand.unlock | 401 | 403 (denied) | 403 (denied) | 403 (denied) | 403 (denied) | 403 (denied) | 400 |
+| POST /api/fantasy/classification-refresh | fantasy.sync.run | 401 | 403 (denied) | 403 (denied) | 403 (denied) | 403 (denied) | 403 (denied) | 200 |
 | GET /api/fantasy/departments | fantasy.read | 401 | 403 (denied) | 200 | 200 | 200 | 200 | 200 |
 | GET /api/fantasy/locations | fantasy.read | 401 | 403 (denied) | 200 | 200 | 200 | 200 | 200 |
 | GET /api/fantasy/overall/[lotId] | overall.read | 401 | 404 | 404 | 404 | 404 | 404 | 404 |
@@ -68,10 +71,10 @@ Statuses for permitted roles are whatever the handler returns for an empty/dummy
 | GET /api/fantasy/projection | fantasy.projection.read | 401 | 403 (denied) | 403 (denied) | 403 (denied) | 403 (denied) | 200 | 200 |
 | POST /api/fantasy/projection | fantasy.projection.run | 401 | 403 (denied) | 403 (denied) | 403 (denied) | 403 (denied) | 400 | 400 |
 | GET /api/fantasy/rough | rough.read | 401 | 200 | 200 | 200 | 200 | 200 | 200 |
-| POST /api/fantasy/sync/retry | fantasy.sync.retry | 401 | 403 (denied) | 403 (denied) | 403 (denied) | 403 (denied) | 200 | 200 |
+| POST /api/fantasy/sync/retry | fantasy.sync.retry | 401 | 403 (denied) | 403 (denied) | 403 (denied) | 403 (denied) | 403 (denied) | 200 |
 | GET /api/fantasy/sync | fantasy.read | 401 | 403 (denied) | 200 | 200 | 200 | 200 | 200 |
-| POST /api/fantasy/sync | fantasy.sync.run | 401 | 403 (denied) | 403 (denied) | 403 (denied) | 403 (denied) | 200 | 200 |
-| POST /api/fantasy/sync/unlock | fantasy.sync.unlock | 401 | 403 (denied) | 403 (denied) | 403 (denied) | 403 (denied) | 200 | 200 |
+| POST /api/fantasy/sync | fantasy.sync.run | 401 | 403 (denied) | 403 (denied) | 403 (denied) | 403 (denied) | 403 (denied) | 200 |
+| POST /api/fantasy/sync/unlock | fantasy.sync.unlock | 401 | 403 (denied) | 403 (denied) | 403 (denied) | 403 (denied) | 403 (denied) | 400 |
 | GET /api/forecast | analysis.read | 401 | 200 | 200 | 200 | 200 | 200 | 200 |
 | POST /api/notifications/broadcast | notification.broadcast | 401 | 403 (denied) | 403 (denied) | 403 (denied) | 403 (denied) | 400 | 400 |
 | GET /api/notifications | notification.read | 401 | 200 | 200 | 200 | 200 | 200 | 200 |
@@ -98,4 +101,4 @@ Statuses for permitted roles are whatever the handler returns for an empty/dummy
 | GET /api | PUBLIC | 200 | 200 | 200 | 200 | 200 | 200 | 200 |
 | GET /api/traceability/[query] | plan.read | 401 | 404 | 404 | 404 | 404 | 404 | 404 |
 
-Handlers: 93
+Handlers: 96

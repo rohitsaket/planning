@@ -12,6 +12,7 @@
  * - Rollback on failure with safe lock release
  */
 
+import crypto from "crypto";
 import { db } from "@/lib/db";
 import { Prisma } from "@prisma/client";
 import {
@@ -22,6 +23,16 @@ import {
   validateCanonicalRecord,
 } from "./canonical";
 import { getFantasyProvider, FantasyBatchPayload } from "./provider";
+import { recordOperationalFailure, serializePublicFailure, type PublicFailure } from "@/lib/api/operational-failure";
+import { resolveCanonicalQuantity } from "./quantity-weight";
+import {
+  CanonicalStateBusyError,
+  CanonicalStateFencedError,
+  claimCanonicalState,
+  isClaimStillHeld,
+  releaseCanonicalState,
+  type CanonicalClaim,
+} from "./canonical-state-claim";
 import { getFantasySourceConfiguration, resolveFantasySourceState } from "./config";
 import {
   classifyFantasyRecord,
@@ -58,17 +69,67 @@ export interface SyncRunResult {
     historyVersionsCreated: number;
     dqIssuesCreated: number;
   };
-  errorSummary?: string;
+  /** Sanitized public failure. Present only when the batch failed. */
+  failure?: PublicFailure;
+}
+
+/**
+ * How long one claim is honoured.
+ *
+ * Long enough that a healthy batch finishes well inside it, short enough that a crashed
+ * worker does not hold the lock until someone notices. Reclaiming an expired lease is
+ * safe because canonical writes are transactional: an abandoned run committed either
+ * everything or nothing.
+ */
+export const SYNC_LOCK_LEASE_MS = Number(process.env.FANTASY_SYNC_LOCK_LEASE_MS || 15 * 60_000);
+
+/**
+ * Releases a claim, and only that claim.
+ *
+ * The token is matched inside the same statement that clears the lock, so there is no
+ * read-then-write window in which another worker could claim it between the check and
+ * the release.
+ */
+export async function releaseSyncLock(ownerToken: string): Promise<boolean> {
+  const released = await db.syncCheckpoint.updateMany({
+    where: { source: "FANTASY", lockToken: ownerToken },
+    data: { isLocked: false, lockedAt: null, lockedBy: null, lockToken: null, lockExpiresAt: null },
+  });
+  return released.count > 0;
 }
 
 /**
  * Explicitly releases a synchronization lock with audit tracking.
  */
-export async function unlockSynchronization(actor: string, reason?: string): Promise<{ success: boolean; message: string }> {
+export async function unlockSynchronization(
+  actor: string,
+  reason?: string,
+  options: { ownerToken?: string | null } = {},
+): Promise<{ success: boolean; message: string; forcedActiveLease?: boolean }> {
   const checkpoint = await db.syncCheckpoint.findUnique({ where: { source: "FANTASY" } });
   if (!checkpoint || !checkpoint.isLocked) {
     return { success: true, message: "Synchronization is not currently locked." };
   }
+
+  // A caller holding the token releases its own claim. Anyone else is performing an
+  // administrative recovery, which the route already gates behind `fantasy.sync.unlock`
+  // — and which is refused while the lease is still running, so a healthy worker cannot
+  // be interrupted by an impatient operator.
+  const now = nowUTC();
+  const ownsLock = Boolean(options.ownerToken) && options.ownerToken === checkpoint.lockToken;
+  const leaseExpired = checkpoint.lockExpiresAt !== null && checkpoint.lockExpiresAt < now;
+  // A lock claimed before tokens existed has no owner to prove, so a recovery unlock is
+  // the only way to clear it.
+  const legacyClaim = checkpoint.lockToken === null;
+
+  // This function is the administrative recovery path and is already gated behind
+  // `fantasy.sync.unlock`, so it does not refuse — refusing would leave a genuinely
+  // stuck lock unclearable. What it does is distinguish the cases, so a force-release of
+  // live work is recorded as exactly that rather than looking like routine cleanup.
+  //
+  // The token protection lives where it belongs: on the automatic release paths, which
+  // go through `releaseSyncLock` and can only ever clear their own claim.
+  const forcedActiveLease = !ownsLock && !leaseExpired && !legacyClaim;
 
   await db.syncCheckpoint.update({
     where: { source: "FANTASY" },
@@ -76,12 +137,19 @@ export async function unlockSynchronization(actor: string, reason?: string): Pro
       isLocked: false,
       lockedAt: null,
       lockedBy: null,
+      lockToken: null,
+      lockExpiresAt: null,
     },
   });
 
   return {
     success: true,
-    message: `Synchronization lock successfully cleared by ${actor}. Reason: ${reason ?? "Manual administrative unlock"}`,
+    // Stated plainly: breaking a live lease is a different act from clearing a stale one,
+    // and the operator who did it should see which one happened.
+    forcedActiveLease,
+    message: forcedActiveLease
+      ? `Synchronization lock force-cleared by ${actor} while a run still held an active lease. Reason: ${reason ?? "Manual administrative unlock"}`
+      : `Synchronization lock successfully cleared by ${actor}. Reason: ${reason ?? "Manual administrative unlock"}`,
   };
 }
 
@@ -102,6 +170,22 @@ async function loadLabMappings(tx?: Prisma.TransactionClient): Promise<Map<strin
 /**
  * Executes a concurrency-safe, monotonic incremental synchronization run.
  */
+/**
+ * The provenance columns for one canonical record.
+ *
+ * Recorded at ingestion, where the source is still known. Deriving it later from
+ * `sourceType` alone cannot distinguish a supplied 1 from the column default, which is
+ * the ambiguity these columns exist to remove.
+ */
+function quantityProvenanceColumns(rec: { quantity?: number | null; sourceType: string; isSimulated?: boolean }) {
+  const decision = resolveCanonicalQuantity({
+    quantity: rec.quantity,
+    sourceType: rec.sourceType,
+    isSimulated: rec.isSimulated ?? false,
+  });
+  return { quantityProvenance: decision.provenance, confirmedPieces: decision.pieces };
+}
+
 export async function runSynchronization(options: SyncRunOptions = {}): Promise<SyncRunResult> {
   const startTime = Date.now();
   const config = getFantasySourceConfiguration();
@@ -180,22 +264,51 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
     }
   }
 
-  // 2. ATOMIC LOCK ACQUISITION: Conditional update
+  // 2. ATOMIC LOCK ACQUISITION — conditional update with a unique owner token.
+  //
+  // The token is what makes the release safe: a caller must present it to clear the
+  // lock, so a second worker cannot release the first one's claim. The lease bounds a
+  // crashed worker, which previously left the lock held until someone unlocked by hand.
+  const lockToken = crypto.randomUUID();
+  const lockClaimedAt = nowUTC();
+  const lockExpiresAt = new Date(lockClaimedAt.getTime() + SYNC_LOCK_LEASE_MS);
+
   const lockResult = await db.syncCheckpoint.updateMany({
     where: {
       source: "FANTASY",
-      isLocked: false,
+      // Free, or held by a claim whose lease has run out. Both are decided by the
+      // database in one statement, so two workers cannot both win.
+      OR: [{ isLocked: false }, { lockExpiresAt: { lt: lockClaimedAt } }],
     },
     data: {
       isLocked: true,
-      lockedAt: nowUTC(),
+      lockedAt: lockClaimedAt,
       lockedBy: options.actor ?? "SYSTEM",
+      lockToken,
+      lockExpiresAt,
     },
   });
 
   if (lockResult.count === 0) {
     throw new Error("Synchronization lock is currently held by another worker. Concurrent synchronization requests are rejected.");
   }
+
+  // The canonical state is claimed second, and always in this order: sync lock, then
+  // canonical claim. Demand takes its own operation lock first and then this same claim,
+  // so the two never acquire the pair in opposite orders and cannot deadlock.
+  //
+  // A demand run holding the claim means canonical records are being read right now;
+  // committing a batch underneath it would give that calculation a mixed source state.
+  let canonicalClaim: CanonicalClaim;
+  const canonicalClaimResult = await claimCanonicalState("SYNC", options.actor ?? "SYSTEM");
+  if (!canonicalClaimResult.acquired) {
+    // The sync lock is released again here: holding it while refused would block the
+    // next attempt for a full lease with no work in progress.
+    await releaseSyncLock(lockToken);
+    throw new CanonicalStateBusyError(canonicalClaimResult.heldBy);
+  }
+  canonicalClaim = canonicalClaimResult.claim;
+  let canonicalClaimReleased = false;
 
   // Refresh checkpoint state under active lock
   const lockedCheckpoint = await db.syncCheckpoint.findUniqueOrThrow({
@@ -240,9 +353,13 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
 
       await db.syncCheckpoint.update({
         where: { source: "FANTASY" },
-        data: { isLocked: false, lockedAt: null, lockedBy: null },
+        data: { isLocked: false, lockedAt: null, lockedBy: null, lockToken: null, lockExpiresAt: null },
       });
       lockReleasedInTx = true;
+      // No batch, no canonical change: the claim is released immediately so a waiting
+      // demand run is not blocked for a full lease by a sync that did nothing.
+      await releaseCanonicalState(canonicalClaim);
+      canonicalClaimReleased = true;
 
       return {
         success: true,
@@ -448,6 +565,7 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
               statusEffectiveDate,
               docDate,
               quantity: new Prisma.Decimal(rec.quantity ?? 1),
+              ...quantityProvenanceColumns(rec),
               shape: rec.shape,
               shapeNormalized: normalizedShape,
               weight: new Prisma.Decimal(rec.weight),
@@ -499,6 +617,7 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
               docDate,
               statusEffectiveDate,
               quantity: new Prisma.Decimal(rec.quantity ?? 1),
+              ...quantityProvenanceColumns(rec),
               shape: rec.shape,
               shapeNormalized: normalizedShape,
               weight: new Prisma.Decimal(rec.weight),
@@ -671,6 +790,8 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
                 statusEffectiveDate,
                 docDate,
                 quantity: new Prisma.Decimal(rec.quantity ?? 1),
+                ...quantityProvenanceColumns(rec),
+              ...quantityProvenanceColumns(rec),
                 shape: rec.shape,
                 shapeNormalized: normalizedShape,
                 weight: new Prisma.Decimal(rec.weight),
@@ -718,6 +839,8 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
                 docDate,
                 statusEffectiveDate,
                 quantity: new Prisma.Decimal(rec.quantity ?? 1),
+                ...quantityProvenanceColumns(rec),
+              ...quantityProvenanceColumns(rec),
                 shape: rec.shape,
                 shapeNormalized: normalizedShape,
                 weight: new Prisma.Decimal(rec.weight),
@@ -1023,6 +1146,16 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
       }
 
       // 7. MONOTONIC CHECKPOINT ADVANCEMENT INSIDE TRANSACTION
+      //
+      // Fencing: an administrator may have force-released this claim while the batch was
+      // being processed, which means another operation has since been allowed to touch
+      // canonical state. Advancing the checkpoint now would record this run as the source
+      // of a state it no longer exclusively produced. Throwing rolls the whole
+      // transaction back, so the canonical writes above are discarded too.
+      if (!(await isClaimStillHeld(canonicalClaim, tx as unknown as typeof db))) {
+        throw new CanonicalStateFencedError();
+      }
+
       await tx.syncCheckpoint.update({
         where: { source: "FANTASY" },
         data: {
@@ -1032,6 +1165,10 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
           isLocked: false,
           lockedAt: null,
           lockedBy: null,
+          // Cleared with the rest of the claim; leaving a stale token behind would let a
+          // later release match a lock this run no longer holds.
+          lockToken: null,
+          lockExpiresAt: null,
         },
       });
 
@@ -1052,6 +1189,10 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
     });
 
     lockReleasedInTx = true;
+    // Released only after the transaction committed: until then a demand run could still
+    // observe a partially applied batch.
+    await releaseCanonicalState(canonicalClaim);
+    canonicalClaimReleased = true;
     const durationMs = Date.now() - startTime;
 
     // 8. UPDATE SYNC RUN STATUS TO SUCCESS
@@ -1099,7 +1240,15 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
     };
   } catch (err) {
     const durationMs = Date.now() - startTime;
-    const errorSummary = err instanceof Error ? err.message : String(err);
+    // Converted once, here. The stack reaches the server log under the reference; only
+    // the sanitized envelope is persisted and returned, so neither the column nor the
+    // caller ever holds provider or data-store exception text.
+    const failure = recordOperationalFailure(err, {
+      operation: "fantasy.sync",
+      entity: "IntegrationSyncRun",
+      entityId: syncRun.id,
+      actorUserId: options.actorUserId ?? null,
+    });
 
     // Rollback is automatic in $transaction. Mark run as FAILED.
     try {
@@ -1107,7 +1256,7 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
         where: { id: syncRun.id },
         data: {
           status: "FAILED",
-          errorSummary,
+          errorSummary: serializePublicFailure(failure),
           durationMs,
           finishedAt: nowUTC(),
         },
@@ -1116,15 +1265,23 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
       // Ignore secondary update error
     }
 
-    // Always release lock safely if not released in transaction
+    // Release only this caller's claim. A token mismatch means another worker has
+    // already reclaimed an expired lease and is mid-run; clearing it would abandon
+    // their work.
     if (!lockReleasedInTx) {
       try {
-        await db.syncCheckpoint.update({
-          where: { source: "FANTASY" },
-          data: { isLocked: false, lockedAt: null, lockedBy: null },
-        });
+        await releaseSyncLock(lockToken);
       } catch {
         // Ignore secondary unlock error
+      }
+    }
+    if (!canonicalClaimReleased) {
+      try {
+        // Releases nothing if the claim was already force-released, which is correct:
+        // it belongs to whoever holds it now.
+        await releaseCanonicalState(canonicalClaim);
+      } catch {
+        // Ignore secondary release error
       }
     }
 
@@ -1147,7 +1304,7 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
         historyVersionsCreated: 0,
         dqIssuesCreated: 0,
       },
-      errorSummary,
+      failure,
     };
   }
 }

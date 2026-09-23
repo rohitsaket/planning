@@ -9,10 +9,16 @@
 // Each entry is the permission the page's own data API enforces, so a page is never
 // shown to someone whose first request would be a 403.
 //
+// A consolidated page whose tabs carry different permissions lists them as an array,
+// meaning "any of these". Holding one tab's permission admits the page; it does not
+// admit the other tab, which enforces its own permission in the UI and again at its own
+// API. Without this, a page had to be mapped to a single permission, and a user holding
+// only the other tab's permission was denied the whole page.
+//
 // Frontend lock states use this. The backend API enforces authorization on every
 // endpoint independently; this is UX, not the security boundary.
 
-const EXACT: Record<string, string> = {
+const EXACT: Record<string, string | readonly string[]> = {
   // Consolidated Workflow Views
   "dashboard": "analysis.read",
   "fantasy-live": "fantasy.read",
@@ -21,7 +27,9 @@ const EXACT: Record<string, string> = {
   "data-quality-issues": "data_quality.read",
   "demand-overview": "analysis.read",
   "inventory-position": "analysis.read",
-  "customers-orders": "customers.read",
+  // Customers tab needs customers.read, Orders tab needs orders.read; either admits
+  // the page, and each tab still enforces its own.
+  "customers-orders": ["customers.read", "orders.read"],
   // Legacy alias for "analysis-demand-trace"; kept in step with it so a stale link is
   // authorized identically to the canonical id it resolves to.
   "demand-trace": "analysis.read",
@@ -55,7 +63,9 @@ const EXACT: Record<string, string> = {
   "analysis-executive": "analysis.read",
   "analysis-sales": "sales.read", // "Sales Analysis & Trends" module (tabs: analysis | trends)
   "analysis-sales-trends": "sales.read", // legacy id, redirected to analysis-sales?tab=trends
-  "analysis-customers-orders": "customers.read",
+  // Alias of "customers-orders"; kept in step with it so a stale link is authorized
+  // identically to the canonical id it resolves to.
+  "analysis-customers-orders": ["customers.read", "orders.read"],
   "analysis-inventory-position": "analysis.read",
   "analysis-customers": "customers.read",
   "analysis-orders": "orders.read",
@@ -127,8 +137,25 @@ const EXACT: Record<string, string> = {
  * Null means denied. It is never substituted with a default: an unmapped page must be
  * unreachable until someone decides, explicitly, who may see it.
  */
+/**
+ * Every permission that admits a view. Empty means the view is mapped to nothing and is
+ * therefore denied to everyone.
+ */
+export function viewPermissions(viewId: string): readonly string[] {
+  if (!Object.prototype.hasOwnProperty.call(EXACT, viewId)) return [];
+  const entry = EXACT[viewId];
+  return typeof entry === "string" ? [entry] : entry;
+}
+
+/**
+ * The single permission a view requires, or null when it requires none or several.
+ *
+ * Callers that need to handle a composite requirement use `viewPermissions`; this
+ * remains for the common case of naming one required permission to the user.
+ */
 export function viewPermission(viewId: string): string | null {
-  return Object.prototype.hasOwnProperty.call(EXACT, viewId) ? EXACT[viewId] : null;
+  const perms = viewPermissions(viewId);
+  return perms.length === 1 ? perms[0] : null;
 }
 
 /** Every view id that has an explicit mapping. Used by tests and the admin matrix. */
@@ -138,15 +165,18 @@ export function mappedViewIds(): string[] {
 
 export function isViewAuthorized(userPerms: string[] | undefined | null, viewId: string): boolean {
   if (!userPerms || userPerms.length === 0) return false;
-  const reqPerm = viewPermission(viewId);
+  const required = viewPermissions(viewId);
   // No mapping → denied, for every role. There is no wildcard.
-  if (reqPerm === null) return false;
-  return userPerms.includes(reqPerm);
+  if (required.length === 0) return false;
+  // Any one of the listed permissions admits the page. This is page entry only; each
+  // tab and each API enforces its own permission independently.
+  return required.some((p) => userPerms.includes(p));
 }
 
 export const PERMISSION_LABELS: Record<string, string> = {
   "analysis.read": "Executive Analytics & Dashboard Access",
   "analysis.export": "Inventory & Analysis Export",
+  "forecast.methodology.read": "Forecast Model Methodology & Validation Metrics",
   "sales.read": "Commercial & Sales Analysis Access",
   "sales.export": "Sales & Memo Export",
   "customers.read": "Customer Information Access",

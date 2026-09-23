@@ -83,7 +83,7 @@ interface YieldPredictionResponse {
   summary: YieldSummary;
   predictions: PredictionRow[];
   historical: HistoricalRow[];
-  methodology: string;
+  basis: string;
   advisoryNotice: string;
 }
 
@@ -494,16 +494,16 @@ export function YieldPredictionView() {
           unit="%"
           intent="info"
           icon={TrendingUp}
-          hint="α = 0.3 (recent-weighted)"
+          hint="Recent months weighted more heavily"
           sparkline={expSpark}
         />
         <KpiCard
-          label="Std Dev"
+          label="Typical Spread"
           value={summary ? summary.stdDev.toFixed(2) : "—"}
-          unit="σ"
+          unit="%"
           intent="warning"
           icon={AlertTriangle}
-          hint="Prediction uncertainty (±1σ)"
+          hint="How much past results for this category varied"
           sparkline={stdSpark}
         />
         <KpiCard
@@ -604,7 +604,7 @@ export function YieldPredictionView() {
           </div>
           <div className="rounded-md border border-border bg-muted/30 px-2 py-1.5">
             <p className="text-muted-foreground uppercase tracking-wide">
-              Prediction Interval ±1σ
+              Expected Range
             </p>
             <p className="tabular-nums font-semibold text-foreground">
               {summary
@@ -623,23 +623,17 @@ export function YieldPredictionView() {
         </div>
 
         <div className="mt-3 text-[10px] text-muted-foreground leading-relaxed">
-          <strong className="text-foreground">Risk classification:</strong>{" "}
-          <span style={{ color: RISK_COLORS.HIGH }}>
-            HIGH if |variance| &gt; 2σ
-          </span>{" "}
-          ·{" "}
-          <span style={{ color: RISK_COLORS.MEDIUM }}>
-            MEDIUM if |variance| &gt; 1σ
-          </span>{" "}
-          ·{" "}
-          <span style={{ color: RISK_COLORS.LOW }}>
-            LOW otherwise
-          </span>
-          . Variance = predicted actual − planned yield (signed).
+          <strong className="text-foreground">Risk classification:</strong> how far the
+          predicted yield sits from what past results for this category would lead you to
+          expect —{" "}
+          <span style={{ color: RISK_COLORS.HIGH }}>HIGH</span>{" "}·{" "}
+          <span style={{ color: RISK_COLORS.MEDIUM }}>MEDIUM</span>{" "}·{" "}
+          <span style={{ color: RISK_COLORS.LOW }}>LOW</span>. Variance is the predicted
+          actual yield minus the planned yield, signed.
         </div>
 
         <div className="mt-2 text-[10px] text-muted-foreground/80 italic leading-relaxed">
-          {data?.methodology}
+          {data?.basis}
         </div>
 
         <div className="mt-2 rounded-md border border-amber-200/60 bg-amber-50/40 dark:border-amber-900/40 dark:bg-amber-950/10 px-2 py-1.5 text-[10px] text-amber-900 dark:text-amber-200 leading-relaxed">
@@ -750,7 +744,7 @@ export function YieldPredictionView() {
       {/* Prediction Interval chart */}
       <Section
         title="Prediction Interval — Un-reconciled Cases"
-        description="Predicted actual yield (baseline MA) with ±1σ error bars, colored by risk level. Dashed line = planned yield."
+        description="Predicted actual yield with its expected range, coloured by risk level. The dashed line is the planned yield."
         actions={
           predictions.length > 0 ? (
             <div className="flex items-center gap-1.5">
@@ -873,19 +867,19 @@ export function YieldPredictionView() {
         <div className="mt-2 flex flex-wrap items-center gap-3 text-[10px] text-muted-foreground">
           <span className="inline-flex items-center gap-1">
             <span className="h-2 w-2 rounded-full" style={{ background: RISK_COLORS.HIGH }} />
-            HIGH (|var|&gt;2σ)
+            HIGH
           </span>
           <span className="inline-flex items-center gap-1">
             <span className="h-2 w-2 rounded-full" style={{ background: RISK_COLORS.MEDIUM }} />
-            MEDIUM (|var|&gt;1σ)
+            MEDIUM
           </span>
           <span className="inline-flex items-center gap-1">
             <span className="h-2 w-2 rounded-full" style={{ background: RISK_COLORS.LOW }} />
-            LOW (within σ)
+            LOW
           </span>
           <span className="inline-flex items-center gap-1">
             <span className="h-0 w-4 border-t-2 border-slate-500" />
-            Error bar = ±1σ prediction interval
+            Bar shows the expected range
           </span>
         </div>
       </Section>

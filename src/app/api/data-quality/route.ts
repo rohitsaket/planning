@@ -1,11 +1,18 @@
 import { db } from "@/lib/db";
 import { ok } from "@/lib/api-utils";
 import { withApi, qStr, paging, paged } from "@/lib/api/with-api";
+import { ApiError } from "@/lib/api/errors";
+import { isAuditableEntity } from "@/lib/domain/entity-labels";
 
 export const GET = withApi({ permission: "data_quality.read" }, async (req: Request) => {
   const url = new URL(req.url);
   const p = paging(url);
-  const entity = qStr(url, "entity");
+  // Only a key this build knows reaches the query. An arbitrary client string is
+  // refused rather than silently matching nothing.
+  const entity = qStr(url, "entity", 60);
+  if (entity && !isAuditableEntity(entity)) {
+    throw new ApiError(400, "BAD_REQUEST", "Query parameter 'entity' is not a recognized record type.");
+  }
   const severity = qStr(url, "severity");
   const status = qStr(url, "status");
 

@@ -1,61 +1,73 @@
-import { db } from "@/lib/db";
 import { ok } from "@/lib/api-utils";
 import { withApi, qInt } from "@/lib/api/with-api";
-import { analyzeTransfers, rollupByCountry } from "@/lib/analytics/stock-position";
+import { readAgingSummary } from "@/lib/analysis/stock-aging";
+import { describeAgingFilters, parseAgingFilters } from "../aging/route";
 
-// Transfer Candidate Analyzer — advisory only, BR-TRANSFER-001 is not client-confirmed.
-//
-// Candidates come from the shared stock-position service (the Country & Branch view
-// reads the same analysis), matched inside one exact category:
-//   source country has excess, destination country has remaining unplanned shortage,
-//   quantity = MIN(source excess, destination shortage), source ≠ destination.
-//
-// Nothing here creates a transfer, requirement, reservation or order.
+/**
+ * TRANSFER ANALYZER — whether an authoritative transfer recommendation can be made.
+ *
+ * It cannot, and the reason is structural rather than temporary.
+ *
+ * A transfer recommendation needs a source location holding excess and a destination
+ * location holding a shortage of the same category. That requires demand calculated per
+ * country or branch. `DemandMetric` — the authoritative demand result — has no country
+ * and no branch column: the target is calculated once per planning category across the
+ * whole business.
+ *
+ * The page this replaces worked around that by taking country demand from the
+ * `Requirement` table and availability from `PolishedStone`. Both are seeded
+ * demonstration tables, neither is the authoritative 90-day demand result, and combining
+ * them produced transfer quantities that looked like findings. Applying a global target
+ * to location-scoped stock would show every location as short by nearly the whole target
+ * — the same shortage counted once per location.
+ *
+ * So this route generates no candidates. It returns the unavailable state and, for
+ * reference, the factual distribution of current canonical stock by location — labelled
+ * as distribution, not as a recommendation.
+ *
+ * Read-only. No transfer is created, proposed or executed.
+ */
+
+export const TRANSFER_UNAVAILABLE_MESSAGE =
+  "Transfer recommendations are unavailable because demand is not currently calculated by country or branch. " +
+  "Current inventory distribution is shown for reference only.";
+
+export const TRANSFER_UNAVAILABLE_DETAIL =
+  "A recommendation needs to know which location is short and which holds a surplus of the same category. " +
+  "The demand target is calculated once for the whole business, so it cannot answer either question. " +
+  "Calculating demand per location would make transfer analysis possible.";
+
+/** What the client still has to confirm before recommendations become possible. */
+export const TRANSFER_PREREQUISITES = [
+  "Demand calculated by country or branch, not only per planning category.",
+  "Confirmed transfer eligibility rules between locations.",
+  "Confirmed transit and lead-time expectations.",
+  "Confirmed treatment of reserved, memo and held stock at the source location.",
+  "Approved source and destination rules, including which locations may supply which.",
+] as const;
+
 export const GET = withApi({ permission: "analysis.read" }, async (req: Request) => {
   const url = new URL(req.url);
-  const page = qInt(url, "page", { def: 1, min: 1, max: 1_000_000 });
-  const pageSize = qInt(url, "pageSize", { def: 50, min: 1, max: 500 });
+  const filters = parseAgingFilters(url);
+  // Bounded: the distribution is a summary, and the caller cannot widen it into a scan.
+  void qInt(url, "page", { def: 1, min: 1, max: 1_000 });
 
-  const { positions, transfers, wipPolicy, wipCoverageUnavailable } = await analyzeTransfers(db);
-
-  const total = transfers.candidates.length;
-  const rows = transfers.candidates.slice((page - 1) * pageSize, (page - 1) * pageSize + pageSize);
-
-  // Country balance is built from the same per-category positions, not from the
-  // candidate list, so excess and shortage are not double counted across pairs.
-  const countryBalance = rollupByCountry(positions)
-    .map((c) => ({
-      country: c.country,
-      totalExcess: c.excess,
-      totalShortage: c.remainingUnplanned,
-      netBalance: c.excess - c.remainingUnplanned,
-      categories: c.categories,
-    }))
-    .sort((a, b) => b.netBalance - a.netBalance || a.country.localeCompare(b.country));
+  const summary = await readAgingSummary(filters);
 
   return ok({
-    status: transfers.status,
-    ruleId: transfers.ruleId,
-    ruleStatus: transfers.ruleStatus,
-    advisoryNotice: transfers.message,
-    autoExecuted: transfers.autoExecuted,
-    summary: {
-      candidateCount: transfers.candidateCount,
-      totalTransferQty: transfers.totalTransferQty,
-      countriesWithExcess: transfers.countriesWithExcess,
-      countriesWithShortage: transfers.countriesWithShortage,
-      categoriesAnalyzed: positions.length,
+    // No candidates, no quantities, no source or destination, no savings, no priority.
+    recommendationsAvailable: false,
+    unavailableMessage: TRANSFER_UNAVAILABLE_MESSAGE,
+    unavailableDetail: TRANSFER_UNAVAILABLE_DETAIL,
+    prerequisites: TRANSFER_PREREQUISITES,
+    candidates: [],
+    activeFilters: describeAgingFilters(filters),
+    // Factual only. Country and branch are real dimensions of a stock record, so this
+    // distribution is authoritative — it is the demand side that has no location.
+    distribution: {
+      currentLots: summary.currentLots,
+      byLocation: summary.byLocation,
+      byBucket: summary.byBucket,
     },
-    wipPolicy: {
-      status: wipPolicy.status,
-      message: wipPolicy.message,
-    },
-    wipCoverageUnavailable,
-    countryBalance,
-    rows,
-    page,
-    pageSize,
-    total,
-    hasMore: page * pageSize < total,
   });
 });

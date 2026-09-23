@@ -510,7 +510,17 @@ async function main() {
     orders: await db.salesOrder.count(),
   };
   res = await call(transfersGET, { path: "/api/analysis/transfer-candidates", cookie: admin.cookie });
-  assert(res.status === 200 && res.json.summary.candidateCount === analysis.transfers.candidateCount, "Transfer API returns the shared service result");
+  assert(res.status === 200, "Transfer API responds");
+  // No candidate is produced: the authoritative demand result has no country or branch,
+  // so neither the short location nor the surplus location can be identified.
+  assert(res.json.recommendationsAvailable === false, "Transfer recommendations are reported unavailable");
+  assert(Array.isArray(res.json.candidates) && res.json.candidates.length === 0, "No transfer candidate is generated");
+  const transferPayload = JSON.stringify(res.json);
+  for (const invented of ["transferQty", "totalTransferQty", "fromCountry", "toCountry", "savings", "priority"]) {
+    assert(!transferPayload.includes(invented), `Transfer API exposes no ${invented}`);
+  }
+  // What remains is factual: where current stock actually sits.
+  assert(Array.isArray(res.json.distribution.byLocation), "Transfer API shows current inventory distribution");
   assert(
     (await db.requirement.count()) === beforeCounts.requirements &&
       (await db.roughReservation.count()) === beforeCounts.reservations &&
@@ -669,13 +679,29 @@ async function main() {
   assert(memoFiltered.json.total === memoHk, "Memo filters apply before paging");
 
   const agingRes = await call(agingGET, { path: "/api/analysis/aging?page=1&pageSize=5", cookie: admin.cookie });
-  assert(agingRes.status === 200 && typeof agingRes.json.total === "number", "Aging API returns a paginated lot list with a real total");
-  assert(agingRes.json.buckets.length === 6, "Aging buckets are aggregated in the database");
+  assert(agingRes.status === 200 && typeof agingRes.json.paging.total === "number", "Aging API returns a paginated lot list with a real total");
+  // No age, and no age bands. The aging anchor is not confirmed, so the page reports
+  // current stock and says so rather than computing a number from an observation date.
+  assert(agingRes.json.availability === "ANCHOR_NOT_CONFIRMED", "Aging reports that the aging date is not confirmed");
+  assert(agingRes.json.buckets === undefined, "Aging invents no age bands");
+  assert(
+    !JSON.stringify(agingRes.json).includes("ageDays"),
+    "Aging returns no age while its anchor is unconfirmed",
+  );
 
-  const reorderRes = await call(reorderGET, { path: "/api/analysis/reorder-signals?page=1&pageSize=10", cookie: admin.cookie });
-  assert(reorderRes.status === 200 && reorderRes.json.total >= 120, "Reorder signals are paginated with a real total");
-  assert(reorderRes.json.rows.length === 10, "Reorder signals return one page of rows");
+  const reorderRes = await call(reorderGET, {
+    path: "/api/analysis/reorder-signals?section=signals&shortageOnly=false&page=1&pageSize=10",
+    cookie: admin.cookie,
+  });
+  assert(reorderRes.status === 200 && typeof reorderRes.json.paging.total === "number", "Reorder signals are paginated with a real total");
+  assert(reorderRes.json.rows.length <= 10, "Reorder signals return one page of rows");
   assert(reorderRes.json.advisory === true, "Reorder signals stay advisory");
+  // The predictive model the old page invented — a likely reorder date and a confidence
+  // derived from the spacing of past sales — is gone.
+  const reorderPayload = JSON.stringify(reorderRes.json);
+  for (const invented of ["likelyReorderWindow", "likelyReorderDate", "confidence", "velocity"]) {
+    assert(!reorderPayload.includes(invented), `Reorder signals expose no ${invented}`);
+  }
 
   const historyRes = await call(historyGET, { path: "/api/demand/history?page=1&pageSize=2", cookie: admin.cookie });
   assert(historyRes.status === 200 && historyRes.json.rows.length <= 2, "Demand history is paginated");
@@ -692,8 +718,15 @@ async function main() {
   const ordersRes = await call(ordersGET, { path: "/api/analysis/orders?page=1&pageSize=10", cookie: admin.cookie });
   assert(ordersRes.status === 200 && typeof ordersRes.json.total === "number", "Orders API returns a real total");
 
-  const dashRes = await call(agingDashGET, { path: "/api/analysis/aging-dashboard?page=1&pageSize=10", cookie: admin.cookie });
-  assert(dashRes.status === 200 && typeof dashRes.json.total === "number", "Aging dashboard paginates its slow-moving list");
+  const dashRes = await call(agingDashGET, { path: "/api/analysis/aging-dashboard", cookie: admin.cookie });
+  assert(dashRes.status === 200 && typeof dashRes.json.currentLots === "number", "Aging dashboard summarizes current stock");
+  // The dashboard shares the lot page's service, so the two cannot disagree about
+  // whether aging is available.
+  assert(
+    dashRes.json.availability === agingRes.json.availability,
+    "Aging dashboard and Stock Aging report the same availability",
+  );
+  assert(Array.isArray(dashRes.json.byBucket), "Aging dashboard groups by inventory bucket");
 
   // =========================================================================
   section("E. API authorization across the real authenticated route boundary");

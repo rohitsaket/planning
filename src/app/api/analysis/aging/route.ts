@@ -1,112 +1,78 @@
-import { Prisma } from "@prisma/client";
-import { db } from "@/lib/db";
-import { ok, num } from "@/lib/api-utils";
-import { withApi, qStr, qInt } from "@/lib/api/with-api";
+import { ok } from "@/lib/api-utils";
+import { withApi, qEnum, qInt, qStr } from "@/lib/api/with-api";
+import { ApiError } from "@/lib/api/errors";
+import { INVENTORY_BUCKETS, type InventoryBucket } from "@/lib/analysis/inventory-position";
+import {
+  AGING_PAGE_DEFAULT,
+  AGING_PAGE_MAX,
+  EMPTY_AGING_FILTERS,
+  readAgingLots,
+  readAgingSummary,
+  type AgingFilters,
+} from "@/lib/analysis/stock-aging";
 
-// Stock Aging — 0-30, 31-60, 61-90, 91-180, 181-365, 365+ days.
-// Buckets are aggregated in PostgreSQL over the whole filtered set; the lot list is
-// paginated on the server.
+/**
+ * STOCK AGING — one bounded read endpoint.
+ *
+ * Replaces a route that read `PolishedStone` — a legacy seeded mirror — and computed age
+ * as `NOW() - lastUpdated`, a row-update timestamp with no business meaning, then sorted
+ * the result into six hardcoded bands nobody approved.
+ *
+ * This route reports current canonical stock and states plainly that inventory age
+ * cannot be derived until the client confirms which event starts the clock. It returns
+ * no age, no age band and no "slow-moving" verdict, because it has no basis for any of
+ * them.
+ *
+ * Read-only. Every field is mapped explicitly.
+ */
 
-const BUCKET_LABELS = ["0-30", "31-60", "61-90", "91-180", "181-365", "365+"] as const;
-const SLOW_MIN_DAYS = 91;
-
-const AGE_DAYS_SQL = Prisma.sql`FLOOR(EXTRACT(EPOCH FROM (NOW() - ps."lastUpdated")) / 86400)::int`;
+const SECTIONS = ["lots", "summary"] as const;
 
 export const GET = withApi({ permission: "analysis.read" }, async (req: Request) => {
   const url = new URL(req.url);
-  const country = qStr(url, "country");
-  const branch = qStr(url, "branch");
-  const lab = qStr(url, "lab");
-  const bucket = qStr(url, "bucket", 20);
-  const page = qInt(url, "page", { def: 1, min: 1, max: 1_000_000 });
-  const pageSize = qInt(url, "pageSize", { def: 50, min: 1, max: 500 });
+  const section = qEnum(url, "section", SECTIONS, "lots");
+  const filters = parseAgingFilters(url);
 
-  const filters: Prisma.Sql[] = [];
-  if (country) filters.push(Prisma.sql`ps.country = ${country}`);
-  if (branch) filters.push(Prisma.sql`ps.branch = ${branch}`);
-  if (lab) filters.push(Prisma.sql`ps."labNormalized" = ${lab}`);
-  const whereSql = filters.length ? Prisma.sql`WHERE ${Prisma.join(filters, " AND ")}` : Prisma.empty;
+  if (section === "summary") {
+    return ok({ section, ...(await readAgingSummary(filters)) });
+  }
 
-  const bucketCase = Prisma.sql`
-    CASE
-      WHEN ${AGE_DAYS_SQL} <= 30 THEN '0-30'
-      WHEN ${AGE_DAYS_SQL} <= 60 THEN '31-60'
-      WHEN ${AGE_DAYS_SQL} <= 90 THEN '61-90'
-      WHEN ${AGE_DAYS_SQL} <= 180 THEN '91-180'
-      WHEN ${AGE_DAYS_SQL} <= 365 THEN '181-365'
-      ELSE '365+'
-    END`;
-
-  const where: Prisma.PolishedStoneWhereInput = {};
-  if (country) where.country = country;
-  if (branch) where.branch = branch;
-  if (lab) where.labNormalized = lab;
-
-  const [bucketRows, totalPieces, detailRows, detailCountRows] = await Promise.all([
-    db.$queryRaw<Array<{ bucket: string; pieces: number; carats: number }>>(Prisma.sql`
-      SELECT ${bucketCase} AS bucket, COUNT(*)::int AS pieces, COALESCE(SUM(ps.weight), 0)::float8 AS carats
-      FROM "PolishedStone" ps
-      ${whereSql}
-      GROUP BY 1
-    `),
-    db.polishedStone.count({ where }),
-    db.$queryRaw<
-      Array<{ lot_id: string; age_days: number; country: string; branch: string; shape: string | null; lab: string | null; weight: number; bucket: string }>
-    >(Prisma.sql`
-      SELECT ps."fantasyLotId" AS lot_id,
-             ${AGE_DAYS_SQL} AS age_days,
-             ps.country,
-             ps.branch,
-             COALESCE(ps."shapeNormalized", ps.shape) AS shape,
-             ps."labNormalized" AS lab,
-             ps.weight::float8 AS weight,
-             ${bucketCase} AS bucket
-      FROM "PolishedStone" ps
-      ${whereSql}
-      ${bucket ? Prisma.sql`${filters.length ? Prisma.sql`AND` : Prisma.sql`WHERE`} ${bucketCase} = ${bucket}` : Prisma.empty}
-      ORDER BY age_days DESC, ps."fantasyLotId" ASC
-      LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}
-    `),
-    db.$queryRaw<Array<{ total: number }>>(Prisma.sql`
-      SELECT COUNT(*)::int AS total
-      FROM "PolishedStone" ps
-      ${whereSql}
-      ${bucket ? Prisma.sql`${filters.length ? Prisma.sql`AND` : Prisma.sql`WHERE`} ${bucketCase} = ${bucket}` : Prisma.empty}
-    `),
-  ]);
-
-  const byBucket = new Map(bucketRows.map((r) => [r.bucket, r]));
-  const buckets = BUCKET_LABELS.map((label) => ({
-    label,
-    pieces: byBucket.get(label)?.pieces ?? 0,
-    carats: num(byBucket.get(label)?.carats ?? 0),
-  }));
-
-  const slowMoving = buckets
-    .filter((b) => b.label === "91-180" || b.label === "181-365" || b.label === "365+")
-    .reduce((s, b) => s + b.pieces, 0);
-
-  const total = detailCountRows[0]?.total ?? 0;
+  const paging = {
+    page: qInt(url, "page", { def: 1, min: 1, max: 100_000 }),
+    pageSize: qInt(url, "pageSize", { def: AGING_PAGE_DEFAULT, min: 1, max: AGING_PAGE_MAX }),
+  };
 
   return ok({
-    buckets,
-    totalPieces,
-    slowMoving,
-    slowMovingPct: totalPieces > 0 ? num((slowMoving / totalPieces) * 100) : 0,
-    slowMovingThresholdDays: SLOW_MIN_DAYS,
-    rows: detailRows.map((r) => ({
-      lotId: r.lot_id,
-      ageDays: r.age_days,
-      bucket: r.bucket,
-      country: r.country,
-      branch: r.branch,
-      shape: r.shape,
-      lab: r.lab,
-      weight: num(r.weight),
-    })),
-    page,
-    pageSize,
-    total,
-    hasMore: page * pageSize < total,
+    section,
+    activeFilters: describeAgingFilters(filters),
+    ...(await readAgingLots(filters, paging)),
   });
 });
+
+/** Every filter current stock can honour. An unknown bucket is refused. */
+export function parseAgingFilters(url: URL): AgingFilters {
+  const bucket = qStr(url, "bucket", 40);
+  if (bucket && !(INVENTORY_BUCKETS as readonly string[]).includes(bucket)) {
+    throw new ApiError(400, "BAD_REQUEST", "Query parameter 'bucket' is not a recognized inventory bucket.");
+  }
+
+  return {
+    ...EMPTY_AGING_FILTERS,
+    bucket: (bucket as InventoryBucket | null) ?? null,
+    lab: qStr(url, "lab", 60),
+    shape: qStr(url, "shape", 60),
+    // Country and branch are real dimensions of a stock record, so they genuinely apply
+    // here — unlike on the demand pages, where the stored target has no location.
+    country: qStr(url, "country", 60),
+    branch: qStr(url, "branch", 60),
+    department: qStr(url, "department", 120),
+    location: qStr(url, "location", 120),
+    search: qStr(url, "search", 120),
+  };
+}
+
+export function describeAgingFilters(f: AgingFilters): Array<{ key: string; value: string }> {
+  return Object.entries(f)
+    .filter(([, v]) => v !== null && v !== "")
+    .map(([key, value]) => ({ key, value: String(value) }));
+}

@@ -35,17 +35,19 @@ import { KpiGridSkeleton, ChartSkeleton, TableSkeleton } from "@/components/diam
 // Types
 // ---------------------------------------------------------------------------
 type Severity = "HIGH" | "MEDIUM" | "LOW";
-type AnomalyType = "SPIKE" | "DROP";
+type AnomalyDirection = "UNUSUALLY_HIGH" | "UNUSUALLY_LOW";
 
 interface AnomalyRow {
+  /** Server-assigned position. The API applies the ordering; the table preserves it. */
+  rank: number;
   category: string;
   metric: string;
   observed: number;
   expected: number;
   deviation: number;
-  zScore: number;
   severity: Severity;
-  type: AnomalyType;
+  severityLabel: string;
+  direction: AnomalyDirection;
   description: string;
   recommendedAction: string;
 }
@@ -55,6 +57,8 @@ interface AnomalySummary {
   spikes: number;
   drops: number;
   highSeverity: number;
+  /** Set only when detection ran and flagged nothing. */
+  noneFlaggedMessage: string | null;
 }
 
 interface AnomalyResponse {
@@ -73,14 +77,10 @@ const SEVERITY_COLORS: Record<Severity, string> = {
   LOW: "#0ea5e9",
 };
 
-const TYPE_COLORS: Record<AnomalyType, string> = {
-  SPIKE: "#10b981",
-  DROP: "#f43f5e",
+const DIRECTION_LABELS: Record<AnomalyDirection, string> = {
+  UNUSUALLY_HIGH: "Unusually high",
+  UNUSUALLY_LOW: "Unusually low",
 };
-
-function severityIntent(s: Severity): "default" | "critical" | "warning" | "info" {
-  return s === "HIGH" ? "critical" : s === "MEDIUM" ? "warning" : "info";
-}
 
 function fmtDate(iso: string): string {
   try {
@@ -101,22 +101,22 @@ export function AnomalyDetectionView() {
 
   // Sparklines
   const totalSpark = useMemo(() => {
-    const slice = rows.slice(0, 7).map((r) => Math.abs(r.zScore));
+    const slice = rows.slice(0, 7).map((r) => Math.abs(r.deviation));
     while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 0);
     return slice;
   }, [rows]);
   const spikesSpark = useMemo(() => {
-    const slice = rows.filter((r) => r.type === "SPIKE").slice(0, 7).map((r) => r.observed);
+    const slice = rows.filter((r) => r.direction === "UNUSUALLY_HIGH").slice(0, 7).map((r) => r.observed);
     while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 0);
     return slice;
   }, [rows]);
   const dropsSpark = useMemo(() => {
-    const slice = rows.filter((r) => r.type === "DROP").slice(0, 7).map((r) => r.observed);
+    const slice = rows.filter((r) => r.direction === "UNUSUALLY_LOW").slice(0, 7).map((r) => r.observed);
     while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 0);
     return slice;
   }, [rows]);
   const highSpark = useMemo(() => {
-    const slice = rows.filter((r) => r.severity === "HIGH").slice(0, 7).map((r) => Math.abs(r.zScore));
+    const slice = rows.filter((r) => r.severity === "HIGH").slice(0, 7).map((r) => Math.abs(r.deviation));
     while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 0);
     return slice;
   }, [rows]);
@@ -130,8 +130,7 @@ export function AnomalyDetectionView() {
         z: 120,
         label: r.category,
         severity: r.severity,
-        type: r.type,
-        zScore: r.zScore,
+        direction: r.direction,
       })),
     [rows]
   );
@@ -164,22 +163,22 @@ export function AnomalyDetectionView() {
       cell: (r) => <span className="text-[10px] text-muted-foreground">{r.metric}</span>,
     },
     {
-      key: "type",
-      header: "Type",
+      key: "direction",
+      header: "Movement",
       align: "center",
       sortable: true,
-      sortValue: (r) => r.type,
+      sortValue: (r) => r.direction,
       cell: (r) => (
         <Badge
-          variant={r.type === "SPIKE" ? "success" : "critical"}
+          variant={r.direction === "UNUSUALLY_HIGH" ? "success" : "critical"}
           className="gap-1"
         >
-          {r.type === "SPIKE" ? (
+          {r.direction === "UNUSUALLY_HIGH" ? (
             <TrendingUp className="h-2.5 w-2.5" />
           ) : (
             <TrendingDown className="h-2.5 w-2.5" />
           )}
-          {r.type}
+          {DIRECTION_LABELS[r.direction]}
         </Badge>
       ),
     },
@@ -192,7 +191,7 @@ export function AnomalyDetectionView() {
       cell: (r) => (
         <NumberCell
           value={r.observed}
-          intent={r.type === "SPIKE" ? "warning" : "critical"}
+          intent={r.direction === "UNUSUALLY_HIGH" ? "warning" : "critical"}
         />
       ),
     },
@@ -224,23 +223,14 @@ export function AnomalyDetectionView() {
       ),
     },
     {
-      key: "zScore",
-      header: "Z-Score",
+      // Ordering is decided by the server and carried here as a position, so the list
+      // stays ranked most-significant-first without publishing what produced the rank.
+      key: "rank",
+      header: "#",
       align: "right",
       sortable: true,
-      sortValue: (r) => r.zScore,
-      cell: (r) => (
-        <span
-          className={cn(
-            "tabular-nums font-semibold",
-            Math.abs(r.zScore) > 3 ? "text-rose-600 dark:text-rose-400" :
-            Math.abs(r.zScore) > 2.5 ? "text-amber-600 dark:text-amber-400" :
-            "text-sky-600 dark:text-sky-400"
-          )}
-        >
-          {r.zScore > 0 ? "+" : ""}{r.zScore.toFixed(2)}
-        </span>
-      ),
+      sortValue: (r) => r.rank,
+      cell: (r) => <span className="tabular-nums text-muted-foreground">{r.rank}</span>,
     },
     {
       key: "severity",
@@ -261,6 +251,7 @@ export function AnomalyDetectionView() {
           {r.severity}
         </span>
       ),
+      exportValue: (r) => r.severityLabel,
     },
     {
       key: "description",
@@ -286,7 +277,7 @@ export function AnomalyDetectionView() {
     <div className="flex flex-col gap-3 p-3">
       <PageHeader
         title="Anomaly Detection"
-        subtitle="Statistical anomalies in sales velocity — advisory, not confirmed demand"
+        subtitle="Categories trading outside their established range — advisory, not confirmed demand"
         meta={
           data ? (
             <span className="text-[10px] text-muted-foreground">
@@ -330,7 +321,7 @@ export function AnomalyDetectionView() {
           unit="↑"
           intent="success"
           icon={TrendingUp}
-          hint="z-score > 2 (above expected)"
+          hint="Categories selling well above their usual level"
           sparkline={spikesSpark}
         />
         <KpiCard
@@ -339,16 +330,15 @@ export function AnomalyDetectionView() {
           unit="↓"
           intent="critical"
           icon={TrendingDown}
-          hint="z-score < -2 (below expected)"
+          hint="Categories selling well below their usual level"
           sparkline={dropsSpark}
         />
         <KpiCard
           label="High Severity"
           value={summary?.highSeverity ?? 0}
-          unit="|z|>3"
           intent={(summary?.highSeverity ?? 0) > 0 ? "critical" : "success"}
           icon={AlertTriangle}
-          hint="Investigate immediately"
+          hint="Furthest outside their established range — investigate first"
           sparkline={highSpark}
         />
       </div>
@@ -356,7 +346,7 @@ export function AnomalyDetectionView() {
       {/* Scatter plot: expected (x) vs observed (y) */}
       <Section
         title="Expected vs Observed Sales Velocity"
-        description="Each point = one planning category anomaly. Points above the diagonal y=x are spikes (observed > expected); below are drops. Color = severity."
+        description="Each point is one flagged planning category. Points above the diagonal sold more than usual; below, less than usual. Colour shows how far outside the category's established range the month sits."
         actions={
           <Badge variant="info" className="gap-1">
             <Activity className="h-2.5 w-2.5" /> {scatterData.length} points
@@ -367,7 +357,7 @@ export function AnomalyDetectionView() {
           {scatterData.length === 0 ? (
             <EmptyState
               title="No anomalies detected"
-              message="No planning categories exceeded the z-score threshold of |2| in the latest month."
+              message={summary?.noneFlaggedMessage ?? "No category moved outside its established range this month."}
               icon={<Activity className="h-8 w-8" />}
             />
           ) : (
@@ -397,9 +387,9 @@ export function AnomalyDetectionView() {
                     name === "Expected" || name === "Observed" ? Number(v).toFixed(1) : v
                   }
                   labelFormatter={(_, payload) => {
-                    const p = payload?.[0]?.payload as { label?: string; severity?: Severity; type?: AnomalyType; zScore?: number } | undefined;
+                    const p = payload?.[0]?.payload as { label?: string; severity?: Severity; direction?: AnomalyDirection } | undefined;
                     return p?.label
-                      ? `${p.label} · ${p.severity ?? ""} · ${p.type ?? ""} · z=${p.zScore?.toFixed(2) ?? ""}`
+                      ? `${p.label} · ${p.severity ?? ""}${p.direction ? ` · ${DIRECTION_LABELS[p.direction]}` : ""}`
                       : "";
                   }}
                 />
@@ -425,8 +415,8 @@ export function AnomalyDetectionView() {
                       key={i}
                       fill={SEVERITY_COLORS[p.severity]}
                       fillOpacity={0.7}
-                      stroke={p.type === "SPIKE" ? "#065f46" : "#9f1239"}
-                      strokeWidth={p.type === "SPIKE" ? 1.5 : 1}
+                      stroke={p.direction === "UNUSUALLY_HIGH" ? "#065f46" : "#9f1239"}
+                      strokeWidth={p.direction === "UNUSUALLY_HIGH" ? 1.5 : 1}
                     />
                   ))}
                 </Scatter>
@@ -436,13 +426,13 @@ export function AnomalyDetectionView() {
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-3 text-[10px] text-muted-foreground">
           <span className="inline-flex items-center gap-1">
-            <span className="h-2 w-2 rounded-full" style={{ background: SEVERITY_COLORS.HIGH }} /> HIGH (|z|&gt;3)
+            <span className="h-2 w-2 rounded-full" style={{ background: SEVERITY_COLORS.HIGH }} /> HIGH
           </span>
           <span className="inline-flex items-center gap-1">
-            <span className="h-2 w-2 rounded-full" style={{ background: SEVERITY_COLORS.MEDIUM }} /> MEDIUM (|z|&gt;2.5)
+            <span className="h-2 w-2 rounded-full" style={{ background: SEVERITY_COLORS.MEDIUM }} /> MEDIUM
           </span>
           <span className="inline-flex items-center gap-1">
-            <span className="h-2 w-2 rounded-full" style={{ background: SEVERITY_COLORS.LOW }} /> LOW (|z|&gt;2)
+            <span className="h-2 w-2 rounded-full" style={{ background: SEVERITY_COLORS.LOW }} /> LOW
           </span>
           <span className="inline-flex items-center gap-1">
             <span className="h-0 w-4 border-t-2 border-dashed border-slate-400" /> Reference y = x
@@ -471,17 +461,17 @@ export function AnomalyDetectionView() {
           columns={columns}
           rows={rows}
           loading={isLoading}
-          emptyMessage="No anomalies detected — all categories within 2 standard deviations of their baseline."
-          initialSortKey="zScore"
-          initialSortDir="desc"
+          emptyMessage={summary?.noneFlaggedMessage ?? "No category moved outside its established range this month."}
+          initialSortKey="rank"
+          initialSortDir="asc"
           searchable
-          searchPlaceholder="Search category, type, severity..."
+          searchPlaceholder="Search category, movement, severity..."
           searchFn={(r, q) => {
             const lq = q.toLowerCase();
             return (
               r.category.toLowerCase().includes(lq) ||
               r.metric.toLowerCase().includes(lq) ||
-              r.type.toLowerCase().includes(lq) ||
+              DIRECTION_LABELS[r.direction].toLowerCase().includes(lq) ||
               r.severity.toLowerCase().includes(lq) ||
               r.description.toLowerCase().includes(lq)
             );
@@ -500,30 +490,37 @@ export function AnomalyDetectionView() {
         />
       </Section>
 
-      {/* Methodology footnote */}
-      <Section title="Methodology" description="How anomalies are computed">
+      {/* What this page reports */}
+      <Section title="How to read this page" description="What a flagged category means">
         <div className="text-[11px] text-muted-foreground space-y-1.5 leading-relaxed">
           <p>
-            <strong className="text-foreground">Baseline:</strong> For each planning category
-            (lab | shape | weightBand), the trailing 11 calendar months of invoiced sales
-            pieces (excluding the latest month) are used to compute the mean and standard
-            deviation.
+            <strong className="text-foreground">Baseline:</strong> Each planning category
+            (lab | shape | weight band) is compared against its own recent trading history
+            — the eleven calendar months of invoiced sales before the latest month. A
+            category is only ever compared with itself, never with another category.
           </p>
           <p>
-            <strong className="text-foreground">Detection:</strong> The latest month&apos;s
-            observed count is converted to a z-score = (observed − mean) / std-dev. A
-            category is flagged when |z-score| &gt; 2.
+            <strong className="text-foreground">Flagging:</strong> The latest month is
+            flagged when it falls well outside the range that category normally trades in.
+            Steady categories are therefore flagged by a smaller change than volatile ones.
           </p>
           <p>
-            <strong className="text-foreground">Classification:</strong> z &gt; 2 → SPIKE
-            (above expected), z &lt; −2 → DROP (below expected). Severity:
-            <span className="text-rose-600 dark:text-rose-400"> HIGH (|z|&gt;3)</span>,
-            <span className="text-amber-600 dark:text-amber-400"> MEDIUM (|z|&gt;2.5)</span>,
-            <span className="text-sky-600 dark:text-sky-400"> LOW (|z|&gt;2)</span>.
+            <strong className="text-foreground">Movement:</strong> Unusually high means the
+            category sold more than its established range; unusually low, less. Severity
+            says how far outside that range the month sits —
+            <span className="text-rose-600 dark:text-rose-400"> HIGH</span>,
+            <span className="text-amber-600 dark:text-amber-400"> MEDIUM</span> or
+            <span className="text-sky-600 dark:text-sky-400"> LOW</span> — and sets the
+            order of the list.
           </p>
           <p>
-            <strong className="text-foreground">Deviation %</strong> = (observed − expected) /
-            expected — relative change vs baseline mean.
+            <strong className="text-foreground">Change %</strong> is the difference between
+            the latest month and the category’s usual level, as a percentage of that
+            usual level.
+          </p>
+          <p>
+            Flagged categories are <strong className="text-foreground">advisory</strong>. A
+            flag is a prompt to investigate, not a conclusion about demand.
           </p>
         </div>
       </Section>

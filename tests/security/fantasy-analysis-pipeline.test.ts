@@ -411,9 +411,19 @@ describe("fixture-only classification refresh", () => {
     });
     expect(denied.status).toBe(403);
 
+    // Administering the system no longer implies running a synchronization: the
+    // operational permissions are assignable, not inherited.
     resetRateLimits();
-    const allowed = await call(classificationRefresh, {
+    const admin = await call(classificationRefresh, {
       method: "POST", path: "/api/fantasy/classification-refresh", cookie: adminCookie, body: { dryRun: true },
+    });
+    expect(admin.status).toBe(403);
+
+    // The role whose job this is still passes, so the check above is not vacuous.
+    resetRateLimits();
+    const operatorCookie = (await makeUser("pipe.integration", "FANTASY_INTEGRATION")).cookie;
+    const allowed = await call(classificationRefresh, {
+      method: "POST", path: "/api/fantasy/classification-refresh", cookie: operatorCookie, body: { dryRun: true },
     });
     expect(allowed.status).toBe(200);
     expect(allowed.json.dryRun).toBe(true);

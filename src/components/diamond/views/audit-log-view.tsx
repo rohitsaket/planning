@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Search } from "lucide-react";
 import { useMemo, useState } from "react";
+import { ENTITY_FILTER_OPTIONS, entityLabel } from "@/lib/domain/entity-labels";
 
 interface AuditRow {
   id: string;
@@ -29,8 +30,16 @@ const columns: Column<AuditRow>[] = [
   { key: "timestamp", header: "Timestamp", align: "center", cell: (r) => <span className="tabular-nums text-[10px]">{new Date(r.timestamp).toLocaleString()}</span>, sortable: true, sortValue: (r) => r.timestamp, sticky: "left" },
   { key: "actor", header: "Actor", cell: (r) => <span className="text-[10px] font-medium">{r.actor}</span>, sortable: true, sortValue: (r) => r.actor },
   { key: "action", header: "Action", align: "center", cell: (r) => <span className="font-mono text-[10px]">{r.action}</span>, sortable: true, sortValue: (r) => r.action },
-  { key: "entity", header: "Entity", align: "center", cell: (r) => <span className="text-[10px]">{r.entity}</span>, sortable: true, sortValue: (r) => r.entity },
-  { key: "entityId", header: "Entity ID", align: "center", cell: (r) => <span className="font-mono text-[10px]">{r.entityId ? r.entityId.slice(0, 8) : "—"}</span> },
+  {
+    key: "entity",
+    header: "Record Type",
+    align: "center",
+    cell: (r) => <span className="text-[10px]">{entityLabel(r.entity)}</span>,
+    exportValue: (r) => entityLabel(r.entity),
+    sortable: true,
+    sortValue: (r) => entityLabel(r.entity),
+  },
+  { key: "entityId", header: "Record ID", align: "center", cell: (r) => <span className="font-mono text-[10px]">{r.entityId ? r.entityId.slice(0, 8) : "—"}</span> },
   { key: "reason", header: "Reason", cell: (r) => <span className="text-[10px]">{r.reason ?? "—"}</span> },
   { key: "correlationId", header: "Correlation ID", align: "center", cell: (r) => <span className="font-mono text-[10px]">{r.correlationId ? r.correlationId.slice(0, 8) : "—"}</span> },
 ];
@@ -52,7 +61,7 @@ export function AuditLogView() {
     return (data?.rows ?? []).filter((r) => {
       if (!search) return true;
       const q = search.toLowerCase();
-      return [r.actor, r.action, r.entity, r.entityId ?? "", r.reason ?? "", r.correlationId ?? ""].some((f) => f.toLowerCase().includes(q));
+      return [r.actor, r.action, entityLabel(r.entity), r.entityId ?? "", r.reason ?? "", r.correlationId ?? ""].some((f) => f.toLowerCase().includes(q));
     });
   }, [data, search]);
 
@@ -70,24 +79,20 @@ export function AuditLogView() {
 
       <Section
         title="Filters"
-        description="Filter by entity, action, or actor"
+        description="Filter by record type, action, or actor"
         actions={
           <div className="flex items-center gap-2 flex-wrap">
             <Select value={entity || "__all"} onValueChange={(v) => setEntity(v === "__all" ? "" : v)}>
               <SelectTrigger size="sm" className="h-8 w-[160px] text-xs">
-                <SelectValue placeholder="All Entities" />
+                <SelectValue placeholder="All Record Types" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="__all">All Entities</SelectItem>
-                <SelectItem value="BusinessRule">BusinessRule</SelectItem>
-                <SelectItem value="FeatureFlag">FeatureFlag</SelectItem>
-                <SelectItem value="Requirement">Requirement</SelectItem>
-                <SelectItem value="PlanningCase">PlanningCase</SelectItem>
-                <SelectItem value="RoughStone">RoughStone</SelectItem>
-                <SelectItem value="ForecastRun">ForecastRun</SelectItem>
-                <SelectItem value="LabMapping">LabMapping</SelectItem>
-                <SelectItem value="ShapeMapping">ShapeMapping</SelectItem>
-                <SelectItem value="WeightBand">WeightBand</SelectItem>
+                <SelectItem value="__all">All Record Types</SelectItem>
+                {ENTITY_FILTER_OPTIONS.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>
+                    {o.label}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
             <Select value={action || "__all"} onValueChange={(v) => setAction(v === "__all" ? "" : v)}>

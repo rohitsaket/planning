@@ -83,9 +83,13 @@ export const GET = withApi({ permission: "demand.export" }, async (req: Request)
     runId: targetRun.id,
     runDate: targetRun.runDate.toISOString(),
     businessDateIst: targetRun.businessDateIst,
-    sourcePolicy: targetRun.sourcePolicy,
-    mappingFingerprint: targetRun.mappingFingerprint,
-    ruleVersion: targetRun.ruleVersion,
+    // Business provenance the recipient needs to know what the numbers describe. The
+    // mapping fingerprint, internal source-policy name and rule version identify how the
+    // engine was configured, which is not part of a business export.
+    windowDays: targetRun.windowDays,
+    lookbackStart: targetRun.lookbackStart?.toISOString() ?? null,
+    lookbackEnd: targetRun.lookbackEnd?.toISOString() ?? null,
+    isSimulated: targetRun.isSimulated,
     status: targetRun.status,
     totalShortage: targetRun.totalShortage,
     totalExcess: targetRun.totalExcess,

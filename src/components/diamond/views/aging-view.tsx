@@ -2,206 +2,182 @@
 
 import { useMemo, useState } from "react";
 import { useApi } from "@/lib/api-client";
+import { useNavStore } from "@/stores/nav-store";
+import { useGlobalFilter } from "@/stores/global-filter";
 import { KpiCard } from "@/components/diamond/shared/kpi-card";
 import { Section, PageHeader } from "@/components/diamond/shared/page-header";
-import { DataTable, Column } from "@/components/diamond/shared/data-table";
+import { DataTable, type Column } from "@/components/diamond/shared/data-table";
+import { Badge } from "@/components/diamond/shared/badges";
+import { InfoBanner, NumberCell } from "@/components/diamond/shared/empty-state";
 import { ServerPagination } from "@/components/diamond/shared/server-pagination";
-import { useGlobalFilter } from "@/stores/global-filter";
-import { NumberCell } from "@/components/diamond/shared/empty-state";
-import {
-  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  Legend,
-} from "recharts";
-import { Gem, CalendarClock, Diamond, TrendingUp } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { AlertTriangle, Boxes, Search } from "lucide-react";
 
-interface AgingBucket {
-  label: string;
-  pieces: number;
-  carats: number;
-}
+/**
+ * STOCK AGING — current stock, and an honest statement that age cannot yet be derived.
+ *
+ * The page this replaces read a legacy seeded mirror and reported
+ * `NOW() - lastUpdated` as inventory age, sorted into six hardcoded bands. That number
+ * looked authoritative and was not: the timestamp records when a row was last written,
+ * so a full synchronization would have reported the entire warehouse as new.
+ *
+ * Every figure here comes from the API as returned; this file performs no arithmetic and
+ * shows no age.
+ */
 
 interface AgingLotRow {
   lotId: string;
-  ageDays: number;
-  bucket: string;
+  stoneName: string | null;
+  bucketLabel: string;
+  categoryLabel: string;
+  lab: string | null;
+  shape: string | null;
+  confirmedQuantity: number | null;
+  measuredWeight: number | null;
   country: string;
   branch: string;
-  shape: string | null;
-  lab: string | null;
-  weight: number;
+  department: string | null;
+  location: string | null;
+  lastSourceUpdateIst: string | null;
+  dataState: "CONFIRMED" | "REVIEW_REQUIRED";
 }
 
 interface AgingResponse {
-  buckets: AgingBucket[];
-  totalPieces: number;
-  slowMoving: number;
-  slowMovingPct: number;
-  slowMovingThresholdDays: number;
+  availability: "AVAILABLE" | "ANCHOR_NOT_CONFIRMED";
+  unavailableMessage: string | null;
+  unavailableDetail: string | null;
+  bucketsMessage: string | null;
   rows: AgingLotRow[];
-  page: number;
-  pageSize: number;
-  total: number;
-  hasMore: boolean;
+  paging: { page: number; pageSize: number; total: number; hasMore: boolean };
+  totals: { currentLots: number; confirmedQuantity: number; lotsNeedingReview: number };
 }
 
+const PAGE_SIZE = 50;
+
 export function AgingView() {
+  const trace = useNavStore((s) => s.trace);
   const globalFilter = useGlobalFilter();
   const [page, setPage] = useState(1);
-  const [bucket, setBucket] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [appliedSearch, setAppliedSearch] = useState("");
+
+  // A drill-down from the Aging Dashboard arrives as a bucket in the nav context.
+  const bucketFromNav = trace?.category ?? null;
+
   const url = useMemo(() => {
-    const params = new URLSearchParams();
-    if (globalFilter.country) params.set("country", globalFilter.country);
-    if (globalFilter.branch) params.set("branch", globalFilter.branch);
-    if (globalFilter.lab) params.set("lab", globalFilter.lab);
-    if (bucket) params.set("bucket", bucket);
-    params.set("page", String(page));
-    params.set("pageSize", "50");
-    return `/api/analysis/aging?${params.toString()}`;
-  }, [globalFilter.country, globalFilter.branch, globalFilter.lab, bucket, page]);
+    const p = new URLSearchParams();
+    if (bucketFromNav) p.set("bucket", bucketFromNav);
+    // Country, branch and lab are real dimensions of a stock record, so all three apply.
+    if (globalFilter.country) p.set("country", globalFilter.country);
+    if (globalFilter.branch) p.set("branch", globalFilter.branch);
+    if (globalFilter.lab) p.set("lab", globalFilter.lab);
+    if (appliedSearch) p.set("search", appliedSearch);
+    p.set("page", String(page));
+    p.set("pageSize", String(PAGE_SIZE));
+    return `/api/analysis/aging?${p.toString()}`;
+  }, [bucketFromNav, globalFilter.country, globalFilter.branch, globalFilter.lab, appliedSearch, page]);
+
   const { data, isLoading } = useApi<AgingResponse>(url);
+  const ageUnavailable = data?.availability === "ANCHOR_NOT_CONFIRMED";
 
-  const filterKey = `${globalFilter.country ?? ""}|${globalFilter.branch ?? ""}|${globalFilter.lab ?? ""}|${bucket ?? ""}`;
-  const [lastFilterKey, setLastFilterKey] = useState(filterKey);
-  if (filterKey !== lastFilterKey) {
-    setLastFilterKey(filterKey);
-    setPage(1);
-  }
-
-  const buckets = data?.buckets ?? [];
-  const piecesSpark = useMemo(() => {
-    const slice = buckets.map((b) => b.pieces);
-    return slice.length >= 2 ? slice : undefined;
-  }, [buckets]);
-  const caratsSpark = useMemo(() => {
-    const slice = buckets.map((b) => b.carats);
-    return slice.length >= 2 ? slice : undefined;
-  }, [buckets]);
-  // Slow-moving KPIs have no time series behind them, so they carry no sparkline
-  // rather than an invented trend.
-  const chartData = buckets.map((b) => ({
-    name: b.label,
-    pieces: b.pieces,
-    carats: Number((b.carats ?? 0).toFixed(2)),
-  }));
-
-  const totalPieces = data?.totalPieces ?? 0;
-  const totalCarats = buckets.reduce((s, b) => s + b.carats, 0);
-
-  const columns: Column<AgingBucket>[] = [
+  const columns: Column<AgingLotRow>[] = [
+    { key: "lotId", header: "Lot", width: "14rem", sticky: "left", cell: (r) => <span className="font-medium">{r.lotId}</span> },
+    { key: "stoneName", header: "Stone", width: "10rem", cell: (r) => <span className="text-muted-foreground">{r.stoneName ?? "—"}</span> },
+    { key: "bucketLabel", header: "Inventory bucket", width: "12rem", cell: (r) => <Badge variant="info">{r.bucketLabel}</Badge> },
+    { key: "lab", header: "Lab", width: "6rem", cell: (r) => <span className="text-muted-foreground">{r.lab ?? "—"}</span> },
+    { key: "shape", header: "Shape", width: "8rem", cell: (r) => <span className="text-muted-foreground">{r.shape ?? "—"}</span> },
     {
-      key: "label", header: "Bucket", sortable: true, sortValue: (r) => r.label,
-      cell: (r) => <span className="font-medium">{r.label}</span>, sticky: "left",
+      key: "confirmedQuantity", header: "Confirmed quantity (pcs)", align: "right",
+      // Null is not zero: the source never established a quantity for this record.
+      cell: (r) => r.confirmedQuantity === null
+        ? <span className="text-muted-foreground">Not confirmed</span>
+        : <NumberCell value={r.confirmedQuantity} />,
     },
-    { key: "pieces", header: "Pieces", sortable: true, sortValue: (r) => r.pieces, align: "right",
-      cell: (r) => <NumberCell value={r.pieces} intent={
-        r.label === "365+" ? "critical" :
-        r.label === "181-365" ? "warning" :
-        undefined
-      } /> },
-    { key: "carats", header: "Carats", sortable: true, sortValue: (r) => r.carats, align: "right",
-      cell: (r) => <NumberCell value={r.carats} /> },
-    { key: "pct", header: "% of Pieces", sortable: true, sortValue: (r) => r.pieces, align: "right",
-      cell: (r) => (
-        <span className="tabular-nums">
-          {totalPieces > 0 ? ((r.pieces / totalPieces) * 100).toFixed(1) : "0.0"}%
-        </span>
-      ) },
-  ];
-
-  const lotColumns: Column<AgingLotRow>[] = [
-    { key: "lotId", header: "Lot ID", sortable: true, sortValue: (r) => r.lotId, cell: (r) => <span className="font-mono text-[11px]">{r.lotId}</span> },
-    { key: "ageDays", header: "Age (days)", sortable: true, sortValue: (r) => r.ageDays, align: "right", cell: (r) => <NumberCell value={r.ageDays} intent={r.ageDays >= 365 ? "critical" : r.ageDays >= 91 ? "warning" : undefined} /> },
-    { key: "bucket", header: "Bucket", align: "center", cell: (r) => <span className="text-[11px]">{r.bucket}</span> },
-    { key: "lab", header: "Lab", align: "center", cell: (r) => <span className="text-[11px]">{r.lab ?? "—"}</span> },
-    { key: "shape", header: "Shape", align: "center", cell: (r) => <span className="text-[11px]">{r.shape ?? "—"}</span> },
-    { key: "weight", header: "Carats", sortable: true, sortValue: (r) => r.weight, align: "right", cell: (r) => <NumberCell value={r.weight} /> },
-    { key: "country", header: "Location", align: "center", cell: (r) => <span className="text-[11px]">{r.country} / {r.branch}</span> },
+    {
+      key: "measuredWeight", header: "Measured weight (ct)", align: "right",
+      cell: (r) => r.measuredWeight === null
+        ? <span className="text-muted-foreground">Not confirmed</span>
+        : <NumberCell value={r.measuredWeight} decimals={2} />,
+    },
+    { key: "country", header: "Country", width: "7rem", cell: (r) => <span className="text-muted-foreground">{r.country}</span> },
+    { key: "branch", header: "Branch", width: "8rem", cell: (r) => <span className="text-muted-foreground">{r.branch}</span> },
+    { key: "department", header: "Department", width: "12rem", cell: (r) => <span className="text-xs text-muted-foreground">{r.department ?? "—"}</span> },
+    { key: "location", header: "Location", width: "12rem", cell: (r) => <span className="text-xs text-muted-foreground">{r.location ?? "—"}</span> },
+    {
+      // Named for what it is. It is not an aging start date and is not presented as one.
+      key: "lastSourceUpdateIst", header: "Last reported by source", width: "12rem",
+      cell: (r) => <span className="text-xs text-muted-foreground">{r.lastSourceUpdateIst ?? "—"}</span>,
+    },
+    {
+      key: "dataState", header: "Data state", width: "10rem",
+      cell: (r) => <Badge variant={r.dataState === "CONFIRMED" ? "success" : "warning"}>{r.dataState.replace(/_/g, " ")}</Badge>,
+    },
   ];
 
   return (
-    <div className="flex flex-col gap-3 p-3">
+    <div className="space-y-4 p-3">
       <PageHeader
         title="Stock Aging"
-        subtitle="Polished inventory age buckets — pieces, carats and slow-moving exposure"
-        meta={<span className="text-[10px] text-muted-foreground">{totalPieces} pcs · {totalCarats.toFixed(2)} ct total in stock</span>}
+        subtitle="Current canonical stock by bucket, category and location"
       />
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-        <KpiCard label="Total Pieces" value={totalPieces} unit="pcs" intent="info" hint="Polished inventory" icon={Gem} sparkline={piecesSpark} />
-        <KpiCard label="Total Carats" value={totalCarats.toFixed(2)} unit="ct" intent="default" hint="Σ weights" icon={Diamond} sparkline={caratsSpark} />
-        <KpiCard label="Slow-Moving (91D+)" value={data?.slowMoving ?? 0} unit="pcs" intent="warning" hint="Pieces aged 91+ days" icon={CalendarClock} />
-        <KpiCard label="Slow-Moving %" value={`${(data?.slowMovingPct ?? 0).toFixed(1)}%`} intent={Number(data?.slowMovingPct ?? 0) > 30 ? "critical" : "warning"} hint="Slow-moving / total pieces" icon={TrendingUp} />
+      {ageUnavailable && (
+        <InfoBanner variant="warning">
+          <div className="space-y-1">
+            <span className="flex items-center gap-2 font-semibold">
+              <AlertTriangle className="h-4 w-4" />
+              {data?.unavailableMessage}
+            </span>
+            <div className="text-xs">{data?.unavailableDetail}</div>
+            <div className="text-xs text-muted-foreground">{data?.bucketsMessage}</div>
+          </div>
+        </InfoBanner>
+      )}
+
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
+        <KpiCard label="Current lots" value={data?.totals.currentLots ?? 0} intent="info" icon={Boxes} hint="Records currently in stock" />
+        <KpiCard label="Confirmed quantity" value={data?.totals.confirmedQuantity ?? 0} unit="pcs" intent="success" hint="Pieces the source established" />
+        <KpiCard label="Needing review" value={data?.totals.lotsNeedingReview ?? 0} intent="warning" hint="Quantity or classification not confirmed" />
       </div>
 
-      <Section title="Aging Buckets" description="Polished lot count and carats by age bucket">
-        <div className="h-64">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={chartData} margin={{ top: 4, right: 8, bottom: 8, left: 0 }}>
-              <defs>
-                <linearGradient id="agingPiecesGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#0ea5e9" stopOpacity={0.9} />
-                  <stop offset="100%" stopColor="#0ea5e9" stopOpacity={0.3} />
-                </linearGradient>
-                <linearGradient id="agingCaratsGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#94a3b8" stopOpacity={0.9} />
-                  <stop offset="100%" stopColor="#94a3b8" stopOpacity={0.3} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.4} />
-              <XAxis dataKey="name" tick={{ fontSize: 10 }} />
-              <YAxis tick={{ fontSize: 10 }} />
-              <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8, border: "1px solid hsl(var(--border))" }} />
-              <Legend wrapperStyle={{ fontSize: 10 }} />
-              <Bar dataKey="pieces" name="Pieces" fill="url(#agingPiecesGrad)" radius={[4, 4, 0, 0]} />
-              <Bar dataKey="carats" name="Carats" fill="url(#agingCaratsGrad)" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </Section>
-
       <Section
-        title="Aging Buckets Detail"
-        description="Sortable age bucket breakdown — click a bucket to filter the lot list below"
+        title="Current stock"
+        description="Sold and non-current records are history and are excluded. Age is not shown because the aging date is not yet confirmed."
+        actions={
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") { setAppliedSearch(search.trim()); setPage(1); } }}
+                placeholder="Lot or stone…"
+                className="h-8 w-48 pl-7 text-xs"
+              />
+            </div>
+            <Button size="sm" variant="outline" className="h-8" onClick={() => { setAppliedSearch(search.trim()); setPage(1); }}>
+              Apply
+            </Button>
+          </div>
+        }
       >
-        <DataTable<AgingBucket>
+        <DataTable
           columns={columns}
-          rows={data?.buckets ?? []}
-          loading={isLoading}
-          emptyMessage="No aging data available."
-          initialSortKey="label"
-          initialSortDir="asc"
-          exportable
-          exportPermission="analysis.export"
-          exportFilename="stock-aging.csv"
-          onRowClick={(r) => setBucket(bucket === r.label ? null : r.label)}
-          rowClassName={(r) => (bucket === r.label ? "bg-sky-500/10" : "")}
-          maxHeight="400px"
-        />
-      </Section>
-
-      <Section
-        title={bucket ? `Lots aged ${bucket} days` : "Polished Lots by Age"}
-        description="Oldest first — one server page at a time"
-      >
-        <DataTable<AgingLotRow>
-          columns={lotColumns}
           rows={data?.rows ?? []}
           loading={isLoading}
-          emptyMessage="No lots for the current filters."
-          exportable
-          exportPermission="analysis.export"
-          exportFilename="stock-aging-lots.csv"
+          emptyMessage="No current stock matches the active filters."
+          pagination={false}
           exportScope="current-page"
-          maxHeight="420px"
         />
         <ServerPagination
-          page={data?.page ?? 1}
-          pageSize={data?.pageSize ?? 50}
-          total={data?.total ?? 0}
-          hasMore={data?.hasMore ?? false}
+          page={data?.paging.page ?? 1}
+          pageSize={data?.paging.pageSize ?? PAGE_SIZE}
+          total={data?.paging.total ?? 0}
+          hasMore={data?.paging.hasMore ?? false}
           onPageChange={setPage}
           loading={isLoading}
-          label="polished lots"
+          label="lots"
         />
       </Section>
     </div>

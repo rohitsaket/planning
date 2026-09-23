@@ -209,6 +209,7 @@ export function InventoryPositionTab() {
 export function InventoryCategoriesTab() {
   const scope = useScope();
   const setView = useNavStore((s) => s.setView);
+  const openCategoryView = useNavStore((s) => s.openCategoryView);
   const [page, setPage] = useState(1);
   const { data, isLoading } = useApi<CategoriesResponse>(url(scope, { section: "categories", page, pageSize: PAGE_SIZE }));
 
@@ -219,8 +220,10 @@ export function InventoryCategoriesTab() {
         <button
           type="button"
           className="text-left font-medium text-primary hover:underline"
-          // The canonical key is carried verbatim, so Heart opens Heart.
-          onClick={() => setView("analysis-stockout")}
+          // The canonical key is carried verbatim, so Heart opens Heart. `setView` drops
+          // row context, which is why this link previously opened Stockout Risk with no
+          // category selected at all.
+          onClick={() => openCategoryView("analysis-stockout", { category: r.categoryId })}
           title={r.categoryId}
         >
           {[r.lab, r.shape, r.weightBand].filter(Boolean).join(" | ")}

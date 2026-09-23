@@ -854,21 +854,21 @@ export function RequirementsMatrixView() {
                   value={detail.fourNumbers.physicalShortage}
                   unit="pcs"
                   intent="critical"
-                  hint="MAX(0, RequiredQty − PlanningAvailableQty)"
+                  hint="Requirement not covered by planning-available stock"
                 />
                 <KpiCard
                   label="2 · Pipeline-Adjusted"
                   value={detail.fourNumbers.pipelineAdjusted}
                   unit="pcs"
                   intent="warning"
-                  hint="MAX(0, PhysicalShortage − WIP Coverage)"
+                  hint="Shortfall remaining after eligible WIP"
                 />
                 <KpiCard
                   label="3 · Planning-Adjusted"
                   value={detail.fourNumbers.planningAdjusted}
                   unit="pcs"
                   intent="info"
-                  hint="MAX(0, PipelineAdjusted − ApprovedPlanCoverage)"
+                  hint="Still unplanned after approved plan coverage"
                 />
                 <KpiCard
                   label="4 · Forecast Signal"

@@ -206,7 +206,7 @@ export function MemoView() {
       />
 
       <InfoBanner variant="warning">
-        <strong>Memo does NOT reduce shortage.</strong> Memo is a <strong>separate decision context</strong> — memo stones remain physically in the customer's possession but are still owned by the company until invoiced. Shortage = MAX(0, Target − Available).
+        <strong>Memo does NOT reduce shortage.</strong> Memo is a <strong>separate decision context</strong> — memo stones remain physically in the customer's possession but are still owned by the company until invoiced. Shortage reflects target stock not covered by physically available finished stock.
       </InfoBanner>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-2">

@@ -37,7 +37,20 @@ interface SyncSummaryItem {
   startedAt: string;
   finishedAt: string | null;
   nextRunAt: string | null;
-  errors: { count?: number; sample?: string } | null;
+  failure: PublicFailure | null;
+}
+
+/**
+ * The sanitized failure the API returns in place of an error summary. A reference is all
+ * that ties a user report back to the server diagnostic; nothing about the exception
+ * itself crosses this boundary.
+ */
+interface PublicFailure {
+  code: string;
+  message: string;
+  referenceId: string;
+  occurredAt: string;
+  retryable: boolean;
 }
 
 interface Reconciliation {
@@ -85,7 +98,7 @@ interface SyncRun {
   recordsFetched: number;
   durationMs: number;
   triggeredBy?: string;
-  errorSummary?: string | null;
+  failure?: PublicFailure | null;
   startedAt: string;
   finishedAt: string | null;
 }
@@ -362,10 +375,10 @@ export function FantasySyncView() {
       {/* KPI grid */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         <KpiCard
-          label="Checkpoint Progress"
+          label="Sync Progress"
           value={`Batch ${checkpoint} / 5`}
           intent="info"
-          hint="Monotonic fixture sync state"
+          hint="Batches are applied in order and never repeated"
         />
         <KpiCard
           label="Last Sync Status"

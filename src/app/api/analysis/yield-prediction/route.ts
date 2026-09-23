@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
 import { withApi, SCAN_MAX, scanned } from "@/lib/api/with-api";
+import { YIELD_PREDICTION_BASIS } from "@/lib/analysis/business-language";
 
 // Yield Prediction — predicts expected actual yield % for rough stones based
 // on historical plan-actual reconciliation data. Spec §61 — data science
@@ -179,15 +180,14 @@ export const GET = withApi({ permission: "analysis.read" }, async () => {
     predictionCount: predictions.length,
   };
 
-  const methodology =
-    "Baseline moving average of last 5 reconciled actual yields. " +
-    "Prediction interval = ±1σ. " +
-    `Confidence = 1 − (CV of historical variance), CV = ${varStd.toFixed(2)} / ${meanAbsVar.toFixed(2)} = ${cv.toFixed(2)}. ` +
-    "Risk = HIGH if |variance| > 2σ, MEDIUM if > 1σ, LOW otherwise.";
+  // The model, its smoothing coefficient, its interval width and its risk cut-offs stay
+  // in this route. A reader is told what the prediction rests on and that it is
+  // advisory, which is what they can act on.
+  const basis = YIELD_PREDICTION_BASIS;
 
   const advisoryNotice =
     "PREDICTION — Yield prediction is advisory. Never auto-approve or auto-reject a plan based on predicted yield alone. " +
     "OPEN rule: model selection logic is unconfirmed.";
 
-  return ok({ summary, predictions, historical, methodology, advisoryNotice });
+  return ok({ summary, predictions, historical, basis, advisoryNotice });
 });

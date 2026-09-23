@@ -16,6 +16,20 @@
 
 import { db } from "@/lib/db";
 import { Prisma } from "@prisma/client";
+import { recordOperationalFailure, serializePublicFailure } from "@/lib/api/operational-failure";
+import {
+  CanonicalStateBusyError,
+  CanonicalStateFencedError,
+  claimCanonicalState,
+  isClaimStillHeld,
+  releaseCanonicalState,
+} from "@/lib/fantasy/canonical-state-claim";
+import {
+  QUANTITY_REVIEW_REASONS,
+  WEIGHT_REVIEW_REASONS,
+  resolveCanonicalQuantity,
+  resolveCanonicalWeight,
+} from "@/lib/fantasy/quantity-weight";
 import { resolveLabNormalization } from "@/lib/fantasy/canonical";
 import {
   loadCategoryMappings,
@@ -155,7 +169,6 @@ export interface DemandRunResult {
   isSimulated: boolean;
   durationMs: number;
   categories: DemandCategoryTrace[];
-  errorSummary?: string;
 }
 
 /**
@@ -329,6 +342,36 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
     throw new Error("A demand calculation run is currently in progress by another worker. Concurrent runs are prevented.");
   }
 
+  // 1b. Claim the canonical state, in the same order synchronization uses: operation
+  // lock first, then canonical claim. The pair is never acquired in the opposite order,
+  // so the two operations cannot deadlock against each other.
+  //
+  // Until this claim is held, a synchronization may commit a batch at any moment, and
+  // every read below would be split across two source states.
+  const canonicalClaimResult = await claimCanonicalState("DEMAND", options.actor ?? "SYSTEM");
+  if (!canonicalClaimResult.acquired) {
+    // The demand lock is released again: holding it while refused would block the next
+    // attempt for a full lease with no calculation in progress.
+    await db.demandCalculationLock.updateMany({
+      where: { id: "DEMAND_CALCULATION", lockToken },
+      data: { isLocked: false, lockToken: null, lockedAt: null, lockedBy: null, lockedByUserId: null },
+    });
+    throw new CanonicalStateBusyError(canonicalClaimResult.heldBy);
+  }
+  const canonicalClaim = canonicalClaimResult.claim;
+  let canonicalClaimReleased = false;
+
+  // 1c. The committed synchronization this calculation reads.
+  //
+  // Selected while the claim is held, so it cannot advance underneath the run. A sync
+  // that failed, or one still in flight, is not a source state: only a run that reached
+  // SUCCESS has its canonical writes committed.
+  const boundSyncRun = await db.integrationSyncRun.findFirst({
+    where: { source: { in: ["FANTASY", "Fantasy"] }, status: "SUCCESS", finishedAt: { not: null } },
+    orderBy: [{ finishedAt: "desc" }, { id: "desc" }],
+    select: { id: true, endingCheckpoint: true, batchId: true, finishedAt: true },
+  });
+
   // 2. Initialize RUNNING snapshot record
   const windowDays = options.windowDays ?? 90;
   const refDate = options.referenceDate ?? new Date();
@@ -350,6 +393,11 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
       lookbackEnd,
       sourceMode: sourceState.effectiveState,
       isSimulated: sourceState.isSimulated,
+      // The exact committed synchronization this run reads. Null only when no successful
+      // sync exists yet, which the run reports rather than inventing an identity for.
+      sourceSyncRunId: boundSyncRun?.id ?? null,
+      checkpoint: boundSyncRun?.endingCheckpoint ?? 0,
+      lastBatchId: boundSyncRun?.batchId ?? null,
       lockToken,
       actor: options.actor ?? "SYSTEM",
       actorUserId: options.actorUserId ?? null,
@@ -378,18 +426,22 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
 
     const mappingFingerprint = computeMappingFingerprint(mappings, wipPolicyFingerprint(wipPolicy));
 
-    // Source synchronization checkpoint info
-    const [checkpointRecord, lastSyncRun] = await Promise.all([
-      db.syncCheckpoint.findUnique({ where: { source: "FANTASY" } }),
-      db.integrationSyncRun.findFirst({
-        where: { source: { in: ["FANTASY", "Fantasy"] }, status: "SUCCESS" },
-        orderBy: { finishedAt: "desc" },
-      }),
-    ]);
-
-    const currentCheckpoint = checkpointRecord?.currentCheckpoint ?? 0;
-    const lastBatchId = checkpointRecord?.lastBatchId ?? lastSyncRun?.batchId ?? null;
-    const actualSourceCutoff = lastSyncRun?.sourceCutoff ?? null;
+    // Source identity comes from the synchronization this run was bound to, not from a
+    // second read of `SyncCheckpoint`.
+    //
+    // That row is mutable and advances with every batch. Reading it separately gave the
+    // run two sources for one fact, and the later read won — so a run could report a
+    // checkpoint belonging to a synchronization it had not read. The binding taken under
+    // the canonical claim is the answer; there is no second opinion.
+    const currentCheckpoint = boundSyncRun?.endingCheckpoint ?? 0;
+    const lastBatchId = boundSyncRun?.batchId ?? null;
+    const boundSyncDetail = boundSyncRun
+      ? await db.integrationSyncRun.findUnique({
+          where: { id: boundSyncRun.id },
+          select: { sourceCutoff: true },
+        })
+      : null;
+    const actualSourceCutoff = boundSyncDetail?.sourceCutoff ?? null;
     // 4. FETCH SALES EVENTS ACCORDING TO SOURCE POLICY
     //
     // Delegated to the shared confirmed-sales service. The window, the SOLD/INVOICE and
@@ -537,7 +589,16 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
 
       const normLab = resolvedLab.normalized;
       const normShape = resolveApprovedShape(rec.shape, shapeMappingsMap);
-      const band = resolveWeightBand(rec.weight, weightBands);
+      // The weight gate exists to stop an unconfirmed *live* unit from choosing a
+      // planning category. The legacy seeded policy is neither live nor canonical —
+      // `assessSnapshot` already refuses its runs as SOURCE_POLICY_NOT_CANONICAL — so it
+      // keeps its previous behaviour rather than being silently re-scoped here.
+      const saleWeight =
+        rec.sourceType === "LEGACY_SEED"
+          ? null
+          : resolveCanonicalWeight({ weight: rec.weight, sourceType: rec.sourceType ?? null, isSimulated: rec.isSimulated });
+      const saleCarats = saleWeight === null ? Number(rec.weight) : saleWeight.carats;
+      const band = saleCarats === null ? null : resolveWeightBand(saleCarats, weightBands);
 
       if (!band || normShape === "UNKNOWN" || normLab === "UNKNOWN" || resolvedLab.requiresReview) {
         excludedCount++;
@@ -647,7 +708,12 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
       excludedCount++;
       const normLab = nr.labNormalized || resolveLabNormalization(nr.labRaw, labMappingsMap).normalized;
       const normShape = resolveApprovedShape(nr.shape, shapeMappingsMap);
-      const band = resolveWeightBand(Number(nr.weight), weightBands);
+      const removalWeight = resolveCanonicalWeight({
+        weight: nr.weight,
+        sourceType: nr.sourceType ?? null,
+        isSimulated: nr.isSimulated,
+      });
+      const band = removalWeight.carats === null ? null : resolveWeightBand(removalWeight.carats, weightBands);
 
       if (band && normShape !== "UNKNOWN") {
         const trace = getOrCreateCategoryTrace(normLab, normShape, band);
@@ -659,7 +725,10 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
           traceType: "EXCLUSION",
           lotId: nr.lotId,
           sourceRecordId: nr.sourceRecordId,
-          quantity: Number(nr.quantity) > 0 ? Number(nr.quantity) : 1,
+          // Preserved as supplied. An excluded record reports what the source gave,
+          // never a substituted 1.
+          quantity: resolveCanonicalQuantity(nr).rawValue ?? 0,
+          quantityProvenance: resolveCanonicalQuantity(nr).provenance,
           weight: Number(nr.weight),
           lab: normLab,
           shape: normShape,
@@ -681,9 +750,59 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
 
       const normLab = resolvedLab.normalized;
       const normShape = resolveApprovedShape(inv.shape, shapeMappingsMap);
-      const weight = Number(inv.weight);
-      const qty = Number(inv.quantity) > 0 ? Number(inv.quantity) : 1;
-      const band = resolveWeightBand(weight, weightBands);
+
+      // Quantity and weight are established once, from the record's own provenance.
+      // Neither is assumed: a quantity nobody supplied is not one piece, and a weight
+      // whose unit is unconfirmed cannot choose a weight band.
+      const quantityDecision = resolveCanonicalQuantity(inv);
+      const weightDecision = resolveCanonicalWeight(inv);
+      const weight = weightDecision.rawValue ?? Number(inv.weight);
+      // Pieces only when the source established them. There is no fallback to 1.
+      const qty = quantityDecision.pieces;
+      const band = weightDecision.carats === null ? null : resolveWeightBand(weightDecision.carats, weightBands);
+
+      // A record whose quantity cannot be counted stays visible and traceable, but its
+      // pieces enter no authoritative total — not availability, and not the blocked or
+      // memo buckets either, because a number nobody supplied cannot be bucketed.
+      if (qty === null) {
+        excludedCount++;
+        dqIssuesToCreate.push({
+          issueCode: `DQ-QTY-INV-${inv.lotId}`,
+          source: "DEMAND_CALCULATION",
+          entity: "PolishedInventory",
+          recordId: inv.lotId,
+          rule: `QUANTITY_${quantityDecision.provenance}`,
+          message: QUANTITY_REVIEW_REASONS[quantityDecision.provenance],
+          severity: "WARNING",
+          status: "OPEN",
+          affectedField: "quantity",
+          downstreamImpact: "Excluded from available, memo, reserved and blocked piece totals",
+        });
+        if (band && normShape !== "UNKNOWN" && normLab !== "UNKNOWN" && !resolvedLab.requiresReview) {
+          const reviewTrace = getOrCreateCategoryTrace(normLab, normShape, band);
+          reviewTrace.status = "REVIEW_REQUIRED";
+          reviewTrace.excludedLots.push({
+            lotId: inv.lotId,
+            reason: QUANTITY_REVIEW_REASONS[quantityDecision.provenance],
+          });
+          traceItemsToPersist.push({
+            runId: initialRun.id,
+            planningCategory: reviewTrace.category,
+            traceType: "EXCLUSION",
+            lotId: inv.lotId,
+            sourceRecordId: inv.sourceRecordId,
+            quantity: quantityDecision.rawValue ?? 0,
+            quantityProvenance: quantityDecision.provenance,
+            weight,
+            lab: inv.labRaw,
+            shape: inv.shape,
+            weightBand: band.label,
+            reason: QUANTITY_REVIEW_REASONS[quantityDecision.provenance],
+            isIncluded: false,
+          });
+        }
+        continue;
+      }
 
       if (!band || normShape === "UNKNOWN" || normLab === "UNKNOWN" || resolvedLab.requiresReview) {
         excludedCount++;
@@ -693,8 +812,12 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
           source: "DEMAND_CALCULATION",
           entity: "PolishedInventory",
           recordId: inv.lotId,
-          rule: !band ? "UNMAPPED_WEIGHT_BAND" : normShape === "UNKNOWN" ? "UNMAPPED_SHAPE" : "UNMAPPED_LAB",
-          message: `Polished lot ${inv.lotId} has unapproved mapping attributes`,
+          rule: !band
+            ? (weightDecision.state === "USABLE" ? "UNMAPPED_WEIGHT_BAND" : `WEIGHT_${weightDecision.state}`)
+            : normShape === "UNKNOWN" ? "UNMAPPED_SHAPE" : "UNMAPPED_LAB",
+          message: !band && weightDecision.state !== "USABLE"
+            ? WEIGHT_REVIEW_REASONS[weightDecision.state]
+            : `Polished lot ${inv.lotId} has unapproved mapping attributes`,
           severity: "WARNING",
           status: "OPEN",
           affectedField: !band ? "weight" : normShape === "UNKNOWN" ? "shape" : "labRaw",
@@ -874,7 +997,8 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
 
       const band = wip.weightBandCode ? bandByCode.get(wip.weightBandCode) : undefined;
 
-      if (wip.outcome === "ELIGIBLE" && band && wip.category) {
+      // WIP with no established quantity is neither coverage nor unallocated pieces.
+      if (wip.outcome === "ELIGIBLE" && band && wip.category && wip.quantity !== null) {
         const trace = getOrCreateCategoryTrace(wip.lab, wip.shape, band);
         trace.wipCoverage += wip.quantity;
         trace.eligibleWipLots.push({
@@ -890,7 +1014,8 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
           traceType: "WIP_ELIGIBLE",
           lotId: wip.lotId,
           wipStage: wip.stageRaw,
-          quantity: wip.quantity,
+          quantity: wip.quantity ?? 0,
+          quantityProvenance: wip.quantityProvenance,
           weight: wip.weight,
           lab: wip.lab,
           shape: wip.shape,
@@ -927,15 +1052,17 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
       });
 
       if (wip.outcome === "AMBIGUOUS" || !band || !wip.category) {
-        // Quarantined: no business category may be invented for it.
-        ambiguousWipPieces += wip.quantity;
+        // Quarantined: no business category may be invented for it. A record with no
+        // established quantity contributes no pieces but is still traced.
+        ambiguousWipPieces += wip.quantity ?? 0;
         traceItemsToPersist.push({
           runId: initialRun.id,
           planningCategory: QUARANTINE_CATEGORY,
           traceType: "WIP_UNALLOCATED",
           lotId: wip.lotId,
           wipStage: wip.stageRaw,
-          quantity: wip.quantity,
+          quantity: wip.quantity ?? 0,
+          quantityProvenance: wip.quantityProvenance,
           weight: wip.weight,
           lab: wip.lab,
           shape: wip.shape,
@@ -947,7 +1074,7 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
       }
 
       const trace = getOrCreateCategoryTrace(wip.lab, wip.shape, band);
-      trace.unallocatedWip += wip.quantity;
+      trace.unallocatedWip += wip.quantity ?? 0;
       trace.excludedLots.push({ lotId: wip.lotId, reason: wip.reason });
       traceItemsToPersist.push({
         runId: initialRun.id,
@@ -955,7 +1082,8 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
         traceType: "WIP_UNALLOCATED",
         lotId: wip.lotId,
         wipStage: wip.stageRaw,
-        quantity: wip.quantity,
+        quantity: wip.quantity ?? 0,
+        quantityProvenance: wip.quantityProvenance,
         weight: wip.weight,
         lab: wip.lab,
         shape: wip.shape,
@@ -1092,9 +1220,65 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
 
     finalCategories.sort((a, b) => a.category.localeCompare(b.category));
     const durationMs = Date.now() - startTime;
-    const finalRunStatus = anyCategoryReviewRequired ? "REVIEW_REQUIRED" : "COMPLETED";
+
+    // A run that found nothing it was allowed to count must not be reported as a
+    // completed authoritative result.
+    //
+    // Without this, live data entering a pipeline whose quantity semantics are not yet
+    // confirmed produces the most dangerous outcome available: every sale excluded for
+    // unconfirmed quantity, every target therefore zero, every shortage therefore zero —
+    // and a page that says, in good faith, that there is no shortage anywhere. The
+    // numbers would be arithmetically correct and completely misleading.
+    //
+    // The run still happens and its diagnostics are still persisted; it is the *status*
+    // that refuses to claim authority. REVIEW_REQUIRED is the existing state for exactly
+    // this: a result a human must look at before relying on it.
+    // Pieces the run was actually allowed to count, across every category.
+    const countedSalePieces = finalCategories.reduce((sum, c) => sum + c.sales90d, 0);
+    // Sales arrived but none of them could be counted — the live-contract failure mode.
+    const everySaleExcluded = salesCount > 0 && countedSalePieces === 0;
+    // Inventory arrived but none of it could be counted either.
+    // Inventory arrived but none of it could be counted either. Both conditions require
+    // that data actually arrived: a window that genuinely contains no sales is a
+    // legitimate completed result ("found nothing"), not a blocked one ("could not
+    // read what it found"), and the two must not be conflated.
+    const noCountableInventory =
+      inventoryCount > 0 && totalPhysicalStock === 0 && totalMemo === 0 && totalReserved === 0;
+    const blockedByInputs = everySaleExcluded || (salesCount > 0 && noCountableInventory);
+
+    if (blockedByInputs) {
+      dqIssuesToCreate.push({
+        issueCode: `DQ-RUN-INPUTS-${initialRun.id}`,
+        source: "DEMAND_CALCULATION",
+        entity: "DemandRun",
+        recordId: initialRun.id,
+        rule: "NO_COUNTABLE_INPUTS",
+        message:
+          "This calculation could not count any confirmed quantity, so its results are not " +
+          "authoritative. Confirm the source quantity and weight contract, then recalculate.",
+        // ERROR, not BLOCKING: a blocking issue stops every Analysis page, and this
+        // concerns one run's inputs. The run's own REVIEW_REQUIRED status is what tells a
+        // reader not to rely on it.
+        severity: "ERROR",
+        status: "OPEN",
+        affectedField: "quantity",
+        downstreamImpact: "Run marked review required; shortage figures are not presented as authoritative",
+      });
+    }
+
+    const finalRunStatus = anyCategoryReviewRequired || blockedByInputs ? "REVIEW_REQUIRED" : "COMPLETED";
 
     // 10. ATOMIC TRANSACTIONAL PERSISTENCE & LOCK RELEASE
+    //
+    // Fencing: an administrator may have force-released this claim while the calculation
+    // was running, which means a synchronization has since been allowed to change
+    // canonical records. The figures computed above may already describe a state that no
+    // longer exists, so the run is abandoned rather than persisted. Throwing here means
+    // no metric, no trace row and no COMPLETED status is written.
+    if (!(await isClaimStillHeld(canonicalClaim))) {
+      throw new CanonicalStateFencedError();
+    }
+
     await db.$transaction(async (tx) => {
       // Create DataQualityIssue rows
       if (dqIssuesToCreate.length > 0) {
@@ -1191,6 +1375,10 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
     });
 
     lockReleased = true;
+    // Released only after the transaction committed. Until then a synchronization could
+    // still change the records these metrics describe.
+    await releaseCanonicalState(canonicalClaim);
+    canonicalClaimReleased = true;
 
     return {
       success: true,
@@ -1234,15 +1422,23 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
     };
   } catch (err: any) {
     const durationMs = Date.now() - startTime;
-    const safeError = err instanceof Error ? err.message : String(err);
+    // The exception is converted once, here. Diagnostics reach the server log under the
+    // reference; only the sanitized envelope is persisted, so the column cannot later be
+    // read back into a response as exception text.
+    const failure = recordOperationalFailure(err, {
+      operation: "demand.run",
+      entity: "DemandRun",
+      entityId: initialRun.id,
+      actorUserId: options.actorUserId ?? null,
+    });
 
-    // Record FAILED run with safe error summary
+    // Record FAILED run with the sanitized public failure
     try {
       await db.demandRun.update({
         where: { id: initialRun.id },
         data: {
           status: "FAILED",
-          errorSummary: safeError,
+          errorSummary: serializePublicFailure(failure),
           finishedAt: nowUTC(),
           durationMs,
         },
@@ -1252,6 +1448,16 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
     }
 
     // Owner-safe lock release on failure
+    if (!canonicalClaimReleased) {
+      try {
+        // Releases nothing if the claim was already force-released, which is correct: it
+        // belongs to whoever holds it now.
+        await releaseCanonicalState(canonicalClaim);
+      } catch {
+        // Ignore secondary release error
+      }
+    }
+
     if (!lockReleased) {
       try {
         await db.demandCalculationLock.updateMany({

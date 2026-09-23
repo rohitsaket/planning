@@ -296,7 +296,7 @@ export function DashboardView() {
           <KpiGridSkeleton count={5} />
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2">
-            <KpiCard label="Physical Shortage" value={kpi?.physicalShortage ?? 0} unit="pcs" intent="critical" icon={AlertTriangle} hint="MAX(0, Target − Available)" sparkline={shortageSparkline} onClick={() => setView("requirements-matrix")} />
+            <KpiCard label="Physical Shortage" value={kpi?.physicalShortage ?? 0} unit="pcs" intent="critical" icon={AlertTriangle} hint="Shortfall against target stock" sparkline={shortageSparkline} onClick={() => setView("requirements-matrix")} />
             <KpiCard label="Pipeline-Adjusted" value={kpi?.pipelineAdjusted ?? 0} unit="pcs" intent="warning" icon={TrendingDown} hint="Shortage − Eligible WIP" sparkline={pipelineSparkline} onClick={() => setView("requirements-matrix")} />
             <KpiCard label="Approved Plan Coverage" value={kpi?.approvedPlanCoverage ?? 0} unit="pcs" intent="success" icon={ShieldCheck} hint="Approved plan pieces" sparkline={approvedPlanCoverageSparkline} onClick={() => setView("planning-approval-queue")} />
             <KpiCard label="Remaining Unplanned" value={kpi?.remainingUnplanned ?? 0} unit="pcs" intent="critical" icon={AlertTriangle} hint="Pipeline − Plan Coverage" sparkline={remainingUnplannedSparkline} onClick={() => setView("requirements-matrix")} />

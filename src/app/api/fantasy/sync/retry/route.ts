@@ -41,6 +41,6 @@ export const POST = withApi({
     status: result.status,
     durationMs: result.durationMs,
     reconciliation: result.reconciliation,
-    errorSummary: result.errorSummary ? result.errorSummary.split("\n")[0].slice(0, 250) : undefined,
+    failure: result.failure ?? null,
   });
 });

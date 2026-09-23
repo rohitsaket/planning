@@ -48,6 +48,7 @@ import { roundHalfUpInt } from "../src/lib/domain/diamond-rules";
 import { SECTEST_DB } from "../tests/security/test-db";
 import { parseISTDateToUTC, getISTDateString } from "../src/lib/fantasy/time";
 import { hasPermission } from "../src/lib/auth/permissions";
+import { readPublicFailure, recordOperationalFailure, serializePublicFailure } from "../src/lib/api/operational-failure";
 
 function assert(condition: boolean, message: string) {
   if (!condition) {
@@ -970,11 +971,20 @@ async function main() {
   const failedRunsBefore = await db.demandRun.count({ where: { status: "FAILED" } });
   assert(failedRunsBefore === 0, "No failed runs initially");
 
-  // Verify failure contract: DemandRun status FAILED with safe error summary and zero partial metrics
+  // Verify failure contract: DemandRun status FAILED with a sanitized public failure and
+  // zero partial metrics. The stored value is the envelope the service now writes — the
+  // conversion itself is proven against the real service in tests/security/failure-exposure.
+  const storedFailure = serializePublicFailure(
+    recordOperationalFailure(new Error("Database timeout during calculation snapshot"), {
+      operation: "demand.run",
+      entity: "DemandRun",
+      entityId: "failure-contract-test",
+    }),
+  );
   const failedRun = await db.demandRun.create({
     data: {
       status: "FAILED",
-      errorSummary: "Database timeout during calculation snapshot",
+      errorSummary: storedFailure,
       windowDays: 90,
       ruleVersion: "DEMAND-V1",
       sourcePolicy: "CANONICAL_FANTASY",
@@ -990,7 +1000,9 @@ async function main() {
     include: { metrics: true },
   });
   assert(failedRunInDb?.status === "FAILED", "Failed run recorded with honest FAILED status");
-  assert(failedRunInDb?.errorSummary === "Database timeout during calculation snapshot", "Safe error summary preserved");
+  const publicFailure = readPublicFailure(failedRunInDb?.errorSummary ?? null);
+  assert(publicFailure?.code === "OPERATION_FAILED", "Failed run exposes a stable public failure code");
+  assert(!failedRunInDb?.errorSummary?.includes("Database timeout"), "Exception text is not stored on the run");
   assert(failedRunInDb?.metrics.length === 0, "Failed run has zero partial metrics");
 
   // -------------------------------------------------------------------------
@@ -1150,11 +1162,18 @@ async function main() {
   assert(hasPermission("SUPER_ADMIN", "demand.trace"), "SUPER_ADMIN has demand.trace");
   assert(hasPermission("SUPER_ADMIN", "demand.export"), "SUPER_ADMIN has demand.export");
 
-  assert(hasPermission("ADMIN", "demand.run"), "ADMIN has demand.run");
-  assert(hasPermission("ADMIN", "demand.unlock"), "ADMIN has demand.unlock");
+  // Running a demand calculation replaces the snapshot every Analysis page reads, and
+  // unlocking one can abandon an in-flight run. Both are operational acts with a
+  // consequence for the data, so administering the system no longer confers them; they
+  // stay assignable to an administrator who genuinely holds that duty.
+  assert(!hasPermission("ADMIN", "demand.run"), "ADMIN does NOT automatically have demand.run");
+  assert(!hasPermission("ADMIN", "demand.unlock"), "ADMIN does NOT automatically have demand.unlock");
+  // Reading remains administrative.
   assert(hasPermission("ADMIN", "demand.trace"), "ADMIN has demand.trace");
   assert(hasPermission("ADMIN", "demand.export"), "ADMIN has demand.export");
   assert(!hasPermission("ADMIN", "plan.approve"), "ADMIN strictly DOES NOT have plan.approve");
+  assert(!hasPermission("ADMIN", "fantasy.sync.run"), "ADMIN does NOT automatically have fantasy.sync.run");
+  assert(!hasPermission("ADMIN", "fantasy.sync.unlock"), "ADMIN does NOT automatically have fantasy.sync.unlock");
 
   assert(hasPermission("ANALYSIS_MANAGER", "demand.run"), "ANALYSIS_MANAGER has demand.run");
   assert(!hasPermission("ANALYSIS_MANAGER", "demand.unlock"), "ANALYSIS_MANAGER does NOT have demand.unlock");

@@ -184,6 +184,14 @@ interface NavState {
   setTab: (tab: string | null) => void;
   /** Drill-down from a Demand Overview row into that exact category. */
   openDemandTrace: (context: { runId?: string | null; category: string }) => void;
+  /**
+   * Drill-down into any category-aware page, carrying the exact canonical key.
+   *
+   * `setView` deliberately drops row context, so a link that used it lost the category
+   * it was asked to open — which is how clicking a category in Inventory opened Stockout
+   * Risk with nothing selected.
+   */
+  openCategoryView: (view: ViewId, context: { runId?: string | null; category: string }) => void;
   /** Category change made inside Demand Result Details, keeping the current run. */
   setTraceCategory: (category: string) => void;
   /** Drops an unavailable category and returns to the neutral state, keeping the current run. */
@@ -216,7 +224,8 @@ export const useNavStore = create<NavState>((set, get) => ({
     // and the hashchange listener in page.tsx restores the tab from the URL.
     if (typeof window !== "undefined") window.history.pushState(null, "", navHash(s.view, tab, s.trace));
   },
-  openDemandTrace: (context) => {
+  openCategoryView: (rawView, context) => {
+    const { view, tab } = resolveViewAlias(rawView, null);
     // The view and its context move in one update, so the state change that switches the
     // page can never clear the category it was asked to open.
     const trace: DemandTraceContext = {
@@ -224,13 +233,16 @@ export const useNavStore = create<NavState>((set, get) => ({
       category: context.category,
       malformed: false,
     };
-    set({ view: DEMAND_TRACE_VIEW, tab: null, detailId: null, trace });
+    set({ view, tab, detailId: null, trace });
     // A drill-down from a row is a real navigation step: pushState keeps the source view in
-    // history so Back returns to Demand Overview instead of skipping past it.
+    // history so Back returns to where the drill-down started instead of skipping past it.
     if (typeof window !== "undefined") {
-      window.history.pushState(null, "", navHash(DEMAND_TRACE_VIEW, null, trace));
+      window.history.pushState(null, "", navHash(view, tab, trace));
     }
   },
+  // One mechanism, not two: the Demand Trace drill-down is the general one aimed at a
+  // fixed page.
+  openDemandTrace: (context) => get().openCategoryView(DEMAND_TRACE_VIEW, context),
   setTraceCategory: (category) => {
     const s = get();
     if (s.trace?.category === category && !s.trace.malformed) return;

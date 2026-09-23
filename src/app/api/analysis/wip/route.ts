@@ -37,6 +37,9 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request,
   const bump = (m: Map<string, number>, key: string, qty: number) => m.set(key, (m.get(key) ?? 0) + qty);
 
   for (const r of classified.results) {
+    // A record whose quantity the source never established contributes to no dimension.
+    // Its existence is still reported through the summary's unconfirmed count.
+    if (r.quantity === null) continue;
     bump(byStage, r.stage, r.quantity);
     bump(byOutcome, r.outcome, r.quantity);
     bump(byShape, r.shape, r.quantity);
@@ -60,13 +63,14 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request,
   const pageRows = canSeeLots ? ordered.slice((page - 1) * pageSize, (page - 1) * pageSize + pageSize) : [];
 
   return ok({
+    // The policy's availability, its explanation and whether it applies coverage are
+    // what a planner acts on. Its internal identifier and version identify a rule record
+    // in the configuration store and belong to the Business Rules page.
     policy: {
-      ruleId: classified.policy.ruleId,
       status: classified.policy.status,
       reason: classified.policy.reason,
       message: classified.policy.message,
       ruleStatus: classified.policy.ruleStatus,
-      ruleVersion: classified.policy.ruleVersion,
       effectiveDate: classified.policy.effectiveDate,
       eligibleStages: classified.policy.eligibleStages,
       appliesCoverage: classified.policy.appliesCoverage,

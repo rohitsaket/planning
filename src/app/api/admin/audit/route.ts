@@ -1,10 +1,16 @@
 import { db } from "@/lib/db";
 import { ok } from "@/lib/api-utils";
 import { withApi, qStr } from "@/lib/api/with-api";
+import { ApiError } from "@/lib/api/errors";
+import { isAuditableEntity } from "@/lib/domain/entity-labels";
 
 export const GET = withApi({ permission: "audit.read" }, async (req: Request) => {
   const url = new URL(req.url);
-  const entity = qStr(url, "entity");
+  // Only a key this build knows reaches the query.
+  const entity = qStr(url, "entity", 60);
+  if (entity && !isAuditableEntity(entity)) {
+    throw new ApiError(400, "BAD_REQUEST", "Query parameter 'entity' is not a recognized record type.");
+  }
   const action = qStr(url, "action");
   const actor = qStr(url, "actor");
 

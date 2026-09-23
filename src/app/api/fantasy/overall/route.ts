@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
-import { withApi, qStr, paging, paged } from "@/lib/api/with-api";
+import { withApi, paging, paged } from "@/lib/api/with-api";
+import { overallLotWhere, parseOverallLotFilters } from "@/lib/fantasy/overall-filters";
 import { resolveFantasySourceStateWithHistory } from "@/lib/fantasy/config";
 import { formatIST } from "@/lib/fantasy/time";
 
@@ -9,34 +10,9 @@ export const GET = withApi({ permission: "overall.read" }, async (req: Request) 
   const p = paging(url);
   const sourceState = await resolveFantasySourceStateWithHistory(db);
 
-  const q = qStr(url, "q");
-  const isCurrentParam = qStr(url, "isCurrent");
-  const status = qStr(url, "status");
-  const shape = qStr(url, "shape");
-  const lab = qStr(url, "lab");
-  const country = qStr(url, "country");
-  const branch = qStr(url, "branch");
-
-  const where: Record<string, unknown> = {};
-
-  if (isCurrentParam === "true") where.isCurrent = true;
-  else if (isCurrentParam === "false") where.isCurrent = false;
-
-  if (status && status !== "ALL") where.currentStatus = status;
-  if (shape && shape !== "ALL") where.shapeNormalized = shape;
-  if (lab && lab !== "ALL") where.labNormalized = lab;
-  if (country && country !== "ALL") where.country = country;
-  if (branch && branch !== "ALL") where.branch = branch;
-
-  if (q) {
-    where.OR = [
-      { lotId: { contains: q, mode: "insensitive" } },
-      { customerName: { contains: q, mode: "insensitive" } },
-      { certificate: { contains: q, mode: "insensitive" } },
-      { kapan: { contains: q, mode: "insensitive" } },
-      { stoneName: { contains: q, mode: "insensitive" } },
-    ];
-  }
+  // One parser for the list and its export, so a filtered export can never return rows
+  // the filtered list would have excluded.
+  const where = overallLotWhere(parseOverallLotFilters(url));
 
   const [totalCount, activeCount, historicalCount, soldCount, removedUnknownCount] = await Promise.all([
     db.lotMasterRecord.count(),

@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Search } from "lucide-react";
 import { useMemo, useState } from "react";
+import { ENTITY_FILTER_OPTIONS, entityLabel } from "@/lib/domain/entity-labels";
 
 interface IssueRow {
   id: string;
@@ -49,7 +50,13 @@ export function DataQualityView() {
   const columns: Column<IssueRow>[] = useMemo(() => [
     { key: "issueCode", header: "Issue Code", cell: (r) => <span className="font-mono text-[10px] font-medium">{r.issueCode}</span>, sortable: true, sortValue: (r) => r.issueCode, sticky: "left" },
     { key: "source", header: "Source", align: "center", cell: (r) => <span className="text-[10px]">{r.source}</span> },
-    { key: "entity", header: "Entity", align: "center", cell: (r) => <span className="text-[10px]">{r.entity}</span> },
+    {
+      key: "entity",
+      header: "Record Type",
+      align: "center",
+      cell: (r) => <span className="text-[10px]">{entityLabel(r.entity)}</span>,
+      exportValue: (r) => entityLabel(r.entity),
+    },
     { key: "recordId", header: "Record ID", align: "center", cell: (r) => <span className="font-mono text-[10px]">{r.recordId ? r.recordId.slice(0, 8) : "—"}</span> },
     { key: "rule", header: "Rule", cell: (r) => <span className="text-[10px]">{r.rule}</span> },
     { key: "message", header: "Message", cell: (r) => <span className="text-[10px]">{r.message}</span> },
@@ -65,7 +72,7 @@ export function DataQualityView() {
   const filteredRows = (data?.rows ?? []).filter((r) => {
     if (!search) return true;
     const q = search.toLowerCase();
-    return [r.issueCode, r.source, r.entity, r.recordId ?? "", r.rule, r.message, r.assignedTo ?? ""].some((f) => f.toLowerCase().includes(q));
+    return [r.issueCode, r.source, entityLabel(r.entity), r.recordId ?? "", r.rule, r.message, r.assignedTo ?? ""].some((f) => f.toLowerCase().includes(q));
   });
 
   return (
@@ -89,22 +96,20 @@ export function DataQualityView() {
 
       <Section
         title="Filters"
-        description="Filter by entity, severity, or status"
+        description="Filter by record type, severity, or status"
         actions={
           <div className="flex items-center gap-2 flex-wrap">
             <Select value={entity || "__all"} onValueChange={(v) => setEntity(v === "__all" ? "" : v)}>
               <SelectTrigger size="sm" className="h-8 w-[160px] text-xs">
-                <SelectValue placeholder="All Entities" />
+                <SelectValue placeholder="All Record Types" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="__all">All Entities</SelectItem>
-                <SelectItem value="SalesRecord">SalesRecord</SelectItem>
-                <SelectItem value="PolishedStone">PolishedStone</SelectItem>
-                <SelectItem value="RoughStone">RoughStone</SelectItem>
-                <SelectItem value="Requirement">Requirement</SelectItem>
-                <SelectItem value="PlanningCase">PlanningCase</SelectItem>
-                <SelectItem value="ForecastRun">ForecastRun</SelectItem>
-                <SelectItem value="BusinessRule">BusinessRule</SelectItem>
+                <SelectItem value="__all">All Record Types</SelectItem>
+                {ENTITY_FILTER_OPTIONS.map((o) => (
+                  <SelectItem key={o.value} value={o.value}>
+                    {o.label}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
             <Select value={severity || "__all"} onValueChange={(v) => setSeverity(v === "__all" ? "" : v)}>

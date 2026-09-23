@@ -3,6 +3,7 @@ import { err, ok } from "@/lib/api-utils";
 import { withApi } from "@/lib/api/with-api";
 import { runSynchronization } from "@/lib/fantasy/sync-service";
 import { resolveFantasySourceState, resolveFantasySourceStateWithHistory } from "@/lib/fantasy/config";
+import { readPublicFailure } from "@/lib/api/operational-failure";
 
 // GET: Fantasy Sync Dashboard — sync runs, active checkpoint & honest reconciliation summary
 export const GET = withApi({ permission: "fantasy.read" }, async () => {
@@ -36,7 +37,7 @@ export const GET = withApi({ permission: "fantasy.read" }, async () => {
       startedAt: polishedRun?.startedAt.toISOString() ?? null,
       finishedAt: polishedRun?.finishedAt?.toISOString() ?? null,
       nextRunAt: null,
-      errors: polishedRun?.errorSummary ? { count: 1, sample: polishedRun.errorSummary } : null,
+      failure: readPublicFailure(polishedRun?.errorSummary),
     },
     {
       entity: "Rough Stock",
@@ -46,7 +47,7 @@ export const GET = withApi({ permission: "fantasy.read" }, async () => {
       startedAt: roughRun?.startedAt.toISOString() ?? null,
       finishedAt: roughRun?.finishedAt?.toISOString() ?? null,
       nextRunAt: null,
-      errors: null,
+      failure: null,
     },
     {
       entity: "WIP Manufacturing",
@@ -56,7 +57,7 @@ export const GET = withApi({ permission: "fantasy.read" }, async () => {
       startedAt: wipRun?.startedAt.toISOString() ?? null,
       finishedAt: wipRun?.finishedAt?.toISOString() ?? null,
       nextRunAt: null,
-      errors: null,
+      failure: null,
     },
   ];
 
@@ -163,8 +164,9 @@ export const GET = withApi({ permission: "fantasy.read" }, async () => {
       recordsFetched: r.recordsFetched,
       durationMs: r.durationMs,
       triggeredBy: r.triggeredBy,
-      // Sanitized error summary without exposing internal stack traces
-      errorSummary: r.errorSummary ? r.errorSummary.split("\n")[0].slice(0, 250) : null,
+      // Runs recorded before failures were sanitized hold raw exception text, so the
+      // column is re-sanitized on read rather than merely shortened.
+      failure: readPublicFailure(r.errorSummary),
       startedAt: r.startedAt.toISOString(),
       finishedAt: r.finishedAt?.toISOString() ?? null,
     })),
@@ -208,6 +210,6 @@ export const POST = withApi({ permission: "fantasy.sync.run" }, async (_req, _ct
     status: result.status,
     durationMs: result.durationMs,
     reconciliation: result.reconciliation,
-    errorSummary: result.errorSummary ? result.errorSummary.split("\n")[0].slice(0, 250) : undefined,
+    failure: result.failure ?? null,
   });
 });

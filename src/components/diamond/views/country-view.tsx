@@ -43,11 +43,10 @@ interface CountryResponse {
     remainingUnplanned: number;
   };
   categoryCount: number;
-  wipPolicy: { status: string; message: string; ruleId: string; eligibleStages: string[] };
+  wipPolicy: { status: string; message: string; eligibleStages: string[] };
   wipCoverageUnavailable: boolean;
   transfer: {
     status: string;
-    ruleId: string;
     ruleStatus: string | null;
     candidateCount: number | null;
     message: string;
@@ -173,8 +172,8 @@ export function CountryView() {
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
         <KpiCard label="Global Target" value={g?.target ?? 0} unit="pcs" intent="default" hint="Σ Rounded Target" icon={Globe} sparkline={targetSpark} />
         <KpiCard label="Global Available" value={g?.available ?? 0} unit="pcs" intent="success" hint="Polished stock" icon={Package} sparkline={availSpark} />
-        <KpiCard label="Global Shortage" value={g?.shortage ?? 0} unit="pcs" intent="critical" hint="MAX(0, Tgt − Avail)" icon={AlertTriangle} sparkline={shortageSpark} />
-        <KpiCard label="Global Excess" value={g?.excess ?? 0} unit="pcs" intent="warning" hint="MAX(0, Avail − Tgt)" icon={Layers} sparkline={excessSpark} />
+        <KpiCard label="Global Shortage" value={g?.shortage ?? 0} unit="pcs" intent="critical" hint="Shortfall against target" icon={AlertTriangle} sparkline={shortageSpark} />
+        <KpiCard label="Global Excess" value={g?.excess ?? 0} unit="pcs" intent="warning" hint="Stock held above target" icon={Layers} sparkline={excessSpark} />
         <KpiCard label="Global WIP" value={g?.wip ?? 0} unit="pcs" intent="info" hint="Approved plan pieces" icon={Boxes} sparkline={wipSpark} />
         <KpiCard label="Global Plan Cov" value={g?.planCov ?? 0} unit="pcs" intent="success" hint="Approved coverage" icon={Package} sparkline={planCovSpark} />
       </div>

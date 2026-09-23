@@ -31,6 +31,12 @@ export const PERMISSIONS = [
   "demand.export",
   "forecast.run",
   "forecast.publish",
+  // How a prediction is produced — algorithm, training and validation windows, and the
+  // error metrics a model is judged on. Separate from reading the prediction itself:
+  // a planner acts on the forecast, while only model governance needs to see the method
+  // behind it. Deliberately not implied by `analysis.read`, which every read-only role
+  // holds, nor by `forecast.run`/`forecast.publish`, which are actions on a model.
+  "forecast.methodology.read",
   "fantasy.read",
   // Running a routine synchronization, retrying a failed one and force-releasing a
   // stuck lock are three different risks and are authorized separately.
@@ -150,11 +156,26 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
       p !== "plan.approve" &&
       p !== "role.manage" &&
       p !== "role.permissions.assign" &&
-      p !== "user.super_admin.assign",
+      p !== "user.super_admin.assign" &&
+      // Administering the system does not make someone a model reviewer. Assignable,
+      // but never automatic.
+      p !== "forecast.methodology.read" &&
+      // Nor an integration or demand operator. Running a synchronization pulls real
+      // source data and advances the checkpoint; running a demand calculation replaces
+      // the snapshot every Analysis page reads; force-releasing a sync lock can abandon
+      // another worker's in-flight run. Each is an operational act with a consequence
+      // for the data, not an administrative one — and each already has a role whose job
+      // it is: FANTASY_INTEGRATION for synchronization, ANALYSIS_MANAGER for demand.
+      // All three stay assignable to an administrator who genuinely holds that duty.
+      p !== "fantasy.sync.run" &&
+      p !== "fantasy.sync.retry" &&
+      p !== "fantasy.sync.unlock" &&
+      p !== "demand.run" &&
+      p !== "demand.unlock",
   ),
   ANALYSIS_MANAGER: [...BASE, ...NOTIFICATION_TRIAGE, ...PLANNING_READ, ...COMMERCIAL_READ, "requirement.create", "requirement.override", "demand.run", "demand.trace", "demand.export", "overall.export", "analysis.export", "sales.export", "customers.export", "orders.export", "requirement.export", "fantasy.export", "data_quality.manage", "data_quality.export", "business_rule.read", "audit.read"],
   DATA_ANALYST: [...BASE, ...PLANNING_READ, ...COMMERCIAL_READ, "demand.trace", "demand.export", "overall.export", "analysis.export", "sales.export", "customers.export", "orders.export", "data_quality.read", "data_quality.export", "audit.read"],
-  DATA_SCIENTIST: [...BASE, ...PLANNING_READ, "sales.read", "demand.trace", "demand.export", "forecast.run", "forecast.publish", "overall.export", "analysis.export", "sales.export", "data_quality.read", "audit.read"],
+  DATA_SCIENTIST: [...BASE, ...PLANNING_READ, "sales.read", "demand.trace", "demand.export", "forecast.run", "forecast.publish", "forecast.methodology.read", "overall.export", "analysis.export", "sales.export", "data_quality.read", "audit.read"],
   // Explicitly authorized planning approval authority
   PLANNING_MANAGER: [...BASE, ...NOTIFICATION_TRIAGE, ...PLANNING_READ, "orders.read", "demand.trace", "plan.create", "plan.select", "plan.approve", "plan.replan", "rough.reserve", "overall.export", "analysis.export", "plan.export", "requirement.export", "business_rule.read", "audit.read"],
   PLANNER: [...BASE, ...PLANNING_READ, "orders.read", "plan.create", "plan.select", "plan.replan", "rough.reserve", "plan.export"],

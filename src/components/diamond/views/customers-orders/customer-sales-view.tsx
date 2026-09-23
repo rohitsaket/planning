@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { useApi } from "@/lib/api-client";
 import { useNavStore } from "@/stores/nav-store";
+import { useAuthStore } from "@/stores/auth-store";
 import { useGlobalFilter } from "@/stores/global-filter";
 import { Section } from "@/components/diamond/shared/page-header";
 import { DataTable, Column } from "@/components/diamond/shared/data-table";
@@ -22,20 +23,26 @@ import { FlaskConical, Info, Search, X } from "lucide-react";
  * piece count.
  */
 
-type ReadinessState =
-  | "CURRENT" | "SIMULATED" | "STALE" | "INCOMPLETE" | "NOT_RUN"
-  | "NOT_CONFIGURED" | "UNAVAILABLE" | "BLOCKED_BY_DATA_QUALITY";
-
-interface ReadinessResponse {
-  rows: Array<{ key: string; label: string; value: string; state: ReadinessState }>;
+/**
+ * Three separate dimensions, kept separate on purpose. Where the figures came from is
+ * not the same question as whether the snapshot is usable, which is not the same
+ * question as whether every sale could be attributed to a buyer.
+ */
+interface SnapshotSummaryResponse {
   hasSnapshot: boolean;
-  isSimulated: boolean;
+  sourceState: "SIMULATION" | "LIVE";
   sourceLabel: string;
-  snapshotId: string | null;
-  businessDateIst: string | null;
+  snapshotState: "AVAILABLE" | "INCOMPLETE" | "UNAVAILABLE";
+  periodLabel: string;
   windowDays: number | null;
+  snapshotGeneratedIst: string | null;
+  businessDateIst: string | null;
+  identityCompleteness: "COMPLETE" | "PARTIAL" | "UNKNOWN";
   recordsWithIdentity: number | null;
   recordsMissingIdentity: number | null;
+  blockingIssueCount: number;
+  identityWarning: string | null;
+  snapshotWarning: string | null;
 }
 
 interface PagingMeta { page: number; pageSize: number; total: number; hasMore: boolean }
@@ -85,16 +92,93 @@ interface DetailResponse {
   exclusionCodes: Array<{ code: string; count: number }>;
 }
 
-const STATE_VARIANT: Record<ReadinessState, "default" | "success" | "warning" | "critical" | "info"> = {
-  CURRENT: "success",
-  SIMULATED: "info",
-  STALE: "warning",
-  INCOMPLETE: "warning",
-  NOT_RUN: "warning",
-  NOT_CONFIGURED: "warning",
-  UNAVAILABLE: "critical",
-  BLOCKED_BY_DATA_QUALITY: "critical",
-};
+/**
+ * Where these figures come from, in one line.
+ *
+ * This replaced a twelve-row CHECK / VALUE / STATE table that read as a backend
+ * verification report: it repeated the source three ways, restated the same identity
+ * count as three rows, and carried order-source rows that have nothing to do with
+ * customer sales. What a reader actually needs is the provenance, the period and the
+ * cutoff — plus a warning when, and only when, something is wrong.
+ */
+function SnapshotSummaryStrip({
+  summary,
+  loading,
+  onOpenDataQuality,
+}: {
+  summary: SnapshotSummaryResponse | undefined;
+  loading: boolean;
+  onOpenDataQuality: () => void;
+}) {
+  const canSeeDataQuality = useAuthStore((st) => st.user?.permissions ?? []).includes("data_quality.read");
+
+  if (loading || !summary) {
+    return (
+      <div className="rounded-md border border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+        Loading snapshot details…
+      </div>
+    );
+  }
+
+  const simulated = summary.sourceState === "SIMULATION";
+
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-border bg-muted/20 px-3 py-2 text-xs">
+        {/* One source badge, not three rows saying the same thing. */}
+        <Badge variant={simulated ? "info" : "success"} className="gap-1">
+          {simulated && <FlaskConical className="h-3 w-3" />}
+          {summary.sourceLabel}
+        </Badge>
+        <span className="text-muted-foreground">·</span>
+        <span className="text-muted-foreground">{summary.periodLabel}</span>
+        {summary.snapshotGeneratedIst && (
+          <>
+            <span className="text-muted-foreground">·</span>
+            <span className="text-muted-foreground">
+              Snapshot generated {summary.snapshotGeneratedIst} IST
+            </span>
+          </>
+        )}
+        {summary.businessDateIst && (
+          <>
+            <span className="text-muted-foreground">·</span>
+            <span className="text-muted-foreground">Business cutoff {summary.businessDateIst} IST</span>
+          </>
+        )}
+      </div>
+
+      {simulated && (
+        <InfoBanner variant="warning">
+          <span className="flex items-center gap-2 font-semibold">
+            <FlaskConical className="h-4 w-4" />
+            These figures are simulation output, not live Fantasy data.
+          </span>
+        </InfoBanner>
+      )}
+
+      {/* Warnings render only when they apply, and each states one thing. */}
+      {summary.snapshotWarning && <InfoBanner variant="critical">{summary.snapshotWarning}</InfoBanner>}
+      {summary.identityWarning && <InfoBanner variant="warning">{summary.identityWarning}</InfoBanner>}
+
+      {summary.blockingIssueCount > 0 && (
+        <InfoBanner variant="warning">
+          <div className="flex flex-wrap items-center gap-2">
+            <span>
+              {summary.blockingIssueCount} blocking data-quality{" "}
+              {summary.blockingIssueCount === 1 ? "issue is" : "issues are"} open and may affect these figures.
+            </span>
+            {canSeeDataQuality && (
+              <Button size="sm" variant="outline" className="h-6" onClick={onOpenDataQuality}>
+                Review data quality
+              </Button>
+            )}
+          </div>
+        </InfoBanner>
+      )}
+    </div>
+  );
+}
 
 const PAGE_SIZE = 25;
 
@@ -122,22 +206,13 @@ export function CustomerSalesView() {
     return `/api/analysis/customers-orders?${p.toString()}`;
   };
 
-  const readiness = useApi<ReadinessResponse>(qs({ section: "readiness" }));
+  const summary = useApi<SnapshotSummaryResponse>(qs({ section: "summary" }));
   const customers = useApi<CustomersResponse>(qs({ section: "customers", page, pageSize: PAGE_SIZE }));
   const detail = useApi<DetailResponse>(
     selected ? qs({ section: "customer-detail", customerKey: selected, page: detailPage, pageSize: PAGE_SIZE }) : "",
   );
 
   const applySearch = () => { setAppliedSearch(search.trim()); setPage(1); };
-
-  const readinessColumns: Column<ReadinessResponse["rows"][number]>[] = [
-    { key: "label", header: "Check", width: "22rem", cell: (r) => <span className="font-medium">{r.label}</span> },
-    { key: "value", header: "Value", cell: (r) => <span className="text-muted-foreground">{r.value}</span> },
-    {
-      key: "state", header: "State", width: "13rem",
-      cell: (r) => <Badge variant={STATE_VARIANT[r.state] ?? "default"}>{r.state.replace(/_/g, " ")}</Badge>,
-    },
-  ];
 
   const customerColumns: Column<CustomerRow>[] = [
     {
@@ -210,26 +285,7 @@ export function CustomerSalesView() {
 
   return (
     <div className="space-y-4">
-      {readiness.data?.isSimulated && (
-        <InfoBanner variant="warning">
-          <span className="flex items-center gap-2 font-semibold">
-            <FlaskConical className="h-4 w-4" />
-            Source: Fixture Simulation — these figures are simulation output, not live Fantasy data.
-          </span>
-        </InfoBanner>
-      )}
-
-      <Section title="Data readiness" description="Whether customer activity can be reported, and from which snapshot.">
-        <DataTable
-          columns={readinessColumns}
-          rows={readiness.data?.rows ?? []}
-          loading={readiness.isLoading}
-          emptyMessage="Readiness is unavailable."
-          pagination={false}
-          enableColumnFilter={false}
-          enableColumnValueFilter={false}
-        />
-      </Section>
+      <SnapshotSummaryStrip summary={summary.data} loading={summary.isLoading} onOpenDataQuality={() => setView("data-quality-issues")} />
 
       <Section
         title="Customers"

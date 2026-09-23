@@ -13,6 +13,7 @@
  */
 
 import { Prisma } from "@prisma/client";
+import { resolveCanonicalQuantity, type CanonicalQuantityProvenance } from "@/lib/fantasy/quantity-weight";
 import { db } from "@/lib/db";
 import {
   CategoryFailureReason,
@@ -97,7 +98,7 @@ export async function loadWipPolicy(client: DbClient = db): Promise<WipPolicy> {
     return policy(
       "NOT_CONFIGURED",
       "RULE_MISSING",
-      `WIP coverage is unavailable: business rule ${WIP_RULE_ID} has not been created. Eligible manufacturing stages must be configured and confirmed before WIP can reduce the pipeline requirement.`,
+      "WIP coverage policy is not configured. Eligible manufacturing stages must be set up and confirmed before WIP can reduce the pipeline requirement.",
       null,
       [],
     );
@@ -109,7 +110,7 @@ export async function loadWipPolicy(client: DbClient = db): Promise<WipPolicy> {
     return policy(
       "NOT_CONFIGURED",
       "RULE_NOT_CONFIRMED",
-      `WIP coverage is unavailable: business rule ${WIP_RULE_ID} is ${rule.status}, not CONFIRMED. WIP is counted and shown, but it does not reduce the pipeline requirement until the rule is client-confirmed.`,
+      "WIP coverage policy is not yet approved. WIP is counted and shown separately, but it does not reduce the pipeline requirement until the policy is confirmed.",
       ruleRef,
       [],
     );
@@ -122,7 +123,7 @@ export async function loadWipPolicy(client: DbClient = db): Promise<WipPolicy> {
     return policy(
       "NOT_CONFIGURED",
       "INVALID_CONFIGURATION",
-      `WIP coverage is unavailable: the configuration stored on ${WIP_RULE_ID} is not valid JSON and cannot be applied.`,
+      "WIP coverage policy cannot be applied: its stored configuration is not readable. Contact an administrator.",
       ruleRef,
       [],
     );
@@ -139,7 +140,7 @@ export async function loadWipPolicy(client: DbClient = db): Promise<WipPolicy> {
     return policy(
       "NOT_CONFIGURED",
       "NO_ELIGIBLE_STAGES",
-      `WIP coverage is unavailable: business rule ${WIP_RULE_ID} is CONFIRMED but lists no eligible manufacturing stages.`,
+      "WIP coverage policy is approved but lists no eligible manufacturing stages, so no WIP can be counted as coverage.",
       ruleRef,
       [],
     );
@@ -148,7 +149,7 @@ export async function loadWipPolicy(client: DbClient = db): Promise<WipPolicy> {
   return policy(
     "CONFIGURED",
     "ACTIVE",
-    `WIP coverage is applied per confirmed rule ${WIP_RULE_ID} v${rule.version}. Eligible stages: ${eligibleStages.join(", ")}.`,
+    `WIP coverage policy: Active. Eligible stages: ${eligibleStages.join(", ")}.`,
     ruleRef,
     eligibleStages,
   );
@@ -171,6 +172,9 @@ export interface WipSourceRecord {
   labNormalized: string | null;
   weight: Prisma.Decimal | number;
   quantity: Prisma.Decimal | number;
+  /** Needed to decide whether this source's quantity may be counted at all. */
+  sourceType?: string | null;
+  isSimulated?: boolean;
   country: string;
   branch: string;
   kapan: string | null;
@@ -193,7 +197,10 @@ export interface WipClassificationResult {
   shape: string;
   weightBandCode: string | null;
   weightBandLabel: string | null;
-  quantity: number;
+  /** Pieces. Null when the source did not establish a countable quantity. */
+  quantity: number | null;
+  /** Why the quantity may or may not be counted. */
+  quantityProvenance: CanonicalQuantityProvenance;
   weight: number;
   country: string;
   branch: string;
@@ -212,14 +219,21 @@ export function classifyWipRecord(record: WipSourceRecord, ctx: WipClassificatio
   const stageRaw = record.wipStage ?? record.currentStatus ?? null;
   const stage = normalizeWipStage(record.wipStage || record.currentStatus);
   const weight = Number(record.weight);
-  const rawQty = Number(record.quantity);
-  const quantity = Number.isFinite(rawQty) && rawQty > 0 ? Math.round(rawQty) : 1;
+  // No fallback to one piece: WIP whose quantity the source never established is
+  // reported as unconfirmed and stays out of every piece total.
+  const quantityDecision = resolveCanonicalQuantity({
+    quantity: record.quantity,
+    sourceType: record.sourceType ?? null,
+    isSimulated: record.isSimulated ?? false,
+  });
+  const quantity = quantityDecision.pieces;
 
   const base = {
     lotId: record.lotId,
     stageRaw,
     stage,
     quantity,
+    quantityProvenance: quantityDecision.provenance,
     weight,
     country: record.country,
     branch: record.branch,
@@ -299,6 +313,8 @@ export interface WipSummary {
   policyBlockedPieces: number;
   /** Real WIP that does not reduce shortage: ineligible + ambiguous + policy-blocked. */
   unallocatedPieces: number;
+  /** Records whose quantity the source never established. Never counted as pieces. */
+  unconfirmedQuantityRecords: number;
 }
 
 export function summarizeWipClassifications(results: WipClassificationResult[]): WipSummary {
@@ -312,9 +328,15 @@ export function summarizeWipClassifications(results: WipClassificationResult[]):
     alreadyPolishedPieces: 0,
     policyBlockedPieces: 0,
     unallocatedPieces: 0,
+    unconfirmedQuantityRecords: 0,
   };
 
   for (const r of results) {
+    if (r.quantity === null) {
+      // Counted as a record needing review, never as pieces.
+      summary.unconfirmedQuantityRecords++;
+      continue;
+    }
     summary.totalPieces += r.quantity;
     if (r.countsAsUnallocated) summary.unallocatedPieces += r.quantity;
     switch (r.outcome) {

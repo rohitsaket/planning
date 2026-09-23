@@ -19,12 +19,11 @@ interface WipDimensionRow {
 }
 
 interface WipPolicy {
-  ruleId: string;
+
   status: "CONFIGURED" | "NOT_CONFIGURED";
   reason: string;
   message: string;
   ruleStatus: string | null;
-  ruleVersion: string | null;
   eligibleStages: string[];
   appliesCoverage: boolean;
 }
@@ -178,8 +177,9 @@ export function WipView() {
                 : "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/20"
             }`}
           >
-            {policy?.ruleId ?? "BR-WIP-001"} · {policy?.status ?? "…"}
-            {policy?.ruleVersion ? ` · v${policy.ruleVersion}` : ""}
+            {notConfigured
+              ? "WIP coverage policy is not configured"
+              : `WIP coverage policy: ${policy?.status === "CONFIGURED" ? "Active" : (policy?.status ?? "…")}`}
           </span>
         }
       />
