@@ -2,10 +2,15 @@ import { createHash, randomBytes } from "node:crypto";
 import { db } from "@/lib/db";
 import { type Permission } from "@/lib/auth/permissions";
 import { ASSIGNED_ROLE_SELECT, resolveEffectiveAccess } from "@/lib/auth/effective-permissions";
+import { readEffectiveScope, type EffectiveScope } from "@/lib/auth/access-scope";
+import { resolveNumericEnv } from "@/lib/config/numeric-env";
 
 export const SESSION_COOKIE = "dp_session";
-const ABSOLUTE_TTL_MS = Number(process.env.SESSION_TTL_HOURS || 12) * 3600_000;
-const IDLE_TTL_MS = Number(process.env.SESSION_IDLE_MINUTES || 60) * 60_000;
+// Both lifetimes are validated before they become a date. An unreadable value used to
+// produce NaN, and `new Date(now + NaN)` is an invalid date — an expiry that no
+// comparison can enforce. A refused value falls back to the approved default instead.
+const ABSOLUTE_TTL_MS = resolveNumericEnv("SESSION_TTL_HOURS", { fallback: 12, max: 24 * 30 }).value * 3600_000;
+const IDLE_TTL_MS = resolveNumericEnv("SESSION_IDLE_MINUTES", { fallback: 60, max: 24 * 60 }).value * 60_000;
 const TOUCH_INTERVAL_MS = 60_000;
 
 export interface Principal {
@@ -17,6 +22,13 @@ export interface Principal {
   /** Codes of the active roles actually assigned to this user. */
   roleCodes: string[];
   permissions: Permission[];
+  /**
+   * Which countries and labs this principal may see. Resolved from `UserAccessScope` on
+   * every request, exactly like permissions, so a scope change takes effect on the next
+   * request without revoking the session. Never read from a request body, header or query
+   * parameter.
+   */
+  scope: EffectiveScope;
   sessionId: string;
   /**
    * True while the account is on a temporary password. A restricted session may reach
@@ -92,6 +104,10 @@ export async function resolvePrincipal(req: Request): Promise<Principal | null> 
     session.user.role,
   );
 
+  // Read per request for the same reason permissions are: revoking someone's access to a
+  // country must take effect immediately, not when their session happens to expire.
+  const scope = await readEffectiveScope(session.user.id);
+
   return {
     userId: session.user.id,
     username: session.user.username,
@@ -99,6 +115,7 @@ export async function resolvePrincipal(req: Request): Promise<Principal | null> 
     role: session.user.role,
     roleCodes: access.roleCodes,
     permissions: access.permissions,
+    scope,
     sessionId: session.id,
     mustChangePassword: session.user.mustChangePassword,
   };

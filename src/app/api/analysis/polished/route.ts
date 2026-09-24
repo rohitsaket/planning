@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
 import { withApi, qStr, qEnum, qInt } from "@/lib/api/with-api";
 import { loadValuationPolicy, valueStone } from "@/lib/analytics/valuation";
+import { describeScope, scopePredicates, scopeWhere } from "@/lib/auth/access-scope";
 
 // Polished Stock Analysis — pieces and carats by planning class, lab, shape, weight
 // band or country, plus stock aging.
@@ -33,7 +34,9 @@ const AGE_BUCKETS = [
   { label: "365+", min: 366, max: 3650000 },
 ] as const;
 
-export const GET = withApi({ permission: "analysis.read" }, async (req: Request) => {
+export const GET = withApi(
+  { permission: "analysis.read", scoped: true },
+  async (req: Request, _ctx, { scope }) => {
   const url = new URL(req.url);
   const dimension: Dimension = qEnum(url, "dimension", DIMENSIONS, "planningClass");
   const country = qStr(url, "country");
@@ -43,7 +46,11 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request)
   const page = qInt(url, "page", { def: 1, min: 1, max: 1_000_000 });
   const pageSize = qInt(url, "pageSize", { def: 50, min: 1, max: 500 });
 
-  const where: Prisma.PolishedStoneWhereInput = {};
+  // Merged before the request filters, so a filter can only narrow within the
+  // caller's scope and an unfiltered request returns their scope rather than everything.
+  const where: Prisma.PolishedStoneWhereInput = {
+    ...scopeWhere(scope, { country: "country", lab: "labNormalized" }),
+  };
   if (country) where.country = country;
   if (branch) where.branch = branch;
   if (lab) where.labNormalized = lab;
@@ -158,7 +165,7 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request)
     .sort((a, b) => b.pieces - a.pieces || a.dimension.localeCompare(b.dimension));
 
   // Stock aging, bucketed in the database against the same filters.
-  const filters: Prisma.Sql[] = [];
+  const filters: Prisma.Sql[] = [...scopePredicates(scope, { country: '"country"', lab: '"labNormalized"' })];
   if (country) filters.push(Prisma.sql`country = ${country}`);
   if (branch) filters.push(Prisma.sql`branch = ${branch}`);
   if (lab) filters.push(Prisma.sql`"labNormalized" = ${lab}`);
@@ -262,5 +269,8 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request)
     pageSize,
     total,
     hasMore: page * pageSize < total,
+    // What this caller is allowed to see, so a narrowed page can say why.
+    accessScope: describeScope(scope),
   });
-});
+  },
+);

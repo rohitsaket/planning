@@ -44,6 +44,16 @@ const MODULES = [
   "../tests/security/quantity-weight-provenance.test",
   "../tests/security/canonical-state-claim.test",
   "../tests/security/excess-analysis.test",
+  // Registered last: these suites write hundreds of canonical lots, so any suite that
+  // counts records globally must have run already.
+  "../tests/security/inventory-buckets.test",
+  "../tests/security/stock-aging.test",
+  "../tests/security/export-limits.test",
+  "../tests/security/geography.test",
+  "../tests/security/access-scope.test",
+  "../tests/security/source-disclosure.test",
+  "../tests/security/category-classification.test",
+  "../tests/security/projection-integrity.test",
 ] as const;
 
 async function main() {

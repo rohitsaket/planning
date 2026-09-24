@@ -22,7 +22,7 @@ import {
   resolveLabNormalization,
   validateCanonicalRecord,
 } from "./canonical";
-import { getFantasyProvider, FantasyBatchPayload } from "./provider";
+import { getFantasyProvider, FantasyBatchPayload, FantasyDataProvider } from "./provider";
 import { recordOperationalFailure, serializePublicFailure, type PublicFailure } from "@/lib/api/operational-failure";
 import { resolveCanonicalQuantity } from "./quantity-weight";
 import {
@@ -43,11 +43,14 @@ import {
 } from "./classification";
 import { LEGACY_FIXTURE_PROFILE, loadClassificationProfile } from "./classification-profile";
 import { nowUTC } from "./time";
+import { resolveNumericEnv } from "@/lib/config/numeric-env";
+import { categoryClassificationColumns, classifyCanonicalCategory, loadCategoryClassificationContext } from "@/lib/fantasy/category-classification";
 
 export interface SyncRunOptions {
   actor?: string;
   actorUserId?: string;
   simulateFailure?: boolean;
+  provider?: FantasyDataProvider;
 }
 
 export interface SyncRunResult {
@@ -81,7 +84,12 @@ export interface SyncRunResult {
  * safe because canonical writes are transactional: an abandoned run committed either
  * everything or nothing.
  */
-export const SYNC_LOCK_LEASE_MS = Number(process.env.FANTASY_SYNC_LOCK_LEASE_MS || 15 * 60_000);
+// Validated for the same reason as the canonical claim lease: a lease nobody can compute
+// is a lock nobody can reclaim.
+export const SYNC_LOCK_LEASE_MS = resolveNumericEnv(
+  "FANTASY_SYNC_LOCK_LEASE_MS",
+  { fallback: 15 * 60_000, max: 24 * 60 * 60_000 },
+).value;
 
 /**
  * Releases a claim, and only that claim.
@@ -156,7 +164,7 @@ export async function unlockSynchronization(
 /**
  * Loads configurable lab mappings from database into a lookup map.
  */
-async function loadLabMappings(tx?: Prisma.TransactionClient): Promise<Map<string, string>> {
+export async function loadLabMappings(tx?: Prisma.TransactionClient): Promise<Map<string, string>> {
   const client = tx ?? db;
   const mappings = await client.labMapping.findMany({ where: { active: true } });
   const map = new Map<string, string>();
@@ -198,7 +206,7 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
   }
   const canonicalSourceMode = config.canonicalSourceMode;
   const isSimulatedSource = canonicalSourceMode === "FIXTURE";
-  const provider = getFantasyProvider(canonicalSourceMode);
+  const provider = options.provider ?? getFantasyProvider(canonicalSourceMode);
 
   // One classification authority for the whole run. Loaded before any lock is taken so a
   // missing profile fails the run cleanly instead of part-way through.
@@ -425,6 +433,11 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
       const seenLotsInBatch = new Set<string>();
       const totalReceived = batch.records.length + batch.removals.length;
       const labMappings = await loadLabMappings(tx);
+      // The planning category is decided here, once, and persisted. The demand
+      // calculation consumes the stored decision instead of re-deriving it from these
+      // same tables at run time, which is what let a committed run change meaning when a
+      // mapping row was edited afterwards.
+      const categoryContext = await loadCategoryClassificationContext(tx, labMappings);
 
       // Controlled simulation failure check
       if (options.simulateFailure || batch.simulateFailure) {
@@ -502,9 +515,19 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
         }
 
         // C. Normalization & warning checks
-        const normalizedShape = normalizeShape(rec.shape);
         const labRes = resolveLabNormalization(rec.labRaw, labMappings);
-        const normalizedLab = labRes.normalized;
+        // The canonical category decision. Unapproved dimensions resolve to null rather
+        // than to a raw passthrough: `EGL_UNAPPROVED` is not a lab, and storing it in
+        // `labNormalized` is what let it become a planning category downstream.
+        const category = classifyCanonicalCategory(
+          { labRaw: rec.labRaw, shapeRaw: rec.shape, weightCt: Number(rec.weight) },
+          categoryContext,
+        );
+        const categoryColumns = categoryClassificationColumns(category);
+        // Retained for the data-quality messages below, which report what the source
+        // said rather than what was approved.
+        const normalizedShape = category.shapeNormalized ?? normalizeShape(rec.shape);
+        const normalizedLab = category.labNormalized ?? labRes.normalized;
 
         if (labRes.requiresReview && labRes.warning) {
           dqIssuesCreated++;
@@ -566,6 +589,8 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
               docDate,
               quantity: new Prisma.Decimal(rec.quantity ?? 1),
               ...quantityProvenanceColumns(rec),
+              // The planning-category decision, persisted with the record it describes.
+              ...categoryColumns,
               shape: rec.shape,
               shapeNormalized: normalizedShape,
               weight: new Prisma.Decimal(rec.weight),
@@ -618,6 +643,8 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
               statusEffectiveDate,
               quantity: new Prisma.Decimal(rec.quantity ?? 1),
               ...quantityProvenanceColumns(rec),
+              // The classification snapshot in force for this version.
+              ...categoryColumns,
               shape: rec.shape,
               shapeNormalized: normalizedShape,
               weight: new Prisma.Decimal(rec.weight),
@@ -791,6 +818,8 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
                 docDate,
                 quantity: new Prisma.Decimal(rec.quantity ?? 1),
                 ...quantityProvenanceColumns(rec),
+                // The planning-category decision, persisted with the record it describes.
+                ...categoryColumns,
               ...quantityProvenanceColumns(rec),
                 shape: rec.shape,
                 shapeNormalized: normalizedShape,
@@ -840,6 +869,8 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
                 statusEffectiveDate,
                 quantity: new Prisma.Decimal(rec.quantity ?? 1),
                 ...quantityProvenanceColumns(rec),
+                // The classification snapshot in force for this version.
+                ...categoryColumns,
               ...quantityProvenanceColumns(rec),
                 shape: rec.shape,
                 shapeNormalized: normalizedShape,

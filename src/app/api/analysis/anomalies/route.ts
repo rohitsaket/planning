@@ -8,6 +8,7 @@ import {
   type AnomalyDirection,
   type AnomalySeverity,
 } from "@/lib/analysis/business-language";
+import { describeScope, scopeWhere } from "@/lib/auth/access-scope";
 
 // Anomaly Detection — statistical outliers in monthly sales velocity per
 // planning category (lab|shape|weightBand). Spec §61 — data science
@@ -29,7 +30,9 @@ import {
 //
 // We compute the calendar-month skeleton so missing months contribute 0,
 // giving a more honest std-dev for sparse categories.
-export const GET = withApi({ permission: "analysis.read" }, async () => {
+export const GET = withApi(
+  { permission: "analysis.read", scoped: true },
+  async (_req: Request, _ctx, { scope }) => {
   // Anchor "latest month" to the most recent calendar month with sales, but
   // fall back to the current month if no sales exist.
   const now = new Date();
@@ -56,6 +59,9 @@ export const GET = withApi({ permission: "analysis.read" }, async () => {
     where: {
       lotStatusDb: "Invoice",
       docDate: { gte: windowStart, lt: latestMonthEnd },
+      // A sale record carries both a country and a normalized lab, so the caller's whole
+      // scope is enforceable here.
+      ...scopeWhere(scope, { country: "country", lab: "labNormalized" }),
     },
   }).then(scanned);
 
@@ -211,5 +217,12 @@ export const GET = withApi({ permission: "analysis.read" }, async () => {
     recommendedAction: r.recommendedAction,
   }));
 
-  return ok({ rows: publicRows, summary, windowStart: windowStart.toISOString(), latestMonthEnd: latestMonthEnd.toISOString() });
-});
+  return ok({
+    rows: publicRows,
+    summary,
+    windowStart: windowStart.toISOString(),
+    latestMonthEnd: latestMonthEnd.toISOString(),
+    accessScope: describeScope(scope),
+  });
+  },
+);

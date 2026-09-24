@@ -14,9 +14,22 @@ export type CanonicalEntityType =
   | "DEPARTMENT"
   | "LOCATION";
 
+/**
+ * The closed set of canonical lot statuses.
+ *
+ * Closed on purpose. A `| (string & {})` escape hatch was added here so a fixture could
+ * emit a status nobody had approved; it made the type equivalent to `string`, so any
+ * provider value type-checked and the compiler stopped being able to say that a status
+ * was unknown. Runtime classification still failed closed, but the first line of defence
+ * was gone.
+ *
+ * Adding a status means adding it here AND giving it an approved mapping in the active
+ * classification profile. A status with no mapping is quarantined, not guessed.
+ */
 export type CanonicalLotStatus =
   | "STOCK"
   | "MEMO"
+  | "RESERVED"
   | "INVOICE"
   | "SOLD"
   | "TRANSFERRED"
@@ -27,6 +40,7 @@ export type CanonicalLotStatus =
   | "WIP_POLISHING"
   | "WIP_GRADING"
   | "WIP_COMPLETED"
+  | "ROUGH_AVAILABLE"
   | "REMOVED_UNKNOWN";
 
 export type CanonicalRemovalReason =

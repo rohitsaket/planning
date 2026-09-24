@@ -3,6 +3,7 @@ import { call, db, makeUser, resetDb } from "./helpers";
 import { resetRateLimits } from "@/lib/api/rate-limit";
 import { GET as executive } from "@/app/api/analysis/executive/route";
 import { GET as demandTrace } from "@/app/api/analysis/demand-trace/route";
+import { UNRESTRICTED_SCOPE } from "@/lib/auth/access-scope";
 
 /**
  * Executive Analysis — authorization, snapshot honesty and the approved stock meaning.
@@ -621,7 +622,7 @@ describe("Executive Analysis — server-side paging and scope", () => {
 
       const { readSalesAndDemand } = await import("@/lib/analysis/executive-summary");
       await readSalesAndDemand(
-        { country: null, branch: null, lab: null, search: null },
+        { country: null, branch: null, lab: null, search: null, scope: UNRESTRICTED_SCOPE },
         { page: 1, pageSize },
         "sales",
         client,

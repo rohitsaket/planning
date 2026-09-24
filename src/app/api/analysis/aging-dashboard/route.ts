@@ -2,6 +2,7 @@ import { ok } from "@/lib/api-utils";
 import { withApi } from "@/lib/api/with-api";
 import { readAgingSummary } from "@/lib/analysis/stock-aging";
 import { describeAgingFilters, parseAgingFilters } from "../aging/route";
+import { describeScope } from "@/lib/auth/access-scope";
 
 /**
  * AGING DASHBOARD — the management view over the same records as Stock Aging.
@@ -16,10 +17,11 @@ import { describeAgingFilters, parseAgingFilters } from "../aging/route";
  *
  * Read-only.
  */
-export const GET = withApi({ permission: "analysis.read" }, async (req: Request) => {
-  const filters = parseAgingFilters(new URL(req.url));
+export const GET = withApi({ permission: "analysis.read", scoped: true }, async (req: Request, _ctx, { scope }) => {
+  const filters = parseAgingFilters(new URL(req.url), scope);
   return ok({
     activeFilters: describeAgingFilters(filters),
+    accessScope: describeScope(scope),
     ...(await readAgingSummary(filters)),
   });
 });

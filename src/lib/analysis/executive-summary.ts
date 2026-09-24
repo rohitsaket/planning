@@ -38,6 +38,8 @@ import {
   type SalesTrendDirection,
   type WipCoverageState,
 } from "@/lib/demand/demand-result-presentation";
+import { scopeWhere, type EffectiveScope } from "@/lib/auth/access-scope";
+import { resolveSourceDisclosure, UNESTABLISHED_SOURCE, type SourceDisclosure } from "@/lib/analysis/source-disclosure";
 
 if (typeof window !== "undefined") {
   throw new Error("analysis/executive-summary is server-only and must not be imported by client code.");
@@ -69,6 +71,14 @@ export interface ExecutiveFilters {
   readonly lab: string | null;
   /** Free-text match against the canonical category key. */
   readonly search: string | null;
+  /**
+   * The caller's country and lab authorization scope.
+   *
+   * It rides with the filters because it is applied where they are, but it is not a
+   * filter: it comes from the authenticated server session and a request can only narrow
+   * within it, never widen past it.
+   */
+  readonly scope: EffectiveScope;
 }
 
 export interface ExecutivePaging {
@@ -104,6 +114,8 @@ export interface ReadinessResult {
   readonly rows: readonly ReadinessRow[];
   readonly isSimulated: boolean;
   readonly sourceLabel: string;
+  /** Where these figures came from. Rendered by the shared simulation banner. */
+  readonly sourceDisclosure: SourceDisclosure;
   readonly demandRunId: string | null;
   readonly demandRunAt: string | null;
   readonly demandRunAtIst: string | null;
@@ -273,6 +285,7 @@ export async function readExecutiveReadiness(client: DbClient = db): Promise<Rea
     rows,
     isSimulated,
     sourceLabel,
+    sourceDisclosure: resolveSourceDisclosure({ isSimulated, hasData: Boolean(latestRun) }),
     demandRunId: latestRun?.id ?? null,
     demandRunAt: runFinishedAt ? runFinishedAt.toISOString() : null,
     demandRunAtIst: runFinishedAt ? formatIST(runFinishedAt) : null,
@@ -304,7 +317,12 @@ export async function readExecutiveReadiness(client: DbClient = db): Promise<Rea
  * caller is told instead — see `locationFilterApplies` on the result.
  */
 function metricWhere(runId: string, filters: ExecutiveFilters): Prisma.DemandMetricWhereInput {
-  const where: Prisma.DemandMetricWhereInput = { runId };
+  // Only the lab half of the scope can apply here, for the same reason `country` is not a
+  // filter on this table: a demand metric has no location.
+  const where: Prisma.DemandMetricWhereInput = {
+    runId,
+    ...scopeWhere(filters.scope, { country: null, lab: "labNormalized" }),
+  };
   if (filters.lab) where.labNormalized = filters.lab;
   if (filters.search) {
     where.planningCategory = { contains: filters.search, mode: "insensitive" };
@@ -610,7 +628,10 @@ export async function readInventoryPosition(
   paging: ExecutivePaging,
   client: DbClient = db,
 ): Promise<InventoryPositionResult> {
-  const where: Prisma.LotMasterRecordWhereInput = { isCurrent: true };
+  const where: Prisma.LotMasterRecordWhereInput = {
+    isCurrent: true,
+    ...scopeWhere(filters.scope, { country: "country", lab: "labNormalized" }),
+  };
   if (filters.country) where.country = filters.country;
   if (filters.branch) where.branch = filters.branch;
   if (filters.lab) where.labNormalized = filters.lab;
@@ -946,7 +967,10 @@ export async function readAttentionRequired(
     });
   }
 
-  const inventoryWhere: Prisma.LotMasterRecordWhereInput = { isCurrent: true };
+  const inventoryWhere: Prisma.LotMasterRecordWhereInput = {
+    isCurrent: true,
+    ...scopeWhere(filters.scope, { country: "country", lab: "labNormalized" }),
+  };
   if (filters.country) inventoryWhere.country = filters.country;
   if (filters.branch) inventoryWhere.branch = filters.branch;
   if (filters.lab) inventoryWhere.labNormalized = filters.lab;

@@ -30,7 +30,6 @@ import { resetRateLimits } from "../src/lib/api/rate-limit";
 import { PERMISSIONS, type Permission } from "../src/lib/auth/permissions";
 import { runDemandCalculation } from "../src/lib/demand/demand-service";
 import { classifyCurrentWip, loadWipPolicy, normalizeWipStage } from "../src/lib/demand/wip-classification";
-import { analyzeTransfers } from "../src/lib/analytics/stock-position";
 import { loadValuationPolicy } from "../src/lib/analytics/valuation";
 import { CONFIRMED_WEIGHT_BANDS } from "../src/lib/domain/diamond-rules";
 
@@ -462,10 +461,18 @@ async function main() {
   await db.planOptionPiece.update({ where: { pieceCode: "PC-T1-1" }, data: { actualPolishedLotId: null } });
 
   // =========================================================================
-  section("B. Country positions are per category and transfers are limited by both sides");
+  section("B. Location pages report facts and never a geographic shortage");
   // =========================================================================
-  // IN: excess of GIA|ROUND (stock 5, target 2). HK: shortage of the same category (target 4, stock 0).
-  // IN also has a shortage in a different category, which must NOT be netted against its excess.
+  // The demand target is calculated once per planning category for the whole business:
+  // `DemandMetric` has no country and no branch column. So neither of these pages may
+  // report a shortage, an excess or a transfer candidate per location. They used to,
+  // from the seeded `Requirement` and `PolishedStone` tables, which is why they
+  // contradicted each other.
+  //
+  // This data exists purely to prove the pages do not use it: requirements in two
+  // countries and polished mirror stock in one. Under the previous implementation it
+  // produced a shortage of 7 for IN, an excess of 5, and a cross-country transfer
+  // candidate. Every one of those figures must now be absent.
   await db.requirement.create({
     data: { requirementCode: "REQ-IN-1", type: "STOCK_REPLENISHMENT", groupCode: "G", companyCode: "C", country: "IN", branch: "Surat", labNormalized: "GIA", shape: "ROUND", weightBandId: fx.bandRound.id, requiredQty: 2 },
   });
@@ -479,36 +486,12 @@ async function main() {
     await makePolished({ lotId: `IN-STOCK-${i}`, weight: 1.05, bandId: fx.bandRound.id, country: "IN", branch: "Surat" });
   }
 
-  const analysis = await analyzeTransfers(db);
-  const inRound = analysis.positions.find((p) => p.country === "IN" && p.shape === "ROUND" && p.weightBandCode === fx.bandRound.code);
-  const inOval = analysis.positions.find((p) => p.country === "IN" && p.shape === "OVAL");
-  const hkRound = analysis.positions.find((p) => p.country === "HK" && p.shape === "ROUND");
-
-  assert(inRound !== undefined && inOval !== undefined && hkRound !== undefined, "Positions exist per country and category");
-  assert(inRound!.excess === 5, `IN GIA|ROUND excess = 7 stock - 2 target = 5, got ${inRound!.excess}`);
-  assert(inOval!.physicalShortage === 7, `IN GIA|OVAL shortage = 7 (not netted against the ROUND excess), got ${inOval!.physicalShortage}`);
-  assert(hkRound!.remainingUnplanned === 4, `HK GIA|ROUND remaining shortage = 4, got ${hkRound!.remainingUnplanned}`);
-
-  const candidate = analysis.transfers.candidates.find((c) => c.fromCountry === "IN" && c.toCountry === "HK");
-  assert(candidate !== undefined, "A cross-country candidate is produced for the matching category");
-  assert(candidate!.transferQty === 4, `Transfer qty = MIN(excess 4, shortage 4) = 4, got ${candidate!.transferQty}`);
-  assert(
-    analysis.transfers.candidates.every((c) => c.fromCountry !== c.toCountry),
-    "No candidate transfers a category to the same country",
-  );
-  assert(
-    analysis.transfers.candidates.every((c) => c.category.includes("ROUND")),
-    "Candidates only pair identical categories",
-  );
-  assert(analysis.transfers.status === "ADVISORY_UNCONFIRMED", "Transfer status is advisory while BR-TRANSFER-001 is unconfirmed");
-  assert(analysis.transfers.candidateCount === analysis.transfers.candidates.length, "Candidate count is the real number of pairs");
-  assert(analysis.transfers.autoExecuted === false, "Nothing is executed automatically");
-
   const beforeCounts = {
     requirements: await db.requirement.count(),
     reservations: await db.roughReservation.count(),
     orders: await db.salesOrder.count(),
   };
+
   res = await call(transfersGET, { path: "/api/analysis/transfer-candidates", cookie: admin.cookie });
   assert(res.status === 200, "Transfer API responds");
   // No candidate is produced: the authoritative demand result has no country or branch,
@@ -522,6 +505,10 @@ async function main() {
   // What remains is factual: where current stock actually sits.
   assert(Array.isArray(res.json.distribution.byLocation), "Transfer API shows current inventory distribution");
   assert(
+    typeof res.json.distribution.locations?.total === "number",
+    "Transfer API discloses how many locations exist, not only how many are listed",
+  );
+  assert(
     (await db.requirement.count()) === beforeCounts.requirements &&
       (await db.roughReservation.count()) === beforeCounts.reservations &&
       (await db.salesOrder.count()) === beforeCounts.orders,
@@ -529,31 +516,37 @@ async function main() {
   );
 
   res = await call(countriesGET, { path: "/api/analysis/countries", cookie: admin.cookie });
-  const inRow = res.json.rows.find((r: { country: string }) => r.country === "IN");
-  assert(res.status === 200 && inRow !== undefined, "Country API returns country rows");
+  assert(res.status === 200, "Country API responds");
   assert(
-    inRow.physicalShortage === 7 && inRow.excess === 5,
-    `Country roll-up sums category results without netting (shortage ${inRow.physicalShortage}, excess ${inRow.excess})`,
+    res.json.geographicDemandAvailable === false && typeof res.json.geographicDemandMessage === "string",
+    "Country API states that geographic demand is unavailable",
   );
-  assert(typeof inRow.transferCandidates === "number", "Country rows carry a real transfer candidate count");
-
-  // Transfer analysis with no positions at all reports UNAVAILABLE, never zero.
-  const savedRequirements = await db.requirement.findMany();
-  const savedPolished = await db.polishedStone.findMany();
-  const savedWip = await db.lotMasterRecord.findMany({ where: { roughOrPolished: "WIP" } });
-  const savedPieces = await db.planOptionPiece.findMany();
-  await db.requirement.deleteMany({});
-  await db.polishedStone.deleteMany({});
-  await db.lotMasterRecord.deleteMany({ where: { roughOrPolished: "WIP" } });
-  await db.planOptionPiece.deleteMany({});
-  const emptyAnalysis = await analyzeTransfers(db);
-  assert(emptyAnalysis.transfers.status === "UNAVAILABLE", "Transfer analysis reports UNAVAILABLE when no positions can be derived");
-  assert(emptyAnalysis.transfers.candidateCount === null, "Candidate count is null (not 0) when the analysis cannot run");
-  for (const r of savedRequirements) await db.requirement.create({ data: { ...r, id: undefined } });
-  for (const p of savedPolished) await db.polishedStone.create({ data: { ...p, id: undefined } });
-  for (const w of savedWip) await db.lotMasterRecord.create({ data: { ...w, id: undefined } });
-  for (const pc of savedPieces) await db.planOptionPiece.create({ data: { ...pc, id: undefined } });
-
+  const countryPayload = JSON.stringify(res.json);
+  for (const invented of [
+    "physicalShortage",
+    "remainingUnplanned",
+    "pipelineRequirement",
+    "transferCandidates",
+    "categoriesWithShortage",
+    "categoriesWithExcess",
+    "approvedPlanCoverage",
+  ]) {
+    assert(!countryPayload.includes(invented), `Country API exposes no ${invented}`);
+  }
+  // And the seeded tables that used to drive those figures are not read at all.
+  assert(
+    Array.isArray(res.json.sales?.byCountry) && Array.isArray(res.json.inventory?.byLocation),
+    "Country API returns confirmed sales and current inventory as two separate distributions",
+  );
+  assert(
+    res.json.inventory.byLocation.every((r: { lotCount: number }) => typeof r.lotCount === "number"),
+    "Inventory distribution rows carry a real lot count",
+  );
+  // The contradiction is gone: both pages now give the same answer about location demand.
+  assert(
+    res.json.geographicDemandMessage.includes("not currently calculated by country or branch"),
+    "Country API and Transfer Analyzer state the same reason",
+  );
   // =========================================================================
   section("C. Valuation is unavailable until an approved model exists");
   // =========================================================================

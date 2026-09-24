@@ -10,6 +10,7 @@ import {
 } from "@/lib/analytics/sales-history-contract";
 import { EXPORT_ROW_LIMIT, getCategorySummaryForExport, resolveSalesSnapshot } from "@/lib/analytics/sales-history";
 import { assertRequestedWindow, parseSalesFilters, parseSort } from "@/lib/analytics/sales-history-request";
+import { withSalesScope } from "@/lib/analytics/sales-history";
 
 /**
  * Sales Analysis — server-generated export of the category summary.
@@ -43,7 +44,7 @@ const COLUMNS: CsvColumn<CategorySalesRow>[] = [
 ];
 
 export const GET = withApi(
-  { permission: "sales.export", rateLimit: { limit: 10, windowMs: 60_000 } },
+  { permission: "sales.export", scoped: true, rateLimit: { limit: 10, windowMs: 60_000 } },
   async (req: Request, _ctx, api) => {
     const url = new URL(req.url);
     const snapshot = await resolveSalesSnapshot();
@@ -56,7 +57,7 @@ export const GET = withApi(
       );
     }
 
-    const filters = parseSalesFilters(url, api.principal.permissions);
+    const filters = withSalesScope(parseSalesFilters(url, api.principal.permissions), api.scope);
     const sort = parseSort<CategorySortKey>(url, CATEGORY_SORT_KEYS, "total90", "desc");
     const { rows, total, truncated } = await getCategorySummaryForExport(snapshot, filters, sort);
 

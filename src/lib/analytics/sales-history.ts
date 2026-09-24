@@ -70,6 +70,8 @@ import {
   type TrendInterval,
   type TrendPeriodRow,
 } from "@/lib/analytics/sales-history-contract";
+import { resolveExportRowLimit } from "@/lib/config/export-limits";
+import { scopeSql, type EffectiveScope } from "@/lib/auth/access-scope";
 
 if (typeof window !== "undefined") {
   throw new Error("analytics/sales-history is server-only and must not be imported by client code.");
@@ -92,10 +94,11 @@ export function snapshotFreshnessThresholdHours(env: NodeJS.ProcessEnv = process
  * Ceiling on the number of *grouped* category rows one request may materialise.
  * Exceeding it is an explicit error, never a silently shortened table.
  */
-const GROUP_CEILING = Number(process.env.SALES_GROUP_MAX || 5_000);
+const GROUP_CEILING = resolveExportRowLimit("SALES_GROUP_MAX", 5_000).rows;
 
-/** Row ceiling for a single server-side export. */
-export const EXPORT_ROW_LIMIT = Number(process.env.SALES_EXPORT_MAX_ROWS || 10_000);
+/** Row ceiling for a single server-side export, validated centrally. */
+export const SALES_EXPORT_LIMIT = resolveExportRowLimit("SALES_EXPORT_MAX_ROWS", 10_000);
+export const EXPORT_ROW_LIMIT = SALES_EXPORT_LIMIT.rows;
 
 /** Run statuses that produced a persisted, authoritative sale trace. */
 const AUTHORITATIVE_RUN_STATUSES = ["COMPLETED", "REVIEW_REQUIRED"] as const;
@@ -223,7 +226,27 @@ const istDateSql = Prisma.sql`((("t"."docDate" AT TIME ZONE 'UTC') AT TIME ZONE 
  * Row-level predicates. Values are always bound parameters; no identifier and no value
  * is ever concatenated from a request.
  */
-function filterSql(f: SalesHistoryFilterValues): Prisma.Sql {
+/**
+ * The request filters plus the caller's authorization scope.
+ *
+ * The scope is deliberately NOT a field of `SalesHistoryFilterValues`: that type lives in
+ * the shared contract, which the browser imports to build query strings, and an
+ * authorization decision has no business being constructible on a client. It is added
+ * here, on the server side of the boundary, by `withSalesScope`.
+ */
+export interface ScopedSalesFilters extends SalesHistoryFilterValues {
+  readonly scope: EffectiveScope;
+}
+
+/** Attaches a caller's scope to the filters they asked for. Server-side only. */
+export function withSalesScope(
+  filters: SalesHistoryFilterValues,
+  scope: EffectiveScope,
+): ScopedSalesFilters {
+  return { ...filters, scope };
+}
+
+function filterSql(f: ScopedSalesFilters): Prisma.Sql {
   const parts: Prisma.Sql[] = [];
   if (f.country) parts.push(Prisma.sql`AND "m"."country" = ${f.country}`);
   if (f.branch) parts.push(Prisma.sql`AND "m"."branch" = ${f.branch}`);
@@ -233,6 +256,10 @@ function filterSql(f: SalesHistoryFilterValues): Prisma.Sql {
   if (f.weightBand) parts.push(Prisma.sql`AND "t"."weightBand" = ${f.weightBand}`);
   if (f.categoryId) parts.push(Prisma.sql`AND "t"."planningCategory" = ${f.categoryId}`);
   if (f.search) parts.push(Prisma.sql`AND "t"."planningCategory" ILIKE ${`%${f.search}%`}`);
+  // The country is on the canonical lot the sale is joined to; the lab is on the trace
+  // row. Applied unconditionally, so an unfiltered request returns the caller's scope.
+  const scope = scopeSql(f.scope, { country: '"m"."country"', lab: '"t"."lab"' });
+  if (scope !== Prisma.empty) parts.push(scope);
   return parts.length ? Prisma.join(parts, " ") : Prisma.empty;
 }
 
@@ -243,7 +270,7 @@ function filterSql(f: SalesHistoryFilterValues): Prisma.Sql {
  * `LotMasterRecord.lotId` is unique, so the join adds location and customer identity
  * without ever multiplying a sale row.
  */
-function saleCte(run: SalesSnapshot, f: SalesHistoryFilterValues): Prisma.Sql {
+function saleCte(run: SalesSnapshot, f: ScopedSalesFilters): Prisma.Sql {
   return Prisma.sql`
     WITH base AS (
       SELECT
@@ -444,7 +471,7 @@ interface CategoryAggregate extends CategorySalesRow {
  * sums over the same scan, so the three windows are guaranteed to partition the same
  * rows that the total is taken over.
  */
-async function categoryAggregates(run: SalesSnapshot, f: SalesHistoryFilterValues): Promise<CategoryAggregate[]> {
+async function categoryAggregates(run: SalesSnapshot, f: ScopedSalesFilters): Promise<CategoryAggregate[]> {
   const approved = run.windowDays === APPROVED_SALES_WINDOW_DAYS;
   const rows = await db.$queryRaw<CategoryAggRow[]>`
     ${saleCte(run, f)}
@@ -520,7 +547,7 @@ const CATEGORY_SORT: Record<CategorySortKey, (r: CategoryAggregate) => number | 
  */
 export async function getCategorySalesSummary(
   run: SalesSnapshot,
-  f: SalesHistoryFilterValues,
+  f: ScopedSalesFilters,
   sort: { key: CategorySortKey; dir: SortDirection },
   page: SalesPageRequest,
 ): Promise<CategorySummaryResult> {
@@ -567,7 +594,7 @@ const MOVEMENT_SORT: Record<MovementSortKey, (r: CategoryAggregate) => number | 
 
 export async function getCategoryMovement(
   run: SalesSnapshot,
-  f: SalesHistoryFilterValues,
+  f: ScopedSalesFilters,
   sort: { key: MovementSortKey; dir: SortDirection },
   page: SalesPageRequest,
 ): Promise<MovementResult> {
@@ -621,7 +648,7 @@ interface TrendAggRow {
  */
 export async function getSalesPeriodTrend(
   run: SalesSnapshot,
-  f: SalesHistoryFilterValues,
+  f: ScopedSalesFilters,
   interval: TrendInterval,
 ): Promise<{ interval: TrendInterval; rows: TrendPeriodRow[]; available: boolean }> {
   if (interval === "window30" && run.windowDays !== APPROVED_SALES_WINDOW_DAYS) {
@@ -687,7 +714,7 @@ const UNATTRIBUTED = "Not attributed";
 
 export async function getSalesContribution(
   run: SalesSnapshot,
-  f: SalesHistoryFilterValues,
+  f: ScopedSalesFilters,
   dimension: ContributionDimension,
   page: SalesPageRequest,
 ): Promise<{ dimension: ContributionDimension; rows: ContributionRow[]; paging: PagingMeta }> {
@@ -762,7 +789,7 @@ const RECORD_ORDER: Record<RecordSortKey, Prisma.Sql> = {
  */
 export async function getSupportingRecords(
   run: SalesSnapshot,
-  f: SalesHistoryFilterValues,
+  f: ScopedSalesFilters,
   sort: { key: RecordSortKey; dir: SortDirection },
   page: SalesPageRequest,
   options: { includeCustomer: boolean },
@@ -818,7 +845,7 @@ export async function getSupportingRecords(
  */
 export async function getCategorySummaryForExport(
   run: SalesSnapshot,
-  f: SalesHistoryFilterValues,
+  f: ScopedSalesFilters,
   sort: { key: CategorySortKey; dir: SortDirection },
 ): Promise<{ rows: CategorySalesRow[]; total: number; truncated: boolean }> {
   const result = await getCategorySalesSummary(run, f, sort, { page: 1, pageSize: EXPORT_ROW_LIMIT });

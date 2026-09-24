@@ -35,6 +35,7 @@ import {
   CheckSquare,
   Square,
   UserCog,
+  Globe,
 } from "lucide-react";
 import {
   Dialog,
@@ -169,6 +170,13 @@ interface UserRecord {
   permissions: Permission[];
   createdAt: string;
   mustChangePassword?: boolean;
+  /**
+   * Which countries and labs this account may read.
+   *
+   * Empty arrays mean unrestricted, which is not the same as no access. `null` means the
+   * signed-in reader does not hold `user.scope.read` and the scope is withheld from them.
+   */
+  accessScope: { countries: string[]; labs: string[]; unrestricted: boolean } | null;
 }
 
 interface RoleRecord {
@@ -200,6 +208,11 @@ export function UsersView() {
   const canUpdateUser = userPermissions.includes("user.update");
   const canManageStatus = userPermissions.includes("user.status.manage");
   const canAssignRoles = userPermissions.includes("user.roles.assign");
+  // Deliberately separate from role assignment: an administrator who may hand out roles
+  // does not thereby decide how much of the business an account can read. The server
+  // makes the same decision again; hiding the control here is UX, not the boundary.
+  const canAssignScope = userPermissions.includes("user.scope.assign");
+  const canReadScope = userPermissions.includes("user.scope.read");
   const canResetPassword = userPermissions.includes("user.password.reset");
   const canManageRoles = userPermissions.includes("role.manage");
   const canAssignPermissions = userPermissions.includes("role.permissions.assign");
@@ -209,7 +222,9 @@ export function UsersView() {
   const [toastMessage, setToastMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   // Queries
-  const usersQuery = useApi<{ rows: UserRecord[]; total: number }>(canReadUsers ? "/api/admin/users?pageSize=100" : null);
+  const usersQuery = useApi<{ rows: UserRecord[]; total: number; canManageScope: boolean; canReadScope: boolean }>(
+    canReadUsers ? "/api/admin/users?pageSize=100" : null,
+  );
   const rolesQuery = useApi<{ roles: RoleRecord[]; total: number }>("/api/admin/roles");
 
   const users = usersQuery.data?.rows ?? [];
@@ -240,6 +255,8 @@ export function UsersView() {
   const [editUserForm, setEditUserForm] = useState({ displayName: "", email: "" });
 
   const [assigningRolesUser, setAssigningRolesUser] = useState<UserRecord | null>(null);
+  const [scopingUser, setScopingUser] = useState<UserRecord | null>(null);
+  const [scopeForm, setScopeForm] = useState({ countries: "", labs: "", reason: "" });
   const [assignedRolesSelection, setAssignedRolesSelection] = useState<string[]>([]);
 
   const [inspectingUser, setInspectingUser] = useState<UserRecord | null>(null);
@@ -331,6 +348,35 @@ export function UsersView() {
       await refreshData();
     } catch (err: any) {
       showToast("error", err.message || "Failed to assign roles.");
+    }
+  };
+
+  /**
+   * Replaces an account's data scope with exactly what the form holds.
+   *
+   * An empty list is sent as an empty list, not omitted: it is the explicit grant of
+   * unrestricted access to that dimension, and it is how a restriction is removed.
+   */
+  const handleSaveAccessScope = async () => {
+    if (!scopingUser) return;
+    const split = (value: string) =>
+      value
+        .split(/[\n,]/)
+        .map((v) => v.trim())
+        .filter(Boolean);
+    try {
+      await apiPost("/api/admin/users", {
+        op: "setScope",
+        id: scopingUser.id,
+        countries: split(scopeForm.countries),
+        labs: split(scopeForm.labs),
+        reason: scopeForm.reason.trim(),
+      });
+      showToast("success", `Updated data access scope for '${scopingUser.username}'.`);
+      setScopingUser(null);
+      await refreshData();
+    } catch (err: any) {
+      showToast("error", err.message || "Failed to update data access scope.");
     }
   };
 
@@ -574,6 +620,32 @@ export function UsersView() {
         </button>
       ),
     },
+    ...(canReadScope
+      ? [
+          {
+            key: "accessScope",
+            header: "Data Scope",
+            align: "center" as const,
+            cell: (r: UserRecord) => {
+              // Unrestricted is stated, not left blank: a blank cell reads as missing data
+              // rather than as the deliberate absence of a restriction.
+              if (!r.accessScope) return <span className="text-[10px] text-muted-foreground">—</span>;
+              if (r.accessScope.unrestricted) {
+                return <span className="text-[10px] text-muted-foreground">All countries &amp; labs</span>;
+              }
+              const parts = [
+                r.accessScope.countries.length ? r.accessScope.countries.join(", ") : "all countries",
+                r.accessScope.labs.length ? r.accessScope.labs.join(", ") : "all labs",
+              ];
+              return (
+                <Badge variant="warning" className="text-[9.5px] py-0 px-1.5">
+                  {parts.join(" / ")}
+                </Badge>
+              );
+            },
+          },
+        ]
+      : []),
     {
       key: "status",
       header: "Status",
@@ -620,6 +692,26 @@ export function UsersView() {
                 }}
               >
                 <Shield className="h-3 w-3 mr-1 text-primary" /> Roles
+              </Button>
+            )}
+
+            {canAssignScope && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 px-1.5 text-[10px] text-muted-foreground hover:text-foreground"
+                disabled={isSelf}
+                title={isSelf ? "Cannot change your own data access scope" : "Set which countries and labs this account may read"}
+                onClick={() => {
+                  setScopingUser(r);
+                  setScopeForm({
+                    countries: (r.accessScope?.countries ?? []).join(", "),
+                    labs: (r.accessScope?.labs ?? []).join(", "),
+                    reason: "",
+                  });
+                }}
+              >
+                <Globe className="h-3 w-3 mr-1 text-primary" /> Scope
               </Button>
             )}
 
@@ -1550,6 +1642,93 @@ export function UsersView() {
       {/* --------------------------------------------------------------------- */}
       {/* DIALOG: ASSIGN ROLES TO USER */}
       {/* --------------------------------------------------------------------- */}
+      {/* Data access scope — which countries and labs an account may read. */}
+      <Dialog open={!!scopingUser} onOpenChange={(open) => !open && setScopingUser(null)}>
+        <DialogContent className="max-w-lg sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-sm font-bold flex items-center gap-1.5">
+              <Globe className="h-4 w-4 text-primary" /> Data Access Scope: {scopingUser?.name}
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              Which countries and labs this account may read across Analysis. Leave a field empty to
+              grant unrestricted access to that dimension. A value removed here is revoked, and the
+              change takes effect on the account&apos;s next request.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 py-1">
+            <div className="rounded-md border bg-muted/30 p-2 text-[11px] text-muted-foreground">
+              {scopingUser?.accessScope?.unrestricted
+                ? "This account currently has unrestricted access to every country and lab."
+                : `Currently limited to ${[
+                    (scopingUser?.accessScope?.countries.length ?? 0) > 0
+                      ? `countries ${scopingUser?.accessScope?.countries.join(", ")}`
+                      : "all countries",
+                    (scopingUser?.accessScope?.labs.length ?? 0) > 0
+                      ? `labs ${scopingUser?.accessScope?.labs.join(", ")}`
+                      : "all labs",
+                  ].join(" and ")}.`}
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[11px] font-semibold">Countries</label>
+              <Input
+                value={scopeForm.countries}
+                onChange={(e) => setScopeForm({ ...scopeForm, countries: e.target.value })}
+                placeholder="IN, HK — or leave empty for all countries"
+                className="h-8 text-xs"
+              />
+              <p className="text-[10px] text-muted-foreground">
+                Comma separated, matched exactly against the country stored on each record.
+              </p>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[11px] font-semibold">Labs</label>
+              <Input
+                value={scopeForm.labs}
+                onChange={(e) => setScopeForm({ ...scopeForm, labs: e.target.value })}
+                placeholder="GIA, IGI — or leave empty for all labs"
+                className="h-8 text-xs"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[11px] font-semibold">Reason</label>
+              <Input
+                value={scopeForm.reason}
+                onChange={(e) => setScopeForm({ ...scopeForm, reason: e.target.value })}
+                placeholder="Why this account's access is being changed"
+                className="h-8 text-xs"
+              />
+              <p className="text-[10px] text-muted-foreground">
+                Recorded in the security audit trail with the previous and new scope.
+              </p>
+            </div>
+
+            <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-2 text-[10px] text-muted-foreground">
+              Some figures cannot be narrowed by country: the demand result is calculated once per
+              planning category for the whole business and carries no location. Pages built on it say
+              so on screen rather than implying a country-level number.
+            </div>
+          </div>
+
+          <DialogFooter className="pt-2">
+            <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => setScopingUser(null)}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              className="h-8 text-xs"
+              disabled={!scopeForm.reason.trim()}
+              onClick={handleSaveAccessScope}
+            >
+              Save Scope
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={!!assigningRolesUser} onOpenChange={(open) => !open && setAssigningRolesUser(null)}>
         <DialogContent className="max-w-2xl sm:max-w-2xl max-h-[85vh] flex flex-col">
           <DialogHeader>

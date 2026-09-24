@@ -1,6 +1,7 @@
 "use client";
 
 import { create } from "zustand";
+import { isInventoryBucket, type InventoryBucket } from "@/lib/analysis/bucket-vocabulary";
 
 export type ViewId =
   // Consolidated Workflow View IDs
@@ -114,17 +115,27 @@ export function resolveViewAlias(view: ViewId, tab: string | null = null): { vie
  * `category` is the canonical key the backend returns (for example "GIA|HEART|1.70-1.99").
  * It is carried verbatim and never rebuilt from the lab, shape and weight-band labels shown
  * on screen, because those are display text and may be formatted differently.
+ *
+ * `bucket` is the second, typed dimension a drill-down can carry: one of the seven derived
+ * inventory buckets. It exists because the Aging Dashboard groups stock by bucket, and
+ * `category` could not express that — the dashboard used to pass a bucket in the category
+ * field, which the Stock Aging page had no way to read and the API refused. The two fields
+ * are independent, and a navigation may carry either, both or neither.
  */
 export interface DemandTraceContext {
   runId: string | null;
   category: string | null;
-  /** A runId/category parameter was present but unusable, so the page reports it instead of guessing. */
+  /** A derived inventory bucket, validated against the closed vocabulary before it is carried. */
+  bucket: InventoryBucket | null;
+  /** A runId/category/bucket parameter was present but unusable, so the page reports it instead of guessing. */
   malformed: boolean;
 }
 
 const MAX_RUN_ID_LENGTH = 64;
 // Matches the length the API accepts, so a hash the API would reject never reaches it.
 const MAX_CATEGORY_LENGTH = 200;
+// Matches the length the aging API accepts for its `bucket` parameter.
+const MAX_BUCKET_LENGTH = 40;
 
 function readParam(
   params: URLSearchParams,
@@ -142,9 +153,15 @@ function readParam(
 function readTraceContext(params: URLSearchParams): DemandTraceContext | null {
   const runId = readParam(params, "runId", MAX_RUN_ID_LENGTH);
   const category = readParam(params, "category", MAX_CATEGORY_LENGTH);
-  const malformed = runId.malformed || category.malformed;
-  if (!runId.value && !category.value && !malformed) return null;
-  return { runId: runId.value, category: category.value, malformed };
+  const rawBucket = readParam(params, "bucket", MAX_BUCKET_LENGTH);
+  // A bucket that is not in the closed vocabulary is reported as malformed rather than
+  // forwarded: the API refuses an unknown bucket, so guessing would only turn a bad link
+  // into a failed request the page could not explain.
+  const bucket = rawBucket.value !== null && isInventoryBucket(rawBucket.value) ? rawBucket.value : null;
+  const bucketMalformed = rawBucket.malformed || (rawBucket.value !== null && bucket === null);
+  const malformed = runId.malformed || category.malformed || bucketMalformed;
+  if (!runId.value && !category.value && !bucket && !malformed) return null;
+  return { runId: runId.value, category: category.value, bucket, malformed };
 }
 
 /** Builds "#view", "#view?tab=x" or "#view?runId=…&category=…". Every value is escaped. */
@@ -153,6 +170,7 @@ export function navHash(view: ViewId, tab: string | null, trace?: DemandTraceCon
   if (tab) params.set("tab", tab);
   if (trace?.runId) params.set("runId", trace.runId);
   if (trace?.category) params.set("category", trace.category);
+  if (trace?.bucket) params.set("bucket", trace.bucket);
   const query = params.toString();
   return query ? `#${view}?${query}` : `#${view}`;
 }
@@ -191,7 +209,10 @@ interface NavState {
    * it was asked to open — which is how clicking a category in Inventory opened Stockout
    * Risk with nothing selected.
    */
-  openCategoryView: (view: ViewId, context: { runId?: string | null; category: string }) => void;
+  openCategoryView: (
+    view: ViewId,
+    context: { runId?: string | null; category?: string | null; bucket?: InventoryBucket | null },
+  ) => void;
   /** Category change made inside Demand Result Details, keeping the current run. */
   setTraceCategory: (category: string) => void;
   /** Drops an unavailable category and returns to the neutral state, keeping the current run. */
@@ -230,7 +251,8 @@ export const useNavStore = create<NavState>((set, get) => ({
     // page can never clear the category it was asked to open.
     const trace: DemandTraceContext = {
       runId: context.runId ?? null,
-      category: context.category,
+      category: context.category ?? null,
+      bucket: context.bucket ?? null,
       malformed: false,
     };
     set({ view, tab, detailId: null, trace });
@@ -248,7 +270,13 @@ export const useNavStore = create<NavState>((set, get) => ({
     if (s.trace?.category === category && !s.trace.malformed) return;
     // Picking another category inside the page replaces the current entry, so Back still
     // returns to where the drill-down started rather than stepping through categories.
-    const trace: DemandTraceContext = { runId: s.trace?.runId ?? null, category, malformed: false };
+    // Only the category changes: a bucket the drill-down arrived with is preserved.
+    const trace: DemandTraceContext = {
+      runId: s.trace?.runId ?? null,
+      category,
+      bucket: s.trace?.bucket ?? null,
+      malformed: false,
+    };
     set({ trace });
     if (typeof window !== "undefined") {
       window.history.replaceState(null, "", navHash(s.view, s.tab, trace));
@@ -257,7 +285,9 @@ export const useNavStore = create<NavState>((set, get) => ({
   clearTraceCategory: () => {
     const s = get();
     const runId = s.trace?.runId ?? null;
-    const trace: DemandTraceContext | null = runId ? { runId, category: null, malformed: false } : null;
+    const bucket = s.trace?.bucket ?? null;
+    const trace: DemandTraceContext | null =
+      runId || bucket ? { runId, category: null, bucket, malformed: false } : null;
     set({ trace });
     if (typeof window !== "undefined") {
       window.history.replaceState(null, "", navHash(s.view, s.tab, trace));

@@ -49,9 +49,10 @@ import { resolveFantasySourceState } from "@/lib/fantasy/config";
 import { getISTDateString, parseISTDateToUTC, nowUTC } from "@/lib/fantasy/time";
 import { roundHalfUpInt } from "@/lib/domain/diamond-rules";
 import crypto from "crypto";
-import { resolveEffectiveClassification } from "@/lib/fantasy/classification";
+import { resolveEffectiveClassification, isMirroredInventoryClass } from "@/lib/fantasy/classification";
 import { LEGACY_FIXTURE_PROFILE, loadClassificationProfile } from "@/lib/fantasy/classification-profile";
 import { loadConfirmedSaleFacts } from "@/lib/demand/confirmed-sales";
+import { checkProjectionInvariant, reconcileOperationalProjection } from "@/lib/fantasy/operational-projection";
 
 export type DemandSourcePolicy = "CANONICAL_FANTASY" | "LEGACY_SALES";
 
@@ -448,6 +449,23 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
     // explicit-sale eligibility, the lifecycle episode deduplication, the deterministic
     // event identity and the quantity provenance all live there, so the demand run and
     // the Analysis pages cannot disagree about what a confirmed sale is.
+    // 3b. COMPLETE THE OPERATIONAL PROJECTION BEFORE CONSUMING IT
+    //
+    // Everything below — the confirmed sale facts and the inventory read alike — uses two
+    // things derived from canonical records: the persisted
+    // planning-category classification, and the operational mirror. Both can be absent
+    // while the canonical record itself is present and unchanged — an ordinary seed that
+    // clears `PolishedStone` leaves exactly that state, and the next synchronization
+    // rebuilds nothing because nothing in the source changed.
+    //
+    // So the projection is completed first, from the canonical records, using the same
+    // production rules. This repairs; it never invents. A record already classified keeps
+    // its decision, so a committed run stays reproducible.
+    const projectionRepair = await reconcileOperationalProjection({
+      actor: options.actor ?? "demand-calculation",
+    });
+    const projectionInvariant = await checkProjectionInvariant(db);
+
     const confirmedSales = await loadConfirmedSaleFacts({
       windowDays,
       policy: sourcePolicy,
@@ -583,12 +601,14 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
     // Process Confirmed Sales Facts
     for (const rec of confirmedSaleFacts) {
       salesCount++;
-      const resolvedLab = rec.labNormalized
-        ? { normalized: rec.labNormalized, requiresReview: false }
-        : resolveLabNormalization(rec.labRaw, labMappingsMap);
-
-      const normLab = resolvedLab.normalized;
-      const normShape = resolveApprovedShape(rec.shape, shapeMappingsMap);
+      // The planning category comes from the classification the synchronizer persisted
+      // on the canonical record, not from a second reading of the raw columns through
+      // whatever the mapping tables hold now. Re-deriving here is what let a committed
+      // run change meaning when a mapping row was edited, and what let canonical
+      // inventory and the demand result disagree about the same lot's lab.
+      const category = persistedCategoryOf(rec);
+      const normLab = category.labNormalized;
+      const normShape = category.shapeNormalized;
       // The weight gate exists to stop an unconfirmed *live* unit from choosing a
       // planning category. The legacy seeded policy is neither live nor canonical —
       // `assessSnapshot` already refuses its runs as SOURCE_POLICY_NOT_CANONICAL — so it
@@ -600,7 +620,7 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
       const saleCarats = saleWeight === null ? Number(rec.weight) : saleWeight.carats;
       const band = saleCarats === null ? null : resolveWeightBand(saleCarats, weightBands);
 
-      if (!band || normShape === "UNKNOWN" || normLab === "UNKNOWN" || resolvedLab.requiresReview) {
+      if (!category.approved || !band || normLab === null || normShape === null) {
         excludedCount++;
         const dqCode = `DQ-UNMAPPED-SALE-${rec.lotId}`;
         dqIssuesToCreate.push({
@@ -608,20 +628,25 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
           source: "DEMAND_CALCULATION",
           entity: "SaleEvent",
           recordId: rec.lotId,
-          rule: !band ? "UNMAPPED_WEIGHT_BAND" : normShape === "UNKNOWN" ? "UNMAPPED_SHAPE" : "UNMAPPED_LAB",
+          rule: categoryIssueRule(category, band),
           message: `Sale record ${rec.lotId} has unapproved mapping (Lab: ${rec.labRaw}, Shape: ${rec.shape}, Wt: ${rec.weight})`,
           severity: "WARNING",
           status: "OPEN",
-          affectedField: !band ? "weight" : normShape === "UNKNOWN" ? "shape" : "labRaw",
-          rawValue: !band ? String(rec.weight) : normShape === "UNKNOWN" ? rec.shape : String(rec.labRaw),
+          affectedField: categoryIssueField(category, band),
+          rawValue: categoryIssueRawValue(category, band, rec.labRaw, rec.shape, rec.weight),
+          // Null when nothing was approved. Reporting the raw text as the normalized
+          // value is how an unapproved lab reached a category key in the first place.
           normalizedValue: normLab,
           downstreamImpact: "Excluded from automated sales replenishment demand",
         });
 
-        if (band) {
-          const fallbackLab = normLab !== "UNKNOWN" ? normLab : "NON_CERTIFIED";
-          const fallbackShape = normShape !== "UNKNOWN" ? normShape : "ROUND";
-          const trace = getOrCreateCategoryTrace(fallbackLab, fallbackShape, band);
+        // A record whose lab or shape was never approved has no category, so it falls
+        // through to the quarantine bucket below. It used to be filed under a category
+        // built from the unapproved value itself — `EGL_UNAPPROVED|ROUND|1.00-1.09` —
+        // which is precisely the silent conversion of an unknown value into a
+        // valid-looking category that the classification refuses to make.
+        if (band && normLab !== null && normShape !== null) {
+          const trace = getOrCreateCategoryTrace(normLab, normShape, band);
           trace.status = "REVIEW_REQUIRED";
           trace.excludedLots.push({
             lotId: rec.lotId,
@@ -744,12 +769,11 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
     // Process Finished Inventory Records (Stock vs Memo vs Reserved vs Blocked)
     for (const inv of currentInventoryLots) {
       inventoryCount++;
-      const resolvedLab = inv.labNormalized
-        ? { normalized: inv.labNormalized, requiresReview: false }
-        : resolveLabNormalization(inv.labRaw, labMappingsMap);
-
-      const normLab = resolvedLab.normalized;
-      const normShape = resolveApprovedShape(inv.shape, shapeMappingsMap);
+      // Same rule as the sales side: the persisted canonical decision, never a second
+      // interpretation of the raw columns.
+      const category = persistedCategoryOf(inv);
+      const normLab = category.labNormalized;
+      const normShape = category.shapeNormalized;
 
       // Quantity and weight are established once, from the record's own provenance.
       // Neither is assumed: a quantity nobody supplied is not one piece, and a weight
@@ -778,7 +802,7 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
           affectedField: "quantity",
           downstreamImpact: "Excluded from available, memo, reserved and blocked piece totals",
         });
-        if (band && normShape !== "UNKNOWN" && normLab !== "UNKNOWN" && !resolvedLab.requiresReview) {
+        if (band && category.approved && normLab !== null && normShape !== null) {
           const reviewTrace = getOrCreateCategoryTrace(normLab, normShape, band);
           reviewTrace.status = "REVIEW_REQUIRED";
           reviewTrace.excludedLots.push({
@@ -804,7 +828,7 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
         continue;
       }
 
-      if (!band || normShape === "UNKNOWN" || normLab === "UNKNOWN" || resolvedLab.requiresReview) {
+      if (!category.approved || !band || normLab === null || normShape === null) {
         excludedCount++;
         const dqCode = `DQ-UNMAPPED-INV-${inv.lotId}`;
         dqIssuesToCreate.push({
@@ -812,32 +836,31 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
           source: "DEMAND_CALCULATION",
           entity: "PolishedInventory",
           recordId: inv.lotId,
-          rule: !band
-            ? (weightDecision.state === "USABLE" ? "UNMAPPED_WEIGHT_BAND" : `WEIGHT_${weightDecision.state}`)
-            : normShape === "UNKNOWN" ? "UNMAPPED_SHAPE" : "UNMAPPED_LAB",
+          rule: !band && weightDecision.state !== "USABLE"
+            ? `WEIGHT_${weightDecision.state}`
+            : categoryIssueRule(category, band),
           message: !band && weightDecision.state !== "USABLE"
             ? WEIGHT_REVIEW_REASONS[weightDecision.state]
             : `Polished lot ${inv.lotId} has unapproved mapping attributes`,
           severity: "WARNING",
           status: "OPEN",
-          affectedField: !band ? "weight" : normShape === "UNKNOWN" ? "shape" : "labRaw",
-          rawValue: !band ? String(weight) : normShape === "UNKNOWN" ? inv.shape : String(inv.labRaw),
+          affectedField: categoryIssueField(category, band),
+          rawValue: categoryIssueRawValue(category, band, inv.labRaw, inv.shape, weight),
           downstreamImpact: "Excluded from live finished availability calculation",
         });
 
-        if (band) {
-          const fallbackLab = normLab !== "UNKNOWN" ? normLab : "NON_CERTIFIED";
-          const fallbackShape = normShape !== "UNKNOWN" ? normShape : "ROUND";
-          const trace = getOrCreateCategoryTrace(fallbackLab, fallbackShape, band);
+        // A record whose lab or shape was never approved has no category, so it falls
+        // through to the quarantine bucket below. It used to be filed under a category
+        // built from the unapproved value itself — `EGL_UNAPPROVED|ROUND|1.00-1.09` —
+        // which is precisely the silent conversion of an unknown value into a
+        // valid-looking category that the classification refuses to make.
+        if (band && normLab !== null && normShape !== null) {
+          const trace = getOrCreateCategoryTrace(normLab, normShape, band);
           trace.status = "REVIEW_REQUIRED";
           trace.blockedQty += Math.round(qty);
           trace.excludedLots.push({
             lotId: inv.lotId,
-            reason: !band
-              ? "Unmapped weight band"
-              : normShape === "UNKNOWN"
-              ? `Unapproved shape '${inv.shape}'`
-              : `Unapproved lab '${inv.labRaw}'`,
+            reason: categoryExclusionReason(category, band, inv.labRaw, inv.shape),
           });
           traceItemsToPersist.push({
             runId: initialRun.id,
@@ -853,16 +876,39 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
             reason: "Unapproved planning mapping for inventory record",
             isIncluded: false,
           });
+        } else {
+          // No category to file this under — but a current stock record must never leave
+          // the trace empty-handed. Without this row the lot is counted in
+          // `inventoryCount`, raises a data-quality issue, and then cannot be found by
+          // anyone asking which records this run actually saw.
+          //
+          // The quarantine bucket exists for exactly this: visible and reviewable,
+          // without inventing a category to hold it.
+          traceItemsToPersist.push({
+            runId: initialRun.id,
+            planningCategory: QUARANTINE_CATEGORY,
+            traceType: "EXCLUSION",
+            lotId: inv.lotId,
+            sourceRecordId: inv.sourceRecordId,
+            quantity: qty,
+            weight,
+            lab: inv.labRaw,
+            shape: inv.shape,
+            weightBand: band?.label,
+            reason: categoryExclusionReason(category, band, inv.labRaw, inv.shape),
+            isIncluded: false,
+          });
         }
         continue;
       }
 
       // Reconcile with operational mirror (PolishedStone)
       const mirror = polishedMirrorMap.get(inv.lotId);
+      const effClass = classificationOf(inv, mirror?.planningClass ?? null);
 
       const trace = getOrCreateCategoryTrace(normLab, normShape, band);
 
-      if (!mirror) {
+      if (isMirroredInventoryClass(effClass.inventoryClass) && !mirror) {
         // Missing operational mirror -> Flag for review and mark as blockedQty
         trace.status = "REVIEW_REQUIRED";
         trace.blockedQty += Math.round(qty);
@@ -900,7 +946,7 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
       // Availability comes from the persisted canonical classification, not from a
       // second reading of the raw status. A record the classifier did not classify — a
       // null, from before classification existed — is never treated as available.
-      } else if (classificationOf(inv, mirror.planningClass).available) {
+      } else if (effClass.available) {
         trace.availableStock += Math.round(qty);
         trace.physicalStockLots.push({
           lotId: inv.lotId,
@@ -925,7 +971,7 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
           weightBand: band.label,
           isIncluded: true,
         });
-      } else if (classificationOf(inv, mirror.planningClass).inventoryClass === "MEMO") {
+      } else if (effClass.inventoryClass === "MEMO") {
         trace.memoQty += Math.round(qty);
         trace.memoLots.push({
           lotId: inv.lotId,
@@ -948,7 +994,7 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
           reason: "Memo consignment stock — does NOT reduce physical shortage",
           isIncluded: true,
         });
-      } else if (classificationOf(inv, mirror.planningClass).inventoryClass === "RESERVED") {
+      } else if (effClass.inventoryClass === "RESERVED") {
         trace.reservedQty += Math.round(qty);
         traceItemsToPersist.push({
           runId: initialRun.id,
@@ -975,7 +1021,7 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
           lab: normLab,
           shape: normShape,
           weightBand: band.label,
-          reason: `Excluded by canonical classification (${classificationOf(inv, mirror.planningClass).inventoryClass})${classificationOf(inv, mirror.planningClass).reasons ? `: ${classificationOf(inv, mirror.planningClass).reasons}` : ""}`,
+          reason: `Excluded by canonical classification (${effClass.inventoryClass})${effClass.reasons ? `: ${effClass.reasons}` : ""}`,
           isIncluded: false,
         });
       }
@@ -1266,7 +1312,28 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
       });
     }
 
-    const finalRunStatus = anyCategoryReviewRequired || blockedByInputs ? "REVIEW_REQUIRED" : "COMPLETED";
+    // A run whose inputs are not fully projected is never declared ready. The figures
+    // below would be computed over records whose derived state is missing, which is how a
+    // whole business once reported zero available stock and called it a result.
+    if (!projectionInvariant.satisfied) {
+      dqIssuesToCreate.push({
+        issueCode: `DQ-RUN-PROJECTION-${initialRun.id}`,
+        source: "DEMAND_CALCULATION",
+        entity: "DemandRun",
+        recordId: initialRun.id,
+        rule: "OPERATIONAL_PROJECTION_INCOMPLETE",
+        message: projectionInvariant.message ?? "Operational projection is incomplete.",
+        severity: "ERROR",
+        status: "OPEN",
+        affectedField: "projection",
+        downstreamImpact: "Run marked review required; availability figures are not presented as authoritative",
+      });
+    }
+
+    const finalRunStatus =
+      anyCategoryReviewRequired || blockedByInputs || !projectionInvariant.satisfied
+        ? "REVIEW_REQUIRED"
+        : "COMPLETED";
 
     // 10. ATOMIC TRANSACTIONAL PERSISTENCE & LOCK RELEASE
     //
@@ -1497,4 +1564,85 @@ export async function getLatestDemandRun() {
   });
 
   return latestRun;
+}
+
+// ---------------------------------------------------------------------------
+// Persisted category classification
+// ---------------------------------------------------------------------------
+
+/**
+ * What a canonical record carries about its own planning category.
+ *
+ * Only the approved values. A record whose lab or shape was never approved has nulls
+ * here and `approved: false`, so it cannot key a category by accident.
+ */
+interface ResolvedPersistedCategory {
+  readonly approved: boolean;
+  readonly labNormalized: string | null;
+  readonly shapeNormalized: string | null;
+  readonly labApproved: boolean;
+  readonly shapeApproved: boolean;
+}
+
+/**
+ * Reads the classification the synchronizer persisted.
+ *
+ * A record projected before this classification existed carries nulls in every category
+ * column. It is treated as not approved — never as approved by default, which would let
+ * unclassified stock into a planning category on the strength of a missing column. The
+ * reconciliation service re-projects those records; until it does they stay in review.
+ */
+function persistedCategoryOf(r: {
+  categoryState?: string | null;
+  categoryLabState?: string | null;
+  categoryShapeState?: string | null;
+  labNormalized?: string | null;
+  shapeNormalized?: string | null;
+}): ResolvedPersistedCategory {
+  const labApproved = r.categoryLabState === "APPROVED" && typeof r.labNormalized === "string";
+  const shapeApproved = r.categoryShapeState === "APPROVED" && typeof r.shapeNormalized === "string";
+  return {
+    approved: r.categoryState === "APPROVED" && labApproved && shapeApproved,
+    labNormalized: labApproved ? r.labNormalized! : null,
+    shapeNormalized: shapeApproved ? r.shapeNormalized! : null,
+    labApproved,
+    shapeApproved,
+  };
+}
+
+/** Fixed data-quality rule code for whichever dimension was not approved. */
+function categoryIssueRule(c: ResolvedPersistedCategory, band: { label: string } | null): string {
+  if (!band) return "UNMAPPED_WEIGHT_BAND";
+  if (!c.shapeApproved) return "UNMAPPED_SHAPE";
+  return "UNMAPPED_LAB";
+}
+
+function categoryIssueField(c: ResolvedPersistedCategory, band: { label: string } | null): string {
+  if (!band) return "weight";
+  if (!c.shapeApproved) return "shape";
+  return "labRaw";
+}
+
+/** The source value that could not be approved — never a normalized or derived one. */
+function categoryIssueRawValue(
+  c: ResolvedPersistedCategory,
+  band: { label: string } | null,
+  labRaw: string | null | undefined,
+  shapeRaw: string | null | undefined,
+  weight: unknown,
+): string {
+  if (!band) return String(weight);
+  if (!c.shapeApproved) return String(shapeRaw ?? "");
+  return String(labRaw ?? "");
+}
+
+function categoryExclusionReason(
+  c: ResolvedPersistedCategory,
+  band: { label: string } | null,
+  labRaw: string | null | undefined,
+  shapeRaw: string | null | undefined,
+): string {
+  if (!band) return "Unmapped weight band";
+  if (!c.shapeApproved) return `Unapproved shape '${shapeRaw ?? ""}'`;
+  return `Unapproved lab '${labRaw ?? ""}'`;
 }

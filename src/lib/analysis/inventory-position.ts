@@ -23,6 +23,19 @@ import { db } from "@/lib/db";
 import { num } from "@/lib/api-utils";
 import { formatIST } from "@/lib/fantasy/time";
 import { resolveQuantityProvenance, type QuantityProvenance } from "@/lib/demand/confirmed-sales";
+import {
+  BUCKET_LABELS,
+  INVENTORY_BUCKETS,
+  SHORTAGE_ELIGIBLE_BUCKET,
+  confirmedQuantitySql,
+  currentStockSql,
+  deriveInventoryBucket,
+  inventoryBucketSql,
+  isInventoryBucket,
+  type InventoryBucket,
+} from "@/lib/analysis/inventory-buckets";
+import { scopeSql, UNRESTRICTED_SCOPE, type EffectiveScope } from "@/lib/auth/access-scope";
+import { resolveSourceDisclosure, UNESTABLISHED_SOURCE, type SourceDisclosure } from "@/lib/analysis/source-disclosure";
 
 if (typeof window !== "undefined") {
   throw new Error("analysis/inventory-position is server-only and must not be imported by client code.");
@@ -39,90 +52,54 @@ const GROUP_CEILING = 5_000;
 // ---------------------------------------------------------------------------
 
 /**
- * The seven top-level buckets. Every current canonical record lands in exactly one.
- *
- * Only `PHYSICAL_AVAILABLE_POLISHED` may reduce finished-stock shortage. The other six
- * exist so that stock which cannot is still visible, rather than being hidden or quietly
- * folded into the figure that drives procurement.
+ * The bucket vocabulary and the derivation itself now live in `inventory-buckets.ts`, so
+ * Stock Aging, the Aging Dashboard and Transfer distribution file records exactly the way
+ * this module does. They are re-exported here because this module was the original home
+ * and every existing importer still names it.
  */
-export const INVENTORY_BUCKETS = [
-  "PHYSICAL_AVAILABLE_POLISHED",
-  "RESERVED_POLISHED",
-  "MEMO_POLISHED",
-  "MANUFACTURING_WIP",
-  "ROUGH_AVAILABLE",
-  "HELD_OR_EXCLUDED",
-  "REVIEW_REQUIRED",
-] as const;
-export type InventoryBucket = (typeof INVENTORY_BUCKETS)[number];
-
-export const BUCKET_LABELS: Record<InventoryBucket, string> = {
-  PHYSICAL_AVAILABLE_POLISHED: "Physical available polished",
-  RESERVED_POLISHED: "Reserved / allocated polished",
-  MEMO_POLISHED: "Memo / consignment polished",
-  MANUFACTURING_WIP: "Manufacturing WIP",
-  ROUGH_AVAILABLE: "Available rough",
-  HELD_OR_EXCLUDED: "Held, unknown or excluded",
-  REVIEW_REQUIRED: "Review required / unclassified",
+export {
+  BUCKET_LABELS,
+  INVENTORY_BUCKETS,
+  SHORTAGE_ELIGIBLE_BUCKET,
+  deriveInventoryBucket,
+  isInventoryBucket,
 };
+export type { InventoryBucket };
 
-/** The one bucket that may reduce finished-stock shortage. */
-export const SHORTAGE_ELIGIBLE_BUCKET: InventoryBucket = "PHYSICAL_AVAILABLE_POLISHED";
+const BUCKET_SQL = inventoryBucketSql("m");
 
 /**
- * SQL that files each record into exactly one bucket.
- *
- * The order of the branches is the safety property. Unclassified is tested first so a
- * record with no classification can never fall through into stock; hold is tested next
- * so a held or unknown-hold record is unavailable even if its class says otherwise. Both
- * are restrictive-only: this expression can move a record to a safer bucket, never to a
- * more permissive one than the classifier assigned.
+ * Resolves a bucket produced by `BUCKET_SQL`. The CASE is exhaustive, so this can only
+ * disagree if the SQL and the vocabulary drift apart — in which case the record is filed
+ * for review rather than presented under a bucket that no longer exists.
  */
-const BUCKET_SQL = Prisma.sql`
-  CASE
-    WHEN "m"."classificationState" IS NULL
-      OR "m"."inventoryClass" IS NULL
-      OR "m"."classificationState" <> 'CLASSIFIED'
-      THEN 'REVIEW_REQUIRED'
-    WHEN "m"."holdState" IS NULL OR "m"."holdState" IN ('HELD', 'UNKNOWN')
-      THEN 'HELD_OR_EXCLUDED'
-    WHEN "m"."inventoryClass" = 'PHYSICAL_AVAILABLE' AND "m"."roughOrPolished" = 'ROUGH'
-      THEN 'ROUGH_AVAILABLE'
-    WHEN "m"."inventoryClass" = 'PHYSICAL_AVAILABLE'
-      THEN 'PHYSICAL_AVAILABLE_POLISHED'
-    WHEN "m"."inventoryClass" = 'RESERVED'  THEN 'RESERVED_POLISHED'
-    WHEN "m"."inventoryClass" = 'MEMO'      THEN 'MEMO_POLISHED'
-    WHEN "m"."inventoryClass" = 'WIP'       THEN 'MANUFACTURING_WIP'
-    ELSE 'HELD_OR_EXCLUDED'
-  END`;
+function resolveBucket(value: unknown): InventoryBucket {
+  return isInventoryBucket(value) ? value : "REVIEW_REQUIRED";
+}
 
 // ---------------------------------------------------------------------------
 // Quantity and weight provenance
 // ---------------------------------------------------------------------------
 
 /**
- * A quantity counts as confirmed pieces only when all of these hold.
+ * A quantity counts as confirmed pieces only when the shared rule says so.
  *
  * There is no `?? 1` and no `> 0 ? q : 1`: a record whose quantity cannot be confirmed
  * keeps its row, is counted in the review figures, and contributes nothing to the piece
  * total. Its lot is still visible — only the number is withheld.
+ *
+ * `confirmedQuantitySql` yields NULL for a quantity that may not be counted; it is
+ * coalesced to zero here so that summing behaves exactly as it did before, while the
+ * boolean below reads the same decision rather than restating it.
  */
-const CONFIRMED_QUANTITY_SQL = Prisma.sql`
-  CASE
-    WHEN "m"."sourceType" = 'FIXTURE' AND "m"."isSimulated" = TRUE
-         AND "m"."quantity" IS NOT NULL AND "m"."quantity" > 0 AND "m"."quantity" <= 1000
-      THEN "m"."quantity"
-    ELSE 0
-  END`;
+const CONFIRMED_QUANTITY_SQL = Prisma.sql`COALESCE(${confirmedQuantitySql("m")}, 0)`;
 
 /** Weight counts only when measured and positive. No estimated weight exists on this model. */
 const MEASURED_WEIGHT_SQL = Prisma.sql`
   CASE WHEN "m"."weight" IS NOT NULL AND "m"."weight" > 0 THEN "m"."weight" ELSE 0 END`;
 
 /** True when the record's quantity could not be confirmed as pieces. */
-const UNCONFIRMED_QUANTITY_SQL = Prisma.sql`
-  (NOT ("m"."sourceType" = 'FIXTURE' AND "m"."isSimulated" = TRUE
-        AND "m"."quantity" IS NOT NULL AND "m"."quantity" > 0 AND "m"."quantity" <= 1000))`;
+const UNCONFIRMED_QUANTITY_SQL = Prisma.sql`(${confirmedQuantitySql("m")} IS NULL)`;
 
 export type { QuantityProvenance };
 export { resolveQuantityProvenance };
@@ -145,12 +122,21 @@ export interface InventoryFilters {
   readonly holdState: string | null;
   readonly classificationState: string | null;
   readonly search: string | null;
+  /**
+   * The caller's country and lab authorization scope.
+   *
+   * It rides with the filters because it is applied in the same place they are, but it is
+   * not a filter: it comes from the authenticated server session and a request can only
+   * ever narrow within it, never widen past it.
+   */
+  readonly scope: EffectiveScope;
 }
 
 export const EMPTY_INVENTORY_FILTERS: InventoryFilters = {
   country: null, branch: null, lab: null, shape: null, weightBand: null,
   department: null, location: null, bucket: null, stockType: null,
   lifecycle: null, holdState: null, classificationState: null, search: null,
+  scope: UNRESTRICTED_SCOPE,
 };
 
 function filterSql(f: InventoryFilters): Prisma.Sql {
@@ -170,14 +156,21 @@ function filterSql(f: InventoryFilters): Prisma.Sql {
     const like = `%${f.search.replace(/[\\%_]/g, "\\$&")}%`;
     parts.push(Prisma.sql`AND ("m"."lotId" ILIKE ${like} OR COALESCE("m"."stoneName", '') ILIKE ${like})`);
   }
+  // Applied last and unconditionally: it narrows the set whether or not the request
+  // carried a country or lab of its own, so a scoped caller's default view is their own
+  // scope rather than the whole business.
+  const scope = scopeSql(f.scope, { country: '"m"."country"', lab: '"m"."labNormalized"' });
+  if (scope !== Prisma.empty) parts.push(scope);
   return parts.length ? Prisma.join(parts, " ") : Prisma.empty;
 }
 
 /**
  * The current canonical inventory, already filtered and bucketed.
  *
- * `isCurrent = TRUE` is the line between stock and history: a sold, transferred or
- * superseded version is excluded here and cannot reappear as inventory downstream.
+ * `currentStockSql` is the line between stock and history: a sold, transferred or closed
+ * record is excluded here and cannot reappear as inventory downstream. It is stricter
+ * than the bare `isCurrent` flag it replaces, because `isCurrent` records only that the
+ * source feed still published the row.
  */
 function inventoryCte(f: InventoryFilters): Prisma.Sql {
   return Prisma.sql`
@@ -213,7 +206,7 @@ function inventoryCte(f: InventoryFilters): Prisma.Sql {
       FROM "LotMasterRecord" "m"
       LEFT JOIN "WeightBand" "b"
         ON "m"."weight" >= "b"."minCt" AND "m"."weight" <= "b"."maxCt" AND "b"."active" = TRUE
-      WHERE "m"."isCurrent" = TRUE
+      WHERE ${currentStockSql("m")}
         ${filterSql(f)}
     )
   `;
@@ -247,6 +240,8 @@ export interface InventoryReadiness {
   readonly rows: readonly ReadinessRow[];
   readonly isSimulated: boolean;
   readonly sourceLabel: string;
+  /** Where these figures came from. Rendered by the shared simulation banner. */
+  readonly sourceDisclosure: SourceDisclosure;
   readonly currentRecordCount: number;
   readonly lastSourceUpdate: string | null;
   /** True when inventory changed after the latest demand run finished. */
@@ -268,12 +263,12 @@ export async function readInventoryReadiness(client: DbClient = db): Promise<Inv
         (COUNT(*) FILTER (WHERE "holdState" IS NULL OR "holdState" = 'UNKNOWN'))::int AS unknown_hold,
         (COUNT(*) FILTER (WHERE "canonicalLifecycle" IS NULL OR "canonicalLifecycle" = 'UNKNOWN'))::int AS unmapped_status,
         (COUNT(*) FILTER (WHERE "labNormalized" IS NULL OR "shapeNormalized" IS NULL))::int AS missing_category,
-        (COUNT(*) FILTER (WHERE NOT ("sourceType" = 'FIXTURE' AND "isSimulated" = TRUE AND "quantity" > 0)))::int AS qty_unconfirmed,
+        (COUNT(*) FILTER (WHERE ${confirmedQuantitySql("m")} IS NULL))::int AS qty_unconfirmed,
         (COUNT(*) FILTER (WHERE "weight" IS NULL OR "weight" <= 0))::int AS weight_missing,
         (COUNT(*) FILTER (WHERE "isSimulated" = TRUE))::int AS simulated,
         MAX("lastSeenAt") AS last_seen,
         MAX("sourceUpdatedAt") AS source_cutoff
-      FROM "LotMasterRecord" WHERE "isCurrent" = TRUE`,
+      FROM "LotMasterRecord" "m" WHERE ${currentStockSql("m")}`,
     client.integrationSyncRun.findFirst({
       where: { source: { in: ["FANTASY", "Fantasy"] }, status: "SUCCESS" },
       orderBy: { finishedAt: "desc" },
@@ -322,6 +317,9 @@ export async function readInventoryReadiness(client: DbClient = db): Promise<Inv
     rows,
     isSimulated: simulated,
     sourceLabel: simulated ? "Source: Fixture Simulation" : total === 0 ? "No canonical inventory" : "Source: Live Fantasy",
+    // With no canonical records there is nothing to attribute, so the disclosure is
+    // `NOT_ESTABLISHED` rather than a claim in either direction.
+    sourceDisclosure: resolveSourceDisclosure({ isSimulated: simulated, hasData: total > 0 }),
     currentRecordCount: total,
     lastSourceUpdate: lastSourceUpdate ? lastSourceUpdate.toISOString() : null,
     inventoryNewerThanDemandRun,
@@ -399,7 +397,9 @@ export async function readInventoryPosition(
 
   const mapped: PositionRow[] = rows.map((r) => {
     const key = r.group_key ?? "(unspecified)";
-    const bucket = grouping === "bucket" ? (key as InventoryBucket) : null;
+    // The grouped key is the derived bucket only when the grouping asked for buckets,
+    // and even then it is resolved rather than asserted.
+    const bucket = grouping === "bucket" && isInventoryBucket(key) ? key : null;
     return {
       groupKey: key,
       bucket,
@@ -607,7 +607,7 @@ export async function readLotInventory(
         sourceRecordId: canSeeSourceRecordId ? ((r.source_record_id as string | null) ?? null) : null,
         stockType: String(r.stock_type),
         lifecycle: (r.lifecycle as string | null) ?? null,
-        bucket: r.bucket as InventoryBucket,
+        bucket: resolveBucket(r.bucket),
         classificationState: (r.classification_state as string | null) ?? null,
         holdState: (r.hold_state as string | null) ?? null,
         // A factual classification output, not a planning instruction.
@@ -696,4 +696,23 @@ export async function reconcileWithMirrors(client: DbClient = db): Promise<Mirro
     // Reported so its absence from every figure above is visible, not merely asserted.
     shadowProjectionCandidates: shadow,
   };
+}
+
+/**
+ * Where the current canonical stock behind a page came from.
+ *
+ * One cheap aggregate over the same filtered set the page reads, so a tab that shows
+ * simulated lots always carries the simulation notice — including the tabs that do not
+ * read the readiness section. `BOOL_OR` answers "is any of this simulated", which is the
+ * stricter and therefore honest reading for a mixed page.
+ */
+export async function readInventorySourceDisclosure(
+  f: InventoryFilters,
+  client: DbClient = db,
+): Promise<SourceDisclosure> {
+  const rows = await client.$queryRaw<Array<{ n: bigint; simulated: boolean | null }>>`
+    ${inventoryCte(f)}
+    SELECT COUNT(*) AS n, BOOL_OR("is_simulated") AS simulated FROM inv`;
+  const total = Number(rows[0]?.n ?? 0);
+  return resolveSourceDisclosure({ isSimulated: rows[0]?.simulated ?? null, hasData: total > 0 });
 }

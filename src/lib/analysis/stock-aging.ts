@@ -36,14 +36,35 @@
  * 91-day "slow" line, none of which anyone confirmed. Until a policy exists there are no
  * buckets — not even a default set.
  *
+ * ## What this module does compute, and where
+ *
+ * Every figure comes from `inventory-buckets.ts`: the same bucket derivation, the same
+ * current-stock rule, the same confirmed-quantity rule and the same review rule that the
+ * Inventory page uses. Nothing here re-derives any of them.
+ *
+ * All aggregation happens in the database. The totals describe the complete filtered
+ * result, so paging through the table cannot change them, and the summary never reads a
+ * row per record into memory.
+ *
  * Server-only.
  */
 
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
+import { num } from "@/lib/api-utils";
 import { formatIST } from "@/lib/fantasy/time";
-import { resolveCanonicalQuantity, resolveCanonicalWeight } from "@/lib/fantasy/quantity-weight";
-import { BUCKET_LABELS, type InventoryBucket } from "@/lib/analysis/inventory-position";
+import { resolveCanonicalWeight } from "@/lib/fantasy/quantity-weight";
+import {
+  bucketLabel,
+  confirmedQuantitySql,
+  currentStockSql,
+  inventoryBucketSql,
+  isInventoryBucket,
+  needsReviewSql,
+  type InventoryBucket,
+} from "@/lib/analysis/inventory-buckets";
+import { scopeSql, UNRESTRICTED_SCOPE, type EffectiveScope } from "@/lib/auth/access-scope";
+import { resolveSourceDisclosure, type SourceDisclosure } from "@/lib/analysis/source-disclosure";
 
 if (typeof window !== "undefined") {
   throw new Error("analysis/stock-aging is server-only and must not be imported by client code.");
@@ -53,6 +74,17 @@ type DbClient = typeof db;
 
 export const AGING_PAGE_DEFAULT = 50;
 export const AGING_PAGE_MAX = 200;
+
+/**
+ * The most location groups the summary will return in one response.
+ *
+ * Country and branch are low-cardinality in the canonical model, but "low" is an
+ * expectation rather than a constraint the database enforces, so the query asks for one
+ * row more than this and the response states plainly when the list is incomplete. The
+ * figure that matters — how many distinct locations hold stock — is counted separately
+ * and is always exact.
+ */
+export const AGING_LOCATION_MAX = 200;
 
 /** Whether an authoritative aging anchor is configured. */
 export const AGING_AVAILABILITY = ["AVAILABLE", "ANCHOR_NOT_CONFIRMED"] as const;
@@ -89,11 +121,20 @@ export interface AgingFilters {
   department: string | null;
   location: string | null;
   search: string | null;
+  /**
+   * The caller's country and lab authorization scope.
+   *
+   * It rides with the filters because it is applied in the same place they are, but it is
+   * not a filter: it comes from the authenticated server session and a request can only
+   * ever narrow within it, never widen past it.
+   */
+  readonly scope: EffectiveScope;
 }
 
 export const EMPTY_AGING_FILTERS: AgingFilters = {
   bucket: null, lab: null, shape: null,
   country: null, branch: null, department: null, location: null, search: null,
+  scope: UNRESTRICTED_SCOPE,
 };
 
 export interface Paging { page: number; pageSize: number }
@@ -109,7 +150,7 @@ export interface PagingMeta { page: number; pageSize: number; total: number; has
 export interface AgingLotRow {
   readonly lotId: string;
   readonly stoneName: string | null;
-  readonly bucket: InventoryBucket | null;
+  readonly bucket: InventoryBucket;
   readonly bucketLabel: string;
   readonly categoryLabel: string;
   readonly lab: string | null;
@@ -128,12 +169,21 @@ export interface AgingLotRow {
 }
 
 export interface AgingResult {
+  /**
+   * Where these records came from, aggregated over the filtered set. A page showing any
+   * simulated lot is a simulated page: the stricter answer is the honest one.
+   */
+  readonly sourceDisclosure: SourceDisclosure;
   readonly availability: AgingAvailability;
   readonly unavailableMessage: string | null;
   readonly unavailableDetail: string | null;
   readonly bucketsMessage: string | null;
   readonly rows: AgingLotRow[];
   readonly paging: PagingMeta;
+  /**
+   * Whole-result figures. Every one of these is aggregated in the database over the
+   * complete filtered set, so moving between pages cannot change any of them.
+   */
   readonly totals: {
     readonly currentLots: number;
     readonly confirmedQuantity: number;
@@ -141,63 +191,134 @@ export interface AgingResult {
   };
 }
 
-const ROW_SELECT = {
-  lotId: true, stoneName: true, inventoryClass: true, classificationState: true,
-  labNormalized: true, shapeNormalized: true, shape: true,
-  quantity: true, quantityProvenance: true, weight: true, sourceType: true, isSimulated: true,
-  country: true, branch: true, departmentName: true, locationName: true, lastSeenAt: true,
-} as const;
+// ---------------------------------------------------------------------------
+// The filtered current-stock set
+// ---------------------------------------------------------------------------
 
-type LotRow = Prisma.LotMasterRecordGetPayload<{ select: typeof ROW_SELECT }>;
-
-function toRow(l: LotRow): AgingLotRow {
-  const quantity = resolveCanonicalQuantity(l);
-  const weight = resolveCanonicalWeight(l);
-  const bucket = (l.inventoryClass as InventoryBucket | null) ?? null;
-  return {
-    lotId: l.lotId,
-    stoneName: l.stoneName,
-    bucket,
-    bucketLabel: bucket ? (BUCKET_LABELS[bucket] ?? "Unclassified") : "Unclassified",
-    // The weight band lives on the demand metric, not on the canonical lot, so the
-    // category label here carries lab and shape only rather than inventing a band.
-    categoryLabel: [l.labNormalized, l.shapeNormalized ?? l.shape].filter(Boolean).join(" | ") || "Unclassified",
-    lab: l.labNormalized,
-    shape: l.shapeNormalized ?? l.shape,
-    confirmedQuantity: quantity.pieces,
-    measuredWeight: weight.carats,
-    country: l.country,
-    branch: l.branch,
-    department: l.departmentName,
-    location: l.locationName,
-    lastSourceUpdateIst: l.lastSeenAt ? formatIST(l.lastSeenAt, false) : null,
-    dataState:
-      quantity.pieces === null || l.classificationState !== "CLASSIFIED" ? "REVIEW_REQUIRED" : "CONFIRMED",
-  };
-}
-
-/** Current stock only. Sold and non-current records are history, not inventory. */
-function whereFor(f: AgingFilters): Prisma.LotMasterRecordWhereInput {
-  const where: Prisma.LotMasterRecordWhereInput = { isCurrent: true };
-  if (f.bucket) where.inventoryClass = f.bucket;
-  if (f.lab) where.labNormalized = f.lab;
-  if (f.shape) where.shapeNormalized = f.shape;
-  if (f.country) where.country = f.country;
-  if (f.branch) where.branch = f.branch;
-  if (f.department) where.departmentName = f.department;
-  if (f.location) where.locationName = f.location;
+/**
+ * Filters, as SQL over the canonical table.
+ *
+ * `bucket` is compared against the derived bucket expression, never against the raw
+ * `inventoryClass` column: they are different vocabularies, and comparing one to the
+ * other silently matches nothing.
+ */
+function filterSql(f: AgingFilters): Prisma.Sql {
+  const parts: Prisma.Sql[] = [];
+  if (f.bucket) parts.push(Prisma.sql`AND ${inventoryBucketSql("m")} = ${f.bucket}`);
+  if (f.lab) parts.push(Prisma.sql`AND "m"."labNormalized" = ${f.lab}`);
+  if (f.shape) parts.push(Prisma.sql`AND "m"."shapeNormalized" = ${f.shape}`);
+  if (f.country) parts.push(Prisma.sql`AND "m"."country" = ${f.country}`);
+  if (f.branch) parts.push(Prisma.sql`AND "m"."branch" = ${f.branch}`);
+  if (f.department) parts.push(Prisma.sql`AND "m"."departmentName" = ${f.department}`);
+  if (f.location) parts.push(Prisma.sql`AND "m"."locationName" = ${f.location}`);
   if (f.search) {
-    const contains = f.search.replace(/[\\%_]/g, "\\$&");
-    where.OR = [
-      { lotId: { contains, mode: "insensitive" } },
-      { stoneName: { contains, mode: "insensitive" } },
-    ];
+    const like = `%${f.search.replace(/[\\%_]/g, "\\$&")}%`;
+    parts.push(Prisma.sql`AND ("m"."lotId" ILIKE ${like} OR COALESCE("m"."stoneName", '') ILIKE ${like})`);
   }
-  return where;
+  // Applied unconditionally, so a scoped caller sees their own scope by default rather
+  // than the whole business.
+  const scope = scopeSql(f.scope, { country: '"m"."country"', lab: '"m"."labNormalized"' });
+  if (scope !== Prisma.empty) parts.push(scope);
+  return parts.length ? Prisma.join(parts, " ") : Prisma.empty;
 }
 
 /**
- * Current stock, paged on the server.
+ * The filtered set, bucketed and with its quantities already decided.
+ *
+ * Current stock is `currentStockSql`, not the bare `isCurrent` flag: a sold, transferred
+ * or closed record is history even if the feed still publishes it.
+ */
+function agingCte(f: AgingFilters): Prisma.Sql {
+  return Prisma.sql`
+    WITH inv AS (
+      SELECT
+        "m"."lotId"               AS lot_id,
+        "m"."stoneName"           AS stone_name,
+        ${inventoryBucketSql("m")} AS bucket,
+        "m"."labNormalized"       AS lab,
+        COALESCE("m"."shapeNormalized", "m"."shape") AS shape,
+        ${confirmedQuantitySql("m")}::float8 AS confirmed_qty,
+        ${needsReviewSql("m")}    AS needs_review,
+        "m"."quantity"            AS raw_quantity,
+        "m"."quantityProvenance"  AS quantity_provenance,
+        "m"."weight"              AS weight,
+        "m"."sourceType"          AS source_type,
+        "m"."isSimulated"         AS is_simulated,
+        "m"."country"             AS country,
+        "m"."branch"              AS branch,
+        "m"."departmentName"      AS department,
+        "m"."locationName"        AS location,
+        "m"."lastSeenAt"          AS last_seen
+      FROM "LotMasterRecord" "m"
+      WHERE ${currentStockSql("m")}
+        ${filterSql(f)}
+    )
+  `;
+}
+
+interface RawLotRow {
+  lot_id: string;
+  stone_name: string | null;
+  bucket: string;
+  lab: string | null;
+  shape: string | null;
+  confirmed_qty: number | null;
+  needs_review: boolean;
+  weight: Prisma.Decimal | null;
+  source_type: string | null;
+  is_simulated: boolean | null;
+  country: string;
+  branch: string;
+  department: string | null;
+  location: string | null;
+  last_seen: Date | null;
+}
+
+function toRow(r: RawLotRow): AgingLotRow {
+  const bucket: InventoryBucket = isInventoryBucket(r.bucket) ? r.bucket : "REVIEW_REQUIRED";
+  // Weight keeps its in-memory provenance decision: it is a per-row display value and is
+  // never summed into a headline figure, so there is nothing to aggregate in SQL.
+  const weight = resolveCanonicalWeight({
+    weight: r.weight,
+    sourceType: r.source_type,
+    isSimulated: r.is_simulated ?? false,
+  });
+  return {
+    lotId: r.lot_id,
+    stoneName: r.stone_name,
+    bucket,
+    bucketLabel: bucketLabel(bucket),
+    // The weight band lives on the demand metric, not on the canonical lot, so the
+    // category label here carries lab and shape only rather than inventing a band.
+    categoryLabel: [r.lab, r.shape].filter(Boolean).join(" | ") || "Unclassified",
+    lab: r.lab,
+    shape: r.shape,
+    confirmedQuantity: r.confirmed_qty === null ? null : num(r.confirmed_qty),
+    measuredWeight: weight.carats,
+    country: r.country,
+    branch: r.branch,
+    department: r.department,
+    location: r.location,
+    lastSourceUpdateIst: r.last_seen ? formatIST(r.last_seen, false) : null,
+    // The same rule the totals count. A row can never be flagged by one rule and totalled
+    // by another, because there is only one rule.
+    dataState: r.needs_review ? "REVIEW_REQUIRED" : "CONFIRMED",
+  };
+}
+
+function availabilityFields() {
+  const availability = resolveAgingAvailability();
+  const pending = availability === "ANCHOR_NOT_CONFIRMED";
+  return {
+    availability,
+    unavailableMessage: pending ? AGING_UNAVAILABLE_MESSAGE : null,
+    unavailableDetail: pending ? AGING_UNAVAILABLE_DETAIL : null,
+    bucketsMessage: pending ? AGING_BUCKETS_PENDING_MESSAGE : null,
+  };
+}
+
+/**
+ * Current stock, paged on the server, with whole-result totals.
  *
  * Ordered by lot id rather than by any date: ordering by a date would imply that date
  * means something about age, which is precisely the claim this module refuses to make.
@@ -207,36 +328,44 @@ export async function readAgingLots(
   paging: Paging,
   client: DbClient = db,
 ): Promise<AgingResult> {
-  const where = whereFor(filters);
-  const availability = resolveAgingAvailability();
+  const pageSize = Math.min(Math.max(1, paging.pageSize), AGING_PAGE_MAX);
+  const offset = (Math.max(1, paging.page) - 1) * pageSize;
+  const cte = agingCte(filters);
 
-  const [total, rows, reviewCount] = await Promise.all([
-    client.lotMasterRecord.count({ where }),
-    client.lotMasterRecord.findMany({
-      where,
-      orderBy: [{ lotId: "asc" }],
-      skip: (paging.page - 1) * paging.pageSize,
-      take: paging.pageSize,
-      select: ROW_SELECT,
-    }),
-    client.lotMasterRecord.count({ where: { ...where, classificationState: { not: "CLASSIFIED" } } }),
+  const [totalsRows, rows] = await Promise.all([
+    // One pass over the filtered set for all three headline figures. A record whose
+    // quantity was never confirmed contributes nothing to the total and is counted as
+    // needing review instead — it is never assumed to be one piece.
+    client.$queryRaw<Array<{ lots: bigint; qty: number | null; review: bigint; simulated: boolean | null }>>`
+      ${cte}
+      SELECT
+        COUNT(*)                                            AS lots,
+        COALESCE(SUM("confirmed_qty"), 0)::float8           AS qty,
+        COUNT(*) FILTER (WHERE "needs_review")              AS review,
+        BOOL_OR("is_simulated")                             AS simulated
+      FROM inv`,
+    client.$queryRaw<RawLotRow[]>`
+      ${cte}
+      SELECT * FROM inv
+      ORDER BY "lot_id" ASC
+      LIMIT ${pageSize} OFFSET ${offset}`,
   ]);
 
-  const mapped = rows.map(toRow);
+  const t = totalsRows[0];
+  const total = Number(t?.lots ?? 0);
 
   return {
-    availability,
-    unavailableMessage: availability === "ANCHOR_NOT_CONFIRMED" ? AGING_UNAVAILABLE_MESSAGE : null,
-    unavailableDetail: availability === "ANCHOR_NOT_CONFIRMED" ? AGING_UNAVAILABLE_DETAIL : null,
-    bucketsMessage: availability === "ANCHOR_NOT_CONFIRMED" ? AGING_BUCKETS_PENDING_MESSAGE : null,
-    rows: mapped,
-    paging: { page: paging.page, pageSize: paging.pageSize, total, hasMore: paging.page * paging.pageSize < total },
+    ...availabilityFields(),
+    sourceDisclosure: resolveSourceDisclosure({
+      isSimulated: t?.simulated ?? null,
+      hasData: total > 0,
+    }),
+    rows: rows.map(toRow),
+    paging: { page: paging.page, pageSize, total, hasMore: paging.page * pageSize < total },
     totals: {
       currentLots: total,
-      // Only pieces the source established. A record whose quantity was never supplied
-      // contributes none, and is counted as needing review instead.
-      confirmedQuantity: mapped.reduce((sum, r) => sum + (r.confirmedQuantity ?? 0), 0),
-      lotsNeedingReview: reviewCount,
+      confirmedQuantity: num(t?.qty ?? 0),
+      lotsNeedingReview: Number(t?.review ?? 0),
     },
   };
 }
@@ -250,104 +379,114 @@ export interface AgingDistributionRow {
 }
 
 export interface AgingSummary {
+  /**
+   * Where these records came from, aggregated over the filtered set. A page showing any
+   * simulated lot is a simulated page: the stricter answer is the honest one.
+   */
+  readonly sourceDisclosure: SourceDisclosure;
   readonly availability: AgingAvailability;
   readonly unavailableMessage: string | null;
   readonly unavailableDetail: string | null;
   readonly bucketsMessage: string | null;
   readonly currentLots: number;
-  /** Grouped by inventory bucket — a factual distribution, never an age band. */
+  /** Grouped by derived inventory bucket — a factual distribution, never an age band. */
   readonly byBucket: AgingDistributionRow[];
   readonly byLocation: AgingDistributionRow[];
+  /**
+   * How many distinct country/branch combinations hold stock, and how many of them the
+   * list above actually contains. When they differ the list is incomplete and says so
+   * rather than presenting a truncated distribution as the whole picture.
+   */
+  readonly locations: {
+    readonly total: number;
+    readonly shown: number;
+    readonly limit: number;
+    readonly truncated: boolean;
+  };
+}
+
+interface RawGroup {
+  group_key: string;
+  lots: bigint;
+  qty: number | null;
+  review: bigint;
 }
 
 /**
  * The management view, over the same records and the same availability decision.
  *
- * Grouped by what is actually known — inventory bucket and location — rather than by an
- * age band that does not exist. It computes no age of its own, which is the whole point
- * of both pages sharing this module.
+ * Grouped by what is actually known — derived inventory bucket and location — rather than
+ * by an age band that does not exist. Every group is aggregated by the database; nothing
+ * reads the matching records into memory to add them up.
  */
 export async function readAgingSummary(
   filters: AgingFilters,
   client: DbClient = db,
 ): Promise<AgingSummary> {
-  const where = whereFor(filters);
-  const availability = resolveAgingAvailability();
+  const cte = agingCte(filters);
 
-  const [currentLots, byBucketRaw, byLocationRaw] = await Promise.all([
-    client.lotMasterRecord.count({ where }),
-    client.lotMasterRecord.groupBy({
-      by: ["inventoryClass"],
-      where,
-      _count: { _all: true },
-    }),
-    client.lotMasterRecord.groupBy({
-      by: ["country", "branch"],
-      where,
-      _count: { _all: true },
-    }),
+  const [totalsRows, byBucketRaw, byLocationRaw, locationCountRows] = await Promise.all([
+    client.$queryRaw<Array<{ lots: bigint; simulated: boolean | null }>>`
+      ${cte}
+      SELECT COUNT(*) AS lots, BOOL_OR("is_simulated") AS simulated FROM inv`,
+    // At most seven groups: the bucket vocabulary is closed, so this needs no limit.
+    client.$queryRaw<RawGroup[]>`
+      ${cte}
+      SELECT
+        "bucket"                                   AS group_key,
+        COUNT(*)                                   AS lots,
+        COALESCE(SUM("confirmed_qty"), 0)::float8  AS qty,
+        COUNT(*) FILTER (WHERE "needs_review")     AS review
+      FROM inv
+      GROUP BY "bucket"
+      ORDER BY COUNT(*) DESC, "bucket" ASC`,
+    // One row more than the disclosed maximum, so the response can tell the difference
+    // between "this is all of it" and "there is more that is not shown".
+    client.$queryRaw<RawGroup[]>`
+      ${cte}
+      SELECT
+        ("country" || ' / ' || "branch")           AS group_key,
+        COUNT(*)                                   AS lots,
+        COALESCE(SUM("confirmed_qty"), 0)::float8  AS qty,
+        COUNT(*) FILTER (WHERE "needs_review")     AS review
+      FROM inv
+      GROUP BY 1
+      ORDER BY COUNT(*) DESC, 1 ASC
+      LIMIT ${AGING_LOCATION_MAX + 1}`,
+    client.$queryRaw<Array<{ n: bigint }>>`
+      ${cte}
+      SELECT COUNT(*) AS n FROM (SELECT DISTINCT "country", "branch" FROM inv) d`,
   ]);
 
-  // Quantity is summed through the shared provenance decision rather than with a SQL
-  // SUM, so an unconfirmed quantity contributes nothing here exactly as it does
-  // everywhere else.
-  const countable = await client.lotMasterRecord.findMany({
-    where,
-    select: {
-      inventoryClass: true, country: true, branch: true, classificationState: true,
-      quantity: true, quantityProvenance: true, sourceType: true, isSimulated: true,
-    },
+  const toDistribution = (g: RawGroup, label: string): AgingDistributionRow => ({
+    key: g.group_key,
+    label,
+    lotCount: Number(g.lots),
+    confirmedQuantity: num(g.qty ?? 0),
+    lotsNeedingReview: Number(g.review),
   });
 
-  const bucketQty = new Map<string, { qty: number; review: number }>();
-  const locationQty = new Map<string, { qty: number; review: number }>();
-  for (const l of countable) {
-    const pieces = resolveCanonicalQuantity(l).pieces;
-    const needsReview = pieces === null || l.classificationState !== "CLASSIFIED";
-    const bKey = l.inventoryClass ?? "UNCLASSIFIED";
-    const lKey = `${l.country}\u0001${l.branch}`;
-    const b = bucketQty.get(bKey) ?? { qty: 0, review: 0 };
-    const loc = locationQty.get(lKey) ?? { qty: 0, review: 0 };
-    b.qty += pieces ?? 0;
-    loc.qty += pieces ?? 0;
-    if (needsReview) { b.review++; loc.review++; }
-    bucketQty.set(bKey, b);
-    locationQty.set(lKey, loc);
-  }
+  const locationTotal = Number(locationCountRows[0]?.n ?? 0);
+  const shownLocations = byLocationRaw.slice(0, AGING_LOCATION_MAX);
+
+  const summaryLots = Number(totalsRows[0]?.lots ?? 0);
 
   return {
-    availability,
-    unavailableMessage: availability === "ANCHOR_NOT_CONFIRMED" ? AGING_UNAVAILABLE_MESSAGE : null,
-    unavailableDetail: availability === "ANCHOR_NOT_CONFIRMED" ? AGING_UNAVAILABLE_DETAIL : null,
-    bucketsMessage: availability === "ANCHOR_NOT_CONFIRMED" ? AGING_BUCKETS_PENDING_MESSAGE : null,
-    currentLots,
-    byBucket: byBucketRaw
-      .map((g) => {
-        const key = g.inventoryClass ?? "UNCLASSIFIED";
-        const q = bucketQty.get(key) ?? { qty: 0, review: 0 };
-        return {
-          key,
-          label: g.inventoryClass
-            ? (BUCKET_LABELS[g.inventoryClass as InventoryBucket] ?? "Unclassified")
-            : "Unclassified",
-          lotCount: g._count._all,
-          confirmedQuantity: q.qty,
-          lotsNeedingReview: q.review,
-        };
-      })
-      .sort((a, b) => b.lotCount - a.lotCount || a.key.localeCompare(b.key)),
-    byLocation: byLocationRaw
-      .map((g) => {
-        const key = `${g.country}\u0001${g.branch}`;
-        const q = locationQty.get(key) ?? { qty: 0, review: 0 };
-        return {
-          key,
-          label: `${g.country} / ${g.branch}`,
-          lotCount: g._count._all,
-          confirmedQuantity: q.qty,
-          lotsNeedingReview: q.review,
-        };
-      })
-      .sort((a, b) => b.lotCount - a.lotCount || a.key.localeCompare(b.key)),
+    ...availabilityFields(),
+    sourceDisclosure: resolveSourceDisclosure({
+      isSimulated: totalsRows[0]?.simulated ?? null,
+      hasData: summaryLots > 0,
+    }),
+    currentLots: summaryLots,
+    // The key is the derived bucket, which is exactly what the Stock Aging filter accepts,
+    // so a drill-down from this list always lands on the records it came from.
+    byBucket: byBucketRaw.map((g) => toDistribution(g, bucketLabel(g.group_key))),
+    byLocation: shownLocations.map((g) => toDistribution(g, g.group_key)),
+    locations: {
+      total: locationTotal,
+      shown: shownLocations.length,
+      limit: AGING_LOCATION_MAX,
+      truncated: locationTotal > shownLocations.length,
+    },
   };
 }

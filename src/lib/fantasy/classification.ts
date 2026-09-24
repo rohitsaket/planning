@@ -5,7 +5,7 @@
  * `status === "STOCK" ? "PHYSICAL" : "MEMO"` in the synchronization service, an
  * unconditional `planningClass: "PHYSICAL"` on the replay path, a gate that only
  * mirrored lots whose status was literally `STOCK` or `MEMO`, and three more
- * reinterpretations inside demand and stock-position analytics. `FantasyStatusMapping`
+ * reinterpretations inside the demand and inventory analytics. `FantasyStatusMapping`
  * existed but was never read. Every one of those now calls this service.
  *
  * Fails closed throughout. A status that is not mapped, a hold value that is not
@@ -344,9 +344,9 @@ export function isMirroredInventoryClass(inventoryClass: InventoryClass): boolea
 /**
  * Legacy `PolishedStone.planningClass` value for a classified record.
  *
- * The mirror column predates this service and is read by stock-position analytics and
- * the polished APIs, so the classifier's decision is translated into the existing
- * vocabulary rather than the column being migrated underneath those readers.
+ * The mirror column predates this service and is still read by the polished APIs, so the
+ * classifier's decision is translated into the existing vocabulary rather than the column
+ * being migrated underneath those readers.
  */
 export function toLegacyPlanningClass(inventoryClass: InventoryClass): string {
   switch (inventoryClass) {

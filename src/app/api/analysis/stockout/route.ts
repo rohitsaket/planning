@@ -17,6 +17,7 @@ import {
   type StockoutSortKey,
   type StockoutState,
 } from "@/lib/analysis/stockout";
+import { describeScope, describeScopeApplication, type EffectiveScope } from "@/lib/auth/access-scope";
 
 /**
  * STOCKOUT RISK — one bounded read endpoint.
@@ -36,7 +37,9 @@ import {
 
 const SECTIONS = ["status", "categories", "detail"] as const;
 
-export const GET = withApi({ permission: "analysis.read" }, async (req: Request) => {
+export const GET = withApi(
+  { permission: "analysis.read", scoped: true },
+  async (req: Request, _ctx, { scope }) => {
   const url = new URL(req.url);
   const section = qEnum(url, "section", SECTIONS, "status");
 
@@ -68,7 +71,7 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request)
     return ok({ section, available: true, runId: status.runId, detail });
   }
 
-  const filters = parseFilters(url);
+  const filters = parseFilters(url, scope);
   const sort = {
     key: qEnum(url, "sort", STOCKOUT_SORTS, "physicalShortage") as StockoutSortKey,
     dir: qEnum(url, "dir", SORT_DIRECTIONS, "desc"),
@@ -86,12 +89,19 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request)
     runId: status.runId,
     unavailableMessage: null,
     activeFilters: describeFilters(filters),
+    // Only the lab half of the caller's scope can be applied here: the persisted demand
+    // result has no country column, because the target is calculated once per planning
+    // category for the whole business. Saying so is the alternative to letting a
+    // country-restricted caller read a business-wide figure as if it were their own.
+    accessScope: describeScope(scope),
+    scopeApplication: describeScopeApplication(scope, ["LAB"]),
     ...result,
   });
-});
+  },
+);
 
 /** Every filter the stored result can actually honour. Unknown values are refused. */
-export function parseFilters(url: URL): StockoutFilters {
+export function parseFilters(url: URL, scope: EffectiveScope): StockoutFilters {
   const state = qStr(url, "stockoutState", 40);
   if (state && !(STOCKOUT_STATES as readonly string[]).includes(state)) {
     throw new ApiError(400, "BAD_REQUEST", "Query parameter 'stockoutState' is not a recognized value.");
@@ -103,6 +113,9 @@ export function parseFilters(url: URL): StockoutFilters {
 
   return {
     ...EMPTY_STOCKOUT_FILTERS,
+    // A required argument rather than a default: a route that forgets the caller's
+    // scope must fail to compile, not quietly serve the whole business.
+    scope,
     lab: qStr(url, "lab", 60),
     shape: qStr(url, "shape", 60),
     weightBand: qStr(url, "weightBand", 60),
@@ -114,9 +127,15 @@ export function parseFilters(url: URL): StockoutFilters {
   };
 }
 
-/** The scope actually applied, echoed back so the caller can show it. */
+/**
+ * The filters the caller chose, echoed back so the page can show them.
+ *
+ * `scope` is excluded: it is an authorization decision rather than something the
+ * caller selected, and listing it as an active filter would invite an attempt to
+ * clear it. The caller's own scope is disclosed separately and in full.
+ */
 export function describeFilters(f: StockoutFilters): Array<{ key: string; value: string }> {
   return Object.entries(f)
-    .filter(([, v]) => v !== null && v !== "" && v !== false)
+    .filter(([key, v]) => key !== "scope" && v !== null && v !== "" && v !== false)
     .map(([key, value]) => ({ key, value: String(value) }));
 }

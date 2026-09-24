@@ -41,7 +41,7 @@ const COLUMNS: CsvColumn<StockoutRow>[] = [
 ];
 
 export const GET = withApi(
-  { permission: "analysis.export", rateLimit: { limit: 10, windowMs: 60_000 } },
+  { permission: "analysis.export", scoped: true, rateLimit: { limit: 10, windowMs: 60_000 } },
   async (req: Request, _ctx, api) => {
     const url = new URL(req.url);
     const status = await readStockoutSnapshotStatus(undefined, qStr(url, "runId", 64));
@@ -54,7 +54,9 @@ export const GET = withApi(
       );
     }
 
-    const filters = parseFilters(url);
+    // The same scope the on-screen table is narrowed by. An export is a read like any
+    // other, and is the one place a missing scope would be hardest to notice.
+    const filters = parseFilters(url, api.scope);
     const sort = {
       key: qEnum(url, "sort", STOCKOUT_SORTS, "physicalShortage") as StockoutSortKey,
       dir: qEnum(url, "dir", SORT_DIRECTIONS, "desc"),

@@ -7,7 +7,9 @@ import { ApiError, badRequest, forbidden, tooLarge, tooManyRequests, unauthentic
 import { consume, type RateLimit } from "@/lib/api/rate-limit";
 import { log } from "@/lib/api/log";
 import { resolvePrincipal, type Principal } from "@/lib/auth/session";
+import { assertWithinScope, UNRESTRICTED_SCOPE, type EffectiveScope } from "@/lib/auth/access-scope";
 import type { Permission } from "@/lib/auth/permissions";
+import { resolveNumericEnv } from "@/lib/config/numeric-env";
 
 const MAX_JSON_BYTES = 64 * 1024;
 const DEFAULT_READ_LIMIT: RateLimit = { limit: 300, windowMs: 60_000 };
@@ -36,6 +38,14 @@ export interface ApiContext<B> {
   url: URL;
   requestId: string;
   sourceIp: string | null;
+  /**
+   * The countries and labs this caller may see, from their session.
+   *
+   * On a route declared `scoped`, the wrapper has already refused a request that asked
+   * for a value outside it, so what remains for the handler is to pass this to the read
+   * service, which narrows the query itself. On an unscoped route it is unrestricted.
+   */
+  scope: EffectiveScope;
   // Writes an audit row whose actor is always the authenticated principal.
   audit: (client: DbClient, input: AuditInput) => Promise<void>;
 }
@@ -57,6 +67,17 @@ interface Options<B> {
    * credential cannot be used to work in the application.
    */
   allowPasswordChangeSession?: true;
+  /**
+   * Country and lab scope applies to this route.
+   *
+   * The wrapper reads the `country` and `lab` query parameters and refuses the request
+   * with 403 when either names a value the caller is not authorized for. It does NOT
+   * narrow the query — that happens in the read service, which is the only place that
+   * knows which column holds the country — so a scoped route must also pass
+   * `api.scope` into the filters it builds. The scope test suite asserts both halves for
+   * every route that declares this.
+   */
+  scoped?: true;
 }
 
 // Re-exported for the route handlers that already import it from here. The definition
@@ -153,6 +174,15 @@ export function withApi<P = Record<string, never>, B = undefined>(opts: Options<
           throw forbidden("A password change is required before this account can be used.");
         }
         if (opts.permission && !principal.permissions.includes(opts.permission)) throw forbidden();
+        // A request for a country or lab outside the caller's scope is refused rather
+        // than quietly narrowed: asking for data and receiving someone else's idea of
+        // what you meant is worse than being told no.
+        if (opts.scoped) {
+          assertWithinScope(principal.scope, {
+            country: url.searchParams.get("country"),
+            lab: url.searchParams.get("lab"),
+          });
+        }
       }
       const rule = opts.rateLimit ?? (mutating ? DEFAULT_WRITE_LIMIT : DEFAULT_READ_LIMIT);
       const who = principal?.userId ?? `ip:${sourceIp ?? "unknown"}`;
@@ -194,7 +224,17 @@ export function withApi<P = Record<string, never>, B = undefined>(opts: Options<
         });
       };
 
-      const res = await handler(req, routeCtx, { principal: p as Principal, body, url, requestId, sourceIp, audit });
+      const res = await handler(req, routeCtx, {
+        principal: p as Principal,
+        body,
+        url,
+        requestId,
+        sourceIp,
+        // A public route has no principal and therefore no scope. It also has no
+        // business reading scoped data, so unrestricted here is not a widening.
+        scope: p?.scope ?? UNRESTRICTED_SCOPE,
+        audit,
+      });
       res.headers.set("x-request-id", requestId);
       if (!res.headers.has("cache-control")) res.headers.set("cache-control", "no-store");
       return res;
@@ -229,12 +269,16 @@ export function qEnum<T extends string>(url: URL, name: string, values: readonly
 }
 
 // Bounded list access. Response shape stays { rows, ... } with paging metadata added.
-export const PAGE_DEFAULT = Number(process.env.API_PAGE_DEFAULT || 500);
-export const PAGE_MAX = Number(process.env.API_PAGE_MAX || 2000);
+//
+// Each ceiling is validated: an unreadable value resolves to the built-in default rather
+// than to NaN, because a NaN ceiling makes every `Math.min` clamp below it evaluate to
+// NaN and every `>` comparison against it false — which is a bound that does not bind.
+export const PAGE_DEFAULT = resolveNumericEnv("API_PAGE_DEFAULT", { fallback: 500, max: 10_000 }).value;
+export const PAGE_MAX = resolveNumericEnv("API_PAGE_MAX", { fallback: 2000, max: 10_000 }).value;
 // Hard ceiling for routes that aggregate rows in memory. Queries fetch SCAN_MAX + 1 rows and pass
 // the result through scanned(): exceeding the ceiling is an explicit error, never a silently
 // truncated total (security hardening must not change business numbers).
-const SCAN_LIMIT = Number(process.env.API_SCAN_MAX || 50_000);
+const SCAN_LIMIT = resolveNumericEnv("API_SCAN_MAX", { fallback: 50_000, max: 1_000_000 }).value;
 export const SCAN_MAX = SCAN_LIMIT + 1;
 
 export function scanned<T>(rows: T[]): T[] {

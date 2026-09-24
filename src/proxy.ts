@@ -17,7 +17,9 @@ function securityHeaders(res: NextResponse, csp: string) {
   res.headers.set("X-Frame-Options", "DENY");
   res.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
   res.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()");
-  res.headers.set("Cross-Origin-Opener-Policy", "same-origin");
+  if (!isDev) {
+    res.headers.set("Cross-Origin-Opener-Policy", "same-origin");
+  }
   // HSTS only where HTTPS is really in place — opt in per environment.
   if (process.env.ENABLE_HSTS === "true") res.headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
   return res;
@@ -57,7 +59,7 @@ export function proxy(req: NextRequest) {
   }
 
   const nonce = btoa(crypto.randomUUID());
-  const realtime = isDev ? " http://localhost:3001 ws://localhost:3001 ws://localhost:* ws://127.0.0.1:*" : "";
+  const realtime = isDev ? " http://localhost:3001 ws://localhost:3001 ws://localhost:* ws://127.0.0.1:* ws: wss:" : "";
   const csp = [
     "default-src 'self'",
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${isDev ? " 'unsafe-eval'" : ""}`,

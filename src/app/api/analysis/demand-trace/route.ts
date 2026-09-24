@@ -16,6 +16,7 @@ import {
   type RecordType,
 } from "@/lib/demand/demand-result-presentation";
 import { deriveHistoricalSourceState } from "@/lib/fantasy/source-state";
+import { describeScope, describeScopeApplication, scopeWhere } from "@/lib/auth/access-scope";
 
 /**
  * DEMAND RESULT DETAILS — safe browser response.
@@ -32,7 +33,9 @@ import { deriveHistoricalSourceState } from "@/lib/fantasy/source-state";
 /** Runs that produced a usable snapshot. A failed or running snapshot is never shown as a result. */
 const USABLE_RUN_STATUSES = ["COMPLETED", "REVIEW_REQUIRED"];
 
-export const GET = withApi({ permission: "analysis.read" }, async (req: Request, _ctx, { principal }) => {
+export const GET = withApi(
+  { permission: "analysis.read", scoped: true },
+  async (req: Request, _ctx, { principal, scope }) => {
   const url = new URL(req.url);
   const sourceState = await resolveFantasySourceStateWithHistory(db);
   const runIdParam = qStr(url, "runId");
@@ -49,7 +52,14 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request,
     db.demandRun.findFirst({
       where: runIdParam ? { id: runIdParam } : { status: { in: USABLE_RUN_STATUSES } },
       orderBy: { runDate: "desc" },
-      include: { metrics: { orderBy: { planningCategory: "asc" } } },
+      include: {
+        metrics: {
+          // A demand metric has a lab but no country, so only the lab half of the caller's
+          // scope can narrow this. `scopeApplication` on the response says so.
+          where: { ...scopeWhere(scope, { country: null, lab: "labNormalized" }) },
+          orderBy: { planningCategory: "asc" },
+        },
+      },
     }),
     loadWipPolicy(db),
   ]);
@@ -172,6 +182,9 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request,
     const where: Prisma.DemandMetricTraceItemWhereInput = {
       runId: targetRun.id,
       planningCategory: selectedCategory.category,
+      // The trace row carries its own lab, and the category it belongs to has already been
+      // narrowed above, so both halves of the restriction hold on the evidence list too.
+      ...scopeWhere(scope, { country: null, lab: "lab" }),
     };
     if (requestedType) where.traceType = { in: internalRecordClasses(requestedType) };
 
@@ -215,6 +228,8 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request,
   }
 
   const summary = {
+    accessScope: describeScope(scope),
+    scopeApplication: describeScopeApplication(scope, ["LAB"]),
     totalCategories: categories.length,
     totalShortage: categories.reduce((s, c) => s + c.physicalShortage, 0),
     totalExcess: categories.reduce((s, c) => s + c.excessStock, 0),
@@ -258,4 +273,5 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request,
     supportingRecords,
     summary,
   });
-});
+},
+);

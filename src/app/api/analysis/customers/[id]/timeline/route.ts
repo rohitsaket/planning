@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
 import { notFound } from "@/lib/api/errors";
 import { withApi, qInt, idSchema } from "@/lib/api/with-api";
+import { describeScope, scopePredicates, scopeWhere } from "@/lib/auth/access-scope";
 
 // Customer 360 — monthly purchase timeline (last 12 months), preference breakdown
 // and a paginated transaction list.
@@ -10,8 +11,8 @@ import { withApi, qInt, idSchema } from "@/lib/api/with-api";
 // Monthly buckets and preferences are aggregated in PostgreSQL; the transaction
 // list is cut with skip/take and reports a real total.
 export const GET = withApi(
-  { permission: "customers.read" },
-  async (req: Request, { params }: { params: Promise<{ id: string }> }) => {
+  { permission: "customers.read", scoped: true },
+  async (req: Request, { params }: { params: Promise<{ id: string }> }, { scope }) => {
     const id = idSchema.parse((await params).id);
     const url = new URL(req.url);
     const page = qInt(url, "page", { def: 1, min: 1, max: 1_000_000 });
@@ -28,7 +29,16 @@ export const GET = withApi(
       customerId: id,
       lotStatusDb: "Invoice",
       docDate: { gte: since },
+      // One customer's history is still location data: a scoped reader sees only the part
+      // of it that falls inside their own countries and labs.
+      ...scopeWhere(scope, { country: "country", lab: "labNormalized" }),
     };
+    // The monthly roll-up below is raw SQL over the same records, so it takes the same
+    // restriction as predicates rather than a second, divergent rule.
+    const scopeParts = scopePredicates(scope, { country: '"country"', lab: '"labNormalized"' });
+    const scopeWhereSql = scopeParts.length
+      ? Prisma.sql` AND ${Prisma.join(scopeParts, " AND ")}`
+      : Prisma.empty;
 
     const [monthlyRows, shapeGroups, labGroups, colorGroups, clarityGroups, bandGroups, total, records, bands] =
       await Promise.all([
@@ -38,7 +48,7 @@ export const GET = withApi(
                  COALESCE(SUM(weight), 0)::float8 AS carats,
                  COALESCE(SUM("saleTotalUsd"), 0)::float8 AS value
           FROM "SalesRecord"
-          WHERE "customerId" = ${id} AND "lotStatusDb" = 'Invoice' AND "docDate" >= ${since}
+          WHERE "customerId" = ${id} AND "lotStatusDb" = 'Invoice' AND "docDate" >= ${since}${scopeWhereSql}
           GROUP BY 1
         `),
         db.salesRecord.groupBy({ by: ["shape"], where, _count: { _all: true } }),
@@ -119,6 +129,7 @@ export const GET = withApi(
       pageSize,
       total,
       hasMore: page * pageSize < total,
+      accessScope: describeScope(scope),
     });
   },
 );

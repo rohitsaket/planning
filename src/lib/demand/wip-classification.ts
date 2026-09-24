@@ -21,6 +21,7 @@ import {
   loadCategoryMappings,
   resolvePlanningCategory,
 } from "@/lib/demand/planning-category";
+import { UNRESTRICTED_SCOPE, scopeWhere, type EffectiveScope } from "@/lib/auth/access-scope";
 
 type DbClient = Prisma.TransactionClient | typeof db;
 
@@ -411,13 +412,28 @@ export interface ClassifiedWipInventory {
  */
 export async function classifyCurrentWip(
   client: DbClient = db,
-  options: { filter?: WipInventoryFilter; take?: number; mappings?: CategoryMappings; context?: WipClassificationContext } = {},
+  options: {
+    filter?: WipInventoryFilter;
+    take?: number;
+    mappings?: CategoryMappings;
+    context?: WipClassificationContext;
+    /**
+     * The caller's country and lab authorization scope. Defaults to unrestricted so
+     * that the demand engine — which classifies WIP for the whole business and is not
+     * acting for a user — is unaffected. An API route always passes its caller's.
+     */
+    scope?: EffectiveScope;
+  } = {},
 ): Promise<ClassifiedWipInventory> {
   const ctx = options.context ?? (await loadWipClassificationContext(client, { mappings: options.mappings }));
 
+  const scope = options.scope ?? UNRESTRICTED_SCOPE;
   const where: Prisma.LotMasterRecordWhereInput = {
     isCurrent: true,
     OR: [{ roughOrPolished: "WIP" }, { entityType: "WIP" }],
+    // The scope narrows the country in the database. The lab lives on the classified
+    // result rather than the record, so it is applied below with the lab filter.
+    ...scopeWhere(scope, { country: "country", lab: null }),
   };
   if (options.filter?.country) where.country = options.filter.country;
   if (options.filter?.branch) where.branch = options.filter.branch;
@@ -429,6 +445,10 @@ export async function classifyCurrentWip(
   });
 
   let results = classifyWipRecords(records as WipSourceRecord[], ctx);
+  // The lab is derived by the classifier, so the scope is applied here rather than in the
+  // query. A record whose lab could not be normalized is outside any restricted lab scope.
+  const allowedLabs = scope.labs;
+  if (allowedLabs !== null) results = results.filter((r) => r.lab !== null && allowedLabs.includes(r.lab));
   if (options.filter?.lab) results = results.filter((r) => r.lab === options.filter!.lab);
 
   return {

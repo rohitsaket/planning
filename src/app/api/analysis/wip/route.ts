@@ -2,6 +2,7 @@ import { db } from "@/lib/db";
 import { ok } from "@/lib/api-utils";
 import { withApi, qStr, qInt, SCAN_MAX, scanned } from "@/lib/api/with-api";
 import { classifyCurrentWip, type WipClassificationResult } from "@/lib/demand/wip-classification";
+import { describeScope } from "@/lib/auth/access-scope";
 
 // WIP Inventory — manufacturing work in progress classified by the single shared
 // classifier that the authoritative demand calculation uses, so this page and the
@@ -12,7 +13,9 @@ import { classifyCurrentWip, type WipClassificationResult } from "@/lib/demand/w
 //
 // Lot-level rows are demand trace data: they require demand.trace, exactly like
 // /api/analysis/demand-trace, so this route cannot be used as a side channel.
-export const GET = withApi({ permission: "analysis.read" }, async (req: Request, _ctx, { principal }) => {
+export const GET = withApi(
+  { permission: "analysis.read", scoped: true },
+  async (req: Request, _ctx, { principal, scope }) => {
   const url = new URL(req.url);
   const country = qStr(url, "country");
   const branch = qStr(url, "branch");
@@ -24,6 +27,8 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request,
 
   const classified = await classifyCurrentWip(db, {
     filter: { country, branch, lab },
+    // The wrapper has already refused an out-of-scope request; this narrows the read.
+    scope,
     take: SCAN_MAX,
   });
   scanned(classified.results);
@@ -108,5 +113,7 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request,
     pageSize,
     total,
     hasMore: canSeeLots ? page * pageSize < total : false,
+    accessScope: describeScope(scope),
   });
-});
+  },
+);

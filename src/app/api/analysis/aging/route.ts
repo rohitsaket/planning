@@ -1,7 +1,7 @@
 import { ok } from "@/lib/api-utils";
 import { withApi, qEnum, qInt, qStr } from "@/lib/api/with-api";
 import { ApiError } from "@/lib/api/errors";
-import { INVENTORY_BUCKETS, type InventoryBucket } from "@/lib/analysis/inventory-position";
+import { isInventoryBucket, type InventoryBucket } from "@/lib/analysis/inventory-position";
 import {
   AGING_PAGE_DEFAULT,
   AGING_PAGE_MAX,
@@ -10,6 +10,7 @@ import {
   readAgingSummary,
   type AgingFilters,
 } from "@/lib/analysis/stock-aging";
+import { describeScope, type EffectiveScope } from "@/lib/auth/access-scope";
 
 /**
  * STOCK AGING — one bounded read endpoint.
@@ -28,13 +29,16 @@ import {
 
 const SECTIONS = ["lots", "summary"] as const;
 
-export const GET = withApi({ permission: "analysis.read" }, async (req: Request) => {
+export const GET = withApi({ permission: "analysis.read", scoped: true }, async (req: Request, _ctx, { scope }) => {
   const url = new URL(req.url);
   const section = qEnum(url, "section", SECTIONS, "lots");
-  const filters = parseAgingFilters(url);
+  // The wrapper has already refused a request for a country or lab outside this
+  // caller's scope. Carrying the scope into the filters is what narrows the query
+  // itself, so an unfiltered request returns the caller's scope rather than everything.
+  const filters = parseAgingFilters(url, scope);
 
   if (section === "summary") {
-    return ok({ section, ...(await readAgingSummary(filters)) });
+    return ok({ section, accessScope: describeScope(scope), ...(await readAgingSummary(filters)) });
   }
 
   const paging = {
@@ -45,20 +49,33 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request)
   return ok({
     section,
     activeFilters: describeAgingFilters(filters),
+    // What this caller is allowed to see, so a narrowed page says why it is narrow.
+    accessScope: describeScope(scope),
     ...(await readAgingLots(filters, paging)),
   });
 });
 
-/** Every filter current stock can honour. An unknown bucket is refused. */
-export function parseAgingFilters(url: URL): AgingFilters {
-  const bucket = qStr(url, "bucket", 40);
-  if (bucket && !(INVENTORY_BUCKETS as readonly string[]).includes(bucket)) {
-    throw new ApiError(400, "BAD_REQUEST", "Query parameter 'bucket' is not a recognized inventory bucket.");
+/**
+ * Every filter current stock can honour. An unknown bucket is refused.
+ *
+ * The accepted vocabulary is the derived one the summary emits — the seven inventory
+ * buckets — so a drill-down from the Aging Dashboard arrives with a value this parser
+ * recognizes. A raw `inventoryClass` value is not a bucket and is rejected as such.
+ */
+export function parseAgingFilters(url: URL, scope: EffectiveScope): AgingFilters {
+  const rawBucket = qStr(url, "bucket", 40);
+  let bucket: InventoryBucket | null = null;
+  if (rawBucket !== null) {
+    if (!isInventoryBucket(rawBucket)) {
+      throw new ApiError(400, "BAD_REQUEST", "Query parameter 'bucket' is not a recognized inventory bucket.");
+    }
+    bucket = rawBucket;
   }
 
   return {
     ...EMPTY_AGING_FILTERS,
-    bucket: (bucket as InventoryBucket | null) ?? null,
+    scope,
+    bucket,
     lab: qStr(url, "lab", 60),
     shape: qStr(url, "shape", 60),
     // Country and branch are real dimensions of a stock record, so they genuinely apply
@@ -71,8 +88,15 @@ export function parseAgingFilters(url: URL): AgingFilters {
   };
 }
 
+/**
+ * The filters the caller chose, for display.
+ *
+ * `scope` is deliberately excluded: it is an authorization decision, not something
+ * the caller selected, and listing it as an active filter would invite someone to try
+ * clearing it. The caller's own scope is disclosed separately and in full.
+ */
 export function describeAgingFilters(f: AgingFilters): Array<{ key: string; value: string }> {
   return Object.entries(f)
-    .filter(([, v]) => v !== null && v !== "")
+    .filter(([key, v]) => key !== "scope" && v !== null && v !== "")
     .map(([key, value]) => ({ key, value: String(value) }));
 }

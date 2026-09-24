@@ -2,11 +2,14 @@ import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { ok } from "@/lib/api-utils";
 import { withApi, qStr, qInt } from "@/lib/api/with-api";
+import { describeScope, describeScopeApplication, scopePredicates, scopeWhere } from "@/lib/auth/access-scope";
 
 // Order Analysis — sales orders with line aggregates.
 // Honors global filter params: country, branch (SalesOrder has no lab dimension).
 // Filters are applied before paging; the response carries a real total.
-export const GET = withApi({ permission: "orders.read" }, async (req: Request) => {
+export const GET = withApi(
+  { permission: "orders.read", scoped: true },
+  async (req: Request, _ctx, { scope }) => {
   const url = new URL(req.url);
   const page = qInt(url, "page", { def: 1, min: 1, max: 1_000_000 });
   const pageSize = qInt(url, "pageSize", { def: 100, min: 1, max: 500 });
@@ -15,7 +18,9 @@ export const GET = withApi({ permission: "orders.read" }, async (req: Request) =
   const status = qStr(url, "status", 40);
   const search = qStr(url, "q", 100);
 
-  const where: Prisma.SalesOrderWhereInput = {};
+  // An order carries a country but no lab, so only the country half of the scope can
+  // be applied; `scopeApplication` on the response says so rather than implying more.
+  const where: Prisma.SalesOrderWhereInput = { ...scopeWhere(scope, { country: "country", lab: null }) };
   if (country) where.country = country;
   if (branch) where.branch = branch;
   if (status) where.status = status;
@@ -28,7 +33,7 @@ export const GET = withApi({ permission: "orders.read" }, async (req: Request) =
   }
 
   // Totals for the KPI row: computed over every matching order, not just this page.
-  const filters: Prisma.Sql[] = [];
+  const filters: Prisma.Sql[] = [...scopePredicates(scope, { country: 'o."country"', lab: null })];
   if (country) filters.push(Prisma.sql`o.country = ${country}`);
   if (branch) filters.push(Prisma.sql`o.branch = ${branch}`);
   if (status) filters.push(Prisma.sql`o.status = ${status}`);
@@ -100,5 +105,8 @@ export const GET = withApi({ permission: "orders.read" }, async (req: Request) =
     pageSize,
     total,
     hasMore: page * pageSize < total,
+    accessScope: describeScope(scope),
+    scopeApplication: describeScopeApplication(scope, ["COUNTRY"]),
   });
-});
+  },
+);

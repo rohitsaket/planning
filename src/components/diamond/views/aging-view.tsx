@@ -13,6 +13,9 @@ import { ServerPagination } from "@/components/diamond/shared/server-pagination"
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AlertTriangle, Boxes, Search } from "lucide-react";
+import { BUCKET_LABELS } from "@/lib/analysis/bucket-vocabulary";
+import { SimulationBanner } from "@/components/diamond/shared/simulation-banner";
+import type { SourceDisclosure } from "@/lib/analysis/source-disclosure";
 
 /**
  * STOCK AGING — current stock, and an honest statement that age cannot yet be derived.
@@ -44,6 +47,7 @@ interface AgingLotRow {
 }
 
 interface AgingResponse {
+  sourceDisclosure: SourceDisclosure | null;
   availability: "AVAILABLE" | "ANCHOR_NOT_CONFIRMED";
   unavailableMessage: string | null;
   unavailableDetail: string | null;
@@ -62,8 +66,11 @@ export function AgingView() {
   const [search, setSearch] = useState("");
   const [appliedSearch, setAppliedSearch] = useState("");
 
-  // A drill-down from the Aging Dashboard arrives as a bucket in the nav context.
-  const bucketFromNav = trace?.category ?? null;
+  // A drill-down from the Aging Dashboard arrives in the typed `bucket` field of the nav
+  // context. It used to be read from the generic `category` field, which carried a raw
+  // `inventoryClass` value the API refused — so the filter never applied and the page
+  // showed everything while claiming to show one bucket.
+  const bucketFromNav = trace?.bucket ?? null;
 
   const url = useMemo(() => {
     const p = new URLSearchParams();
@@ -119,26 +126,22 @@ export function AgingView() {
     <div className="space-y-4 p-3">
       <PageHeader
         title="Stock Aging"
-        subtitle="Current canonical stock by bucket, category and location"
+        subtitle={
+          bucketFromNav
+            ? `Current canonical stock — ${BUCKET_LABELS[bucketFromNav]}`
+            : "Current canonical stock by bucket, category and location"
+        }
       />
+      {/* Persistent and unmistakable while fixture data is on screen. */}
+      <SimulationBanner disclosure={data?.sourceDisclosure} />
 
-      {ageUnavailable && (
-        <InfoBanner variant="warning">
-          <div className="space-y-1">
-            <span className="flex items-center gap-2 font-semibold">
-              <AlertTriangle className="h-4 w-4" />
-              {data?.unavailableMessage}
-            </span>
-            <div className="text-xs">{data?.unavailableDetail}</div>
-            <div className="text-xs text-muted-foreground">{data?.bucketsMessage}</div>
-          </div>
-        </InfoBanner>
-      )}
+
 
       <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
-        <KpiCard label="Current lots" value={data?.totals.currentLots ?? 0} intent="info" icon={Boxes} hint="Records currently in stock" />
-        <KpiCard label="Confirmed quantity" value={data?.totals.confirmedQuantity ?? 0} unit="pcs" intent="success" hint="Pieces the source established" />
-        <KpiCard label="Needing review" value={data?.totals.lotsNeedingReview ?? 0} intent="warning" hint="Quantity or classification not confirmed" />
+        {/* All three cover the complete filtered result, not the page on screen. */}
+        <KpiCard label="Current lots" value={data?.totals.currentLots ?? 0} intent="info" icon={Boxes} hint="Records currently in stock, across all pages" />
+        <KpiCard label="Confirmed quantity" value={data?.totals.confirmedQuantity ?? 0} unit="pcs" intent="success" hint="Pieces the source established, across all pages" />
+        <KpiCard label="Needing review" value={data?.totals.lotsNeedingReview ?? 0} intent="warning" hint="Quantity or classification not confirmed, across all pages" />
       </div>
 
       <Section

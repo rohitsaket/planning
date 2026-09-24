@@ -1032,7 +1032,6 @@ async function main() {
   const operationalModules = [
     path.join(REPO, "src", "lib", "demand", "demand-service.ts"),
     path.join(REPO, "src", "lib", "fantasy", "sync-service.ts"),
-    path.join(REPO, "src", "lib", "analytics", "stock-position.ts"),
   ];
   for (const file of operationalModules) {
     const src = codeOf(file);

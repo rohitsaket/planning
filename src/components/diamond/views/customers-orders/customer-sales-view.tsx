@@ -12,7 +12,9 @@ import { EmptyState, InfoBanner, NumberCell } from "@/components/diamond/shared/
 import { ServerPagination } from "@/components/diamond/shared/server-pagination";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { FlaskConical, Info, Search, X } from "lucide-react";
+import { Info, Search, X } from "lucide-react";
+import { SimulationBanner } from "@/components/diamond/shared/simulation-banner";
+import type { SourceDisclosure } from "@/lib/analysis/source-disclosure";
 
 /**
  * CUSTOMERS — who bought, during the authoritative 90-day window.
@@ -22,28 +24,6 @@ import { FlaskConical, Info, Search, X } from "lucide-react";
  * separate columns because they are three different facts — a record count is not a
  * piece count.
  */
-
-/**
- * Three separate dimensions, kept separate on purpose. Where the figures came from is
- * not the same question as whether the snapshot is usable, which is not the same
- * question as whether every sale could be attributed to a buyer.
- */
-interface SnapshotSummaryResponse {
-  hasSnapshot: boolean;
-  sourceState: "SIMULATION" | "LIVE";
-  sourceLabel: string;
-  snapshotState: "AVAILABLE" | "INCOMPLETE" | "UNAVAILABLE";
-  periodLabel: string;
-  windowDays: number | null;
-  snapshotGeneratedIst: string | null;
-  businessDateIst: string | null;
-  identityCompleteness: "COMPLETE" | "PARTIAL" | "UNKNOWN";
-  recordsWithIdentity: number | null;
-  recordsMissingIdentity: number | null;
-  blockingIssueCount: number;
-  identityWarning: string | null;
-  snapshotWarning: string | null;
-}
 
 interface PagingMeta { page: number; pageSize: number; total: number; hasMore: boolean }
 
@@ -67,6 +47,7 @@ interface CustomerRow {
 }
 
 interface CustomersResponse {
+  sourceDisclosure: SourceDisclosure | null;
   available: boolean;
   unavailableReason: string | null;
   rows: CustomerRow[];
@@ -88,6 +69,7 @@ interface DetailResponse {
   records: Array<{ recordId: string; lotId: string; categoryId: string; docDateIst: string | null; confirmedQuantity: number; measuredWeight: number; country: string | null; branch: string | null }>;
   recordPaging: PagingMeta;
   businessDateIst: string;
+  sourceDisclosure: SourceDisclosure | null;
   isSimulated: boolean;
   exclusionCodes: Array<{ code: string; count: number }>;
 }
@@ -101,85 +83,6 @@ interface DetailResponse {
  * customer sales. What a reader actually needs is the provenance, the period and the
  * cutoff — plus a warning when, and only when, something is wrong.
  */
-function SnapshotSummaryStrip({
-  summary,
-  loading,
-  onOpenDataQuality,
-}: {
-  summary: SnapshotSummaryResponse | undefined;
-  loading: boolean;
-  onOpenDataQuality: () => void;
-}) {
-  const canSeeDataQuality = useAuthStore((st) => st.user?.permissions ?? []).includes("data_quality.read");
-
-  if (loading || !summary) {
-    return (
-      <div className="rounded-md border border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
-        Loading snapshot details…
-      </div>
-    );
-  }
-
-  const simulated = summary.sourceState === "SIMULATION";
-
-  return (
-    <div className="space-y-2">
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-border bg-muted/20 px-3 py-2 text-xs">
-        {/* One source badge, not three rows saying the same thing. */}
-        <Badge variant={simulated ? "info" : "success"} className="gap-1">
-          {simulated && <FlaskConical className="h-3 w-3" />}
-          {summary.sourceLabel}
-        </Badge>
-        <span className="text-muted-foreground">·</span>
-        <span className="text-muted-foreground">{summary.periodLabel}</span>
-        {summary.snapshotGeneratedIst && (
-          <>
-            <span className="text-muted-foreground">·</span>
-            <span className="text-muted-foreground">
-              Snapshot generated {summary.snapshotGeneratedIst} IST
-            </span>
-          </>
-        )}
-        {summary.businessDateIst && (
-          <>
-            <span className="text-muted-foreground">·</span>
-            <span className="text-muted-foreground">Business cutoff {summary.businessDateIst} IST</span>
-          </>
-        )}
-      </div>
-
-      {simulated && (
-        <InfoBanner variant="warning">
-          <span className="flex items-center gap-2 font-semibold">
-            <FlaskConical className="h-4 w-4" />
-            These figures are simulation output, not live Fantasy data.
-          </span>
-        </InfoBanner>
-      )}
-
-      {/* Warnings render only when they apply, and each states one thing. */}
-      {summary.snapshotWarning && <InfoBanner variant="critical">{summary.snapshotWarning}</InfoBanner>}
-      {summary.identityWarning && <InfoBanner variant="warning">{summary.identityWarning}</InfoBanner>}
-
-      {summary.blockingIssueCount > 0 && (
-        <InfoBanner variant="warning">
-          <div className="flex flex-wrap items-center gap-2">
-            <span>
-              {summary.blockingIssueCount} blocking data-quality{" "}
-              {summary.blockingIssueCount === 1 ? "issue is" : "issues are"} open and may affect these figures.
-            </span>
-            {canSeeDataQuality && (
-              <Button size="sm" variant="outline" className="h-6" onClick={onOpenDataQuality}>
-                Review data quality
-              </Button>
-            )}
-          </div>
-        </InfoBanner>
-      )}
-    </div>
-  );
-}
-
 const PAGE_SIZE = 25;
 
 export function CustomerSalesView() {
@@ -206,7 +109,6 @@ export function CustomerSalesView() {
     return `/api/analysis/customers-orders?${p.toString()}`;
   };
 
-  const summary = useApi<SnapshotSummaryResponse>(qs({ section: "summary" }));
   const customers = useApi<CustomersResponse>(qs({ section: "customers", page, pageSize: PAGE_SIZE }));
   const detail = useApi<DetailResponse>(
     selected ? qs({ section: "customer-detail", customerKey: selected, page: detailPage, pageSize: PAGE_SIZE }) : "",
@@ -285,8 +187,8 @@ export function CustomerSalesView() {
 
   return (
     <div className="space-y-4">
-      <SnapshotSummaryStrip summary={summary.data} loading={summary.isLoading} onOpenDataQuality={() => setView("data-quality-issues")} />
-
+      {/* Persistent and unmistakable while fixture data is on screen. */}
+      <SimulationBanner disclosure={customers.data?.sourceDisclosure} />
       <Section
         title="Customers"
         description={

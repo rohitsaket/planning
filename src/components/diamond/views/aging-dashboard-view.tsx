@@ -10,6 +10,9 @@ import { DataTable, type Column } from "@/components/diamond/shared/data-table";
 import { InfoBanner, NumberCell } from "@/components/diamond/shared/empty-state";
 import { Button } from "@/components/ui/button";
 import { AlertTriangle, Boxes, Globe } from "lucide-react";
+import { isInventoryBucket } from "@/lib/analysis/bucket-vocabulary";
+import { SimulationBanner } from "@/components/diamond/shared/simulation-banner";
+import type { SourceDisclosure } from "@/lib/analysis/source-disclosure";
 
 /**
  * AGING DASHBOARD — the management view of current stock.
@@ -33,6 +36,7 @@ interface DistributionRow {
 }
 
 interface SummaryResponse {
+  sourceDisclosure: SourceDisclosure | null;
   availability: "AVAILABLE" | "ANCHOR_NOT_CONFIRMED";
   unavailableMessage: string | null;
   unavailableDetail: string | null;
@@ -40,6 +44,7 @@ interface SummaryResponse {
   currentLots: number;
   byBucket: DistributionRow[];
   byLocation: DistributionRow[];
+  locations: { total: number; shown: number; limit: number; truncated: boolean };
 }
 
 export function AgingDashboardView() {
@@ -58,8 +63,12 @@ export function AgingDashboardView() {
   const { data, isLoading } = useApi<SummaryResponse>(url);
   const ageUnavailable = data?.availability === "ANCHOR_NOT_CONFIRMED";
 
+  // Summed over the bucket distribution, which the service aggregates across the whole
+  // filtered result — every current record is in exactly one bucket, so these are totals
+  // for all of it and not for a page of it.
   const totalConfirmed = (data?.byBucket ?? []).reduce((s, r) => s + r.confirmedQuantity, 0);
   const totalReview = (data?.byBucket ?? []).reduce((s, r) => s + r.lotsNeedingReview, 0);
+  const locations = data?.locations;
 
   const bucketColumns: Column<DistributionRow>[] = [
     {
@@ -68,10 +77,12 @@ export function AgingDashboardView() {
         <button
           type="button"
           className="text-left font-medium text-primary hover:underline"
-          // The exact bucket key is carried verbatim into Stock Aging, so the drill-down
-          // opens the rows this line summarizes rather than an unfiltered list.
-          onClick={() => openCategoryView("analysis-aging", { category: r.key })}
-          title={r.key}
+          // The derived bucket key is carried in the typed bucket field, which is the
+          // vocabulary Stock Aging and its API accept. It used to travel in the generic
+          // `category` field as a raw `inventoryClass` value, which the page could not
+          // read and the API rejected, so every drill-down opened an unfiltered list.
+          onClick={() => openCategoryView("analysis-aging", { bucket: isInventoryBucket(r.key) ? r.key : null })}
+          title={r.label}
         >
           {r.label}
         </button>
@@ -95,24 +106,15 @@ export function AgingDashboardView() {
         title="Aging Dashboard"
         subtitle="Current canonical stock grouped by inventory bucket and location"
         actions={
-          <Button size="sm" variant="outline" className="h-8" onClick={() => openCategoryView("analysis-aging", { category: "" })}>
+          <Button size="sm" variant="outline" className="h-8" onClick={() => openCategoryView("analysis-aging", {})}>
             Open Stock Aging
           </Button>
         }
       />
+      {/* Persistent and unmistakable while fixture data is on screen. */}
+      <SimulationBanner disclosure={data?.sourceDisclosure} />
 
-      {ageUnavailable && (
-        <InfoBanner variant="warning">
-          <div className="space-y-1">
-            <span className="flex items-center gap-2 font-semibold">
-              <AlertTriangle className="h-4 w-4" />
-              {data?.unavailableMessage}
-            </span>
-            <div className="text-xs">{data?.unavailableDetail}</div>
-            <div className="text-xs text-muted-foreground">{data?.bucketsMessage}</div>
-          </div>
-        </InfoBanner>
-      )}
+
 
       <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
         <KpiCard label="Current lots" value={data?.currentLots ?? 0} intent="info" icon={Boxes} hint="Records currently in stock" />
@@ -138,6 +140,12 @@ export function AgingDashboardView() {
         description="Factual distribution of current stock. It is not a transfer recommendation."
         actions={<Globe className="h-3.5 w-3.5 text-muted-foreground" />}
       >
+        {locations?.truncated && (
+          <div className="border-b border-border px-4 py-2 text-[11px] text-muted-foreground">
+            Showing {locations.shown} of {locations.total} locations. The list is limited to{" "}
+            {locations.limit}; narrow the filters to see the rest.
+          </div>
+        )}
         <DataTable
           columns={locationColumns}
           rows={data?.byLocation ?? []}

@@ -16,8 +16,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import {
-  AlertTriangle, FlaskConical, Info, Search, TrendingUp, Package, Scale,
+  AlertTriangle, Info, Search, TrendingUp, Package, Scale,
 } from "lucide-react";
+import { SimulationBanner } from "@/components/diamond/shared/simulation-banner";
+import type { SourceDisclosure } from "@/lib/analysis/source-disclosure";
 
 /**
  * EXECUTIVE ANALYSIS — past sales → demand → available inventory → shortage/excess.
@@ -47,6 +49,7 @@ interface PageMeta {
 interface ActiveFilter { key: string; value: string }
 
 interface ReadinessResponse {
+  sourceDisclosure: SourceDisclosure | null;
   rows: Array<{ key: string; label: string; value: string; state: ReadinessState }>;
   isSimulated: boolean;
   sourceLabel: string;
@@ -425,85 +428,9 @@ export function ExecutiveAnalysisView() {
       <PageHeader
         title="Executive Analysis"
         subtitle="Past sales → demand → available inventory → shortage and excess"
-        meta={
-          readiness.data?.demandRunAtIst
-            ? `Demand snapshot: ${readiness.data.demandRunAtIst}`
-            : "No completed demand run"
-        }
       />
-
-      {/* Persistent and unmistakable while fixture data is active. */}
-      {simulated && (
-        <InfoBanner variant="warning">
-          <span className="flex items-center gap-2 font-semibold">
-            <FlaskConical className="h-4 w-4" />
-            Source: Fixture Simulation — these figures are simulation output, not live Fantasy data.
-          </span>
-        </InfoBanner>
-      )}
-
-      {readiness.data?.demandMayNeedRecalculation && (
-        <InfoBanner variant="warning">
-          <span className="flex items-center gap-2">
-            <AlertTriangle className="h-4 w-4" />
-            Inventory was synchronized after this demand run finished, so the demand result may need
-            recalculation. The figures below are the stored run and have not been recomputed here.
-          </span>
-        </InfoBanner>
-      )}
-
-      {/*
-        The distinct availability states. REFRESH_REQUIRED is deliberately separate from
-        "no data" and from "zero sales": Fantasy data exists, it has simply not been
-        analysed yet, and showing zeros here would answer a question nobody asked.
-      */}
-      {availability !== null && availability !== "CURRENT" && (
-        <InfoBanner variant={availability === "NO_FANTASY_DATA" ? "critical" : "warning"}>
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="flex items-center gap-2">
-              <AlertTriangle className="h-4 w-4" />
-              <span className="font-semibold">{availability.replace(/_/g, " ")}</span>
-              <span>— {readiness.data?.availabilityMessage}</span>
-            </span>
-            {readiness.data?.refreshRequired && canRunDemand && (
-              <Button
-                size="sm"
-                className="h-7"
-                disabled={refresh.isPending}
-                onClick={() => refresh.mutate()}
-              >
-                {refresh.isPending ? "Calculating…" : "Calculate 90-day analysis"}
-              </Button>
-            )}
-            {readiness.data?.refreshRequired && !canRunDemand && (
-              // No permission to run it here; the authoritative page is still reachable.
-              <Button size="sm" variant="outline" className="h-7" onClick={() => setView("demand-overview")}>
-                Open Demand Overview
-              </Button>
-            )}
-          </div>
-        </InfoBanner>
-      )}
-
-      {/*
-        Legacy runs that exist but cannot back Analysis. Listed with their fixed reason
-        codes so "why is it asking me to recalculate when runs exist?" has an answer.
-      */}
-      {readiness.data && readiness.data.ineligibleRuns.length > 0 && readiness.data.refreshRequired && (
-        <InfoBanner variant="info">
-          <div className="space-y-1">
-            <span className="font-medium">
-              {readiness.data.ineligibleRuns.length} earlier demand run
-              {readiness.data.ineligibleRuns.length === 1 ? "" : "s"} cannot be used for analysis:
-            </span>
-            <ul className="ml-4 list-disc text-xs">
-              {readiness.data.ineligibleRuns.slice(0, 5).map((r) => (
-                <li key={r.runId}>{r.reasons.map((c) => c.replace(/_/g, " ").toLowerCase()).join(", ")}</li>
-              ))}
-            </ul>
-          </div>
-        </InfoBanner>
-      )}
+      {/* Persistent and unmistakable while fixture data is on screen. */}
+      <SimulationBanner disclosure={readiness.data?.sourceDisclosure} />
 
       {/* Navigation Tabs */}
       <div className="flex items-center gap-1.5 border-b border-border bg-card/60 p-1 rounded-lg">

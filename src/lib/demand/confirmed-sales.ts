@@ -25,6 +25,8 @@ import {
   resolveCanonicalQuantity,
 } from "@/lib/fantasy/quantity-weight";
 import { getISTDateString, parseISTDateToUTC } from "@/lib/fantasy/time";
+import { classifyCanonicalCategory, loadCategoryClassificationContext } from "@/lib/fantasy/category-classification";
+import { loadLabMappings } from "@/lib/fantasy/sync-service";
 
 if (typeof window !== "undefined") {
   throw new Error("demand/confirmed-sales is server-only and must not be imported by client code.");
@@ -68,7 +70,19 @@ export interface ConfirmedSaleFact {
   readonly shape: string;
   readonly weight: number;
   readonly labRaw: string | null;
+  /**
+   * The planning-category decision in force when this sale's version was written.
+   *
+   * Carried from the canonical history rather than re-derived, so the demand run groups
+   * the sale exactly as the synchronizer classified it. A legacy seeded sale carries no
+   * canonical classification and is therefore never approved.
+   */
   readonly labNormalized: string | null;
+  readonly shapeNormalized: string | null;
+  readonly weightBandLabel: string | null;
+  readonly categoryLabState: string | null;
+  readonly categoryShapeState: string | null;
+  readonly categoryState: string | null;
   readonly saleTotalUsd: number | null;
   readonly customerName: string | null;
   /** Pieces. Only meaningful when `quantityProvenance` is EXPLICIT_FIXTURE. */
@@ -230,6 +244,11 @@ async function loadCanonicalSaleFacts(
       weight: true,
       labRaw: true,
       labNormalized: true,
+      shapeNormalized: true,
+      weightBandLabel: true,
+      categoryLabState: true,
+      categoryShapeState: true,
+      categoryState: true,
       saleTotalUsd: true,
       customerName: true,
       quantity: true,
@@ -321,6 +340,11 @@ async function loadCanonicalSaleFacts(
       weight: Number(h.weight),
       labRaw: h.labRaw,
       labNormalized: h.labNormalized,
+      shapeNormalized: h.shapeNormalized,
+      weightBandLabel: h.weightBandLabel,
+      categoryLabState: h.categoryLabState,
+      categoryShapeState: h.categoryShapeState,
+      categoryState: h.categoryState,
       saleTotalUsd: h.saleTotalUsd === null ? null : Number(h.saleTotalUsd),
       customerName: h.customerName,
       quantity,
@@ -372,12 +396,23 @@ async function loadLegacySaleFacts(
   const exclusions: ConfirmedSaleExclusion[] = [];
   const seen = new Set<string>();
 
+  // A legacy seeded row has no canonical projection to consume, so its category is
+  // classified here from its own columns — by the same classifier, so an unapproved lab
+  // or shape is quarantined on this path exactly as it is on the canonical one. This is
+  // not the demand run reinterpreting canonical data; it is the legacy source being
+  // classified for the first and only time.
+  const legacyContext = await loadCategoryClassificationContext(client, await loadLabMappings(client));
+
   for (const s of rows) {
     const eventKey = `LEGACY_${s.lotId}_${s.id}`;
     if (seen.has(eventKey)) continue;
     seen.add(eventKey);
 
     const rawQuantity = Number(s.qty);
+    const legacyCategory = classifyCanonicalCategory(
+      { labRaw: s.labRaw ?? s.labNormalized, shapeRaw: s.shape, weightCt: Number(s.weight) },
+      legacyContext,
+    );
     facts.push({
       eventKey,
       lotId: s.lotId,
@@ -386,7 +421,12 @@ async function loadLegacySaleFacts(
       shape: s.shape,
       weight: Number(s.weight),
       labRaw: s.labRaw,
-      labNormalized: s.labNormalized,
+      labNormalized: legacyCategory.labNormalized,
+      shapeNormalized: legacyCategory.shapeNormalized,
+      weightBandLabel: legacyCategory.weightBandLabel,
+      categoryLabState: legacyCategory.labState,
+      categoryShapeState: legacyCategory.shapeState,
+      categoryState: legacyCategory.state,
       saleTotalUsd: s.saleTotalUsd === null ? null : Number(s.saleTotalUsd),
       customerName: null,
       quantity: Number.isFinite(rawQuantity) && rawQuantity > 0 ? rawQuantity : 0,

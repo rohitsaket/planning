@@ -2,6 +2,7 @@ import { ok } from "@/lib/api-utils";
 import { withApi, qInt } from "@/lib/api/with-api";
 import { readAgingSummary } from "@/lib/analysis/stock-aging";
 import { describeAgingFilters, parseAgingFilters } from "../aging/route";
+import { describeScope } from "@/lib/auth/access-scope";
 
 /**
  * TRANSFER ANALYZER — whether an authoritative transfer recommendation can be made.
@@ -46,9 +47,9 @@ export const TRANSFER_PREREQUISITES = [
   "Approved source and destination rules, including which locations may supply which.",
 ] as const;
 
-export const GET = withApi({ permission: "analysis.read" }, async (req: Request) => {
+export const GET = withApi({ permission: "analysis.read", scoped: true }, async (req: Request, _ctx, { scope }) => {
   const url = new URL(req.url);
-  const filters = parseAgingFilters(url);
+  const filters = parseAgingFilters(url, scope);
   // Bounded: the distribution is a summary, and the caller cannot widen it into a scan.
   void qInt(url, "page", { def: 1, min: 1, max: 1_000 });
 
@@ -62,12 +63,19 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request)
     prerequisites: TRANSFER_PREREQUISITES,
     candidates: [],
     activeFilters: describeAgingFilters(filters),
+    accessScope: describeScope(scope),
+    // The distribution below is canonical stock, so it carries the same source
+    // attribution as every other stock surface.
+    sourceDisclosure: summary.sourceDisclosure,
     // Factual only. Country and branch are real dimensions of a stock record, so this
     // distribution is authoritative — it is the demand side that has no location.
     distribution: {
       currentLots: summary.currentLots,
       byLocation: summary.byLocation,
       byBucket: summary.byBucket,
+      // How many locations exist versus how many are listed. A distribution that is only
+      // part of the picture says so rather than reading as the whole of it.
+      locations: summary.locations,
     },
   });
 });

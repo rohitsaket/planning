@@ -1,9 +1,12 @@
 import { ok } from "@/lib/api-utils";
 import { withApi, qEnum, qInt, qStr } from "@/lib/api/with-api";
 import { ApiError } from "@/lib/api/errors";
+import { describeScope } from "@/lib/auth/access-scope";
 import {
   INVENTORY_BUCKETS,
   INVENTORY_PAGE_DEFAULT,
+  isInventoryBucket,
+  readInventorySourceDisclosure,
   INVENTORY_PAGE_MAX,
   LOT_SORTS,
   POSITION_GROUPINGS,
@@ -29,7 +32,9 @@ import {
 const SECTIONS = ["readiness", "position", "categories", "lots", "reconciliation"] as const;
 const STOCK_TYPES = ["POLISHED", "ROUGH", "WIP"] as const;
 
-export const GET = withApi({ permission: "analysis.read" }, async (req: Request, _ctx, { principal }) => {
+export const GET = withApi(
+  { permission: "analysis.read", scoped: true },
+  async (req: Request, _ctx, { principal, scope }) => {
   const url = new URL(req.url);
   const section = qEnum(url, "section", SECTIONS, "readiness");
 
@@ -39,6 +44,9 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request,
   }
 
   const filters: InventoryFilters = {
+    // The wrapper has already refused a request for a country or lab outside this
+    // caller's scope; carrying it here is what narrows the query itself.
+    scope,
     country: qStr(url, "country", 60),
     branch: qStr(url, "branch", 60),
     lab: qStr(url, "lab", 60),
@@ -46,7 +54,7 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request,
     weightBand: qStr(url, "weightBand", 60),
     department: qStr(url, "department", 120),
     location: qStr(url, "location", 120),
-    bucket: (bucket as InventoryBucket | null) ?? null,
+    bucket: bucket && isInventoryBucket(bucket) ? bucket : null,
     stockType: qEnumOrNull(url, "stockType", STOCK_TYPES),
     lifecycle: qStr(url, "lifecycle", 60),
     holdState: qStr(url, "holdState", 40),
@@ -59,19 +67,26 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request,
     pageSize: qInt(url, "pageSize", { def: INVENTORY_PAGE_DEFAULT, min: 1, max: INVENTORY_PAGE_MAX }),
   };
 
+  // `scope` is excluded: it is an authorization decision, not a filter the caller chose,
+  // and listing it as active would invite someone to try clearing it. The caller's own
+  // scope is disclosed separately, in full, on every response.
   const activeFilters = Object.entries(filters)
-    .filter(([, v]) => v !== null && v !== "")
+    .filter(([key, v]) => key !== "scope" && v !== null && v !== "")
     .map(([key, value]) => ({ key, value: String(value) }));
+  const accessScope = describeScope(scope);
+  // Attached to every section, not just readiness: each Inventory tab fetches its own
+  // section, and a tab without the notice would present simulated lots unlabelled.
+  const sourceDisclosure = await readInventorySourceDisclosure(filters);
 
   switch (section) {
     case "position": {
       const grouping = qEnum(url, "grouping", POSITION_GROUPINGS, "bucket") as PositionGrouping;
       const result = await readInventoryPosition(filters, grouping);
-      return ok({ section, activeFilters, ...result });
+      return ok({ section, activeFilters, accessScope, sourceDisclosure, ...result });
     }
     case "categories": {
       const result = await readCategoryInventory(filters, paging);
-      return ok({ section, activeFilters, ...result });
+      return ok({ section, activeFilters, accessScope, sourceDisclosure, ...result });
     }
     case "lots": {
       const sort = qEnum(url, "sort", LOT_SORTS, "lastSeen") as LotSort;
@@ -79,18 +94,21 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request,
       // to a caller already trusted with Fantasy source detail.
       const canSeeSourceRecordId = principal.permissions.includes("fantasy.read");
       const result = await readLotInventory(filters, paging, sort, canSeeSourceRecordId);
-      return ok({ section, sort, activeFilters, ...result });
+      return ok({ section, sort, activeFilters, accessScope, sourceDisclosure, ...result });
     }
     case "reconciliation": {
       const result = await reconcileWithMirrors();
-      return ok({ section, activeFilters, ...result });
+      return ok({ section, activeFilters, accessScope, sourceDisclosure, ...result });
     }
     default: {
       const result = await readInventoryReadiness();
-      return ok({ section: "readiness", activeFilters, ...result });
+      // Readiness describes the whole canonical set, so it carries its own unfiltered
+      // disclosure rather than the filtered one computed above.
+      return ok({ section: "readiness", activeFilters, accessScope, ...result });
     }
   }
-});
+  },
+);
 
 /** An optional enum parameter: absent is null, present-but-unknown is refused. */
 function qEnumOrNull<T extends string>(url: URL, name: string, values: readonly T[]): T | null {

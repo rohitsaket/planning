@@ -11,7 +11,9 @@ import { EmptyState, InfoBanner, NumberCell } from "@/components/diamond/shared/
 import { ServerPagination } from "@/components/diamond/shared/server-pagination";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { AlertTriangle, Database, FlaskConical, Info, Search } from "lucide-react";
+import { Database, Info, Search } from "lucide-react";
+import { SimulationBanner } from "@/components/diamond/shared/simulation-banner";
+import type { SourceDisclosure } from "@/lib/analysis/source-disclosure";
 
 /**
  * ANALYSIS INVENTORY — current canonical stock.
@@ -21,22 +23,10 @@ import { AlertTriangle, Database, FlaskConical, Info, Search } from "lucide-reac
  * centralized classification, already decided server-side.
  */
 
-type ReadinessState =
-  | "CURRENT" | "SIMULATED" | "STALE" | "INCOMPLETE" | "UNKNOWN"
-  | "UNAVAILABLE" | "NOT_CONFIGURED" | "BLOCKED_BY_DATA_QUALITY";
-
 interface PagingMeta { page: number; pageSize: number; total: number; hasMore: boolean }
 
-interface ReadinessResponse {
-  rows: Array<{ key: string; label: string; value: string; state: ReadinessState }>;
-  isSimulated: boolean;
-  sourceLabel: string;
-  currentRecordCount: number;
-  inventoryNewerThanDemandRun: boolean;
-  demandRunAtIst: string | null;
-}
-
 interface PositionResponse {
+  sourceDisclosure: SourceDisclosure | null;
   grouping: string;
   rows: Array<{
     groupKey: string; bucket: string | null; confirmedQuantity: number; measuredWeight: number;
@@ -47,6 +37,7 @@ interface PositionResponse {
 }
 
 interface CategoriesResponse {
+  sourceDisclosure: SourceDisclosure | null;
   rows: Array<{
     categoryId: string; lab: string; shape: string; weightBand: string;
     physicalAvailable: number; reserved: number; memo: number; wip: number;
@@ -57,6 +48,7 @@ interface CategoriesResponse {
 }
 
 interface LotsResponse {
+  sourceDisclosure: SourceDisclosure | null;
   rows: Array<{
     lotId: string; sourceRecordId: string | null; stockType: string; lifecycle: string | null;
     bucket: string; classificationState: string | null; holdState: string | null;
@@ -70,6 +62,7 @@ interface LotsResponse {
 }
 
 interface ReconciliationResponse {
+  sourceDisclosure: SourceDisclosure | null;
   canonicalCurrent: number; polishedMirrorRows: number; roughMirrorRows: number; memoMirrorRows: number;
   presentInBoth: number; canonicalOnly: number; mirrorOnlyLegacySeed: number;
   classificationDisagreements: number; shadowProjectionCandidates: number;
@@ -95,47 +88,7 @@ function url(scope: string, extra: Record<string, string | number>): string {
   return `/api/analysis/inventory?${p.toString()}`;
 }
 
-/**
- * Source and freshness banners, shown above every tab so the state travels with the data.
- *
- * The readiness detail table it used to carry was removed as unnecessary on this page;
- * the underlying readiness section of the API is unchanged and still serves these two
- * facts — whether the source is simulated, and whether inventory has moved since the
- * last demand calculation.
- */
-function SourceStateBanners({ scope }: { scope: string }) {
-  const setView = useNavStore((s) => s.setView);
-  const { data } = useApi<ReadinessResponse>(url(scope, { section: "readiness" }));
 
-  return (
-    <>
-      {data?.isSimulated && (
-        <InfoBanner variant="warning">
-          <span className="flex items-center gap-2 font-semibold">
-            <FlaskConical className="h-4 w-4" />
-            Source: Fixture Simulation — this inventory is simulation output, not live Fantasy data.
-          </span>
-        </InfoBanner>
-      )}
-
-      {data?.inventoryNewerThanDemandRun && (
-        <InfoBanner variant="warning">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="flex items-center gap-2">
-              <AlertTriangle className="h-4 w-4" />
-              Inventory has changed since the latest demand calculation
-              {data.demandRunAtIst ? ` (${data.demandRunAtIst})` : ""}. Stored shortage figures have not been
-              recomputed here.
-            </span>
-            <Button size="sm" variant="outline" className="h-7" onClick={() => setView("demand-overview")}>
-              Open Demand Overview
-            </Button>
-          </div>
-        </InfoBanner>
-      )}
-    </>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Tab: Position
@@ -169,7 +122,8 @@ export function InventoryPositionTab() {
 
   return (
     <div className="space-y-4">
-      <SourceStateBanners scope={scope} />
+      {/* Persistent and unmistakable while fixture data is on screen. */}
+      <SimulationBanner disclosure={data?.sourceDisclosure} />
       <Section
         title="Inventory position"
         description="Every current canonical record appears in exactly one bucket. Only physical available polished stock may reduce finished-stock shortage."
@@ -253,7 +207,8 @@ export function InventoryCategoriesTab() {
 
   return (
     <div className="space-y-4">
-      <SourceStateBanners scope={scope} />
+      {/* Persistent and unmistakable while fixture data is on screen. */}
+      <SimulationBanner disclosure={data?.sourceDisclosure} />
       <Section
         title="Category inventory"
         description="Current stock by canonical category. This page reports no target, shortage, excess, reorder or priority — those belong to Demand Overview, Stockout Risk and Excess Stock."
@@ -350,7 +305,8 @@ export function InventoryLotsTab() {
 
   return (
     <div className="space-y-4">
-      <SourceStateBanners scope={scope} />
+      {/* Persistent and unmistakable while fixture data is on screen. */}
+      <SimulationBanner disclosure={data?.sourceDisclosure} />
       <Section
         title="Lot-level inventory"
         description="Current canonical records only. Sold, transferred and superseded versions are history and never appear here."
@@ -435,8 +391,8 @@ export function InventoryReconciliationTab() {
 
   return (
     <div className="space-y-4">
-      <SourceStateBanners scope={scope} />
-
+      {/* Persistent and unmistakable while fixture data is on screen. */}
+      <SimulationBanner disclosure={data?.sourceDisclosure} />
       <InfoBanner variant="info">
         <span className="flex items-center gap-2">
           <Info className="h-4 w-4" />

@@ -9,6 +9,7 @@ import {
   overallLotWhere,
   parseOverallLotFilters,
 } from "@/lib/fantasy/overall-filters";
+import { resolveExportRowLimit } from "@/lib/config/export-limits";
 
 /**
  * OVERALL DATA EXPORT — canonical Fantasy lot records as a business CSV.
@@ -31,8 +32,9 @@ import {
  * describe how synchronization is implemented and mean nothing to a stock reconciler.
  */
 
-/** Row ceiling for a single export, matching the sales export's env-configurable form. */
-export const OVERALL_EXPORT_ROW_LIMIT = Number(process.env.OVERALL_EXPORT_MAX_ROWS || 50_000);
+/** Row ceiling for a single export, validated centrally like every other export ceiling. */
+export const OVERALL_EXPORT_LIMIT = resolveExportRowLimit("OVERALL_EXPORT_MAX_ROWS", 50_000);
+export const OVERALL_EXPORT_ROW_LIMIT = OVERALL_EXPORT_LIMIT.rows;
 
 /** Rows fetched per query, so a large export never materializes one huge result set. */
 const READ_BATCH = 2_000;

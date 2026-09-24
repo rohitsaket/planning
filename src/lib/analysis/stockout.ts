@@ -29,6 +29,9 @@ import { db } from "@/lib/db";
 import { formatIST } from "@/lib/fantasy/time";
 import { toCategoryLabel, toSalesTrendDirection, type SalesTrendDirection } from "@/lib/demand/demand-result-presentation";
 import { resolveAnalysisAvailability, type AnalysisAvailability } from "@/lib/analysis/analysis-snapshot";
+import { resolveExportRowLimit } from "@/lib/config/export-limits";
+import { scopeWhere, UNRESTRICTED_SCOPE, type EffectiveScope } from "@/lib/auth/access-scope";
+import { resolveSourceDisclosure, UNESTABLISHED_SOURCE, type SourceDisclosure } from "@/lib/analysis/source-disclosure";
 
 if (typeof window !== "undefined") {
   throw new Error("analysis/stockout is server-only and must not be imported by client code.");
@@ -38,8 +41,14 @@ type DbClient = typeof db;
 
 export const STOCKOUT_PAGE_DEFAULT = 25;
 export const STOCKOUT_PAGE_MAX = 200;
-/** Ceiling for one export. Declared to the caller; never a silent cut-off. */
-export const STOCKOUT_EXPORT_ROW_LIMIT = Number(process.env.STOCKOUT_EXPORT_MAX_ROWS || 20_000);
+/**
+ * Ceiling for one export. Declared to the caller; never a silent cut-off.
+ *
+ * Resolved through the validated configuration helper, so an unusable environment value
+ * cannot become `NaN` and turn an empty export into one that reports itself complete.
+ */
+export const STOCKOUT_EXPORT_LIMIT = resolveExportRowLimit("STOCKOUT_EXPORT_MAX_ROWS", 20_000);
+export const STOCKOUT_EXPORT_ROW_LIMIT = STOCKOUT_EXPORT_LIMIT.rows;
 /** Rows per query while exporting, so a large export never materializes one huge set. */
 const EXPORT_READ_BATCH = 2_000;
 
@@ -83,11 +92,25 @@ export interface StockoutFilters {
   search: string | null;
   /** Default view is the page's purpose: categories that are short. */
   shortageOnly: boolean;
+  /**
+   * The caller's country and lab authorization scope.
+   *
+   * It rides with the filters because it is applied where they are, but it is not a
+   * filter: it comes from the authenticated server session and a request can only narrow
+   * within it, never widen past it.
+   *
+   * Only the lab half can be applied to `DemandMetric`: the persisted demand result has a
+   * lab but no country, because the target is calculated once per planning category for
+   * the whole business. A country-restricted caller is told so on the response rather
+   * than being shown a business-wide figure labelled as their country's.
+   */
+  readonly scope: EffectiveScope;
 }
 
 export const EMPTY_STOCKOUT_FILTERS: StockoutFilters = {
   lab: null, shape: null, weightBand: null, stockoutState: null,
   dataState: null, search: null, shortageOnly: true,
+  scope: UNRESTRICTED_SCOPE,
 };
 
 export interface Paging { page: number; pageSize: number }
@@ -104,6 +127,11 @@ export interface StockoutSnapshotStatus {
   readonly availabilityMessage: string;
   readonly sourceState: "SIMULATION" | "LIVE";
   readonly sourceLabel: string;
+  /**
+   * Where these figures came from. Rendered by the shared simulation banner; never
+   * re-derived in a view from a local flag.
+   */
+  readonly sourceDisclosure: SourceDisclosure;
   readonly runCompletedIst: string | null;
   readonly businessDateIst: string | null;
   readonly windowDays: number | null;
@@ -145,8 +173,12 @@ export async function readStockoutSnapshotStatus(
       runId: null,
       availabilityState: availability.state,
       availabilityMessage: availability.message,
+      // No run means nothing has been attributed yet. `sourceState` keeps its legacy
+      // shape for existing callers, but the disclosure says plainly that the source is
+      // not established — an empty page must not claim to be simulated.
       sourceState: "SIMULATION",
       sourceLabel: "No demand calculation",
+      sourceDisclosure: UNESTABLISHED_SOURCE,
       runCompletedIst: null,
       businessDateIst: null,
       windowDays: null,
@@ -181,6 +213,7 @@ export async function readStockoutSnapshotStatus(
     availabilityMessage: availability.message,
     sourceState: simulated ? "SIMULATION" : "LIVE",
     sourceLabel: simulated ? "Fixture Simulation" : "Live Fantasy",
+    sourceDisclosure: resolveSourceDisclosure({ isSimulated: simulated, hasData: true }),
     runCompletedIst: formatIST(run.finishedAt ?? run.runDate, false),
     businessDateIst: run.businessDateIst,
     windowDays: run.windowDays,
@@ -271,7 +304,13 @@ function stockoutStateOf(m: { roundedTarget: number; availableStock: number; phy
 
 /** The Prisma filter for everything the database can decide. */
 function whereFor(runId: string, f: StockoutFilters): Prisma.DemandMetricWhereInput {
-  const where: Prisma.DemandMetricWhereInput = { runId };
+  // The scope is merged first so that a filter below can only narrow within it. There is
+  // no country column on this table, so `scopeWhere` is given none and applies the lab
+  // half only; the route discloses that the country half could not be applied.
+  const where: Prisma.DemandMetricWhereInput = {
+    runId,
+    ...scopeWhere(f.scope, { country: null, lab: "labNormalized" }),
+  };
   if (f.lab) where.labNormalized = f.lab;
   if (f.shape) where.shapeNormalized = f.shape;
   if (f.weightBand) where.weightBandLabel = f.weightBand;

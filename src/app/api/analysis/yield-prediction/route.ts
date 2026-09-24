@@ -2,6 +2,7 @@ import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
 import { withApi, SCAN_MAX, scanned } from "@/lib/api/with-api";
 import { YIELD_PREDICTION_BASIS } from "@/lib/analysis/business-language";
+import { describeScope, describeScopeApplication } from "@/lib/auth/access-scope";
 
 // Yield Prediction — predicts expected actual yield % for rough stones based
 // on historical plan-actual reconciliation data. Spec §61 — data science
@@ -53,7 +54,9 @@ function stdDevPop(xs: number[]): number {
   return Math.sqrt(variance);
 }
 
-export const GET = withApi({ permission: "analysis.read" }, async () => {
+export const GET = withApi(
+  { permission: "analysis.read", scoped: true },
+  async (_req: Request, _ctx, { scope }) => {
   // -------------------------------------------------------------------------
   // 1. Historical reconciliations
   // -------------------------------------------------------------------------
@@ -189,5 +192,17 @@ export const GET = withApi({ permission: "analysis.read" }, async () => {
     "PREDICTION — Yield prediction is advisory. Never auto-approve or auto-reject a plan based on predicted yield alone. " +
     "OPEN rule: model selection logic is unconfirmed.";
 
-  return ok({ summary, predictions, historical, basis, advisoryNotice });
-});
+  return ok({
+    summary,
+    predictions,
+    historical,
+    basis,
+    advisoryNotice,
+    accessScope: describeScope(scope),
+    // Neither dimension can be applied: a plan-versus-actual reconciliation carries
+    // no country and no lab, so a restricted caller is told the figures are not
+    // narrowed rather than being left to assume they are.
+    scopeApplication: describeScopeApplication(scope, []),
+  });
+},
+);

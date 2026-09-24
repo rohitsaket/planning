@@ -8,6 +8,7 @@ import {
 } from "@/lib/analysis/stockout";
 import { parseFilters, describeFilters } from "@/app/api/analysis/stockout/route";
 import { readReorderSignals, SIGNAL_PAGE_DEFAULT, SIGNAL_PAGE_MAX } from "@/lib/analysis/reorder-signals";
+import { describeScope, describeScopeApplication, type EffectiveScope } from "@/lib/auth/access-scope";
 
 /**
  * REORDER SIGNALS — one bounded read endpoint.
@@ -25,7 +26,9 @@ import { readReorderSignals, SIGNAL_PAGE_DEFAULT, SIGNAL_PAGE_MAX } from "@/lib/
 
 const SECTIONS = ["status", "signals"] as const;
 
-export const GET = withApi({ permission: "analysis.read" }, async (req: Request) => {
+export const GET = withApi(
+  { permission: "analysis.read", scoped: true },
+  async (req: Request, _ctx, { scope }) => {
   const url = new URL(req.url);
   const section = qEnum(url, "section", SECTIONS, "status");
 
@@ -48,7 +51,7 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request)
   }
 
   // Shares the Stockout filter vocabulary: the same stored rows, filtered the same way.
-  const filters = parseFilters(url);
+  const filters = parseFilters(url, scope);
   const sort = {
     key: qEnum(url, "sort", STOCKOUT_SORTS, "physicalShortage") as StockoutSortKey,
     dir: qEnum(url, "dir", SORT_DIRECTIONS, "desc"),
@@ -74,6 +77,13 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request)
     // Stated on every response: these are observations, not instructions.
     advisory: true,
     activeFilters: describeFilters(filters),
+    // Only the lab half of the caller's scope can be applied here: the persisted demand
+    // result has no country column, because the target is calculated once per planning
+    // category for the whole business. Saying so is the alternative to letting a
+    // country-restricted caller read a business-wide figure as if it were their own.
+    accessScope: describeScope(scope),
+    scopeApplication: describeScopeApplication(scope, ["LAB"]),
     ...result,
   });
-});
+  },
+);

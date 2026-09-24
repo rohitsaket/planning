@@ -15,6 +15,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AlertTriangle, FlaskConical, Info, PackageX, Search, Target, X } from "lucide-react";
+import { SimulationBanner } from "@/components/diamond/shared/simulation-banner";
+import type { SourceDisclosure } from "@/lib/analysis/source-disclosure";
 
 /**
  * STOCKOUT RISK — which categories have confirmed demand that available finished
@@ -34,6 +36,7 @@ type StockoutState = "OUT_OF_STOCK" | "SHORTAGE" | "COVERED" | "EXCESS" | "REVIE
 type DataState = "CONFIRMED" | "REVIEW_REQUIRED" | "BLOCKED";
 
 interface SnapshotStatus {
+  sourceDisclosure: SourceDisclosure | null;
   hasRun: boolean;
   runId: string | null;
   sourceState: "SIMULATION" | "LIVE";
@@ -292,14 +295,8 @@ export function StockoutView() {
             )}
           </div>
 
-          {s.sourceState === "SIMULATION" && hasRun && (
-            <InfoBanner variant="warning">
-              <span className="flex items-center gap-2 font-semibold">
-                <FlaskConical className="h-4 w-4" />
-                Fixture Simulation — these are simulated results, not live Fantasy data.
-              </span>
-            </InfoBanner>
-          )}
+          {/* Persistent and unmistakable while fixture data is on screen. */}
+          <SimulationBanner disclosure={s.sourceDisclosure} />
           {s.reviewWarning && <InfoBanner variant="warning">{s.reviewWarning}</InfoBanner>}
           {s.staleWarning && (
             <InfoBanner variant="critical">

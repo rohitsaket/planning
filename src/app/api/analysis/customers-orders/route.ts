@@ -12,6 +12,7 @@ import {
   type CustomerFilters,
   type CustomerSortKey,
 } from "@/lib/analysis/customers-orders";
+import { describeScope } from "@/lib/auth/access-scope";
 
 /**
  * CUSTOMER SALES — bounded read endpoint for the customer sections only.
@@ -30,11 +31,16 @@ const SECTIONS = ["summary", "customers", "customer-detail"] as const;
 const SORTS = ["confirmedQuantity", "measuredWeight", "saleRecordCount", "latestSaleDate", "customerCode"] as const;
 const DIRECTIONS = ["asc", "desc"] as const;
 
-export const GET = withApi({ permission: "customers.read" }, async (req: Request, _ctx, { principal }) => {
+export const GET = withApi(
+  { permission: "customers.read", scoped: true },
+  async (req: Request, _ctx, { principal, scope }) => {
   const url = new URL(req.url);
   const section = qEnum(url, "section", SECTIONS, "summary");
 
   const filters: CustomerFilters = {
+    // The wrapper has already refused an out-of-scope request; carrying the scope here is
+    // what narrows the query, so an unfiltered request returns this caller's scope.
+    scope,
     country: qStr(url, "country", 60),
     branch: qStr(url, "branch", 60),
     lab: qStr(url, "lab", 60),
@@ -57,9 +63,14 @@ export const GET = withApi({ permission: "customers.read" }, async (req: Request
   // wrapper has already established `customers.read`, which is what grants the name.
   const canSeeCustomerNames = principal.permissions.includes("customers.read");
 
+  // `scope` is excluded: an authorization decision is not one of the caller's filters.
   const activeFilters = Object.entries(filters)
-    .filter(([, v]) => v !== null && v !== "")
+    .filter(([key, v]) => key !== "scope" && v !== null && v !== "")
     .map(([key, value]) => ({ key, value: String(value) }));
+  const accessScope = describeScope(scope);
+  // Every section carries it: the Customers tab fetches sections other than the summary,
+  // and an unlabelled tab would present simulated sales as live.
+  const sourceDisclosure = (await readCustomerSnapshotSummary()).sourceDisclosure;
 
   switch (section) {
     case "customers": {
@@ -79,9 +90,9 @@ export const GET = withApi({ permission: "customers.read" }, async (req: Request
       });
       if (!result) {
         // No snapshot is a state, not an empty table of zeros.
-        return ok({ section, available: false, unavailableReason: "NOT_RUN", activeFilters, rows: [] });
+        return ok({ section, available: false, unavailableReason: "NOT_RUN", activeFilters, accessScope, sourceDisclosure, rows: [] });
       }
-      return ok({ section, available: true, unavailableReason: null, sort, activeFilters, ...result });
+      return ok({ section, available: true, unavailableReason: null, sort, activeFilters, accessScope, sourceDisclosure, ...result });
     }
 
     case "customer-detail": {
@@ -89,16 +100,17 @@ export const GET = withApi({ permission: "customers.read" }, async (req: Request
       if (!customerKey) throw new ApiError(400, "BAD_REQUEST", "A customer key is required.");
       const result = await readCustomerDetail(customerKey, filters, paging, canSeeCustomerNames);
       if (!result) {
-        return ok({ section, available: false, unavailableReason: "NOT_RUN", activeFilters });
+        return ok({ section, available: false, unavailableReason: "NOT_RUN", activeFilters, accessScope });
       }
-      return ok({ section, available: true, unavailableReason: null, activeFilters, ...result });
+      return ok({ section, available: true, unavailableReason: null, activeFilters, accessScope, sourceDisclosure, ...result });
     }
 
     default: {
       // Customer provenance only. No order state is read here, so a customer reader
       // never receives order information as a side effect.
       const summary = await readCustomerSnapshotSummary();
-      return ok({ section: "summary", activeFilters, ...summary });
+      return ok({ section: "summary", activeFilters, accessScope, ...summary });
     }
   }
-});
+},
+);

@@ -11,7 +11,7 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:reset": "prisma migrate reset",
-    "db:seed": "tsx --env-file-if-exists=.env prisma/seed.ts",
+    "db:seed": "npx tsx --env-file-if-exists=.env prisma/seed.ts",
     "typecheck": "tsc --noEmit",
     "test:demand": "npx tsx --env-file-if-exists=.env scripts/sectest-db.ts && npx tsx --env-file-if-exists=.env scripts/with-sectest-db.ts npx prisma migrate deploy && npx tsx --env-file-if-exists=.env scripts/with-sectest-db.ts npx tsx scripts/test-demand-calculation.ts",
     "test:fantasy": "npx tsx --env-file-if-exists=.env scripts/sectest-db.ts && npx tsx --env-file-if-exists=.env scripts/with-sectest-db.ts npx prisma migrate deploy && npx tsx --env-file-if-exists=.env scripts/with-sectest-db.ts npx tsx scripts/test-fantasy-sync.ts",
@@ -26,7 +26,9 @@
     "audit:deps": "npm audit --omit=dev",
     "db:migrate:deploy": "prisma migrate deploy",
     "user:create": "tsx --env-file-if-exists=.env scripts/create-user.ts",
-    "test:projection": "npx tsx --env-file-if-exists=.env scripts/sectest-db.ts && npx tsx --env-file-if-exists=.env scripts/with-sectest-db.ts npx prisma migrate deploy && npx tsx --env-file-if-exists=.env scripts/with-sectest-db.ts npx tsx scripts/test-fantasy-projection.ts"
+    "test:projection": "npx tsx --env-file-if-exists=.env scripts/sectest-db.ts && npx tsx --env-file-if-exists=.env scripts/with-sectest-db.ts npx prisma migrate deploy && npx tsx --env-file-if-exists=.env scripts/with-sectest-db.ts npx tsx scripts/test-fantasy-projection.ts",
+    "fixture:analysis-review": "npx tsx --env-file-if-exists=.env scripts/load-analysis-review-fixture.ts",
+    "test:analysis-fixture": "npx tsx --env-file-if-exists=.env scripts/sectest-db.ts --recreate && npx tsx --env-file-if-exists=.env scripts/with-sectest-db.ts npx prisma migrate deploy && npx tsx --env-file-if-exists=.env scripts/with-sectest-db.ts npx tsx scripts/test-analysis-review-fixture.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

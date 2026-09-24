@@ -23,6 +23,8 @@ import { num } from "@/lib/api-utils";
 import { formatIST } from "@/lib/fantasy/time";
 import { toSalesTrendDirection, type SalesTrendDirection } from "@/lib/demand/demand-result-presentation";
 import { resolveSalesSnapshot, salesWindows, type SalesSnapshot } from "@/lib/analytics/sales-history";
+import { scopeSql, UNRESTRICTED_SCOPE, type EffectiveScope } from "@/lib/auth/access-scope";
+import { resolveSourceDisclosure, UNESTABLISHED_SOURCE, type SourceDisclosure } from "@/lib/analysis/source-disclosure";
 
 if (typeof window !== "undefined") {
   throw new Error("analysis/customers-orders is server-only and must not be imported by client code.");
@@ -69,11 +71,20 @@ export interface CustomerFilters {
   readonly shape: string | null;
   readonly weightBand: string | null;
   readonly dataState: CustomerDataState | null;
+  /**
+   * The caller's country and lab authorization scope.
+   *
+   * It rides with the filters because it is applied where they are, but it is not a
+   * filter: it comes from the authenticated server session and a request can only narrow
+   * within it, never widen past it.
+   */
+  readonly scope: EffectiveScope;
 }
 
 export const EMPTY_CUSTOMER_FILTERS: CustomerFilters = {
   country: null, branch: null, lab: null, customerSearch: null,
   categoryId: null, shape: null, weightBand: null, dataState: null,
+  scope: UNRESTRICTED_SCOPE,
 };
 
 export interface Paging {
@@ -115,6 +126,10 @@ function filterSql(f: CustomerFilters, includeCustomerName: boolean): Prisma.Sql
         : Prisma.sql`AND COALESCE("m"."customerCode", '') ILIKE ${like}`,
     );
   }
+  // The country is on the canonical lot the sale is joined to; the lab is on the trace
+  // row. Applied unconditionally, so an unfiltered request returns the caller's scope.
+  const scope = scopeSql(f.scope, { country: '"m"."country"', lab: '"t"."lab"' });
+  if (scope !== Prisma.empty) parts.push(scope);
   return parts.length ? Prisma.join(parts, " ") : Prisma.empty;
 }
 
@@ -302,6 +317,11 @@ export type CustomerIdentityCompleteness = (typeof CUSTOMER_IDENTITY_COMPLETENES
 export interface CustomerSnapshotSummary {
   readonly hasSnapshot: boolean;
   readonly sourceState: CustomerSourceState;
+  /**
+   * Where these figures came from. Rendered by the shared simulation banner; never
+   * re-derived in a view from a local flag.
+   */
+  readonly sourceDisclosure: SourceDisclosure;
   /** "Fixture Simulation" or "Live Fantasy". */
   readonly sourceLabel: string;
   readonly snapshotState: CustomerSnapshotState;
@@ -341,6 +361,8 @@ export async function readCustomerSnapshotSummary(client = db): Promise<Customer
       hasSnapshot: false,
       sourceState: "SIMULATION",
       sourceLabel: "No sales snapshot",
+      // Nothing has been attributed: not simulated, not live.
+      sourceDisclosure: UNESTABLISHED_SOURCE,
       snapshotState: "UNAVAILABLE",
       periodLabel: "Past 90 days",
       windowDays: null,
@@ -376,6 +398,7 @@ export async function readCustomerSnapshotSummary(client = db): Promise<Customer
     hasSnapshot: true,
     sourceState: simulated ? "SIMULATION" : "LIVE",
     sourceLabel: simulated ? "Fixture Simulation" : "Live Fantasy",
+    sourceDisclosure: resolveSourceDisclosure({ isSimulated: simulated, hasData: true }),
     snapshotState: reviewRequired ? "INCOMPLETE" : "AVAILABLE",
     periodLabel: run.windowDays === 90 ? "Past 90 days" : `Past ${run.windowDays} days`,
     windowDays: run.windowDays,

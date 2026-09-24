@@ -110,9 +110,9 @@ export function DashboardView() {
     queryFn: async () => {
       const cd = await apiFetch<{ rows: Array<{ country: string; physicalShortage: number; target: number; available: number; wip: number; planCov: number }> }>(`/api/analysis/countries`);
       if (globalFilter.country) {
-        return cd.rows.filter((r) => r.country.toUpperCase() === globalFilter.country?.toUpperCase());
+        return cd?.rows?.filter((r) => r.country.toUpperCase() === globalFilter.country?.toUpperCase()) ?? [];
       }
-      return cd.rows;
+      return cd?.rows ?? [];
     },
   });
 

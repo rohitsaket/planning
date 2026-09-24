@@ -1,107 +1,81 @@
-import { db } from "@/lib/db";
 import { ok } from "@/lib/api-utils";
 import { withApi, qStr } from "@/lib/api/with-api";
 import {
-  analyzeTransfers,
-  rollupByBranch,
-  rollupByCountry,
-  type CategoryPosition,
-} from "@/lib/analytics/stock-position";
+  EMPTY_GEOGRAPHY_FILTERS,
+  GEOGRAPHIC_DEMAND_UNAVAILABLE_DETAIL,
+  GEOGRAPHIC_DEMAND_UNAVAILABLE_MESSAGE,
+  readSalesByGeography,
+  type GeographyFilters,
+} from "@/lib/analysis/geography";
+import { EMPTY_AGING_FILTERS, readAgingSummary } from "@/lib/analysis/stock-aging";
+import { describeScope } from "@/lib/auth/access-scope";
+import { mergeSourceDisclosures } from "@/lib/analysis/source-disclosure";
 
-// Country / Branch position — every figure is derived per exact category
-// (Country + Lab + Shape + Weight Band) and only then rolled up, so a shortage in
-// one category is never netted against an excess in another.
-//
-// Transfer candidates come from the shared transfer service used by the Transfer
-// Analyzer; the count is the real number of candidate pairs, or null when the
-// analysis cannot run.
-export const GET = withApi({ permission: "analysis.read" }, async (req: Request) => {
+/**
+ * COUNTRY & BRANCH — one bounded read endpoint over what is known per location.
+ *
+ * It returns no country target, no country shortage, no country excess, no pipeline
+ * requirement, no remaining unplanned quantity and no transfer candidate, because the
+ * authoritative demand result has no country or branch dimension and none of those
+ * figures can be derived from it.
+ *
+ * The route this replaces produced all of them, from the seeded `Requirement` table and
+ * the seeded `PolishedStone` mirror rather than from the persisted demand result — while
+ * the Transfer Analyzer, reading the same data, reported on screen that a location-level
+ * shortage cannot be calculated. The two pages contradicted each other, and this one was
+ * the page that was wrong.
+ *
+ * What it returns instead is factual and clearly separated: confirmed sales by location
+ * from the same 90-day snapshot as Customers & Orders, and current inventory by location
+ * from the same shared summary as Stock Aging and the Aging Dashboard.
+ *
+ * Read-only.
+ */
+export const GET = withApi(
+  { permission: "analysis.read", scoped: true },
+  async (req: Request, _ctx, { principal, scope }) => {
   const url = new URL(req.url);
-  const country = qStr(url, "country");
-  const branch = qStr(url, "branch");
-  const lab = qStr(url, "lab");
+  const filters: GeographyFilters = {
+    ...EMPTY_GEOGRAPHY_FILTERS,
+    scope,
+    country: qStr(url, "country", 60),
+    branch: qStr(url, "branch", 60),
+    lab: qStr(url, "lab", 60),
+  };
 
-  const { positions, transfers, wipPolicy, wipCoverageUnavailable } = await analyzeTransfers(db);
+  // Derived from the authenticated server session, never from the request. It withholds
+  // the distinct-customer figure only; the sales themselves are location facts.
+  const canSeeCustomers = principal.permissions.includes("customers.read");
 
-  const filtered: CategoryPosition[] = positions.filter(
-    (p) =>
-      (!country || p.country === country) &&
-      (!branch || p.branch === branch) &&
-      (!lab || p.lab === lab.trim().toUpperCase()),
-  );
-
-  const countries = rollupByCountry(filtered);
-  const branches = rollupByBranch(filtered);
-
-  // Candidate counts per source country, from the same shared analysis.
-  const candidatesByCountry = new Map<string, number>();
-  if (transfers.candidateCount !== null) {
-    for (const c of transfers.candidates) {
-      candidatesByCountry.set(c.fromCountry, (candidatesByCountry.get(c.fromCountry) ?? 0) + 1);
-    }
-  }
-
-  const rows = countries.map((c) => ({
-    country: c.country,
-    target: c.target,
-    available: c.available,
-    physicalShortage: c.physicalShortage,
-    excess: c.excess,
-    wip: c.eligibleWip,
-    planCov: c.approvedPlanCoverage,
-    pipelineRequirement: c.pipelineRequirement,
-    remainingUnplanned: c.remainingUnplanned,
-    categories: c.categories,
-    categoriesWithShortage: c.categoriesWithShortage,
-    categoriesWithExcess: c.categoriesWithExcess,
-    // null (not 0) when transfer analysis could not run at all.
-    transferCandidates: transfers.candidateCount === null ? null : candidatesByCountry.get(c.country) ?? 0,
-    transferStatus: transfers.status,
-  }));
-
-  const global = filtered.reduce(
-    (acc, p) => {
-      acc.target += p.target;
-      acc.available += p.available;
-      acc.shortage += p.physicalShortage;
-      acc.excess += p.excess;
-      acc.wip += p.eligibleWip;
-      acc.planCov += p.approvedPlanCoverage;
-      acc.pipelineRequirement += p.pipelineRequirement;
-      acc.remainingUnplanned += p.remainingUnplanned;
-      return acc;
-    },
-    { target: 0, available: 0, shortage: 0, excess: 0, wip: 0, planCov: 0, pipelineRequirement: 0, remainingUnplanned: 0 },
-  );
+  const [sales, inventory] = await Promise.all([
+    readSalesByGeography(filters, canSeeCustomers),
+    readAgingSummary({
+      ...EMPTY_AGING_FILTERS,
+      scope,
+      country: filters.country,
+      branch: filters.branch,
+      lab: filters.lab,
+    }),
+  ]);
 
   return ok({
-    rows,
-    branches: branches.map((b) => ({
-      country: b.country,
-      branch: b.branch,
-      target: b.target,
-      available: b.available,
-      physicalShortage: b.physicalShortage,
-      excess: b.excess,
-      wip: b.eligibleWip,
-      planCov: b.approvedPlanCoverage,
-      remainingUnplanned: b.remainingUnplanned,
-      categories: b.categories,
-    })),
-    global,
-    categoryCount: filtered.length,
-    wipPolicy: {
-      status: wipPolicy.status,
-      message: wipPolicy.message,
-      eligibleStages: wipPolicy.eligibleStages,
-    },
-    wipCoverageUnavailable,
-    transfer: {
-      status: transfers.status,
-      ruleStatus: transfers.ruleStatus,
-      candidateCount: transfers.candidateCount,
-      message: transfers.message,
-      autoExecuted: transfers.autoExecuted,
+    // Stated on every response, not only when a snapshot happens to be missing.
+    geographicDemandAvailable: false,
+    geographicDemandMessage: GEOGRAPHIC_DEMAND_UNAVAILABLE_MESSAGE,
+    geographicDemandDetail: GEOGRAPHIC_DEMAND_UNAVAILABLE_DETAIL,
+    customerIdentityVisible: canSeeCustomers,
+    // This page reads two datasets. If either is simulated the page is simulated.
+    sourceDisclosure: mergeSourceDisclosures([sales.sourceDisclosure, inventory.sourceDisclosure]),
+
+    accessScope: describeScope(scope),
+    sales,
+    // Two separate tables on purpose: one is history, the other is a present position,
+    // and subtracting them is what produced the shortage figure this route removed.
+    inventory: {
+      currentLots: inventory.currentLots,
+      byLocation: inventory.byLocation,
+      locations: inventory.locations,
     },
   });
-});
+  },
+);

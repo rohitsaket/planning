@@ -35,7 +35,7 @@ async function makeSale(o: {
     where: { lotId },
     create: {
       lotId, currentStatus: "SOLD", statusEffectiveDate: docDate, docDate,
-      shape, shapeNormalized: shape, weight, labNormalized: lab, quantity: 1,
+      shape, shapeNormalized: shape, weight, labRaw: lab, labNormalized: lab, quantity: 1,
       country: "IN", branch: "SRT", lastSyncBatchId: BATCH, isCurrent: true,
       sourceType: "FIXTURE", isSimulated: true, removalReason: "EXPLICIT_SALE", currentVersion: 1,
     },
@@ -44,7 +44,7 @@ async function makeSale(o: {
   await db.lotHistoryRecord.create({
     data: {
       lotId, version: 1, status: "SOLD", docDate, statusEffectiveDate: docDate,
-      shape, shapeNormalized: shape, weight, labNormalized: lab, quantity: 1,
+      shape, shapeNormalized: shape, weight, labRaw: lab, labNormalized: lab, quantity: 1,
       country: "IN", branch: "SRT", syncBatchId: BATCH, checkpoint: 1,
       isCurrent: true, isSimulated: true, removalReason: "EXPLICIT_SALE",
     },
@@ -66,7 +66,7 @@ async function makeLot(o: {
   await db.lotMasterRecord.create({
     data: {
       lotId, currentStatus, statusEffectiveDate: BASE, docDate: BASE,
-      shape, shapeNormalized: shape, weight: 1.2, labNormalized: lab, quantity: 1,
+      shape, shapeNormalized: shape, weight: 1.2, labRaw: lab, labNormalized: lab, quantity: 1,
       country: "IN", branch: "SRT", lastSyncBatchId: BATCH, isCurrent,
       roughOrPolished: "POLISHED", sourceType: "FIXTURE", isSimulated: true,
       inventoryClass, classificationState: "CLASSIFIED", holdState: "NOT_HELD",

@@ -13,6 +13,7 @@ import {
   type ExcessSortKey,
   type ExcessState,
 } from "@/lib/analysis/excess";
+import { describeScope, describeScopeApplication, type EffectiveScope } from "@/lib/auth/access-scope";
 
 /**
  * EXCESS STOCK — one bounded read endpoint.
@@ -31,7 +32,9 @@ import {
 
 const SECTIONS = ["status", "categories"] as const;
 
-export const GET = withApi({ permission: "analysis.read" }, async (req: Request) => {
+export const GET = withApi(
+  { permission: "analysis.read", scoped: true },
+  async (req: Request, _ctx, { scope }) => {
   const url = new URL(req.url);
   const section = qEnum(url, "section", SECTIONS, "status");
 
@@ -54,7 +57,7 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request)
     });
   }
 
-  const filters = parseExcessFilters(url);
+  const filters = parseExcessFilters(url, scope);
   const sort = {
     key: qEnum(url, "sort", EXCESS_SORTS, "excess") as ExcessSortKey,
     dir: qEnum(url, "dir", SORT_DIRECTIONS, "desc"),
@@ -72,12 +75,19 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request)
     runId: status.runId,
     unavailableMessage: null,
     activeFilters: describeExcessFilters(filters),
+    // Only the lab half of the caller's scope can be applied here: the persisted demand
+    // result has no country column, because the target is calculated once per planning
+    // category for the whole business. Saying so is the alternative to letting a
+    // country-restricted caller read a business-wide figure as if it were their own.
+    accessScope: describeScope(scope),
+    scopeApplication: describeScopeApplication(scope, ["LAB"]),
     ...result,
   });
-});
+  },
+);
 
 /** Every filter the stored result can honour. An unknown value is refused. */
-export function parseExcessFilters(url: URL): ExcessFilters {
+export function parseExcessFilters(url: URL, scope: EffectiveScope): ExcessFilters {
   const state = qStr(url, "excessState", 40);
   if (state && !(EXCESS_STATES as readonly string[]).includes(state)) {
     throw new ApiError(400, "BAD_REQUEST", "Query parameter 'excessState' is not a recognized value.");
@@ -89,6 +99,8 @@ export function parseExcessFilters(url: URL): ExcessFilters {
 
   return {
     ...EMPTY_EXCESS_FILTERS,
+    // Required rather than defaulted, so a caller's scope cannot be forgotten.
+    scope,
     lab: qStr(url, "lab", 60),
     shape: qStr(url, "shape", 60),
     weightBand: qStr(url, "weightBand", 60),
@@ -102,7 +114,8 @@ export function parseExcessFilters(url: URL): ExcessFilters {
 
 /** The scope actually applied, echoed back so the caller can show it. */
 export function describeExcessFilters(f: ExcessFilters): Array<{ key: string; value: string }> {
+  // `scope` is excluded: an authorization decision is not one of the caller's filters.
   return Object.entries(f)
-    .filter(([, v]) => v !== null && v !== "" && v !== false)
+    .filter(([key, v]) => key !== "scope" && v !== null && v !== "" && v !== false)
     .map(([key, value]) => ({ key, value: String(value) }));
 }

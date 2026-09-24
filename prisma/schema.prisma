@@ -974,6 +974,23 @@ model LotMasterRecord {
   classificationProfile        String?
   classificationProfileVersion Int?
   classificationState          String?  // CLASSIFIED | BLOCKED | NOT_CONFIGURED
+
+  /// --- Canonical category classification (Lab | Shape | Weight Band) --------
+  /// Decided once at projection time by classifyCanonicalCategory and consumed by the
+  /// demand calculation, so a committed run cannot be re-categorised later by editing a
+  /// mapping row. An unapproved dimension leaves its normalized column null and records
+  /// the reason here rather than storing the raw value as though it were normalized.
+  categoryLabState             String?  // APPROVED | UNMAPPED
+  categoryShapeState           String?  // APPROVED | UNMAPPED
+  categoryWeightBandState      String?  // APPROVED | UNRESOLVED
+  /// APPROVED only when all three dimensions are approved; otherwise REVIEW_REQUIRED.
+  categoryState                String?
+  /// "Lab|Shape|Band". Null unless the category is fully approved.
+  categoryKey                  String?
+  /// Comma-separated fixed reason codes. Never a formula or a mapping-table dump.
+  categoryReviewReasons        String?
+  weightBandId                 String?
+  weightBandLabel              String?
   isCurrent           Boolean   @default(true)
   removalReason       String?   // EXPLICIT_SALE | MEMO_RETURN | TRANSFERRED | ARCHIVED | CANCELLED | COMPLETED | CORRECTION | SOURCE_DISAPPEARANCE_UNKNOWN
   removedFromLiveAt   DateTime?
@@ -1004,6 +1021,8 @@ model LotMasterRecord {
   @@index([isCurrent, entityType])
   @@index([isCurrent, inventoryClass])
   @@index([classificationProfile, classificationProfileVersion])
+  @@index([categoryKey])
+  @@index([categoryState])
 }
 
 model LotHistoryRecord {
@@ -1067,6 +1086,18 @@ model LotHistoryRecord {
   classificationProfile        String?
   classificationProfileVersion Int?
   classificationState          String?  // CLASSIFIED | BLOCKED | NOT_CONFIGURED
+
+  /// The planning-category decision in force when this version was written. Carried on
+  /// the immutable history so a committed demand run keeps the classification snapshot it
+  /// actually used, rather than being re-read through mapping tables edited afterwards.
+  categoryLabState             String?
+  categoryShapeState           String?
+  categoryWeightBandState      String?
+  categoryState                String?
+  categoryKey                  String?
+  categoryReviewReasons        String?
+  weightBandId                 String?
+  weightBandLabel              String?
   isCurrent           Boolean
   removalReason       String?
   changeReason        String?
@@ -1118,8 +1149,37 @@ model User {
 
   sessions         Session[]
   roleAssignments  UserRole[]
+  accessScopes     UserAccessScope[]
 
   @@index([status])
+}
+
+/// Which countries and labs a user is allowed to see.
+///
+/// One row per user, per dimension, per allowed value — deliberately not a delimited
+/// string, so a value can be indexed, constrained, audited and revoked individually, and
+/// so a country code containing the delimiter can never widen someone's access.
+///
+/// ABSENCE IS UNRESTRICTED. A user with no row for a dimension may see every value of it.
+/// This is what makes the model additive: every account that existed before scoping keeps
+/// exactly the access it had, and a narrower scope is an explicit act by someone holding
+/// the authority to make it.
+model UserAccessScope {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// COUNTRY | LAB. Validated against the vocabulary in src/lib/auth/access-scope.ts.
+  dimension       String
+  /// The exact stored value this user may see, for example "IN" or "GIA". Compared to the
+  /// canonical column verbatim; it is never normalized on read.
+  value           String
+  /// Required by the assignment API: an access change always records why.
+  reason          String?
+  grantedByUserId String?
+  createdAt       DateTime @default(now())
+
+  @@unique([userId, dimension, value])
+  @@index([userId, dimension])
 }
 
 // Self-service registration. A request NEVER creates an account or grants access:

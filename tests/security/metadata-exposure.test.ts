@@ -139,13 +139,16 @@ describe("policy status without rule identifiers", () => {
     expect(res.json.policy.ruleVersion).toBe(undefined);
   });
 
-  test("country analysis returns policy status but not the rule behind it", async () => {
+  test("country analysis names no rule and claims no geographic demand", async () => {
     const res = await call(countries, { path: "/api/analysis/countries", cookie: viewerCookie });
     expect(res.status).toBe(200);
     assertNoInternalFields(JSON.stringify(res.json));
-    expect(res.json.wipPolicy.ruleId).toBe(undefined);
-    expect(res.json.transfer.ruleId).toBe(undefined);
-    expect(typeof res.json.transfer.status).toBe("string");
+    // The WIP policy and transfer-rule blocks are gone with the figures they qualified:
+    // the page no longer derives anything per country from a business rule, so there is
+    // no rule status to publish and no rule identifier that could leak with it.
+    expect(res.json.wipPolicy).toBe(undefined);
+    expect(res.json.transfer).toBe(undefined);
+    expect(res.json.geographicDemandAvailable).toBe(false);
   });
 
   test("transfer candidates stay advisory without naming the rule", async () => {

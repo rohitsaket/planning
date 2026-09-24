@@ -31,6 +31,8 @@ import {
   type StockoutDataState,
   type StockoutFilters,
 } from "@/lib/analysis/stockout";
+import { resolveExportRowLimit } from "@/lib/config/export-limits";
+import { scopeWhere } from "@/lib/auth/access-scope";
 
 if (typeof window !== "undefined") {
   throw new Error("analysis/excess is server-only and must not be imported by client code.");
@@ -40,7 +42,9 @@ type DbClient = typeof db;
 
 export const EXCESS_PAGE_DEFAULT = 25;
 export const EXCESS_PAGE_MAX = 200;
-export const EXCESS_EXPORT_ROW_LIMIT = Number(process.env.EXCESS_EXPORT_MAX_ROWS || 20_000);
+/** Validated centrally: an unusable environment value never becomes the ceiling. */
+export const EXCESS_EXPORT_LIMIT = resolveExportRowLimit("EXCESS_EXPORT_MAX_ROWS", 20_000);
+export const EXCESS_EXPORT_ROW_LIMIT = EXCESS_EXPORT_LIMIT.rows;
 const EXPORT_READ_BATCH = 2_000;
 
 /**
@@ -76,6 +80,7 @@ export const EMPTY_EXCESS_FILTERS: ExcessFilters = {
   weightBand: EMPTY_STOCKOUT_FILTERS.weightBand,
   dataState: EMPTY_STOCKOUT_FILTERS.dataState,
   search: EMPTY_STOCKOUT_FILTERS.search,
+  scope: EMPTY_STOCKOUT_FILTERS.scope,
   excessState: null,
   excessOnly: true,
 };
@@ -133,8 +138,13 @@ function excessStateOf(m: {
   status: string;
 }): ExcessState {
   if (dataStateOf(m.status) !== "CONFIRMED") return "REVIEW_REQUIRED";
-  if (m.excessStock > 0) return "EXCESS";
+  // "No target" is checked before "excess" on purpose. A category with no confirmed
+  // demand has a target of zero, so every piece it holds registers as excess against it —
+  // and the page would report stock nobody has asked for as stock held above a target
+  // that was never set. The absence of a target is the more truthful statement, and it is
+  // a statement about the demand side rather than a quantity derived from it.
   if (m.roundedTarget === 0) return "NO_TARGET";
+  if (m.excessStock > 0) return "EXCESS";
   if (m.physicalShortage > 0) return "BELOW_TARGET";
   return "AT_TARGET";
 }
@@ -142,7 +152,12 @@ function excessStateOf(m: {
 const CONFIRMED_STATUS = { notIn: ["REVIEW_REQUIRED", "BLOCKED_BY_DATA_QUALITY"] };
 
 function whereFor(runId: string, f: ExcessFilters): Prisma.DemandMetricWhereInput {
-  const where: Prisma.DemandMetricWhereInput = { runId };
+  // Merged first so a filter below can only narrow within the caller's scope. There is no
+  // country column on this table, so only the lab half applies; the route discloses it.
+  const where: Prisma.DemandMetricWhereInput = {
+    runId,
+    ...scopeWhere(f.scope, { country: null, lab: "labNormalized" }),
+  };
   if (f.lab) where.labNormalized = f.lab;
   if (f.shape) where.shapeNormalized = f.shape;
   if (f.weightBand) where.weightBandLabel = f.weightBand;

@@ -2,11 +2,14 @@ import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
 import { withApi, qStr, qInt } from "@/lib/api/with-api";
+import { describeScope, scopePredicates, scopeWhere } from "@/lib/auth/access-scope";
 
 // Memo Analysis — memo is a separate decision context and never reduces physical
 // shortage (BR-MEMO-001). Aggregates are computed in PostgreSQL over the whole
 // filtered set; the detail list is paginated on the server.
-export const GET = withApi({ permission: "sales.read" }, async (req: Request) => {
+export const GET = withApi(
+  { permission: "sales.read", scoped: true },
+  async (req: Request, _ctx, { scope }) => {
   const url = new URL(req.url);
   const country = qStr(url, "country");
   const branch = qStr(url, "branch");
@@ -15,13 +18,17 @@ export const GET = withApi({ permission: "sales.read" }, async (req: Request) =>
   const page = qInt(url, "page", { def: 1, min: 1, max: 1_000_000 });
   const pageSize = qInt(url, "pageSize", { def: 50, min: 1, max: 500 });
 
-  const where: Prisma.MemoRecordWhereInput = {};
+  // Merged before the request filters, so a filter can only narrow within the
+  // caller's scope and an unfiltered request returns their scope rather than everything.
+  const where: Prisma.MemoRecordWhereInput = {
+    ...scopeWhere(scope, { country: "country", lab: "labNormalized" }),
+  };
   if (country) where.country = country;
   if (branch) where.branch = branch;
   if (lab) where.labNormalized = lab;
   if (status) where.status = status;
 
-  const filters: Prisma.Sql[] = [];
+  const filters: Prisma.Sql[] = [...scopePredicates(scope, { country: '"country"', lab: '"labNormalized"' })];
   if (country) filters.push(Prisma.sql`country = ${country}`);
   if (branch) filters.push(Prisma.sql`branch = ${branch}`);
   if (lab) filters.push(Prisma.sql`"labNormalized" = ${lab}`);
@@ -125,5 +132,8 @@ export const GET = withApi({ permission: "sales.read" }, async (req: Request) =>
     pageSize,
     total,
     hasMore: page * pageSize < total,
+    // What this caller is allowed to see, so a narrowed page can say why.
+    accessScope: describeScope(scope),
   });
-});
+  },
+);

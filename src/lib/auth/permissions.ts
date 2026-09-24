@@ -84,6 +84,11 @@ export const PERMISSIONS = [
   "user.password.reset",
   "user.sessions.read",
   "user.sessions.revoke",
+  // Which countries and labs an account may see. Reading a scope is part of reviewing an
+  // account; changing one decides how much of the business somebody can read, which is a
+  // separate decision from assigning a role and is granted separately.
+  "user.scope.read",
+  "user.scope.assign",
   // Authority to assign a protected system-administrator role. Deliberately separate,
   // and deliberately withheld from ordinary administrators.
   "user.super_admin.assign",
@@ -157,6 +162,10 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
       p !== "role.manage" &&
       p !== "role.permissions.assign" &&
       p !== "user.super_admin.assign" &&
+      // Deciding which countries and labs an account may see is a data-access boundary,
+      // not an administrative chore. Administering the system does not carry it; it stays
+      // explicitly assignable to whoever actually holds that authority.
+      p !== "user.scope.assign" &&
       // Administering the system does not make someone a model reviewer. Assignable,
       // but never automatic.
       p !== "forecast.methodology.read" &&

@@ -23,6 +23,7 @@
 
 import { randomUUID } from "node:crypto";
 import { db } from "@/lib/db";
+import { resolveNumericEnv } from "@/lib/config/numeric-env";
 
 if (typeof window !== "undefined") {
   throw new Error("fantasy/canonical-state-claim is server-only and must not be imported by client code.");
@@ -44,7 +45,12 @@ export type ClaimHolder = (typeof CLAIM_HOLDERS)[number];
  * Reclaiming an expired claim is safe because both operations commit transactionally: an
  * abandoned one wrote everything or nothing.
  */
-export const CANONICAL_CLAIM_LEASE_MS = Number(process.env.FANTASY_CANONICAL_CLAIM_LEASE_MS || 15 * 60_000);
+// Validated: a NaN lease would make every expiry comparison false, so an abandoned claim
+// would never be reclaimable and the other operation would block indefinitely.
+export const CANONICAL_CLAIM_LEASE_MS = resolveNumericEnv(
+  "FANTASY_CANONICAL_CLAIM_LEASE_MS",
+  { fallback: 15 * 60_000, max: 24 * 60 * 60_000 },
+).value;
 
 export interface CanonicalClaim {
   readonly holder: ClaimHolder;

@@ -184,6 +184,11 @@ export function WipView() {
         }
       />
 
+      {/*
+        The WIP coverage policy, stated wherever WIP quantities are shown. Without it the
+        pieces below read as coverage: they are reported for visibility and, while no
+        approved policy exists, are deducted from nothing.
+      */}
       {policy && (
         <InfoBanner variant={notConfigured ? "warning" : "info"}>
           {policy.message}

@@ -388,7 +388,7 @@ async function main() {
 
   // --- Hash handling (requirements 7-12) ---
   assert(
-    navHash(DEMAND_TRACE_VIEW, null, { runId: "run-1", category: HEART, malformed: false }) ===
+    navHash(DEMAND_TRACE_VIEW, null, { runId: "run-1", category: HEART, bucket: null, malformed: false }) ===
       "#analysis-demand-trace?runId=run-1&category=GIA%7CHEART%7C1.70-1.99",
     "Category pipes are percent-encoded in the hash (%7C)",
   );
@@ -399,7 +399,7 @@ async function main() {
     navHash("analysis-sales", "trends", null) === "#analysis-sales?tab=trends",
     "Hash generation still produces tab-only URLs unchanged",
   );
-  const tabAndTrace = navHash(DEMAND_TRACE_VIEW, "records", { runId: "run-9", category: OVAL, malformed: false });
+  const tabAndTrace = navHash(DEMAND_TRACE_VIEW, "records", { runId: "run-9", category: OVAL, bucket: null, malformed: false });
   const parsedBoth = parseNavHash(tabAndTrace);
   assert(
     parsedBoth?.tab === "records" && parsedBoth.trace?.runId === "run-9" && parsedBoth.trace?.category === OVAL,

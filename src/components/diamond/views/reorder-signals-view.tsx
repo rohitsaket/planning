@@ -14,6 +14,8 @@ import { ServerPagination } from "@/components/diamond/shared/server-pagination"
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AlertTriangle, FlaskConical, Info, PackageX, Search } from "lucide-react";
+import { SimulationBanner } from "@/components/diamond/shared/simulation-banner";
+import type { SourceDisclosure } from "@/lib/analysis/source-disclosure";
 
 /**
  * REORDER SIGNALS — categories whose finished stock does not cover the stored target.
@@ -30,6 +32,7 @@ type Signal = "OUT_OF_STOCK" | "SHORTAGE" | "REVIEW_REQUIRED" | "STALE" | "NO_SI
 type DataState = "CONFIRMED" | "REVIEW_REQUIRED" | "BLOCKED";
 
 interface SnapshotStatus {
+  sourceDisclosure: SourceDisclosure | null;
   hasRun: boolean;
   runId: string | null;
   sourceState: "SIMULATION" | "LIVE";
@@ -221,19 +224,9 @@ export function ReorderSignalsView() {
             )}
           </div>
 
-          <InfoBanner variant="info">
-            These signals are advisory. They describe what the calculation found; they do not create an
-            order, a plan or a reservation, and the uncovered quantity is not a recommended order quantity.
-          </InfoBanner>
 
-          {s.sourceState === "SIMULATION" && hasRun && (
-            <InfoBanner variant="warning">
-              <span className="flex items-center gap-2 font-semibold">
-                <FlaskConical className="h-4 w-4" />
-                Fixture Simulation — these are simulated results, not live Fantasy data.
-              </span>
-            </InfoBanner>
-          )}
+          {/* Persistent and unmistakable while fixture data is on screen. */}
+          <SimulationBanner disclosure={s.sourceDisclosure} />
           {s.reviewWarning && <InfoBanner variant="warning">{s.reviewWarning}</InfoBanner>}
           {s.staleWarning && (
             <InfoBanner variant="critical">

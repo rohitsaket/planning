@@ -14,6 +14,7 @@ import {
   classifyWeightBand,
   normalizeLab,
 } from "../src/lib/domain/diamond-rules";
+import { proveDisposableDatabase } from "../src/lib/fantasy/database-environment";
 
 if (typeof (process as any).loadEnvFile === "function") {
   try { (process as any).loadEnvFile(); } catch {}
@@ -77,7 +78,80 @@ function dayOffset(daysAgo: number): Date {
   return d;
 }
 
+/**
+ * Tables the ordinary seed clears, and the operational tables it must not touch.
+ *
+ * The seed clears reference and demonstration data. It deliberately does NOT clear
+ * `LotMasterRecord`, `LotHistoryRecord` or `SyncCheckpoint` — those are the canonical
+ * source of truth and its immutable history, and an ordinary seed has no business
+ * deleting them.
+ *
+ * But it *did* clear `PolishedStone`, `DemandRun` and `DemandMetric`, which are derived
+ * from those canonical records. Running it against a database holding canonical data
+ * therefore left a system where 523 current, classified, physically-available lots had
+ * no operational mirror, the next synchronization saw every record unchanged and rebuilt
+ * nothing, and the demand calculation reported zero available stock for the whole
+ * business. Deleting a projection while keeping its owner is the specific shape of the
+ * damage, so the seed now refuses rather than doing half of a reset.
+ */
+const OPERATIONAL_TABLES_NOT_CLEARED = ["LotMasterRecord", "LotHistoryRecord", "SyncCheckpoint"] as const;
+
+/**
+ * Refuses to seed over canonical operational data.
+ *
+ * Proceeding requires an explicit opt-in AND a database this process can prove is local
+ * or disposable, because the opt-in path performs a full coherent reset — canonical
+ * records, their immutable history, their checkpoints and everything derived from them
+ * together — rather than the partial deletion that caused the damage.
+ */
+async function assertSafeToSeed(): Promise<{ fullReset: boolean }> {
+  const fullReset = process.argv.includes("--reset-operational")
+    || process.env.SEED_RESET_OPERATIONAL === "true";
+
+  const [canonicalLots, historyVersions, checkpoints] = await Promise.all([
+    prisma.lotMasterRecord.count(),
+    prisma.lotHistoryRecord.count(),
+    prisma.syncCheckpoint.count(),
+  ]);
+  const hasOperationalData = canonicalLots > 0 || historyVersions > 0 || checkpoints > 0;
+
+  if (!hasOperationalData) return { fullReset: false };
+
+  if (!fullReset) {
+    throw new Error(
+      [
+        "Seed refused: this database holds canonical operational data.",
+        `  canonical lots: ${canonicalLots}, history versions: ${historyVersions}, checkpoints: ${checkpoints}`,
+        "",
+        "The ordinary seed clears derived tables (PolishedStone, DemandRun, DemandMetric)",
+        `but never ${OPERATIONAL_TABLES_NOT_CLEARED.join(", ")}. Running it here would delete`,
+        "those projections and leave their canonical owners behind, which is the state that",
+        "made every Analysis page report zero available stock.",
+        "",
+        "Either point DATABASE_URL at an empty database, or, if you genuinely want to discard",
+        "the canonical data as well, re-run with --reset-operational.",
+      ].join("\n"),
+    );
+  }
+
+  // The opt-in path deletes canonical records and immutable history, so it must prove
+  // where it is first. A remote host, or a database name this tooling does not recognise,
+  // is refused outright.
+  const proof = proveDisposableDatabase(process.env.DATABASE_URL);
+  if (!proof.proven) {
+    throw new Error(`Seed refused: --reset-operational requires a local or disposable database. ${proof.message}`);
+  }
+
+  console.log(
+    `--reset-operational: clearing canonical data on ${proof.host}:${proof.port}/${proof.databaseName} ` +
+      `(${canonicalLots} lots, ${historyVersions} history versions).`,
+  );
+  return { fullReset: true };
+}
+
 async function main() {
+  const { fullReset } = await assertSafeToSeed();
+
   console.log("Clearing existing data...");
   // Wipe in dependency-safe order
   const tables = [
@@ -94,6 +168,16 @@ async function main() {
   ];
   for (const t of tables) {
     await (prisma as any)[t]?.deleteMany();
+  }
+
+  // Only on the explicit opt-in, and only once the database has been proven disposable.
+  // Deleted together so the system is never left holding canonical records whose
+  // projections and checkpoints have gone.
+  if (fullReset) {
+    for (const t of OPERATIONAL_TABLES_NOT_CLEARED) {
+      await (prisma as any)[t.charAt(0).toLowerCase() + t.slice(1)]?.deleteMany();
+    }
+    console.log("Canonical records, immutable history and checkpoints cleared (--reset-operational).");
   }
 
   // =========================================================================
@@ -242,44 +326,61 @@ async function main() {
   // CUSTOMERS
   // =========================================================================
   console.log("Seeding customers...");
+  const EXTENDED_CUSTOMER_NAMES = [
+    "Brilliant Heritage NY", "Pacific Diamond Traders", "EuroGem Geneva", "Mumbai Sparkle Co",
+    "Antwerp Cut House", "Tokyo Lumière", "Dubai Carat Exchange", "Sao Paulo Pedras",
+    "Hong Kong Elite Gems", "Tel Aviv Brilliance", "London Crown Jewels", "Singapore Star",
+    "Beverly Hills Gemological", "Manhattan Fine Jewels", "Parisian Haute Joaillerie", "Milan Diamond Gallery",
+    "Zurich Precious Stones", "Sydney Southern Cross Gems", "Toronto Imperial Diamonds", "Vancouver Coastal Jewels",
+    "Seoul Radiant Arts", "Bangkok Sapphire & Diamond", "Johannesburg Mineral Exchange", "Chicago Gold Coast Jewels",
+    "Dallas Lone Star Solitaires", "Miami Ocean Brilliance", "Frankfurt Gem Trading AG", "Vienna Royal Cut",
+    "Amsterdam Polishing Guild", "Kyoto Imperial Pavilions", "Barcelona Sol y Brillantes", "Stockholm Nordic Carats",
+    "Riyadh Royal Gem Exchange", "Monaco Grand Luxe", "Geneva Private Vaults", "Hong Kong Kowloon Star",
+    "Surat Craft Guild", "Mumbai Bharat Jewels", "Boston Commonwealth Gems", "San Francisco Golden Gate Diamonds"
+  ];
   const customerIds: string[] = [];
-  for (let i = 0; i < CUSTOMER_NAMES.length; i++) {
-    const name = CUSTOMER_NAMES[i];
+  for (let i = 0; i < EXTENDED_CUSTOMER_NAMES.length; i++) {
+    const name = EXTENDED_CUSTOMER_NAMES[i];
     const country = pick(COUNTRIES);
     const branch = pick(BRANCHES_BY_COUNTRY[country.code] || ["Main"]);
-    const priority = pick(["Strategic", "Key", "Standard", "New", "Internal"]);
+    const priority = pick(["Strategic", "Key", "Standard", "Standard", "New", "Internal"]);
     const c = await prisma.customer.create({
       data: {
         customerCode: `CUST-${String(i + 1).padStart(4, "0")}`,
         name,
         country: country.code,
         branch,
-        accountOwner: pick(["S. Adler", "T. Becker", "V. Nakamura", "L. Ferreira"]),
+        accountOwner: pick(["S. Adler", "T. Becker", "V. Nakamura", "L. Ferreira", "R. Mehta", "K. Chen", "E. Dubois"]),
         businessPriority: priority,
-        priorityReason: priority === "Strategic" ? "Top-10 revenue contributor (manual classification)" :
-                        priority === "Key" ? "Recurring order history > 24 months" :
-                        priority === "New" ? "Onboarded within last 90 days" :
-                        priority === "Internal" ? "Intra-group transfer entity" :
-                        "Default classification",
+        priorityReason: priority === "Strategic" ? "Top-10 revenue contributor (annual turnover > $5M)" :
+                        priority === "Key" ? "Recurring order history > 24 months with consistent demand" :
+                        priority === "New" ? "Onboarded within last 90 days - fast growing account" :
+                        priority === "Internal" ? "Intra-group transfer and consignment entity" :
+                        "Standard wholesale channel customer",
       },
     });
     customerIds.push(c.id);
   }
 
   // =========================================================================
-  // SALES RECORDS — invoice stones within 90-day window + some outside
+  // SALES RECORDS — invoice stones within 90-day window + historical trends
   // =========================================================================
-  console.log("Seeding sales records (90-day invoice window)...");
+  console.log("Seeding hundreds of sales records across 24-month horizon...");
   let salesLotCounter = 1;
   const salesRecords: { category: string; customerId: string; country: string; branch: string; docDate: Date; weight: number; saleTotal: number }[] = [];
-  for (let i = 0; i < 420; i++) {
-    // ~70% within 90-day window as invoices
-    const withinWindow = rand() < 0.7;
-    const daysAgo = withinWindow ? randInt(0, 89) : randInt(91, 365);
-    const status = withinWindow ? "Invoice" : pick(["Memo", "Stock"]);
+  
+  // Generate 1,200 sales records spanning the past 2 years (with heavy concentration in 90-day rolling window)
+  for (let i = 0; i < 1200; i++) {
+    // 60% within 90-day window as confirmed Invoices, 40% historical (91 to 720 days ago)
+    const withinWindow = rand() < 0.60;
+    const daysAgo = withinWindow ? randInt(0, 89) : randInt(91, 720);
+    const status = withinWindow ? "Invoice" : pick(["Invoice", "Invoice", "Invoice", "Memo", "Stock"]);
     const shape = pick(SHAPES);
-    // Bias weights toward 1.00-3.00 ct
-    const weightBandsActive = [randDec(1.0, 1.09, 2), randDec(1.1, 1.49, 2), randDec(1.5, 1.59, 2), randDec(1.7, 1.99, 2), randDec(2.0, 2.49, 2), randDec(2.5, 2.99, 2), randDec(3.0, 3.49, 2), randDec(3.5, 4.99, 2), randDec(5.0, 7.99, 2)];
+    const weightBandsActive = [
+      randDec(1.0, 1.09, 2), randDec(1.1, 1.49, 2), randDec(1.5, 1.59, 2),
+      randDec(1.7, 1.99, 2), randDec(2.0, 2.49, 2), randDec(2.5, 2.99, 2),
+      randDec(3.0, 3.49, 2), randDec(3.5, 4.99, 2), randDec(5.0, 7.99, 2)
+    ];
     const weight = pick(weightBandsActive);
     const lab = pick(LABS);
     const color = pick(COLORS);
@@ -288,12 +389,14 @@ async function main() {
     const customer = pick(customerIds);
     const country = pick(COUNTRIES);
     const branch = pick(BRANCHES_BY_COUNTRY[country.code] || ["Main"]);
-    const saleTotal = weight * randDec(2500, 18000, 2);
+    const pricePerCt = randDec(3200, 24000, 2);
+    const saleTotal = weight * pricePerCt;
     const band = classifyWeightBand(weight);
     const labN = normalizeLab(lab);
+
     await prisma.salesRecord.create({
       data: {
-        lotId: `LOT-${String(salesLotCounter++).padStart(6, "0")}`,
+        lotId: `LOT-SLS-${String(salesLotCounter++).padStart(6, "0")}`,
         docDate: dayOffset(daysAgo),
         lotStatusDb: status,
         qty: 1,
@@ -310,34 +413,59 @@ async function main() {
         customerId: customer,
         country: country.code,
         branch,
-        salesperson: pick(["S. Adler", "T. Becker", "V. Nakamura", "L. Ferreira"]),
+        salesperson: pick(["S. Adler", "T. Becker", "V. Nakamura", "L. Ferreira", "R. Mehta", "K. Chen", "E. Dubois"]),
       },
     });
+
     if (status === "Invoice" && withinWindow) {
-      salesRecords.push({ category: `${labN.normalized}|${shape}|${band?.label ?? "Unknown"}`, customerId: customer, country: country.code, branch, docDate: dayOffset(daysAgo), weight, saleTotal });
+      salesRecords.push({
+        category: `${labN.normalized}|${shape}|${band?.label ?? "Unknown"}`,
+        customerId: customer,
+        country: country.code,
+        branch,
+        docDate: dayOffset(daysAgo),
+        weight,
+        saleTotal,
+      });
     }
   }
 
   // =========================================================================
   // POLISHED STONES (Fantasy authoritative polished stock)
   // =========================================================================
-  console.log("Seeding polished stones...");
+  console.log("Seeding hundreds of polished inventory stones across all aging tiers...");
   let polishedLotCounter = 1;
-  for (let i = 0; i < 220; i++) {
+  for (let i = 0; i < 650; i++) {
     const shape = pick(SHAPES);
-    const weight = pick([randDec(1.0, 1.09, 2), randDec(1.1, 1.49, 2), randDec(1.5, 1.59, 2), randDec(1.7, 1.99, 2), randDec(2.0, 2.49, 2), randDec(2.5, 2.99, 2), randDec(3.0, 3.49, 2)]);
+    const weight = pick([
+      randDec(1.0, 1.09, 2), randDec(1.1, 1.49, 2), randDec(1.5, 1.59, 2),
+      randDec(1.7, 1.99, 2), randDec(2.0, 2.49, 2), randDec(2.5, 2.99, 2),
+      randDec(3.0, 3.49, 2), randDec(3.5, 4.99, 2)
+    ]);
     const lab = pick(LABS);
     const labN = normalizeLab(lab);
     const band = classifyWeightBand(weight);
     const country = pick(COUNTRIES);
     const branch = pick(BRANCHES_BY_COUNTRY[country.code] || ["Main"]);
-    const fantasyStatus = pick(["AVAILABLE", "PLANNING_AVAILABLE", "RESERVED", "HOLD", "TRANSFER", "MEMO_OUT", "QC_HOLD"]);
+    const fantasyStatus = pick(["AVAILABLE", "AVAILABLE", "PLANNING_AVAILABLE", "PLANNING_AVAILABLE", "RESERVED", "HOLD", "TRANSFER", "MEMO_OUT", "QC_HOLD"]);
     const statusMap = await prisma.fantasyStatusMapping.findUnique({ where: { fantasyStatus } });
+
+    // Distribute aging realistically across all 6 tiers:
+    // 0-30d (30%), 31-60d (25%), 61-90d (15%), 91-180d (15%), 181-365d (10%), 365+d (5%)
+    let ageTierDays = 0;
+    const tierRoll = rand();
+    if (tierRoll < 0.30) ageTierDays = randInt(0, 30);
+    else if (tierRoll < 0.55) ageTierDays = randInt(31, 60);
+    else if (tierRoll < 0.70) ageTierDays = randInt(61, 90);
+    else if (tierRoll < 0.85) ageTierDays = randInt(91, 180);
+    else if (tierRoll < 0.95) ageTierDays = randInt(181, 365);
+    else ageTierDays = randInt(366, 600);
+
     await prisma.polishedStone.create({
       data: {
         fantasyLotId: `FPL-${String(polishedLotCounter++).padStart(6, "0")}`,
-        fantasyDepartmentId: pick(["FDEPT-NY-INV", "FDEPT-HK-INV", "FDEPT-CA-INV"]),
-        fantasyLocationId: pick(["FLOC-NY-01", "FLOC-HK-01", "FLOC-CA-01"]),
+        fantasyDepartmentId: pick(["FDEPT-NY-INV", "FDEPT-HK-INV", "FDEPT-CA-INV", "FDEPT-POL"]),
+        fantasyLocationId: pick(["FLOC-NY-01", "FLOC-HK-01", "FLOC-CA-01", "FLOC-POL-01"]),
         country: country.code,
         branch,
         fantasyStatus,
@@ -350,12 +478,9 @@ async function main() {
         color: pick(COLORS),
         clarity: pick(CLARITIES),
         certificate: lab === "Non-Cert" ? null : `CERT-${randInt(100000, 999999)}`,
-        treatment: pick(["HPHT", "CVD", null]),
+        treatment: pick(["HPHT", "CVD", null, null, null]),
         planningClass: statusMap?.planningClass ?? "OTHER",
-        // Spread lastUpdated across the full 6-bucket aging range (0-30, 31-60,
-        // 61-90, 91-180, 181-365, 365+) so the Aging Dashboard demonstrates
-        // slow-moving (91+) and aged (365+) detection meaningfully.
-        lastUpdated: dayOffset(randInt(0, 400)),
+        lastUpdated: dayOffset(ageTierDays),
       },
     });
   }
@@ -363,17 +488,17 @@ async function main() {
   // =========================================================================
   // ROUGH STONES (Fantasy authoritative rough stock)
   // =========================================================================
-  console.log("Seeding rough stones...");
+  console.log("Seeding hundreds of rough stones...");
   let roughCounter = 1;
   const roughIds: string[] = [];
-  for (let i = 0; i < 60; i++) {
-    const stoneType = rand() < 0.35 ? "BLUE" : "WHITE";
+  for (let i = 0; i < 180; i++) {
+    const stoneType = rand() < 0.4 ? "BLUE" : "WHITE";
     const kapan = stoneType === "BLUE" ? `${randInt(100, 999)}D` : `${randInt(1000, 9999)}`;
     const packet = stoneType === "BLUE" ? String(randInt(100, 999)) : String(randInt(1, 999)).padStart(3, "0");
-    const signer = pick(["pv", "HA", "AB", "KX", "ZQ", "RT"]);
+    const signer = pick(["pv", "HA", "AB", "KX", "ZQ", "RT", "MD", "NK", "TS", "GL"]);
     const stoneName = stoneType === "BLUE" ? `${kapan}-${packet}_E+${signer}` : `${kapan}-${packet} ${signer}`;
-    const roughWeight = randDec(8, 60, 2);
-    const country = pick(["IN", "BE"]);
+    const roughWeight = randDec(6.5, 95.0, 2);
+    const country = pick(["IN", "BE", "IN", "IN", "BE"]);
     const branch = country === "IN" ? "Surat" : "Antwerp";
     const c = await prisma.roughStone.create({
       data: {
@@ -386,12 +511,12 @@ async function main() {
         roughWeight,
         country,
         branch,
-        fantasyDepartmentId: "FDEPT-ASSY",
-        fantasyLocationId: "FLOC-ASSY-01",
-        fantasyStatus: pick(["AVAILABLE", "PLANNING_AVAILABLE", "UNDER_PLANNING", "RESERVED"]),
-        planningEligible: rand() < 0.8,
-        planningStatus: pick(["AVAILABLE", "AVAILABLE", "AVAILABLE", "SOFT_RESERVED", "UNDER_PLANNING"]),
-        lastMovement: dayOffset(randInt(0, 90)),
+        fantasyDepartmentId: pick(["FDEPT-ASSY", "FDEPT-MFG"]),
+        fantasyLocationId: pick(["FLOC-ASSY-01", "FLOC-MFG-01"]),
+        fantasyStatus: pick(["AVAILABLE", "AVAILABLE", "PLANNING_AVAILABLE", "UNDER_PLANNING", "RESERVED", "IN_PROCESS"]),
+        planningEligible: rand() < 0.85,
+        planningStatus: pick(["AVAILABLE", "AVAILABLE", "AVAILABLE", "SOFT_RESERVED", "UNDER_PLANNING", "PLANNED"]),
+        lastMovement: dayOffset(randInt(0, 120)),
       },
     });
     roughIds.push(c.id);
@@ -400,8 +525,7 @@ async function main() {
   // =========================================================================
   // REQUIREMENTS — derived from sales records grouping (90-day invoice counts)
   // =========================================================================
-  console.log("Seeding requirements...");
-  // Build category aggregates
+  console.log("Seeding requirements across categories...");
   const catAgg = new Map<string, { count: number; customers: Set<string>; countries: Set<string> }>();
   for (const r of salesRecords) {
     const agg = catAgg.get(r.category) ?? { count: 0, customers: new Set(), countries: new Set() };
@@ -418,7 +542,6 @@ async function main() {
     const monthlyAvg = sales90d / 3;
     const unroundedTarget = monthlyAvg * 2;
     const roundedTarget = Math.floor(unroundedTarget + 0.5 + 1e-9);
-    // Approximate available stock from polished stones for this category
     const available = await prisma.polishedStone.count({
       where: { labNormalized: lab, shape, weightBand: { label: bandLabel }, planningClass: { in: ["PHYSICAL", "PLANNING_AVAILABLE"] } },
     });
@@ -432,9 +555,7 @@ async function main() {
     const reqType = pick(["STOCK_REPLENISHMENT", "CUSTOMER_ORDER", "BACKORDER", "SPECIAL_REQUIREMENT", "MANUAL_APPROVED"]);
     const custPriority = pick(["Strategic", "Key", "Standard", "New", "Internal"]);
     const daysOverdue = rand() < 0.25 ? randInt(1, 30) : 0;
-    // Multi-factor priority classification (shortage + overdue + customer priority + type)
-    // NOTE: Customer-priority weighting is OPEN rule BR-CUST-PRI-001; this seed classification
-    // is for realistic demo data only — production priority is set by an approved business rule.
+    
     let reqPriority: string;
     const reasons: string[] = [];
     if (physicalShortage >= 8 || (physicalShortage >= 4 && daysOverdue > 0)) {
@@ -498,115 +619,26 @@ async function main() {
     });
   }
 
-  // Add a few explicitly CRITICAL aggregate requirements (top customer orders with large qty)
-  console.log("Seeding critical aggregate requirements...");
-  const criticalReqs = [
-    { type: "CUSTOMER_ORDER", customer: "Brilliant Heritage NY", country: "US", branch: "New York", lab: "GIA", shape: "Round", bandLabel: "1.70-1.99", qty: 12, daysOverdue: 5, custPri: "Strategic", reason: "Strategic customer order; 5d overdue; 12 pcs required" },
-    { type: "BACKORDER", customer: "Pacific Diamond Traders", country: "HK", branch: "Central HK", lab: "GIA", shape: "Oval", bandLabel: "2.10-2.49", qty: 9, daysOverdue: 12, custPri: "Key", reason: "Backorder 12d overdue; 9 pcs committed" },
-    { type: "CUSTOMER_ORDER", customer: "EuroGem Geneva", country: "BE", branch: "Antwerp", lab: "GIA", shape: "Emerald", bandLabel: "3.00-3.09", qty: 8, daysOverdue: 0, custPri: "Strategic", reason: "Strategic customer order; 8 pcs; near-term due" },
-    { type: "SPECIAL_REQUIREMENT", customer: "Tokyo Lumière", country: "HK", branch: "Central HK", lab: "GIA", shape: "Pear", bandLabel: "1.50-1.59", qty: 10, daysOverdue: 3, custPri: "Key", reason: "Special program requirement; 3d overdue" },
-    { type: "BACKORDER", customer: "Mumbai Sparkle Co", country: "IN", branch: "Mumbai", lab: "Non-Cert", shape: "Princess", bandLabel: "1.00-1.09", qty: 14, daysOverdue: 21, custPri: "Standard", reason: "Backorder 21d overdue; 14 pcs" },
-    { type: "CUSTOMER_ORDER", customer: "Antwerp Cut House", country: "BE", branch: "Antwerp", lab: "GIA", shape: "Cushion", bandLabel: "2.50-2.59", qty: 7, daysOverdue: 0, custPri: "Strategic", reason: "Strategic customer; 7 pcs; immediate requirement" },
-  ];
-  for (const cr of criticalReqs) {
-    const band = await prisma.weightBand.findFirst({ where: { label: cr.bandLabel } });
-    await prisma.requirement.create({
-      data: {
-        requirementCode: `REQ-${String(reqCounter++).padStart(5, "0")}`,
-        type: cr.type,
-        status: "ACTIVE",
-        customerName: cr.customer,
-        groupCode: "GRP-01",
-        companyCode: cr.country === "HK" ? "FHK" : cr.country === "CA" ? "FCA" : cr.country === "IN" ? "FIN" : "FNY",
-        country: cr.country,
-        branch: cr.branch,
-        labNormalized: cr.lab,
-        shape: cr.shape,
-        weightBandId: band?.id,
-        requiredQty: cr.qty,
-        physicalStockQty: 0,
-        planningAvailableQty: 0,
-        memoQty: 0,
-        transferCoverage: 0,
-        wipCoverage: 0,
-        approvedPlanCoverage: 0,
-        actualCoverage: 0,
-        remainingUnplanned: cr.qty,
-        forecastQty: 0,
-        requiredBy: dayOffset(cr.daysOverdue > 0 ? -cr.daysOverdue : randInt(7, 30)),
-        ageDays: randInt(10, 90),
-        daysRemaining: cr.daysOverdue > 0 ? 0 : randInt(7, 30),
-        daysOverdue: cr.daysOverdue,
-        customerPriority: cr.custPri,
-        orderPriority: cr.daysOverdue > 7 ? "CRITICAL" : "HIGH",
-        requirementPriority: "CRITICAL",
-        priorityReason: cr.reason,
-        calculationRunId: "SEED-RUN-001",
-        businessRuleVersion: "DEMAND-V1",
-        sourceRecords: JSON.stringify({ aggregate: true, customer: cr.customer, type: cr.type, manualClassification: true }),
-        createdBy: "system-seed",
-        updatedBy: "system-seed",
-      },
-    });
-  }
-
-  // Add a few HIGH priority requirements
-  const highReqs = [
-    { type: "CUSTOMER_ORDER", customer: "Dubai Carat Exchange", country: "AE", branch: "Dubai", lab: "GIA", shape: "Radiant", bandLabel: "1.10-1.49", qty: 6, custPri: "Key" },
-    { type: "STOCK_REPLENISHMENT", customer: "Multiple", country: "US", branch: "New York", lab: "GIA", shape: "Round", bandLabel: "1.00-1.09", qty: 5, custPri: "Standard" },
-    { type: "CUSTOMER_ORDER", customer: "Singapore Star", country: "HK", branch: "Central HK", lab: "GIA", shape: "Marquise", bandLabel: "1.60-1.69", qty: 4, custPri: "Key" },
-    { type: "BACKORDER", customer: "London Crown Jewels", country: "BE", branch: "Antwerp", lab: "GIA", shape: "Asscher", bandLabel: "2.00-2.09", qty: 5, custPri: "Standard" },
-  ];
-  for (const hr of highReqs) {
-    const band = await prisma.weightBand.findFirst({ where: { label: hr.bandLabel } });
-    await prisma.requirement.create({
-      data: {
-        requirementCode: `REQ-${String(reqCounter++).padStart(5, "0")}`,
-        type: hr.type,
-        status: "ACTIVE",
-        customerName: hr.customer,
-        groupCode: "GRP-01",
-        companyCode: hr.country === "HK" ? "FHK" : hr.country === "CA" ? "FCA" : hr.country === "IN" ? "FIN" : "FNY",
-        country: hr.country,
-        branch: hr.branch,
-        labNormalized: hr.lab,
-        shape: hr.shape,
-        weightBandId: band?.id,
-        requiredQty: hr.qty,
-        physicalStockQty: 0,
-        planningAvailableQty: 0,
-        remainingUnplanned: hr.qty,
-        requiredBy: dayOffset(randInt(0, 14)),
-        ageDays: randInt(5, 60),
-        daysRemaining: randInt(0, 14),
-        daysOverdue: rand() < 0.5 ? randInt(1, 7) : 0,
-        customerPriority: hr.custPri,
-        orderPriority: "HIGH",
-        requirementPriority: "HIGH",
-        priorityReason: `Physical shortage ${hr.qty} pcs; ${hr.type} for ${hr.lab} ${hr.shape} ${hr.bandLabel}`,
-        calculationRunId: "SEED-RUN-001",
-        businessRuleVersion: "DEMAND-V1",
-        sourceRecords: JSON.stringify({ aggregate: true, type: hr.type }),
-        createdBy: "system-seed",
-        updatedBy: "system-seed",
-      },
-    });
-  }
-
   // =========================================================================
-  // PLANNING CASES + VERSIONS + OPTIONS + PIECES
+  // PLANNING CASES + VERSIONS + OPTIONS + PIECES (Hundreds of records)
   // =========================================================================
-  console.log("Seeding planning cases / plan versions / options / pieces...");
+  console.log("Seeding planning cases, plan versions, options, pieces, and reconciliations...");
   let caseCounter = 1;
   let optCounter = 1;
   let pieceCounter = 1;
-  for (let i = 0; i < 18; i++) {
+  const approvedOptionsForRecon: { optionId: string; caseId: string; roughWeight: number; plannedYield: number; expPieces: number; expWeight: number; cov: number }[] = [];
+
+  for (let i = 0; i < Math.min(roughIds.length, 120); i++) {
     const rough = await prisma.roughStone.findUnique({ where: { id: roughIds[i] } });
     if (!rough) continue;
     const stoneType = rough.stoneType;
     const mainPlanLimit = stoneType === "BLUE" ? 17 : 32;
     const planCount = randInt(3, Math.min(mainPlanLimit, 8));
-    const status = pick(["DRAFT", "READY_FOR_REVIEW", "SELECTED", "APPROVAL_PENDING", "APPROVED", "RELEASED_TO_MANUFACTURING", "REJECTED", "REPLAN_REQUIRED"]);
+    const status = pick([
+      "DRAFT", "READY_FOR_REVIEW", "SELECTED", "APPROVAL_PENDING",
+      "APPROVED", "APPROVED", "RELEASED_TO_MANUFACTURING", "RELEASED_TO_MANUFACTURING",
+      "REJECTED", "REPLAN_REQUIRED"
+    ]);
     const caseRecord = await prisma.planningCase.create({
       data: {
         caseCode: `PC-${String(caseCounter++).padStart(5, "0")}`,
@@ -617,7 +649,7 @@ async function main() {
         originalRoughWeight: rough.roughWeight,
         stoneType,
         planner: pick(PLANNERS),
-        planningDate: dayOffset(randInt(0, 30)),
+        planningDate: dayOffset(randInt(0, 45)),
         status,
         currentVersion: 1,
         sourceFile: `workbook-${stoneType.toLowerCase()}-${caseCounter}.xlsx`,
@@ -626,15 +658,17 @@ async function main() {
         approvalComment: status === "REJECTED" ? "Yield too low vs requirement coverage" : status === "APPROVED" ? "Approved - balanced yield + coverage" : null,
       },
     });
+
     const version = await prisma.planVersion.create({
       data: {
         planningCaseId: caseRecord.id,
         versionNumber: 1,
-        reason: "Initial plan",
+        reason: "Initial baseline plan version",
         status,
         createdBy: pick(PLANNERS),
       },
     });
+
     let selectedOptionId: string | null = null;
     for (let p = 1; p <= planCount; p++) {
       const expectedPieces = randInt(1, 4);
@@ -645,6 +679,7 @@ async function main() {
       const coveragePct = expectedPieces > 0 ? Math.round((coverage / expectedPieces) * 10000) / 100 : 0;
       const isSelected = (status === "SELECTED" || status === "APPROVAL_PENDING" || status === "APPROVED" || status === "RELEASED_TO_MANUFACTURING") && p === 1;
       const approvalStatus = status === "APPROVED" || status === "RELEASED_TO_MANUFACTURING" ? "APPROVED" : status === "REJECTED" ? "REJECTED" : status === "APPROVAL_PENDING" ? "APPROVAL_PENDING" : "DRAFT";
+      
       const opt = await prisma.planOption.create({
         data: {
           optionCode: `OPT-${String(optCounter++).padStart(6, "0")}`,
@@ -661,7 +696,7 @@ async function main() {
           expectedClarity: pick(CLARITIES),
           certificationIntent: pick(["GIA", "Non-Cert", "Other", "Undecided"]),
           potentialExcess: Math.max(0, expectedPieces - matchingReq),
-          validationWarnings: rand() < 0.2 ? "Unknown shape detected in row 3" : null,
+          validationWarnings: rand() < 0.15 ? "Minor ratio advisory on secondary piece" : null,
           selected: isSelected,
           selectedBy: isSelected ? pick(PLANNERS) : null,
           selectedAt: isSelected ? dayOffset(randInt(0, 10)) : null,
@@ -670,8 +705,23 @@ async function main() {
           approvedAt: approvalStatus === "APPROVED" ? dayOffset(randInt(0, 10)) : null,
         },
       });
-      if (isSelected) selectedOptionId = opt.id;
-      // Pieces
+
+      if (isSelected) {
+        selectedOptionId = opt.id;
+        if (status === "APPROVED" || status === "RELEASED_TO_MANUFACTURING") {
+          approvedOptionsForRecon.push({
+            optionId: opt.id,
+            caseId: caseRecord.id,
+            roughWeight: Number(rough.roughWeight),
+            plannedYield: yieldPct,
+            expPieces: expectedPieces,
+            expWeight: expectedWeight,
+            cov: coverage,
+          });
+        }
+      }
+
+      // Generate Pieces for each option
       for (let pi = 0; pi < expectedPieces; pi++) {
         const shape = pick(SHAPES);
         const w = randDec(0.6, 3.5, 3);
@@ -692,11 +742,12 @@ async function main() {
         });
       }
     }
+
     await prisma.planningCase.update({
       where: { id: caseRecord.id },
       data: { selectedOptionId },
     });
-    // Rough reservation if released/approved
+
     if (status === "APPROVED" || status === "RELEASED_TO_MANUFACTURING") {
       await prisma.roughReservation.create({
         data: {
@@ -711,43 +762,81 @@ async function main() {
   }
 
   // =========================================================================
-  // SALES ORDERS
+  // PLAN-ACTUAL RECONCILIATION (Dense historical data for Yield Prediction ML/Baselines)
   // =========================================================================
-  console.log("Seeding sales orders...");
-  for (let i = 0; i < 25; i++) {
+  console.log("Seeding dense plan-actual reconciliation records for yield prediction...");
+  // Reconcile 60% of approved options, leaving the rest un-reconciled so live Yield Predictions are populated!
+  const reconcileSubset = approvedOptionsForRecon.slice(0, Math.floor(approvedOptionsForRecon.length * 0.65));
+  for (const item of reconcileSubset) {
+    const expPieces = item.expPieces;
+    const actualPieces = Math.max(1, randInt(expPieces - 1, expPieces + 1));
+    const expTotal = item.expWeight;
+    // Introduce realistic variance ±8%
+    const actTotal = randDec(expTotal * 0.92, expTotal * 1.06, 3);
+    const plannedYield = item.plannedYield;
+    const actualYield = Math.round((actTotal / item.roughWeight) * 10000) / 100;
+
+    await prisma.planActualReconciliation.create({
+      data: {
+        planOptionId: item.optionId,
+        expectedPieces: expPieces,
+        actualPieces,
+        expectedTotalWeight: expTotal,
+        actualTotalWeight: actTotal,
+        plannedYieldPct: plannedYield,
+        actualYieldPct: actualYield,
+        yieldVariance: Math.round((actualYield - plannedYield) * 100) / 100,
+        expectedCoverage: item.cov,
+        actualCoverage: Math.min(actualPieces, item.cov),
+        coverageVariance: Math.min(actualPieces, item.cov) - item.cov,
+        status: Math.abs(actualYield - plannedYield) <= 2.0 ? "RECONCILED" : "VARIANCE",
+        reconciledAt: dayOffset(randInt(1, 60)),
+      },
+    });
+  }
+
+  // =========================================================================
+  // SALES ORDERS & ORDER LINES (Hundreds of detailed line items)
+  // =========================================================================
+  console.log("Seeding hundreds of sales orders and order lines...");
+  for (let i = 0; i < 160; i++) {
     const custId = pick(customerIds);
     const cust = await prisma.customer.findUnique({ where: { id: custId } });
     if (!cust) continue;
-    const lineCount = randInt(1, 4);
-    const orderDate = dayOffset(randInt(0, 60));
-    const requiredDate = dayOffset(randInt(-10, 45));
-    const priority = requiredDate.getTime() < Date.now() ? "CRITICAL" : pick(["HIGH", "NORMAL", "NORMAL", "LOW", "WATCH"]);
+    const lineCount = randInt(1, 5);
+    const orderDate = dayOffset(randInt(0, 90));
+    const requiredDate = dayOffset(randInt(-15, 60));
+    const priority = requiredDate.getTime() < Date.now() ? "CRITICAL" : pick(["HIGH", "HIGH", "NORMAL", "NORMAL", "LOW", "WATCH"]);
+    
     const so = await prisma.salesOrder.create({
       data: {
         orderNumber: `SO-${String(2000 + i).padStart(5, "0")}`,
         customerId: custId,
         orderDate,
         requiredDate,
-        promisedDate: dayOffset(randInt(5, 50)),
+        promisedDate: dayOffset(randInt(5, 65)),
         branch: cust.branch,
         country: cust.country,
-        status: pick(["OPEN", "PARTIAL", "OPEN", "OPEN"]),
+        status: pick(["OPEN", "OPEN", "PARTIAL", "PARTIAL", "COMPLETED"]),
         priority,
-        priorityReason: priority === "CRITICAL" ? "Required date already passed" : priority === "HIGH" ? "Strategic customer + near-term due" : "Standard lead time",
-        notes: pick(["Customer program stock", "Memo conversion expected", "Repeat order", "New product introduction"]),
+        priorityReason: priority === "CRITICAL" ? "Required delivery deadline past due" :
+                        priority === "HIGH" ? "Strategic key account milestone requirement" :
+                        "Standard order schedule lead time",
+        notes: pick(["Customer program stock", "Memo conversion expected", "Repeat replenishment", "New product intro line", "Urgent exhibition consignment"]),
       },
     });
+
     for (let l = 0; l < lineCount; l++) {
       const shape = pick(SHAPES);
-      const weight = randDec(1.0, 3.5, 2);
+      const weight = randDec(1.0, 4.0, 2);
       const band = classifyWeightBand(weight);
-      const qty = randInt(1, 8);
+      const qty = randInt(1, 10);
       const allocated = randInt(0, qty);
       await prisma.salesOrderLine.create({
         data: {
           orderId: so.id,
           lineNo: l + 1,
-          lab: pick(["GIA", "Non-Cert"]),
+          lab: pick(["GIA", "GIA", "Non-Cert", "Other"]),
           shape,
           weight,
           weightBandId: band ? (await prisma.weightBand.findUnique({ where: { code: band.code } }))?.id : null,
@@ -758,23 +847,24 @@ async function main() {
           qtyDelivered: randInt(0, allocated),
           qtyOutstanding: qty - allocated,
           backorderQty: rand() < 0.2 ? randInt(1, 3) : 0,
-          specialRequirement: rand() < 0.15 ? "Customer-specific brand inscription" : null,
+          specialRequirement: rand() < 0.2 ? "Custom laser inscription + match pair cert" : null,
         },
       });
     }
   }
 
   // =========================================================================
-  // MEMO RECORDS
+  // MEMO RECORDS (Hundreds of memo lots with full age distribution)
   // =========================================================================
-  console.log("Seeding memo records...");
+  console.log("Seeding hundreds of memo records...");
   let memoLotCounter = 1;
-  for (let i = 0; i < 35; i++) {
+  for (let i = 0; i < 180; i++) {
     const custId = pick(customerIds);
     const cust = await prisma.customer.findUnique({ where: { id: custId } });
     if (!cust) continue;
-    const memoDate = dayOffset(randInt(0, 120));
+    const memoDate = dayOffset(randInt(0, 180));
     const ageDays = Math.floor((Date.now() - memoDate.getTime()) / (1000 * 60 * 60 * 24));
+    
     await prisma.memoRecord.create({
       data: {
         lotId: `MEMO-${String(memoLotCounter++).padStart(6, "0")}`,
@@ -783,12 +873,12 @@ async function main() {
         country: cust.country,
         branch: cust.branch,
         shape: pick(SHAPES),
-        weight: randDec(1.0, 3.5, 2),
-        labNormalized: pick(["GIA", "Non-Cert"]),
+        weight: randDec(1.0, 4.5, 2),
+        labNormalized: pick(["GIA", "GIA", "Non-Cert", "Other"]),
         color: pick(COLORS),
         clarity: pick(CLARITIES),
-        treatment: pick(["HPHT", "CVD", null]),
-        memoValueUsd: randDec(3000, 45000, 2),
+        treatment: pick(["HPHT", "CVD", null, null]),
+        memoValueUsd: randDec(3500, 65000, 2),
         status: pick(["OPEN", "OPEN", "OPEN", "RETURNED", "INVOICED"]),
         memoAgeDays: ageDays,
       },
@@ -809,7 +899,6 @@ async function main() {
       totalExcess: 0,
     },
   });
-  // Aggregate metrics from sales + polished
   const metricAgg = new Map<string, { sales90d: number; available: number; memo: number; wip: number; planCov: number; forecast: number }>();
   for (const r of salesRecords) {
     const m = metricAgg.get(r.category) ?? { sales90d: 0, available: 0, memo: 0, wip: 0, planCov: 0, forecast: 0 };
@@ -862,15 +951,15 @@ async function main() {
   // =========================================================================
   // FORECASTS
   // =========================================================================
-  console.log("Seeding forecasts...");
+  console.log("Seeding forecasts across all categories...");
   const modelVer = await prisma.modelVersion.create({
     data: {
       modelName: "Sales-Holt-Winters-V1",
       version: "1.0.0",
       algorithm: "Holt-Winters Exponential Smoothing",
-      trainingPeriod: "2023-01-01..2025-09-01",
-      validationPeriod: "2025-10-01..2025-11-15",
-      metricsJson: JSON.stringify({ MAE: 1.84, WAPE: 0.21, RMSE: 2.43, BIAS: 0.07 }),
+      trainingPeriod: "2024-01-01..2026-06-01",
+      validationPeriod: "2026-06-01..2026-09-01",
+      metricsJson: JSON.stringify({ MAE: 1.62, WAPE: 0.18, RMSE: 2.15, BIAS: 0.04 }),
       publishedBy: "D. Garcia",
       publishedAt: new Date(),
       status: "PUBLISHED",
@@ -905,8 +994,8 @@ async function main() {
         prediction30d: Math.max(0, p30),
         prediction60d: Math.max(0, p60),
         prediction90d: Math.max(0, p90),
-        confidence: randDec(0.55, 0.92, 2),
-        trend: pick(["Strong Growth", "Growth", "Stable", "Declining", "New Demand", "Dormant"]),
+        confidence: randDec(0.60, 0.95, 2),
+        trend: pick(["Strong Growth", "Growth", "Stable", "Stable", "Declining", "New Demand"]),
         stockoutRisk: risk,
         stockoutDate: risk === "CRITICAL" ? dayOffset(randInt(5, 25)) : risk === "HIGH" ? dayOffset(randInt(25, 50)) : null,
       },
@@ -918,7 +1007,7 @@ async function main() {
   });
 
   // =========================================================================
-  // BUSINESS RULES, FEATURE FLAGS
+  // BUSINESS RULES & FEATURE FLAGS
   // =========================================================================
   console.log("Seeding business rules + feature flags...");
   const rules = [
@@ -970,20 +1059,20 @@ async function main() {
   }
 
   // =========================================================================
-  // AUDIT LOGS
+  // AUDIT LOGS & DATA QUALITY ISSUES
   // =========================================================================
-  console.log("Seeding audit logs...");
+  console.log("Seeding audit logs & data quality issues...");
   const auditActions = [
-    { actor: "A. Patel", action: "PLAN_CREATED", entity: "PlanningCase", reason: "Initial plan created" },
-    { actor: "R. Smith", action: "PLAN_APPROVED", entity: "PlanningCase", reason: "Balanced yield + coverage" },
-    { actor: "system", action: "DEMAND_RUN", entity: "DemandRun", reason: "Scheduled 90-day recalculation" },
+    { actor: "A. Patel", action: "PLAN_CREATED", entity: "PlanningCase", reason: "Initial plan created from workbook" },
+    { actor: "R. Smith", action: "PLAN_APPROVED", entity: "PlanningCase", reason: "Balanced yield + target coverage" },
+    { actor: "system", action: "DEMAND_RUN", entity: "DemandRun", reason: "Scheduled 90-day rolling recalculation" },
     { actor: "M. Tanaka", action: "RULE_CHANGE", entity: "BusinessRule", reason: "Approved CONFIRMED rule update" },
-    { actor: "B. Cohen", action: "RESERVATION", entity: "RoughStone", reason: "Soft reserve for planning case" },
-    { actor: "system", action: "FANTASY_SYNC", entity: "IntegrationSyncRun", reason: "Incremental sync completed" },
-    { actor: "C. Lee", action: "PLAN_REPLAN", entity: "PlanningCase", reason: "Actual output missed target category" },
-    { actor: "D. Garcia", action: "FORECAST_PUBLISH", entity: "ModelVersion", reason: "New model version published" },
+    { actor: "B. Cohen", action: "RESERVATION", entity: "RoughStone", reason: "Soft reservation for planning case" },
+    { actor: "system", action: "FANTASY_SYNC", entity: "IntegrationSyncRun", reason: "Incremental sync batch ingested" },
+    { actor: "C. Lee", action: "PLAN_REPLAN", entity: "PlanningCase", reason: "Actual manufacturing outcome variance triggered replan" },
+    { actor: "D. Garcia", action: "FORECAST_PUBLISH", entity: "ModelVersion", reason: "New quarterly forecast model published" },
   ];
-  for (let i = 0; i < 30; i++) {
+  for (let i = 0; i < 80; i++) {
     const a = pick(auditActions);
     await prisma.auditLog.create({
       data: {
@@ -992,16 +1081,12 @@ async function main() {
         entity: a.entity,
         entityId: `ENT-${randInt(1000, 9999)}`,
         reason: a.reason,
-        timestamp: dayOffset(randInt(0, 30)),
+        timestamp: dayOffset(randInt(0, 45)),
         correlationId: `TR-${randInt(10000, 99999)}`,
       },
     });
   }
 
-  // =========================================================================
-  // DATA QUALITY ISSUES
-  // =========================================================================
-  console.log("Seeding data quality issues...");
   const dqIssues = [
     { source: "FANTASY", entity: "SalesRecord", rule: "UNKNOWN_LAB", message: "Lab 'IGI' is not in confirmed mapping", severity: "WARNING" },
     { source: "WORKBOOK", entity: "PlanOptionPiece", rule: "UNKNOWN_SHAPE", message: "Raw shape 'TREGAL(2)' not in master mapping", severity: "WARNING" },
@@ -1013,7 +1098,8 @@ async function main() {
     { source: "FANTASY", entity: "RoughStone", rule: "ROUGH_WEIGHT_MISMATCH", message: "Stone Name block has inconsistent rough weights", severity: "BLOCKING" },
   ];
   let issueCounter = 1;
-  for (const d of dqIssues) {
+  for (let i = 0; i < 35; i++) {
+    const d = pick(dqIssues);
     await prisma.dataQualityIssue.create({
       data: {
         issueCode: `DQ-${String(issueCounter++).padStart(4, "0")}`,
@@ -1025,98 +1111,62 @@ async function main() {
         severity: d.severity,
         status: pick(["OPEN", "OPEN", "IN_REVIEW", "RESOLVED", "IGNORED"]),
         assignedTo: pick(PLANNERS),
-        detectedAt: dayOffset(randInt(0, 15)),
+        detectedAt: dayOffset(randInt(0, 30)),
       },
     });
   }
 
   // =========================================================================
-  // INTEGRATION SYNC RUNS
+  // INTEGRATION SYNC RUNS & NOTIFICATIONS
   // =========================================================================
-  console.log("Seeding integration sync runs...");
-  const syncEntities = ["Department", "Location", "Rough", "Polished", "Movement"];
-  for (let i = 0; i < 12; i++) {
+  console.log("Seeding integration sync runs & notifications...");
+  const syncEntities = ["Department", "Location", "Rough", "Polished", "Movement", "Sales"];
+  for (let i = 0; i < 25; i++) {
     const ent = pick(syncEntities);
     const status = pick(["SUCCESS", "SUCCESS", "SUCCESS", "PARTIAL", "FAILED"]);
-    const records = randInt(20, 500);
+    const records = randInt(50, 800);
     await prisma.integrationSyncRun.create({
       data: {
         source: "Fantasy",
         entity: ent,
         status,
         recordsFetched: records,
-        recordsCreated: Math.floor(records * 0.1),
-        recordsUpdated: Math.floor(records * 0.7),
-        recordsSkipped: Math.floor(records * 0.2),
-        errorsJson: status !== "SUCCESS" ? JSON.stringify({ count: randInt(1, 5), sample: "Connection timeout" }) : null,
+        recordsCreated: Math.floor(records * 0.15),
+        recordsUpdated: Math.floor(records * 0.70),
+        recordsSkipped: Math.floor(records * 0.15),
+        errorsJson: status !== "SUCCESS" ? JSON.stringify({ count: randInt(1, 5), sample: "Connection timeout retry" }) : null,
         durationMs: randInt(1200, 45000),
-        startedAt: dayOffset(randInt(0, 7)),
-        finishedAt: dayOffset(randInt(0, 7)),
+        startedAt: dayOffset(randInt(0, 14)),
+        finishedAt: dayOffset(randInt(0, 14)),
         nextRunAt: dayOffset(-1),
       },
     });
   }
 
-  // =========================================================================
-  // NOTIFICATIONS
-  // =========================================================================
-  console.log("Seeding notifications...");
   const notifs = [
     { type: "CRITICAL_REQUIREMENT", title: "Critical requirement detected", message: "GIA Round 1.70-1.99 shortage 12 pcs", severity: "CRITICAL" },
-    { type: "PLAN_APPROVAL_PENDING", title: "Plan awaiting approval", message: "PC-00003 has 1 option pending approval", severity: "WARNING" },
-    { type: "FANTASY_SYNC_FAILURE", title: "Fantasy sync failed", message: "Rough sync failed — 2 errors", severity: "ERROR" },
-    { type: "REPLAN_REQUIRED", title: "Replan required", message: "Actual output missed requirement category for PC-00007", severity: "WARNING" },
+    { type: "PLAN_APPROVAL_PENDING", title: "Plan awaiting approval", message: "PC-00012 has 2 options pending approval", severity: "WARNING" },
+    { type: "FANTASY_SYNC_FAILURE", title: "Fantasy sync failed", message: "Rough sync failed — 2 connection errors", severity: "ERROR" },
+    { type: "REPLAN_REQUIRED", title: "Replan required", message: "Actual output missed requirement category for PC-00024", severity: "WARNING" },
     { type: "STOCKOUT_PREDICTED", title: "Stockout predicted", message: "GIA Oval 2.00-2.09 projected to stockout in 18 days", severity: "WARNING" },
+    { type: "EXCESS_STOCK_ALERT", title: "Excess stock identified", message: "Non-Cert Princess 1.00-1.09 exceeds 90-day target by 18 pcs", severity: "INFO" },
+    { type: "MEMO_OVERDUE", title: "Overdue memo consignment", message: "MEMO-000042 at Brilliant Heritage NY has exceeded 90 days", severity: "WARNING" },
   ];
-  for (const n of notifs) {
+  for (let i = 0; i < 30; i++) {
+    const n = pick(notifs);
     await prisma.notification.create({
       data: {
         type: n.type,
         title: n.title,
         message: n.message,
         severity: n.severity,
-        read: rand() < 0.3,
-        createdAt: dayOffset(randInt(0, 5)),
+        read: rand() < 0.35,
+        createdAt: dayOffset(randInt(0, 10)),
       },
     });
   }
 
-  // =========================================================================
-  // PLAN-ACTUAL RECONCILIATION (sample)
-  // =========================================================================
-  console.log("Seeding plan-actual reconciliation...");
-  const approvedCases = await prisma.planningCase.findMany({
-    where: { status: { in: ["APPROVED", "RELEASED_TO_MANUFACTURING"] } },
-    include: { rough: true, versions: { include: { options: true } } },
-  });
-  for (const pc of approvedCases.slice(0, 6)) {
-    const opt = pc.versions[0]?.options[0];
-    if (!opt) continue;
-    const expectedPieces = opt.expectedPieces;
-    const actualPieces = randInt(Math.max(0, expectedPieces - 2), expectedPieces + 1);
-    const expTotal = Number(opt.expectedTotalWeight);
-    const actTotal = randDec(expTotal * 0.85, expTotal * 1.05, 3);
-    const plannedYield = Number(opt.yieldPct);
-    const actualYield = Math.round((actTotal / Number(pc.originalRoughWeight)) * 10000) / 100;
-    await prisma.planActualReconciliation.create({
-      data: {
-        planOptionId: opt.id,
-        expectedPieces,
-        actualPieces,
-        expectedTotalWeight: expTotal,
-        actualTotalWeight: actTotal,
-        plannedYieldPct: plannedYield,
-        actualYieldPct: actualYield,
-        yieldVariance: Math.round((actualYield - plannedYield) * 100) / 100,
-        expectedCoverage: opt.requirementCoverage,
-        actualCoverage: Math.min(actualPieces, opt.requirementCoverage),
-        coverageVariance: Math.min(actualPieces, opt.requirementCoverage) - opt.requirementCoverage,
-        status: actualPieces >= opt.requirementCoverage ? "RECONCILED" : "VARIANCE",
-      },
-    });
-  }
-
-  console.log("Seed complete.");
+  console.log("Seed completed successfully!");
 }
 
 main()

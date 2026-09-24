@@ -8,6 +8,8 @@ import { Section, PageHeader } from "@/components/diamond/shared/page-header";
 import { DataTable, type Column } from "@/components/diamond/shared/data-table";
 import { EmptyState, InfoBanner, NumberCell } from "@/components/diamond/shared/empty-state";
 import { ArrowLeftRight, Boxes, Globe } from "lucide-react";
+import { SimulationBanner } from "@/components/diamond/shared/simulation-banner";
+import type { SourceDisclosure } from "@/lib/analysis/source-disclosure";
 
 /**
  * TRANSFER ANALYZER — the honest state of transfer analysis.
@@ -33,6 +35,7 @@ interface DistributionRow {
 }
 
 interface TransferResponse {
+  sourceDisclosure: SourceDisclosure | null;
   recommendationsAvailable: boolean;
   unavailableMessage: string;
   unavailableDetail: string;
@@ -42,6 +45,7 @@ interface TransferResponse {
     currentLots: number;
     byLocation: DistributionRow[];
     byBucket: DistributionRow[];
+    locations: { total: number; shown: number; limit: number; truncated: boolean };
   };
 }
 
@@ -61,7 +65,11 @@ export function TransferAnalyzerView() {
 
   const { data, isLoading } = useApi<TransferResponse>(url);
 
-  const totalConfirmed = (data?.distribution.byLocation ?? []).reduce((s, r) => s + r.confirmedQuantity, 0);
+  // Summed over the bucket distribution rather than the location list: every current
+  // record is in exactly one bucket and the bucket vocabulary is closed, so that list is
+  // always complete, while the location list is capped and may not be.
+  const totalConfirmed = (data?.distribution.byBucket ?? []).reduce((s, r) => s + r.confirmedQuantity, 0);
+  const locations = data?.distribution.locations;
 
   const locationColumns: Column<DistributionRow>[] = [
     { key: "label", header: "Country / Branch", width: "16rem", sticky: "left", cell: (r) => <span className="font-medium">{r.label}</span> },
@@ -83,16 +91,10 @@ export function TransferAnalyzerView() {
         title="Transfer Analyzer"
         subtitle="Whether an inter-location transfer recommendation can currently be made"
       />
+      {/* Persistent and unmistakable while fixture data is on screen. */}
+      <SimulationBanner disclosure={data?.sourceDisclosure} />
 
-      <InfoBanner variant="warning">
-        <div className="space-y-1">
-          <span className="flex items-center gap-2 font-semibold">
-            <ArrowLeftRight className="h-4 w-4" />
-            {data?.unavailableMessage ?? "Transfer recommendations are unavailable."}
-          </span>
-          <div className="text-xs">{data?.unavailableDetail}</div>
-        </div>
-      </InfoBanner>
+
 
       <Section
         title="Transfer recommendations"
@@ -121,13 +123,19 @@ export function TransferAnalyzerView() {
       <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
         <KpiCard label="Current lots" value={data?.distribution.currentLots ?? 0} intent="info" icon={Boxes} hint="Records currently in stock" />
         <KpiCard label="Confirmed quantity" value={totalConfirmed} unit="pcs" intent="success" hint="Pieces the source established" />
-        <KpiCard label="Locations" value={data?.distribution.byLocation.length ?? 0} intent="default" icon={Globe} hint="Country and branch combinations holding stock" />
+        <KpiCard label="Locations" value={locations?.total ?? 0} intent="default" icon={Globe} hint="Country and branch combinations holding stock" />
       </div>
 
       <Section
         title="Current inventory distribution by location"
         description="Where current stock sits today. This is a factual distribution, not a transfer recommendation."
       >
+        {locations?.truncated && (
+          <div className="border-b border-border px-4 py-2 text-[11px] text-muted-foreground">
+            Showing {locations.shown} of {locations.total} locations. The list is limited to{" "}
+            {locations.limit}; narrow the filters to see the rest.
+          </div>
+        )}
         <DataTable
           columns={locationColumns}
           rows={data?.distribution.byLocation ?? []}

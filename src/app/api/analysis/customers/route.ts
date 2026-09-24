@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
 import { withApi, qStr, qEnum, qInt } from "@/lib/api/with-api";
+import { describeScope, scopePredicates } from "@/lib/auth/access-scope";
 
 // Customer 360 list — sales, memo exposure and open orders per customer.
 //
@@ -36,7 +37,9 @@ interface CustomerAggregateRow {
   last_purchase: Date | null;
 }
 
-export const GET = withApi({ permission: "customers.read" }, async (req: Request) => {
+export const GET = withApi(
+  { permission: "customers.read", scoped: true },
+  async (req: Request, _ctx, { scope }) => {
   const url = new URL(req.url);
   const country = qStr(url, "country");
   const branch = qStr(url, "branch");
@@ -50,7 +53,10 @@ export const GET = withApi({ permission: "customers.read" }, async (req: Request
   since.setDate(since.getDate() - 365);
 
   // Customer-level filters (applied before paging).
-  const customerFilters: Prisma.Sql[] = [];
+  // The caller's scope is merged into every filter list below, so a request that carries
+  // no country or lab of its own still returns only what this caller may see. A customer
+  // record has no lab, so only the country half applies to the customer list itself.
+  const customerFilters: Prisma.Sql[] = [...scopePredicates(scope, { country: 'c."country"', lab: null })];
   if (country) customerFilters.push(Prisma.sql`c.country = ${country}`);
   if (branch) customerFilters.push(Prisma.sql`c.branch = ${branch}`);
   if (search) {
@@ -63,18 +69,25 @@ export const GET = withApi({ permission: "customers.read" }, async (req: Request
   const salesFilters: Prisma.Sql[] = [
     Prisma.sql`s."lotStatusDb" = 'Invoice'`,
     Prisma.sql`s."docDate" >= ${since}`,
+    ...scopePredicates(scope, { country: 's."country"', lab: 's."labNormalized"' }),
   ];
   if (country) salesFilters.push(Prisma.sql`s.country = ${country}`);
   if (branch) salesFilters.push(Prisma.sql`s.branch = ${branch}`);
   if (lab) salesFilters.push(Prisma.sql`s."labNormalized" = ${lab}`);
   const salesWhere = Prisma.join(salesFilters, " AND ");
 
-  const memoFilters: Prisma.Sql[] = [Prisma.sql`m.status = 'OPEN'`];
+  const memoFilters: Prisma.Sql[] = [
+    Prisma.sql`m.status = 'OPEN'`,
+    ...scopePredicates(scope, { country: 'm."country"', lab: 'm."labNormalized"' }),
+  ];
   if (country) memoFilters.push(Prisma.sql`m.country = ${country}`);
   if (branch) memoFilters.push(Prisma.sql`m.branch = ${branch}`);
   const memoWhere = Prisma.join(memoFilters, " AND ");
 
-  const orderFilters: Prisma.Sql[] = [Prisma.sql`o.status IN ('OPEN', 'PARTIAL')`];
+  const orderFilters: Prisma.Sql[] = [
+    Prisma.sql`o.status IN ('OPEN', 'PARTIAL')`,
+    ...scopePredicates(scope, { country: 'o."country"', lab: null }),
+  ];
   if (country) orderFilters.push(Prisma.sql`o.country = ${country}`);
   if (branch) orderFilters.push(Prisma.sql`o.branch = ${branch}`);
   const orderWhere = Prisma.join(orderFilters, " AND ");
@@ -179,5 +192,7 @@ export const GET = withApi({ permission: "customers.read" }, async (req: Request
     pageSize,
     total,
     hasMore: page * pageSize < total,
+    accessScope: describeScope(scope),
   });
-});
+},
+);

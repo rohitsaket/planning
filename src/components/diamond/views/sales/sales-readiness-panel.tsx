@@ -63,6 +63,12 @@ export function SalesReadinessPanel({ readiness, loading }: { readiness?: SalesR
       }
     >
       <div className="flex flex-col gap-2">
+        {/*
+          A simulated sales snapshot says so, here, every time. The wording is longer than
+          the shared banner's because this panel is the page's provenance block: a reader
+          who gets no further than it must still learn that no Fantasy connection is
+          involved and that these are not real customer sales.
+        */}
         {snapshot.isSimulated && (
           <InfoBanner variant="warning">
             <span className="inline-flex items-center gap-1 font-medium">

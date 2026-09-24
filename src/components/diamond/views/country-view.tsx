@@ -2,230 +2,269 @@
 
 import { useMemo } from "react";
 import { useApi } from "@/lib/api-client";
+import { useGlobalFilter } from "@/stores/global-filter";
 import { KpiCard } from "@/components/diamond/shared/kpi-card";
 import { Section, PageHeader } from "@/components/diamond/shared/page-header";
 import { DataTable, Column } from "@/components/diamond/shared/data-table";
 import { NumberCell, InfoBanner } from "@/components/diamond/shared/empty-state";
-import {
-  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  Legend,
-} from "recharts";
-import { Globe, Layers, Boxes, AlertTriangle, Package } from "lucide-react";
+import { Boxes, Globe, Info, Package, Users } from "lucide-react";
+import { SimulationBanner } from "@/components/diamond/shared/simulation-banner";
+import type { SourceDisclosure } from "@/lib/analysis/source-disclosure";
 
-interface CountryRow {
+/**
+ * COUNTRY & BRANCH — what is known per location.
+ *
+ * The page this replaces reported a shortage, an excess and a transfer-candidate count
+ * per country. None of those could be derived: the authoritative demand target is
+ * calculated once per planning category for the whole business and carries no location.
+ * They came from seeded demonstration tables instead, and directly contradicted the
+ * Transfer Analyzer, which says on screen that a location-level shortage cannot be
+ * computed from this data.
+ *
+ * What is shown now is two factual distributions, deliberately in two separate tables:
+ * confirmed sales over the same 90-day snapshot as Customers & Orders, and current
+ * inventory from the same shared summary as Stock Aging. One is history and the other is
+ * a present position; they are never subtracted from one another.
+ *
+ * Every figure comes from the API as returned. This file performs no arithmetic.
+ */
+
+interface SalesRow {
+  key: string;
   country: string;
-  physicalShortage: number;
-  target: number;
-  available: number;
-  excess: number;
-  wip: number;
-  planCov: number;
-  pipelineRequirement: number;
-  remainingUnplanned: number;
-  categories: number;
-  categoriesWithShortage: number;
-  categoriesWithExcess: number;
-  /** null when the transfer analysis could not run — never shown as zero. */
-  transferCandidates: number | null;
-  transferStatus: string;
+  branch: string | null;
+  confirmedQuantity: number;
+  measuredWeight: number;
+  saleRecordCount: number;
+  /** Null without customers.read — never rendered as zero. */
+  distinctCustomers: number | null;
+  latestSaleDateIst: string | null;
+}
+
+interface InventoryRow {
+  key: string;
+  label: string;
+  lotCount: number;
+  confirmedQuantity: number;
+  lotsNeedingReview: number;
 }
 
 interface CountryResponse {
-  rows: CountryRow[];
-  global: {
-    target: number;
-    available: number;
-    shortage: number;
-    excess: number;
-    wip: number;
-    planCov: number;
-    pipelineRequirement: number;
-    remainingUnplanned: number;
+  sourceDisclosure: SourceDisclosure | null;
+  geographicDemandAvailable: boolean;
+  geographicDemandMessage: string;
+  geographicDemandDetail: string;
+  customerIdentityVisible: boolean;
+  sales: {
+    available: boolean;
+    unavailableMessage: string | null;
+    snapshot: {
+      runId: string;
+      windowDays: number;
+      businessDateIst: string;
+      periodLabel: string;
+      isSimulated: boolean;
+    } | null;
+    byCountry: SalesRow[];
+    byBranch: SalesRow[];
+    totals: { confirmedQuantity: number; measuredWeight: number; saleRecordCount: number; countries: number };
+    rows: { countriesShown: number; branchesShown: number; limit: number; truncated: boolean };
   };
-  categoryCount: number;
-  wipPolicy: { status: string; message: string; eligibleStages: string[] };
-  wipCoverageUnavailable: boolean;
-  transfer: {
-    status: string;
-    ruleStatus: string | null;
-    candidateCount: number | null;
-    message: string;
-    autoExecuted: boolean;
+  inventory: {
+    currentLots: number;
+    byLocation: InventoryRow[];
+    locations: { total: number; shown: number; limit: number; truncated: boolean };
   };
 }
 
 export function CountryView() {
-  const { data, isLoading } = useApi<CountryResponse>("/api/analysis/countries");
+  const globalFilter = useGlobalFilter();
 
-  const rows = data?.rows ?? [];
-  const targetSpark = useMemo(() => {
-    const slice = rows.slice(0, 7).map((r) => r.target);
-    while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 1);
-    return slice;
-  }, [rows]);
-  const availSpark = useMemo(() => {
-    const slice = rows.slice(0, 7).map((r) => r.available);
-    while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 1);
-    return slice;
-  }, [rows]);
-  const shortageSpark = useMemo(() => {
-    const slice = rows.slice(0, 7).map((r) => r.physicalShortage);
-    while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 1);
-    return slice;
-  }, [rows]);
-  const excessSpark = useMemo(() => {
-    const slice = rows.slice(0, 7).map((r) => r.excess);
-    while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 1);
-    return slice;
-  }, [rows]);
-  const wipSpark = useMemo(() => {
-    const slice = rows.slice(0, 7).map((r) => r.wip);
-    while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 1);
-    return slice;
-  }, [rows]);
-  const planCovSpark = useMemo(() => {
-    const slice = rows.slice(0, 7).map((r) => r.planCov);
-    while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 1);
-    return slice;
-  }, [rows]);
+  const url = useMemo(() => {
+    const p = new URLSearchParams();
+    // Country, branch and lab are real dimensions of a sale record and a stock record, so
+    // all three genuinely narrow what is shown here.
+    if (globalFilter.country) p.set("country", globalFilter.country);
+    if (globalFilter.branch) p.set("branch", globalFilter.branch);
+    if (globalFilter.lab) p.set("lab", globalFilter.lab);
+    const q = p.toString();
+    return q ? `/api/analysis/countries?${q}` : "/api/analysis/countries";
+  }, [globalFilter.country, globalFilter.branch, globalFilter.lab]);
 
-  const chartData = rows.map((r) => ({
-    name: r.country,
-    shortage: r.physicalShortage,
-    wip: r.wip,
-    planCov: r.planCov,
-  }));
+  const { data, isLoading } = useApi<CountryResponse>(url);
 
-  const columns: Column<CountryRow>[] = [
+  const sales = data?.sales;
+  const identityVisible = data?.customerIdentityVisible ?? false;
+
+  const salesColumns: Column<SalesRow>[] = [
     {
       key: "country", header: "Country", sortable: true, sortValue: (r) => r.country,
-      cell: (r) => <span className="font-medium">{r.country}</span>, sticky: "left", width: "120px",
+      cell: (r) => <span className="font-medium">{r.country}</span>, sticky: "left", width: "140px",
     },
-    { key: "physicalShortage", header: "Shortage", sortable: true, sortValue: (r) => r.physicalShortage, align: "right",
-      cell: (r) => <NumberCell value={r.physicalShortage} intent={r.physicalShortage > 0 ? "critical" : "success"} /> },
-    { key: "target", header: "Target", sortable: true, sortValue: (r) => r.target, align: "right",
-      cell: (r) => <NumberCell value={r.target} /> },
-    { key: "available", header: "Available", sortable: true, sortValue: (r) => r.available, align: "right",
-      cell: (r) => <NumberCell value={r.available} /> },
-    { key: "excess", header: "Excess", sortable: true, sortValue: (r) => r.excess, align: "right",
-      cell: (r) => <NumberCell value={r.excess} intent={r.excess > 0 ? "warning" : undefined} /> },
-    { key: "wip", header: "Eligible WIP", sortable: true, sortValue: (r) => r.wip, align: "right",
-      cell: (r) =>
-        data?.wipCoverageUnavailable ? (
-          <span className="text-[10px] font-mono text-muted-foreground">N/A</span>
-        ) : (
-          <NumberCell value={r.wip} intent={r.wip > 0 ? "info" : undefined} />
-        ) },
-    { key: "planCov", header: "Plan Cov", sortable: true, sortValue: (r) => r.planCov, align: "right",
-      cell: (r) => <NumberCell value={r.planCov} intent={r.planCov > 0 ? "success" : undefined} /> },
-    { key: "remainingUnplanned", header: "Remaining Unplanned", sortable: true, sortValue: (r) => r.remainingUnplanned, align: "right",
-      cell: (r) => <NumberCell value={r.remainingUnplanned} intent={r.remainingUnplanned > 0 ? "critical" : "success"} /> },
-    { key: "categories", header: "Categories", sortable: true, sortValue: (r) => r.categories, align: "right",
-      cell: (r) => (
-        <span className="text-[11px] tabular-nums text-muted-foreground">
-          {r.categories} <span className="opacity-60">({r.categoriesWithShortage}↓ / {r.categoriesWithExcess}↑)</span>
-        </span>
-      ) },
     {
-      key: "transferCandidates",
-      header: "Transfer Cand. (Advisory)",
-      sortable: true,
-      sortValue: (r) => r.transferCandidates ?? -1,
-      align: "right",
-      exportValue: (r) => (r.transferCandidates === null ? "UNAVAILABLE" : r.transferCandidates),
-      cell: (r) =>
-        r.transferCandidates === null ? (
-          <span className="text-[10px] font-mono text-muted-foreground">UNAVAILABLE</span>
-        ) : (
-          <div className="flex items-center justify-end gap-1">
-            <NumberCell value={r.transferCandidates} />
-            {r.transferCandidates > 0 && (
-              <span className="text-[9px] px-1 py-0.2 rounded bg-sky-500/10 text-sky-600 dark:text-sky-400 font-mono">ADV</span>
-            )}
-          </div>
-        ),
+      key: "confirmedQuantity", header: "Sold quantity (pcs)", sortable: true,
+      sortValue: (r) => r.confirmedQuantity, align: "right",
+      cell: (r) => <NumberCell value={r.confirmedQuantity} />,
+    },
+    {
+      key: "measuredWeight", header: "Sold weight (ct)", sortable: true,
+      sortValue: (r) => r.measuredWeight, align: "right",
+      cell: (r) => <NumberCell value={r.measuredWeight} decimals={2} />,
+    },
+    {
+      key: "saleRecordCount", header: "Sale records", sortable: true,
+      sortValue: (r) => r.saleRecordCount, align: "right",
+      cell: (r) => <NumberCell value={r.saleRecordCount} />,
+    },
+    {
+      key: "distinctCustomers", header: "Customers", sortable: true,
+      sortValue: (r) => r.distinctCustomers ?? -1, align: "right",
+      exportValue: (r) => (r.distinctCustomers === null ? "WITHHELD" : r.distinctCustomers),
+      // Null is not zero: without customers.read the figure is withheld, not absent.
+      cell: (r) => r.distinctCustomers === null
+        ? <span className="text-[10px] font-mono text-muted-foreground">WITHHELD</span>
+        : <NumberCell value={r.distinctCustomers} />,
+    },
+    {
+      key: "latestSaleDateIst", header: "Latest sale (IST)", width: "12rem",
+      cell: (r) => <span className="text-xs text-muted-foreground">{r.latestSaleDateIst ?? "—"}</span>,
     },
   ];
 
-  const g = data?.global;
+  const branchColumns: Column<SalesRow>[] = [
+    {
+      key: "branch", header: "Country / Branch", sticky: "left", width: "16rem",
+      sortable: true, sortValue: (r) => `${r.country}/${r.branch ?? ""}`,
+      cell: (r) => <span className="font-medium">{r.country} / {r.branch ?? "—"}</span>,
+    },
+    ...salesColumns.slice(1),
+  ];
+
+  const inventoryColumns: Column<InventoryRow>[] = [
+    { key: "label", header: "Country / Branch", width: "16rem", sticky: "left", cell: (r) => <span className="font-medium">{r.label}</span> },
+    { key: "lotCount", header: "Current lots", align: "right", cell: (r) => <NumberCell value={r.lotCount} /> },
+    { key: "confirmedQuantity", header: "Confirmed quantity (pcs)", align: "right", cell: (r) => <NumberCell value={r.confirmedQuantity} /> },
+    { key: "lotsNeedingReview", header: "Needing review", align: "right", cell: (r) => <NumberCell value={r.lotsNeedingReview} zeroAsDash intent="warning" /> },
+  ];
 
   return (
     <div className="flex flex-col gap-3 p-3">
       <PageHeader
         title="Country / Branch Analysis"
-        subtitle="Per-category positions (Country + Lab + Shape + Weight Band) rolled up to country — shortage in one category is never netted against excess in another"
+        subtitle="Confirmed sales and current inventory, by location"
         meta={
-          <span className="text-[10px] text-muted-foreground">
-            Source: requirements, polished stock, classified WIP and approved plans · {data?.categoryCount ?? 0} country categories
-          </span>
+          sales?.snapshot ? (
+            <span className="text-[10px] text-muted-foreground">
+              Sales snapshot: {sales.snapshot.periodLabel}
+              {sales.snapshot.isSimulated ? " · fixture simulation" : ""}
+            </span>
+          ) : undefined
         }
       />
+      {/* Persistent and unmistakable while fixture data is on screen. */}
+      <SimulationBanner disclosure={data?.sourceDisclosure} />
 
-      {data?.transfer && (
-        <InfoBanner variant={data.transfer.status === "UNAVAILABLE" ? "warning" : "info"}>
-          {data.transfer.message}
-        </InfoBanner>
+      {/*
+        Stated on every render, not only when a snapshot is missing. The demand target is
+        calculated once per planning category for the whole business and carries no
+        location, so a country-level shortage cannot be derived from it. Without this the
+        two tables below read as a shortage analysis that simply has no shortage column.
+      */}
+      <InfoBanner variant="warning">
+        <div className="space-y-1">
+          <span className="flex items-center gap-2 font-semibold">
+            <Info className="h-4 w-4" />
+            {data?.geographicDemandMessage ??
+              "Demand is not currently calculated by country or branch, so geographic shortage, excess and transfer recommendations are unavailable."}
+          </span>
+          <div className="text-xs">{data?.geographicDemandDetail}</div>
+        </div>
+      </InfoBanner>
+
+      {sales && !sales.available && sales.unavailableMessage && (
+        <InfoBanner variant="warning">{sales.unavailableMessage}</InfoBanner>
       )}
-      {data?.wipCoverageUnavailable && <InfoBanner variant="warning">{data.wipPolicy.message}</InfoBanner>}
 
-      {/* Global aggregates */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
-        <KpiCard label="Global Target" value={g?.target ?? 0} unit="pcs" intent="default" hint="Σ Rounded Target" icon={Globe} sparkline={targetSpark} />
-        <KpiCard label="Global Available" value={g?.available ?? 0} unit="pcs" intent="success" hint="Polished stock" icon={Package} sparkline={availSpark} />
-        <KpiCard label="Global Shortage" value={g?.shortage ?? 0} unit="pcs" intent="critical" hint="Shortfall against target" icon={AlertTriangle} sparkline={shortageSpark} />
-        <KpiCard label="Global Excess" value={g?.excess ?? 0} unit="pcs" intent="warning" hint="Stock held above target" icon={Layers} sparkline={excessSpark} />
-        <KpiCard label="Global WIP" value={g?.wip ?? 0} unit="pcs" intent="info" hint="Approved plan pieces" icon={Boxes} sparkline={wipSpark} />
-        <KpiCard label="Global Plan Cov" value={g?.planCov ?? 0} unit="pcs" intent="success" hint="Approved coverage" icon={Package} sparkline={planCovSpark} />
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+        <KpiCard label="Countries with sales" value={sales?.totals.countries ?? 0} intent="info" icon={Globe} hint="In the confirmed sales snapshot" />
+        <KpiCard label="Sold quantity" value={sales?.totals.confirmedQuantity ?? 0} unit="pcs" intent="success" icon={Package} hint="Confirmed sales in the snapshot window" />
+        <KpiCard label="Sale records" value={sales?.totals.saleRecordCount ?? 0} intent="default" icon={Users} hint="Individual confirmed sale records" />
+        <KpiCard label="Current lots" value={data?.inventory.currentLots ?? 0} intent="info" icon={Boxes} hint="Records currently in stock" />
       </div>
 
-      <Section title="Shortage by Country" description="Horizontal breakdown — shortage (red), WIP (amber), plan coverage (green)">
-        <div className="h-72">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={chartData} layout="vertical" margin={{ top: 4, right: 16, bottom: 4, left: 0 }}>
-              <defs>
-                <linearGradient id="countryShortageGrad" x1="0" y1="0" x2="1" y2="0">
-                  <stop offset="0%" stopColor="#ef4444" stopOpacity={0.9} />
-                  <stop offset="100%" stopColor="#ef4444" stopOpacity={0.3} />
-                </linearGradient>
-                <linearGradient id="countryWipGrad" x1="0" y1="0" x2="1" y2="0">
-                  <stop offset="0%" stopColor="#f59e0b" stopOpacity={0.9} />
-                  <stop offset="100%" stopColor="#f59e0b" stopOpacity={0.3} />
-                </linearGradient>
-                <linearGradient id="countryPlanCovGrad" x1="0" y1="0" x2="1" y2="0">
-                  <stop offset="0%" stopColor="#10b981" stopOpacity={0.9} />
-                  <stop offset="100%" stopColor="#10b981" stopOpacity={0.3} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.4} />
-              <XAxis type="number" tick={{ fontSize: 10 }} />
-              <YAxis dataKey="name" type="category" tick={{ fontSize: 10 }} width={70} />
-              <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8, border: "1px solid hsl(var(--border))" }} />
-              <Legend wrapperStyle={{ fontSize: 10 }} />
-              <Bar dataKey="shortage" name="Shortage" stackId="a" fill="url(#countryShortageGrad)" radius={[0, 4, 4, 0]} />
-              <Bar dataKey="wip" name="WIP" stackId="a" fill="url(#countryWipGrad)" radius={[0, 4, 4, 0]} />
-              <Bar dataKey="planCov" name="Plan Cov" stackId="a" fill="url(#countryPlanCovGrad)" radius={[0, 4, 4, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </Section>
-
-      <Section title="Country Detail" description="Sortable country breakdown with shortage, target, available, excess, WIP, plan coverage and transfer candidates">
-        <DataTable<CountryRow>
-          columns={columns}
-          rows={data?.rows ?? []}
+      <Section
+        title="Confirmed sales by country"
+        description="What actually sold in the snapshot window, attributed to the location on the canonical lot record. This is history, not a target."
+      >
+        {sales?.rows.truncated && (
+          <div className="border-b border-border px-4 py-2 text-[11px] text-muted-foreground">
+            The list is limited to {sales.rows.limit} rows; narrow the filters to see the rest.
+          </div>
+        )}
+        <DataTable<SalesRow>
+          columns={salesColumns}
+          rows={sales?.byCountry ?? []}
           loading={isLoading}
-          emptyMessage="No country data available — ensure a demand run has been generated."
-          initialSortKey="physicalShortage"
+          emptyMessage="No confirmed sales in the snapshot window match the active filters."
+          initialSortKey="confirmedQuantity"
           initialSortDir="desc"
           exportable
           exportPermission="analysis.export"
-          exportFilename="countries.csv"
+          exportFilename="sales-by-country.csv"
           searchable
           searchPlaceholder="Search country..."
           searchFn={(r, q) => r.country.toLowerCase().includes(q.toLowerCase())}
           pagination
           pageSize={25}
-          maxHeight="500px"
+          maxHeight="420px"
+        />
+      </Section>
+
+      <Section
+        title="Confirmed sales by branch"
+        description={
+          identityVisible
+            ? "The same sales, broken down by branch."
+            : "The same sales, broken down by branch. Customer counts are withheld without customer access."
+        }
+      >
+        <DataTable<SalesRow>
+          columns={branchColumns}
+          rows={sales?.byBranch ?? []}
+          loading={isLoading}
+          emptyMessage="No confirmed sales in the snapshot window match the active filters."
+          initialSortKey="confirmedQuantity"
+          initialSortDir="desc"
+          exportable
+          exportPermission="analysis.export"
+          exportFilename="sales-by-branch.csv"
+          pagination
+          pageSize={25}
+          maxHeight="420px"
+        />
+      </Section>
+
+      <Section
+        title="Current inventory by location"
+        description="Where stock sits today, from the same bucket definition as Stock Aging. A present position, not a comparison against the sales above."
+      >
+        {data?.inventory.locations.truncated && (
+          <div className="border-b border-border px-4 py-2 text-[11px] text-muted-foreground">
+            Showing {data.inventory.locations.shown} of {data.inventory.locations.total} locations. The list is
+            limited to {data.inventory.locations.limit}; narrow the filters to see the rest.
+          </div>
+        )}
+        <DataTable<InventoryRow>
+          columns={inventoryColumns}
+          rows={data?.inventory.byLocation ?? []}
+          loading={isLoading}
+          emptyMessage="No current stock matches the active filters."
+          exportable
+          exportPermission="analysis.export"
+          exportFilename="inventory-by-location.csv"
+          pagination
+          pageSize={25}
+          maxHeight="420px"
         />
       </Section>
     </div>

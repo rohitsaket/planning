@@ -26,13 +26,15 @@ import {
   type SortDirection,
   type SupportingRecordRow,
 } from "@/lib/analytics/sales-history-contract";
-import { SalesReadinessPanel } from "@/components/diamond/views/sales/sales-readiness-panel";
 import { SalesFilterBar } from "@/components/diamond/views/sales/sales-filter-bar";
 import { SortControls } from "@/components/diamond/views/sales/sort-controls";
 import { salesUrl, useSalesQuery } from "@/components/diamond/views/sales/use-sales-query";
 import { useServerPage } from "@/components/diamond/views/sales/use-server-page";
+import { SimulationBanner } from "@/components/diamond/shared/simulation-banner";
+import type { SourceDisclosure } from "@/lib/analysis/source-disclosure";
 
 interface SummaryResponse {
+  sourceDisclosure: SourceDisclosure | null;
   readiness: SalesReadiness;
   rows: CategorySalesRow[];
   paging: PagingMeta;
@@ -186,6 +188,7 @@ export function SalesAnalysisView() {
 
   return (
     <div className="flex flex-col gap-3 p-3">
+      <SimulationBanner disclosure={data?.sourceDisclosure} />
       <PageHeader
         title="Sales Analysis"
         subtitle="Confirmed historical sales by Lab + Shape + Weight Band — quantity, carat weight and record count kept separate"
@@ -204,8 +207,6 @@ export function SalesAnalysisView() {
         }
         meta={<SalesFilterBar />}
       />
-
-      <SalesReadinessPanel readiness={readiness} loading={isLoading && !data} />
 
       {error && (
         <InfoBanner variant="critical">Sales history could not be loaded. {error.message}</InfoBanner>
