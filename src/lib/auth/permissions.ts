@@ -98,6 +98,23 @@ export const PERMISSIONS = [
   "role.permissions.assign",
   "security_audit.read",
   "security_audit.export",
+
+  // --- Sarin import --------------------------------------------------------------
+  // Each step of the Sarin CSV workflow carries a different risk and is authorized on its
+  // own: reading history, bringing a file in, running validation, triaging issues,
+  // overriding a finding, generating output, approving output for planning, exporting it,
+  // and changing the shape mappings every future import is judged against.
+  "sarin.import.read",
+  "sarin.import.upload",
+  "sarin.import.validate",
+  "sarin.issue.review",
+  "sarin.issue.override",
+  "sarin.output.generate",
+  // Planning approval authority. Never granted through the `ALL` shortcut — see
+  // EXPLICIT_GRANT_PERMISSIONS.
+  "sarin.output.approve",
+  "sarin.output.export",
+  "sarin.mapping.manage",
 ] as const;
 
 /** Every permission that authorizes an export. Used by tests and the admin matrix. */
@@ -115,9 +132,20 @@ export const EXPORT_PERMISSIONS = [
   "config.export",
   "audit.export",
   "security_audit.export",
+  "sarin.output.export",
 ] as const satisfies readonly (typeof PERMISSIONS)[number][];
 
 export type Permission = (typeof PERMISSIONS)[number];
+
+/**
+ * Permissions no role receives by holding "everything".
+ *
+ * `ALL` below is the set SUPER_ADMIN and ADMIN derive from. A permission listed here is
+ * left out of it, so it reaches a user only through a role that names it — a business
+ * role defined below, or a custom role someone deliberately built. Approving Sarin output
+ * for planning is a planning authority, not a consequence of administering the system.
+ */
+export const EXPLICIT_GRANT_PERMISSIONS = ["sarin.output.approve"] as const satisfies readonly Permission[];
 
 export const ROLES = [
   "SUPER_ADMIN",
@@ -139,7 +167,7 @@ export const ROLES = [
 
 export type Role = (typeof ROLES)[number];
 
-const ALL = [...PERMISSIONS] as Permission[];
+const ALL = PERMISSIONS.filter((p) => !(EXPLICIT_GRANT_PERMISSIONS as readonly Permission[]).includes(p)) as Permission[];
 const BASE: Permission[] = ["notification.read"];
 
 /** Triaging shared system notifications. Not in BASE: the rows are global, so marking
@@ -147,6 +175,10 @@ const BASE: Permission[] = ["notification.read"];
 const NOTIFICATION_TRIAGE: Permission[] = ["notification.manage"];
 const PLANNING_READ: Permission[] = ["analysis.read", "requirement.read", "plan.read", "rough.read", "fantasy.read", "overall.read", "data_quality.read", "config.read"];
 const COMMERCIAL_READ: Permission[] = ["sales.read", "customers.read", "orders.read"];
+/** Seeing Sarin import history, previews and issues. */
+const SARIN_READ: Permission[] = ["sarin.import.read"];
+/** The everyday Sarin planning workflow. Excludes overriding findings, approval and mapping management. */
+const SARIN_PLANNING: Permission[] = [...SARIN_READ, "sarin.import.upload", "sarin.import.validate", "sarin.issue.review", "sarin.output.generate", "sarin.output.export"];
 
 export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   SUPER_ADMIN: ALL,
@@ -180,16 +212,32 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
       p !== "fantasy.sync.retry" &&
       p !== "fantasy.sync.unlock" &&
       p !== "demand.run" &&
-      p !== "demand.unlock",
+      p !== "demand.unlock" &&
+      // Sarin: an administrator may read import history, but bringing files in, running
+      // validation, triaging and overriding findings, generating and exporting output are
+      // planning work, and the shape mappings are rule configuration — withheld for the
+      // same reason as business_rule.manage. Approval is already outside `ALL`. Each stays
+      // assignable to an administrator who genuinely holds that duty.
+      p !== "sarin.import.upload" &&
+      p !== "sarin.import.validate" &&
+      p !== "sarin.issue.review" &&
+      p !== "sarin.issue.override" &&
+      p !== "sarin.output.generate" &&
+      p !== "sarin.output.export" &&
+      p !== "sarin.mapping.manage",
   ),
   ANALYSIS_MANAGER: [...BASE, ...NOTIFICATION_TRIAGE, ...PLANNING_READ, ...COMMERCIAL_READ, "requirement.create", "requirement.override", "demand.run", "demand.trace", "demand.export", "overall.export", "analysis.export", "sales.export", "customers.export", "orders.export", "requirement.export", "fantasy.export", "data_quality.manage", "data_quality.export", "business_rule.read", "audit.read"],
   DATA_ANALYST: [...BASE, ...PLANNING_READ, ...COMMERCIAL_READ, "demand.trace", "demand.export", "overall.export", "analysis.export", "sales.export", "customers.export", "orders.export", "data_quality.read", "data_quality.export", "audit.read"],
   DATA_SCIENTIST: [...BASE, ...PLANNING_READ, "sales.read", "demand.trace", "demand.export", "forecast.run", "forecast.publish", "forecast.methodology.read", "overall.export", "analysis.export", "sales.export", "data_quality.read", "audit.read"],
-  // Explicitly authorized planning approval authority
-  PLANNING_MANAGER: [...BASE, ...NOTIFICATION_TRIAGE, ...PLANNING_READ, "orders.read", "demand.trace", "plan.create", "plan.select", "plan.approve", "plan.replan", "rough.reserve", "overall.export", "analysis.export", "plan.export", "requirement.export", "business_rule.read", "audit.read"],
-  PLANNER: [...BASE, ...PLANNING_READ, "orders.read", "plan.create", "plan.select", "plan.replan", "rough.reserve", "plan.export"],
-  PLANNING_VIEWER: [...BASE, ...PLANNING_READ],
-  MFG_MANAGER: [...BASE, ...NOTIFICATION_TRIAGE, ...PLANNING_READ, "analysis.export", "audit.read"],
+  // Explicitly authorized planning approval authority. It is the business role that already
+  // holds plan.approve, so it also carries Sarin output approval and the authority to
+  // override a validation finding. Separation of duties between the uploader, the
+  // overrider and the approver of one batch is enforced by the approval service.
+  PLANNING_MANAGER: [...BASE, ...NOTIFICATION_TRIAGE, ...PLANNING_READ, ...SARIN_PLANNING, "orders.read", "demand.trace", "plan.create", "plan.select", "plan.approve", "plan.replan", "rough.reserve", "overall.export", "analysis.export", "plan.export", "requirement.export", "business_rule.read", "audit.read", "sarin.issue.override", "sarin.output.approve"],
+  PLANNER: [...BASE, ...PLANNING_READ, ...SARIN_PLANNING, "orders.read", "plan.create", "plan.select", "plan.replan", "rough.reserve", "plan.export"],
+  PLANNING_VIEWER: [...BASE, ...PLANNING_READ, ...SARIN_READ],
+  // Reads Sarin imports because manufacturing receives the plans they produce.
+  MFG_MANAGER: [...BASE, ...NOTIFICATION_TRIAGE, ...PLANNING_READ, ...SARIN_READ, "analysis.export", "audit.read"],
   MFG_VIEWER: [...BASE, "analysis.read", "plan.read", "rough.read", "fantasy.read", "overall.read"],
   SALES_MANAGER: [...BASE, ...NOTIFICATION_TRIAGE, "analysis.read", "requirement.read", ...COMMERCIAL_READ, "overall.export", "analysis.export", "sales.export", "customers.export", "orders.export", "audit.read"],
   SALES_VIEWER: [...BASE, "analysis.read", ...COMMERCIAL_READ],
@@ -199,7 +247,7 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   FANTASY_INTEGRATION: ["fantasy.read", "fantasy.sync.run", "fantasy.sync.retry", "fantasy.projection.run", "fantasy.projection.read", "overall.read", "data_quality.read"],
   // Reads projection diagnostics but cannot start a run: inspecting how data would be
   // interpreted is an audit activity; consuming batch-sized work is not.
-  AUDITOR: [...BASE, "audit.read", "audit.export", "overall.read", "data_quality.read", "fantasy.projection.read", "business_rule.read", "feature_flag.read", "config.read", "config.export"],
+  AUDITOR: [...BASE, ...SARIN_READ, "audit.read", "audit.export", "overall.read", "data_quality.read", "fantasy.projection.read", "business_rule.read", "feature_flag.read", "config.read", "config.export"],
   VIEWER: [...BASE, "analysis.read", "requirement.read", "plan.read", "rough.read", "overall.read"],
 };
 

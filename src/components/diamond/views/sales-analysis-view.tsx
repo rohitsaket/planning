@@ -220,21 +220,21 @@ export function SalesAnalysisView() {
       </div>
 
       {/* Navigation Tabs */}
-      <div className="flex items-center gap-1.5 border-b border-border bg-card/60 p-1 rounded-lg">
+      <div className="flex items-center gap-1.5 border-b border-border bg-card/80 p-1 rounded-xl shadow-2xs">
         <button
           type="button"
           onClick={() => setActiveTab("summary")}
           className={cn(
-            "flex items-center gap-2 px-3.5 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer",
+            "flex items-center gap-2 px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer",
             activeTab === "summary"
-              ? "bg-primary text-primary-foreground shadow-xs"
+              ? "bg-[#FFE2D1] text-[#18181B] dark:bg-[#272322] dark:text-[#FFEDD5] font-bold shadow-2xs border border-[#F5DCD0]/70 dark:border-[#3A302A]"
               : "text-muted-foreground hover:text-foreground hover:bg-muted/70"
           )}
         >
-          <Layers className="h-3.5 w-3.5" />
+          <Layers className={cn("h-3.5 w-3.5", activeTab === "summary" ? "text-[#F9733E]" : "text-muted-foreground")} />
           <span>Category Sales Summary</span>
           {data?.paging.total !== undefined && (
-            <span className={cn("px-1.5 py-0.2 rounded-full text-[10px]", activeTab === "summary" ? "bg-primary-foreground/20 text-primary-foreground" : "bg-muted text-muted-foreground")}>
+            <span className={cn("px-1.5 py-0.2 rounded-full text-[10px]", activeTab === "summary" ? "bg-[#18181B]/15 text-[#18181B] dark:bg-white/20 dark:text-white" : "bg-muted text-muted-foreground")}>
               {data.paging.total}
             </span>
           )}
@@ -243,21 +243,21 @@ export function SalesAnalysisView() {
           type="button"
           onClick={() => setActiveTab("records")}
           className={cn(
-            "flex items-center gap-2 px-3.5 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer",
+            "flex items-center gap-2 px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer",
             activeTab === "records"
-              ? "bg-primary text-primary-foreground shadow-xs"
+              ? "bg-[#FFE2D1] text-[#18181B] dark:bg-[#272322] dark:text-[#FFEDD5] font-bold shadow-2xs border border-[#F5DCD0]/70 dark:border-[#3A302A]"
               : "text-muted-foreground hover:text-foreground hover:bg-muted/70"
           )}
         >
-          <Rows3 className="h-3.5 w-3.5" />
+          <Rows3 className={cn("h-3.5 w-3.5", activeTab === "records" ? "text-[#F9733E]" : "text-muted-foreground")} />
           <span>Supporting Records</span>
           {selectedCategory && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/20 text-primary font-mono max-w-[140px] truncate">
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#F9733E]/15 text-[#C2410C] dark:text-[#FDBA74] font-mono max-w-[140px] truncate">
               {selectedCategory}
             </span>
           )}
           {records.data?.paging.total !== undefined && (
-            <span className={cn("px-1.5 py-0.2 rounded-full text-[10px]", activeTab === "records" ? "bg-primary-foreground/20 text-primary-foreground" : "bg-muted text-muted-foreground")}>
+            <span className={cn("px-1.5 py-0.2 rounded-full text-[10px]", activeTab === "records" ? "bg-[#18181B]/15 text-[#18181B] dark:bg-white/20 dark:text-white" : "bg-muted text-muted-foreground")}>
               {records.data.paging.total}
             </span>
           )}

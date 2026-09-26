@@ -183,9 +183,9 @@ export function DashboardView() {
     },
   });
 
-  // Sparkline data — wire to real historical aggregates where available, fall back to synthetic
+  // Sparkline data — wire to real historical aggregates where available, omit when unavailable (never fabricate)
   const salesSparkline = useMemo(() => {
-    if (!trendData || trendData.length === 0) return [3, 5, 4, 6, 8, 7, 9];
+    if (!trendData || trendData.length < 2) return undefined;
     return trendData.slice(0, 7).map((t) => t.latest30);
   }, [trendData]);
 
@@ -199,14 +199,10 @@ export function DashboardView() {
     if (demandHistory7.length >= 2) {
       return demandHistory7.map((r) => r.totalShortage);
     }
-    // Fallback: synthetic 7-point trend anchored to current shortage
-    const base = kpi?.physicalShortage ?? 100;
-    return [base * 0.9, base * 0.95, base, base * 0.98, base * 1.05, base * 1.02, base];
-  }, [demandHistory7, kpi?.physicalShortage]);
+    return undefined;
+  }, [demandHistory7]);
 
   const pipelineSparkline = useMemo(() => {
-    // History API doesn't return pipeline per run — approximate by applying
-    // the current pipeline-to-shortage ratio to historical shortage points.
     if (
       demandHistory7.length >= 2 &&
       kpi?.physicalShortage &&
@@ -215,43 +211,36 @@ export function DashboardView() {
       const ratio = (kpi.pipelineAdjusted ?? 0) / kpi.physicalShortage;
       return demandHistory7.map((r) => Math.max(0, Math.round(r.totalShortage * ratio)));
     }
-    const base = kpi?.pipelineAdjusted ?? 100;
-    return [base * 1.1, base * 1.05, base, base * 0.97, base * 0.95, base * 0.98, base];
+    return undefined;
   }, [demandHistory7, kpi?.pipelineAdjusted, kpi?.physicalShortage]);
 
   const approvedPlanCoverageSparkline = useMemo(() => {
-    // Proxy: (totalShortage − totalExcess) per historical run
     if (demandHistory7.length >= 2) {
       return demandHistory7.map((r) => Math.max(0, r.totalShortage - r.totalExcess));
     }
-    const base = kpi?.approvedPlanCoverage ?? 100;
-    return [base * 0.8, base * 0.9, base * 0.95, base, base * 1.05, base * 1.1, base];
-  }, [demandHistory7, kpi?.approvedPlanCoverage]);
+    return undefined;
+  }, [demandHistory7]);
 
   const remainingUnplannedSparkline = useMemo(() => {
-    // Trend follows shortage across runs (same data points)
     if (demandHistory7.length >= 2) {
       return demandHistory7.map((r) => r.totalShortage);
     }
-    const base = kpi?.remainingUnplanned ?? 100;
-    return [base * 0.9, base * 1.05, base, base * 0.95, base * 1.08, base * 1.02, base];
-  }, [demandHistory7, kpi?.remainingUnplanned]);
+    return undefined;
+  }, [demandHistory7]);
 
   const forecastSparkline = useMemo(() => {
     if (forecastData?.rows && forecastData.rows.length >= 2) {
       return forecastData.rows.slice(0, 7).map((r) => r.prediction90d);
     }
-    const base = kpi?.forecastRequirement ?? 100;
-    return [base * 0.85, base * 0.92, base, base * 1.05, base * 1.1, base * 1.08, base];
-  }, [forecastData, kpi?.forecastRequirement]);
+    return undefined;
+  }, [forecastData]);
 
   const memoSparkline = useMemo(() => {
     if (memoData?.byCustomer && memoData.byCustomer.length >= 2) {
       return memoData.byCustomer.slice(0, 7).map((c) => c.value);
     }
-    const base = kpi?.memoExposure ?? 1000;
-    return [base * 0.8, base * 0.9, base * 0.95, base, base * 1.05, base * 1.1, base];
-  }, [memoData, kpi?.memoExposure]);
+    return undefined;
+  }, [memoData]);
 
   return (
     <div className="flex flex-col gap-3 p-3">

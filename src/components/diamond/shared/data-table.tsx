@@ -581,7 +581,7 @@ export function DataTable<T>({
   }, [initialColumns, rows]);
 
   return (
-    <div className="rounded-md border border-border overflow-hidden bg-card flex-1 min-h-0 flex flex-col">
+    <div className="rounded-2xl border border-border/80 overflow-hidden bg-card flex-1 min-h-0 flex flex-col shadow-[0_4px_24px_-4px_rgba(249,115,62,0.04)]">
       {/* Upper Single-Row Table Header: Title on Left, Search/Columns/Exports/Count on Right */}
       {(title ||
         searchable ||
@@ -829,8 +829,8 @@ export function DataTable<T>({
         style={maxHeight ? { maxHeight } : undefined}
       >
         <table className="w-full text-xs border-collapse">
-          <thead className={cn(stickyHeader && "sticky top-0 z-20 bg-muted")}>
-            <tr className="bg-muted">
+          <thead className={cn(stickyHeader && "sticky top-0 z-20 bg-[#FFE7D3] dark:bg-[#1D2332]")}>
+            <tr className="bg-[#FFE7D3] dark:bg-[#1D2332]">
               {visibleColumns.map((c, colIndex) => {
                 const isFirst = colIndex === 0;
                 const isLast = colIndex === visibleColumns.length - 1;
@@ -884,7 +884,7 @@ export function DataTable<T>({
                       setDragOverColKey(null);
                     }}
                     className={cn(
-                      "group relative px-2.5 py-2 font-semibold text-muted-foreground uppercase tracking-wide text-[10px] whitespace-nowrap bg-muted border-b border-border border-r border-border/50 last:border-r-0 transition-colors select-none",
+                      "group relative px-2.5 py-2 font-bold text-[#5C4E46] dark:text-[#E4E4E7] uppercase tracking-wider text-[10px] whitespace-nowrap bg-[#FFE7D3] dark:bg-[#1D2332] border-b border-[#F0D5C0] dark:border-border border-r border-[#F0D5C0]/60 dark:border-border/50 last:border-r-0 transition-colors select-none",
                       stickyHeader &&
                         "sticky top-0 z-20 shadow-[inset_0_-1px_0_0_var(--color-border)]",
                       c.align === "right"
@@ -892,9 +892,9 @@ export function DataTable<T>({
                         : c.align === "center"
                         ? "text-center"
                         : "text-left",
-                      c.sortable && "hover:bg-muted-foreground/10",
-                      c.sticky === "left" && "sticky left-0 bg-muted z-30 border-r border-border",
-                      c.sticky === "right" && "sticky right-0 bg-muted z-30 border-l border-border",
+                      c.sortable && "hover:bg-[#FCD8BE] dark:hover:bg-muted/70",
+                      c.sticky === "left" && "sticky left-0 bg-[#FFE7D3] dark:bg-[#1D2332] z-25 border-r border-[#F0D5C0] dark:border-border",
+                      c.sticky === "right" && "sticky right-0 bg-[#FFE7D3] dark:bg-[#1D2332] z-25 border-l border-[#F0D5C0] dark:border-border",
                       draggedColKey === c.key && "opacity-40",
                       dragOverColKey === c.key &&
                         draggedColKey !== c.key &&
@@ -928,37 +928,47 @@ export function DataTable<T>({
                         {c.header}
                       </span>
 
-                      {sortKey === c.key && (
-                        <span className="text-[8px] text-primary font-bold shrink-0">
-                          {sortDir === "asc" ? "▲" : "▼"}
+                      {/* Sort Indicator Arrow */}
+                      {c.sortable && (
+                        <span className="text-[9px] shrink-0 select-none">
+                          {sortKey === c.key ? (
+                            <span className="text-[#F9733E] font-extrabold">{sortDir === "asc" ? "▲" : "▼"}</span>
+                          ) : (
+                            <span className="text-[#5C4E46]/40 dark:text-muted-foreground/40 font-semibold opacity-60 group-hover:opacity-100 transition-opacity">↕</span>
+                          )}
                         </span>
                       )}
 
-                      {/* Per-Column Value Filter Popover */}
+                      {/* Per-Column Value Filter Popover — visible when active or on header hover */}
                       {enableColumnValueFilter && (
-                        <ColumnValueFilterPopover
-                          column={c}
-                          allUniqueValues={columnValueCounts[c.key] ?? []}
-                          activeSelectedValues={columnFilters[c.key]}
-                          hasActiveFilter={hasActiveFilter}
-                          onApplyFilter={(selectedSet) => {
-                            setColumnFilters((prev) => {
-                              const next = { ...prev };
-                              const totalCount =
-                                columnValueCounts[c.key]?.length ?? 0;
-                              if (
-                                selectedSet.size === 0 ||
-                                selectedSet.size === totalCount
-                              ) {
-                                delete next[c.key];
-                              } else {
-                                next[c.key] = selectedSet;
-                              }
-                              return next;
-                            });
-                            setPage(1);
-                          }}
-                        />
+                        <div className={cn(
+                          "transition-opacity shrink-0",
+                          hasActiveFilter ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                        )}>
+                          <ColumnValueFilterPopover
+                            column={c}
+                            allUniqueValues={columnValueCounts[c.key] ?? []}
+                            activeSelectedValues={columnFilters[c.key]}
+                            hasActiveFilter={hasActiveFilter}
+                            onApplyFilter={(selectedSet) => {
+                              setColumnFilters((prev) => {
+                                const next = { ...prev };
+                                const totalCount =
+                                  columnValueCounts[c.key]?.length ?? 0;
+                                if (
+                                  selectedSet.size === 0 ||
+                                  selectedSet.size === totalCount
+                                ) {
+                                  delete next[c.key];
+                                } else {
+                                  next[c.key] = selectedSet;
+                                }
+                                return next;
+                              });
+                              setPage(1);
+                            }}
+                          />
+                        </div>
                       )}
                     </div>
 
@@ -1005,12 +1015,12 @@ export function DataTable<T>({
                   key={idx}
                   onClick={() => onRowClick?.(row)}
                   className={cn(
-                    "border-b border-border/50 last:border-b-0 transition-colors",
+                    "border-b border-border/40 last:border-b-0 transition-colors duration-150",
                     // zebra striping
                     idx % 2 === 1 && !onRowClick && "bg-muted/15",
                     onRowClick
-                      ? "cursor-pointer hover:bg-primary/5 hover:text-foreground"
-                      : "hover:bg-muted/30",
+                      ? "cursor-pointer hover:bg-[#FFEEDB] dark:hover:bg-white/[0.06] hover:text-foreground"
+                      : "hover:bg-[#FFF6EF] dark:hover:bg-white/[0.04]",
                     rowClassName?.(row)
                   )}
                 >
@@ -1033,9 +1043,9 @@ export function DataTable<T>({
                           c.align === "center" && "text-center whitespace-nowrap",
                           (!c.align || c.align === "left") && "text-left",
                           c.sticky === "left" &&
-                            "sticky left-0 bg-card z-10 border-r border-border",
+                            "sticky left-0 bg-inherit z-10 border-r border-border/50",
                           c.sticky === "right" &&
-                            "sticky right-0 bg-card z-10 border-l border-border"
+                            "sticky right-0 bg-inherit z-10 border-l border-border/50"
                         )}
                       >
                         {c.cell(row)}

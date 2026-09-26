@@ -223,21 +223,21 @@ function NavGroupItem({ group }: { group: NavGroup }) {
   };
 
   return (
-    <div className="border-b border-sidebar-border/40 last:border-0">
+    <div className="border-b border-sidebar-border/30 last:border-0 py-0.5">
       <button
         type="button"
         onClick={handleGroupHeaderClick}
         className={cn(
-          "w-full flex items-center gap-2 px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide transition-colors",
+          "w-full flex items-center gap-2 px-3 py-1.5 text-left text-[10px] font-bold uppercase tracking-wider transition-colors rounded-md mx-auto",
           hasActive
-            ? "text-sidebar-foreground bg-sidebar-accent/40"
-            : "text-sidebar-foreground/80 hover:bg-sidebar-accent/50"
+            ? "text-sidebar-foreground font-bold"
+            : "text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent/50"
         )}
       >
-        <span className="text-sidebar-foreground/70">{group.icon}</span>
+        <span className="text-sidebar-foreground/60">{group.icon}</span>
         <span className="flex-1 truncate">{group.label}</span>
         {group.advisory && (
-          <span className="text-[9px] font-semibold px-1.5 py-0.2 rounded bg-violet-500/10 text-violet-600 dark:text-violet-400 border border-violet-500/20 lowercase tracking-normal">
+          <span className="text-[8px] font-semibold px-1.5 py-0.2 rounded bg-purple-50 text-purple-700 dark:bg-purple-950/50 dark:text-purple-300 border border-purple-200/60 lowercase tracking-normal">
             Advisory
           </span>
         )}
@@ -249,7 +249,7 @@ function NavGroupItem({ group }: { group: NavGroup }) {
       </button>
 
       {(!collapsed || isSingleItem) && (
-        <ul className="space-y-0.5 pb-1">
+        <ul className="space-y-0.5 py-0.5">
           {group.items.map((item) => {
             const active = view === item.id;
             const authorized = isViewAuthorized(perms, item.id);
@@ -260,22 +260,25 @@ function NavGroupItem({ group }: { group: NavGroup }) {
                   onClick={() => handleItemClick(item.id)}
                   title={!authorized ? "Access Restricted — Click to view requirements" : item.label}
                   className={cn(
-                    "w-full flex items-center gap-2 pl-5 pr-3 py-1.5 text-left text-[12px] transition-colors border-l-2",
+                    "w-[calc(100%-12px)] mx-1.5 flex items-center gap-2 px-2.5 py-1.5 text-left text-[12px] rounded-lg transition-all relative",
                     active
-                      ? "border-sidebar-primary bg-sidebar-accent text-sidebar-foreground font-medium"
-                      : "border-transparent text-sidebar-foreground/80 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
-                    !authorized && !active && "text-sidebar-foreground/50 hover:text-sidebar-foreground/70"
+                      ? "bg-[#FFE2D1] text-[#1C1917] dark:bg-[#272322] dark:text-[#FFEDD5] font-bold shadow-2xs"
+                      : "text-sidebar-foreground/80 hover:bg-sidebar-accent/70 hover:text-sidebar-foreground font-medium",
+                    !authorized && !active && "text-sidebar-foreground/45 hover:text-sidebar-foreground/65"
                   )}
                 >
-                  <span className="text-muted-foreground/80">{item.icon}</span>
+                  {active && (
+                    <span className="absolute right-1.5 top-1.5 bottom-1.5 w-1 rounded-full bg-[#F9733E]" />
+                  )}
+                  <span className={cn("shrink-0", active ? "text-[#1C1917] dark:text-[#FFEDD5]" : "text-sidebar-foreground/60")}>{item.icon}</span>
                   <span className="flex-1 truncate">{item.label}</span>
                   {item.advisory && (
-                    <span className="text-[8px] font-medium px-1 rounded bg-violet-500/10 text-violet-500 dark:text-violet-400">
+                    <span className="text-[8px] font-medium px-1 rounded bg-purple-50 text-purple-600 dark:bg-purple-950/50 dark:text-purple-300 border border-purple-200/50">
                       Adv
                     </span>
                   )}
                   {!authorized && (
-                    <Lock className="h-3 w-3 text-muted-foreground/60 shrink-0 ml-auto" aria-label="Restricted Access" />
+                    <Lock className="h-3 w-3 text-muted-foreground/50 shrink-0 ml-auto" aria-label="Restricted Access" />
                   )}
                 </button>
               </li>
@@ -301,7 +304,7 @@ function NavRail() {
   };
 
   return (
-    <aside className="hidden md:flex md:w-14 md:flex-shrink-0 md:h-screen md:flex-col border-r border-sidebar-border bg-sidebar z-20">
+    <aside className="hidden md:flex md:static md:w-14 md:flex-shrink-0 md:my-2 md:ml-2 md:h-[calc(100vh-16px)] md:flex-col md:rounded-2xl border border-sidebar-border bg-sidebar shadow-xs overflow-hidden z-20">
       {/* NavRail Top Header */}
       <div className="h-12 border-b border-sidebar-border flex items-center justify-center flex-shrink-0">
         <Button
@@ -399,20 +402,20 @@ function GlobalSearch() {
 
   return (
     <div className="relative w-full max-w-md">
-      <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
       <Input
         value={query}
         onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
         onFocus={() => setOpen(true)}
         onKeyDown={handleKeyDown}
-        placeholder="Search Lot ID, Rough ID, Kapan, Requirement..."
-        className="h-8 pl-8 pr-7 text-xs bg-muted/50 border-border/60"
+        placeholder="Search Lot ID, Rough ID, Kapan..."
+        className="h-8 pl-8 pr-7 text-xs bg-muted/40 hover:bg-muted/60 focus:bg-card border-border/70 focus:border-[#F9733E]/60 rounded-xl transition-all shadow-2xs"
       />
       {query && (
         <button
           type="button"
           onClick={() => { setQuery(""); setOpen(false); }}
-          className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground p-0.5"
+          className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground p-0.5 cursor-pointer"
           title="Clear search"
         >
           <X className="h-3.5 w-3.5" />
@@ -420,7 +423,7 @@ function GlobalSearch() {
       )}
       {open && query.trim().length >= 2 && (
         <div
-          className="absolute top-full mt-1 left-0 right-0 z-50 rounded-md border border-border bg-popover shadow-xl overflow-hidden max-h-80 overflow-y-auto"
+          className="absolute top-full mt-1.5 left-0 right-0 z-50 rounded-xl border border-border bg-popover shadow-xl overflow-hidden max-h-80 overflow-y-auto animate-in fade-in-50 zoom-in-95"
           onMouseDown={(e) => e.preventDefault()} // Prevent input blur when clicking items
         >
           {isFetching && !searchResults && (
@@ -517,7 +520,7 @@ function ThemeToggle() {
 function NotificationsBell() {
   const { data } = useQuery({
     queryKey: ["notifications"],
-    queryFn: () => apiFetch<{ rows: Array<{ id: string; title: string; message: string; severity: string; read: boolean }> }>("/api/notifications"),
+    queryFn: () => apiFetch<{ rows: Array<{ id: string; title: string; message: string; severity: string; read: boolean; createdAt?: string }> }>("/api/notifications"),
     staleTime: 60_000,
   });
   const unread = data?.rows.filter((n) => !n.read).length ?? 0;
@@ -541,83 +544,114 @@ function NotificationsBell() {
     const min = Math.floor(sec / 60);
     if (min < 60) return `${min}m ago`;
     const hr = Math.floor(min / 60);
-    return `${hr}h ago`;
+    if (hr < 24) return `${hr}h ago`;
+    return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
   };
 
   return (
     <div className="relative">
-      <Button variant="ghost" size="icon" className="h-8 w-8 relative" onClick={handleToggle}>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-8 w-8 relative text-muted-foreground hover:text-foreground hover:bg-muted/80 rounded-lg"
+        onClick={handleToggle}
+        aria-label="Notifications"
+      >
         <Bell className="h-4 w-4" />
         {realtimeConnected && (
-          <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-emerald-500 ring-2 ring-card animate-pulse" title="Live — connected to realtime service" />
+          <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-emerald-500 ring-2 ring-card animate-pulse" title="Connected to realtime updates" />
         )}
         {totalUnread > 0 && (
-          <span className="absolute -top-0.5 -right-0.5 h-3.5 min-w-3.5 px-1 rounded-full bg-rose-500 text-white text-[9px] font-bold flex items-center justify-center">
+          <span className="absolute -top-0.5 -right-0.5 h-4 min-w-4 px-1 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center shadow-[0_1px_4px_rgba(239,68,68,0.45)] ring-2 ring-card">
             {totalUnread > 9 ? "9+" : totalUnread}
           </span>
         )}
       </Button>
       {open && (
-        <div className="absolute top-full mt-1 right-0 w-80 z-50 rounded-md border border-border bg-popover shadow-lg overflow-hidden">
-          <div className="px-3 py-2 border-b border-border bg-muted/50 flex items-center justify-between">
-            <p className="text-xs font-semibold">Notifications</p>
-            <span className={cn("flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded",
-              realtimeConnected ? "text-emerald-700 bg-emerald-100 dark:text-emerald-300 dark:bg-emerald-950/40" : "text-muted-foreground bg-muted")}>
+        <div className="absolute top-full mt-2 right-0 w-84 z-50 rounded-xl border border-border bg-popover shadow-xl overflow-hidden animate-in fade-in-50 zoom-in-95">
+          <div className="px-3.5 py-2.5 border-b border-border bg-muted/40 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <p className="text-xs font-bold text-foreground">Action Inbox</p>
+              {totalUnread > 0 && (
+                <span className="text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-red-500/15 text-red-600 dark:text-red-400">
+                  {totalUnread} new
+                </span>
+              )}
+            </div>
+            <span className={cn("flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full border",
+              realtimeConnected
+                ? "text-emerald-700 bg-emerald-50 border-emerald-200 dark:text-emerald-300 dark:bg-emerald-950/40 dark:border-emerald-800"
+                : "text-muted-foreground bg-muted border-border")}>
               <span className={cn("h-1.5 w-1.5 rounded-full", realtimeConnected ? "bg-emerald-500" : "bg-muted-foreground")} />
-              {realtimeConnected ? "Live" : "Offline"}
+              {realtimeConnected ? "Live Channel" : "Offline"}
             </span>
           </div>
-          <div className="max-h-80 overflow-y-auto">
+
+          <div className="max-h-88 overflow-y-auto divide-y divide-border/40">
             {realtimeEvents.length > 0 && (
               <>
-                <div className="px-3 py-1.5 bg-sky-50/50 dark:bg-sky-950/20 border-b border-border/50">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-sky-700 dark:text-sky-300">Realtime ({realtimeEvents.length})</p>
+                <div className="px-3 py-1 bg-primary/5 border-b border-border/40">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-primary">Live Activity ({realtimeEvents.length})</p>
                 </div>
                 {realtimeEvents.map((evt) => (
-                  <div key={evt.id} className="px-3 py-2 border-b border-border/50 last:border-0 hover:bg-muted/40">
-                    <div className="flex items-start gap-2">
-                      <span className={cn("h-1.5 w-1.5 rounded-full mt-1.5 flex-shrink-0",
+                  <div key={evt.id} className="px-3.5 py-2.5 hover:bg-muted/40 transition-colors">
+                    <div className="flex items-start gap-2.5">
+                      <span className={cn("h-2 w-2 rounded-full mt-1 shrink-0",
                         evt.severity === "error" ? "bg-rose-500" :
-                        evt.severity === "warning" ? "bg-amber-400" :
+                        evt.severity === "warning" ? "bg-amber-500" :
                         evt.severity === "success" ? "bg-emerald-500" :
-                        "bg-sky-400")} />
+                        "bg-primary")} />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-baseline justify-between gap-2">
-                          <p className="text-xs font-medium truncate">{evt.title}</p>
-                          <span className="text-[9px] text-muted-foreground flex-shrink-0">{formatRelTime(evt.timestamp)}</span>
+                          <p className="text-xs font-semibold text-foreground truncate">{evt.title}</p>
+                          <span className="text-[9px] text-muted-foreground shrink-0 tabular-nums">{formatRelTime(evt.timestamp)}</span>
                         </div>
-                        <p className="text-[10px] text-muted-foreground line-clamp-2">{evt.message}</p>
-                        {evt.demoMode && <span className="text-[9px] text-muted-foreground/60 italic">demo</span>}
+                        <p className="text-[11px] text-muted-foreground line-clamp-2 mt-0.5 leading-relaxed">{evt.message}</p>
+                        {evt.demoMode && (
+                          <span className="inline-block mt-1 text-[9px] font-medium text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.2 rounded border border-amber-200 dark:border-amber-800">
+                            simulation
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
                 ))}
               </>
             )}
+
             {data && data.rows.length > 0 && (
               <>
-                <div className="px-3 py-1.5 bg-muted/30 border-b border-border/50">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Seeded ({data.rows.length})</p>
+                <div className="px-3 py-1 bg-muted/20 border-b border-border/40">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Recent System Alerts ({data.rows.length})</p>
                 </div>
                 {data.rows.map((n) => (
-                  <div key={n.id} className="px-3 py-2 border-b border-border/50 last:border-0 hover:bg-muted/40">
-                    <div className="flex items-start gap-2">
-                      <span className={cn("h-1.5 w-1.5 rounded-full mt-1.5 flex-shrink-0",
+                  <div key={n.id} className={cn("px-3.5 py-2.5 hover:bg-muted/40 transition-colors", !n.read && "bg-primary/[0.02]")}>
+                    <div className="flex items-start gap-2.5">
+                      <span className={cn("h-2 w-2 rounded-full mt-1 shrink-0",
                         n.severity === "CRITICAL" ? "bg-rose-500" :
                         n.severity === "ERROR" ? "bg-rose-400" :
-                        n.severity === "WARNING" ? "bg-amber-400" :
-                        "bg-sky-400")} />
-                      <div className="min-w-0">
-                        <p className="text-xs font-medium truncate">{n.title}</p>
-                        <p className="text-[10px] text-muted-foreground line-clamp-2">{n.message}</p>
+                        n.severity === "WARNING" ? "bg-amber-500" :
+                        "bg-primary")} />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-baseline justify-between gap-2">
+                          <p className="text-xs font-semibold text-foreground truncate">{n.title}</p>
+                          {n.createdAt && (
+                            <span className="text-[9px] text-muted-foreground shrink-0 tabular-nums">{formatRelTime(n.createdAt)}</span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-muted-foreground line-clamp-2 mt-0.5 leading-relaxed">{n.message}</p>
                       </div>
                     </div>
                   </div>
                 ))}
               </>
             )}
+
             {realtimeEvents.length === 0 && (!data || data.rows.length === 0) && (
-              <div className="px-3 py-6 text-center text-xs text-muted-foreground">No notifications</div>
+              <div className="px-4 py-8 text-center text-xs text-muted-foreground">
+                <p className="font-medium text-foreground">No alerts</p>
+                <p className="text-[11px] mt-0.5">Your action inbox is up to date.</p>
+              </div>
             )}
           </div>
         </div>
@@ -661,7 +695,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [setSidebarOpen]);
 
   return (
-    <div data-app-shell className="h-screen max-h-screen w-full flex bg-background text-foreground overflow-hidden">
+    <div data-app-shell className="h-screen max-h-screen w-full flex text-foreground overflow-hidden">
       {/* Mobile backdrop when sidebar open */}
       {sidebarOpen && (
         <div
@@ -670,54 +704,59 @@ export function AppShell({ children }: { children: ReactNode }) {
         />
       )}
 
-      {/* Sidebar — overlay on mobile, inline full-height on desktop */}
+      {/* Sidebar — overlay on mobile, static rounded panel on desktop */}
       {sidebarOpen && (
         <aside
           className={cn(
-            "border-r border-sidebar-border bg-sidebar flex flex-col h-screen",
+            "bg-sidebar flex flex-col border border-sidebar-border shadow-xs overflow-hidden transition-all",
             // Mobile: fixed drawer overlay
-            "fixed inset-y-0 left-0 w-72 max-w-[85vw] shadow-2xl z-50",
-            // Desktop: static flex-shrink-0 full-height
-            "md:static md:w-64 md:max-w-none md:flex-shrink-0 md:z-20 md:shadow-none"
+            "fixed inset-y-2 left-2 w-72 max-w-[85vw] rounded-2xl shadow-2xl z-50",
+            // Desktop: static side-by-side rounded panel with subtle margin
+            "md:static md:my-2 md:ml-2 md:h-[calc(100vh-16px)] md:w-64 md:max-w-none md:flex-shrink-0 md:rounded-2xl md:z-20 md:shadow-xs"
           )}
         >
-          {/* Sidebar Top Header with Brand Logo + Website Name + Collapse Button */}
-          <div className="h-12 border-b border-sidebar-border flex items-center justify-between px-3 gap-2 flex-shrink-0 bg-sidebar">
-            <div className="flex items-center gap-2 min-w-0 flex-1">
-              <div className="h-6 w-6 rounded bg-gradient-to-br from-primary/80 to-primary flex items-center justify-center flex-shrink-0 shadow-xs">
-                <DiamondMark className="h-3.5 w-3.5 text-primary-foreground" />
+          {/* Sidebar Top Header with Warm Brand Capsule + Planning Title + Collapse Button */}
+          <div className="p-2.5 flex-shrink-0">
+            <div className="bg-[#FFE2D0]/95 dark:bg-[#25201D] border border-[#F5CEB5] dark:border-[#3D322C] rounded-xl p-2.5 flex items-center justify-between gap-2 shadow-2xs">
+              <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                <div className="h-7 w-7 rounded-lg bg-[#18181B] text-white flex items-center justify-center flex-shrink-0 shadow-xs">
+                  <DiamondMark className="h-4 w-4" />
+                </div>
+                <div className="flex flex-col leading-tight min-w-0 flex-1">
+                  <span className="text-xs font-black tracking-tight text-[#18181B] dark:text-[#FFEDD5] truncate select-none">
+                    Planning
+                  </span>
+                  <span className="text-[9px] text-[#786960] dark:text-[#A8988E] truncate select-none">
+                    ERP Platform
+                  </span>
+                </div>
               </div>
-              <div className="flex flex-col leading-tight min-w-0 flex-1">
-                <span className="text-xs font-semibold tracking-tight text-sidebar-foreground truncate select-none">
-                  Diamond Manufacturing ERP
-                </span>
-                <span className="text-[9px] text-muted-foreground truncate select-none">
-                  Analysis · Requirement · Planning · Traceability
-                </span>
-              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 text-[#18181B]/60 hover:text-[#18181B] hover:bg-[#FCD8BE]/60 dark:text-muted-foreground dark:hover:text-foreground flex-shrink-0"
+                onClick={() => setSidebarOpen(false)}
+                aria-label="Collapse sidebar"
+                title="Collapse sidebar"
+              >
+                <ChevronDown className="h-3.5 w-3.5 -rotate-90" />
+              </Button>
             </div>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent flex-shrink-0"
-              onClick={() => setSidebarOpen(false)}
-              aria-label="Collapse sidebar"
-              title="Collapse sidebar"
-            >
-              <ChevronDown className="h-4 w-4 -rotate-90" />
-            </Button>
           </div>
 
           {/* Navigation Items */}
-          <nav className="flex-1 overflow-y-auto py-1">
+          <nav className="flex-1 overflow-y-auto px-1 py-1">
             {NAV.map((g) => (
               <NavGroupItem key={g.id} group={g} />
             ))}
           </nav>
 
-          {/* Sidebar Footer */}
-          <div className="px-3 py-2 text-[9px] text-muted-foreground/60 border-t border-sidebar-border/40 flex-shrink-0">
-            <p>Source-to-Decision · Demand rule v1 · {new Date().getFullYear()}</p>
+          {/* Sidebar Footer — Plan Smarter / Brighter Tomorrows Card */}
+          <div className="p-2.5 border-t border-sidebar-border/30 flex-shrink-0">
+            <div className="bg-[#FFE2D0]/90 dark:bg-[#25201D] border border-[#F5CEB5] dark:border-[#3D322C] rounded-xl p-3 mb-1 text-xs shadow-2xs">
+              <p className="font-bold text-[#18181B] dark:text-[#FFEDD5] text-[11px] leading-tight">Plan Smarter</p>
+              <p className="text-[#786960] dark:text-[#A8988E] text-[10px] mt-0.5 leading-tight">Brighter Tomorrows</p>
+            </div>
           </div>
         </aside>
       )}
@@ -728,7 +767,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       {/* Right Content Area: Top Bar + Main View + Bottom Footer */}
       <div className="flex-1 flex flex-col h-screen min-w-0 overflow-hidden">
         {/* Pinned Top Bar */}
-        <header className="h-12 border-b border-border bg-card/95 backdrop-blur-sm flex items-center gap-1.5 sm:gap-2 px-2 sm:px-3 flex-shrink-0 z-10">
+        <header className="sticky top-0 z-50 h-12 border-b border-border bg-card/95 backdrop-blur-md flex items-center gap-1.5 sm:gap-2 px-2 sm:px-4 flex-shrink-0">
           {/* Mobile hamburger toggle (only when sidebar is closed) */}
           <Button
             variant="ghost"
@@ -759,7 +798,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <Button
               variant="ghost"
               size="icon"
-              className="h-8 w-8 lg:hidden"
+              className="h-8 w-8 lg:hidden text-muted-foreground hover:text-foreground"
               onClick={() => {
                 window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, ctrlKey: true }));
               }}
@@ -771,7 +810,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <Button
               variant="outline"
               size="sm"
-              className="h-8 gap-1.5 text-[11px] hidden xl:flex"
+              className="h-7 gap-1.5 text-[11px] hidden xl:flex text-muted-foreground hover:text-foreground border-border bg-card"
               onClick={() => {
                 window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, ctrlKey: true }));
               }}
@@ -782,9 +821,6 @@ export function AppShell({ children }: { children: ReactNode }) {
             </Button>
             <ThemeToggle />
             <NotificationsBell />
-            <div className="h-7 w-7 sm:h-8 sm:w-8 rounded-full bg-muted border border-border flex items-center justify-center">
-              <User className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-muted-foreground" />
-            </div>
             <UserMenu />
           </div>
         </header>

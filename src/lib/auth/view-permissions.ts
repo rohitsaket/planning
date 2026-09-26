@@ -232,4 +232,13 @@ export const PERMISSION_LABELS: Record<string, string> = {
   "fantasy.sync.retry": "Fantasy Synchronization Retry",
   "fantasy.sync.unlock": "Fantasy Synchronization Lock Release",
   "notification.manage": "Notification Triage",
+  "sarin.import.read": "Sarin Import History & Issues Access",
+  "sarin.import.upload": "Sarin File Upload",
+  "sarin.import.validate": "Sarin Import Validation",
+  "sarin.issue.review": "Sarin Issue Review",
+  "sarin.issue.override": "Sarin Issue Override Authority",
+  "sarin.output.generate": "Sarin Output Generation",
+  "sarin.output.approve": "Sarin Output Planning Approval Authority",
+  "sarin.output.export": "Sarin Output Export",
+  "sarin.mapping.manage": "Sarin Shape Mapping Administration",
 };

@@ -13,10 +13,11 @@ interface PageHeaderProps {
 
 export function PageHeader({ title, subtitle, actions, meta, className }: PageHeaderProps) {
   return (
-    <div className={cn("sticky top-0 z-20 -mx-3 -mt-3 mb-2 border-b border-border bg-card/95 backdrop-blur-md px-4 sm:px-5 py-1.5 shadow-xs", className)}>
-      <div className="flex items-center justify-between gap-3 flex-wrap min-h-9">
-        <div className="flex items-center gap-2 min-w-0">
-          <h1 className="text-lg font-bold tracking-tight text-foreground truncate">{title}</h1>
+    <div className={cn("sticky top-0 z-40 -mx-3 -mt-3 mb-3 border-b border-border bg-card/95 backdrop-blur-md px-4 sm:px-6 py-2.5 shadow-2xs", className)}>
+      <div className="flex items-center justify-between gap-3 flex-wrap min-h-10">
+        <div className="flex flex-col min-w-0">
+          <h1 className="text-lg sm:text-xl font-bold tracking-tight text-foreground truncate">{title}</h1>
+          {subtitle && <p className="text-xs text-muted-foreground mt-0.5 truncate">{subtitle}</p>}
         </div>
         {(actions || meta) && (
           <div className="flex items-center gap-2 flex-wrap ml-auto">
@@ -40,17 +41,17 @@ interface SectionProps {
 
 export function Section({ title, description, actions, children, className, bodyClassName }: SectionProps) {
   return (
-    <section className={cn("rounded-md border border-border bg-card overflow-hidden", className)}>
+    <section className={cn("rounded-2xl border border-border/80 bg-card shadow-[0_4px_20px_-4px_rgba(249,115,62,0.04)] overflow-hidden", className)}>
       {(title || actions) && (
-        <header className="flex items-center justify-between gap-2 px-3 py-2 border-b border-border bg-muted/30">
+        <header className="flex items-center justify-between gap-3 px-4 py-3 border-b border-border/70 bg-[#FAF7F4]/90 dark:bg-card/60 backdrop-blur-sm">
           <div>
-            {title && <h2 className="text-xs font-semibold tracking-wide text-foreground">{title}</h2>}
-            {description && <p className="text-[10px] text-muted-foreground mt-0.5">{description}</p>}
+            {title && <h2 className="text-sm font-bold tracking-tight text-foreground">{title}</h2>}
+            {description && <p className="text-[11px] text-muted-foreground mt-0.5">{description}</p>}
           </div>
-          {actions && <div className="flex items-center gap-2">{actions}</div>}
+          {actions && <div className="flex items-center gap-2 shrink-0">{actions}</div>}
         </header>
       )}
-      <div className={cn("p-3", bodyClassName)}>{children}</div>
+      <div className={cn("p-4", bodyClassName)}>{children}</div>
     </section>
   );
 }

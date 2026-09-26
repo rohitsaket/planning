@@ -54,6 +54,11 @@ const MODULES = [
   "../tests/security/source-disclosure.test",
   "../tests/security/category-classification.test",
   "../tests/security/projection-integrity.test",
+  "../tests/security/sarin-foundation.test",
+  "../tests/security/sarin-ingestion.test",
+  "../tests/security/sarin-validation.test",
+  "../tests/security/sarin-output.test",
+  "../tests/security/sarin-pink.test",
 ] as const;
 
 async function main() {

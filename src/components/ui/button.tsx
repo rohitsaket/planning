@@ -10,15 +10,19 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default:
-          "bg-primary text-primary-foreground shadow-xs hover:bg-primary/90",
+          "bg-gradient-to-r from-[#FF6934] to-[#F95721] text-white shadow-[0_2px_8px_rgba(249,87,33,0.28)] hover:from-[#F85820] hover:to-[#E5450E] font-bold focus-visible:ring-2 focus-visible:ring-[#F9733E]/50 rounded-xl transition-all active:scale-[0.98]",
+        cta:
+          "bg-gradient-to-r from-[#FF6934] to-[#F95721] text-white shadow-[0_2px_8px_rgba(249,87,33,0.28)] hover:from-[#F85820] hover:to-[#E5450E] font-bold focus-visible:ring-2 focus-visible:ring-[#F9733E]/50 rounded-xl transition-all active:scale-[0.98]",
+        brand:
+          "bg-gradient-to-r from-[#FF6934] to-[#F95721] text-white shadow-[0_2px_8px_rgba(249,87,33,0.28)] hover:from-[#F85820] hover:to-[#E5450E] font-bold focus-visible:ring-2 focus-visible:ring-[#F9733E]/50 rounded-xl transition-all active:scale-[0.98]",
         destructive:
-          "bg-destructive text-white shadow-xs hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:bg-destructive/60",
+          "bg-destructive text-white shadow-xs hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:bg-destructive/60 rounded-xl",
         outline:
-          "border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50",
+          "border border-border/90 bg-card text-foreground shadow-2xs hover:bg-muted/80 hover:text-foreground dark:bg-card dark:border-border dark:hover:bg-muted rounded-xl font-semibold",
         secondary:
-          "bg-secondary text-secondary-foreground shadow-xs hover:bg-secondary/80",
+          "bg-secondary text-secondary-foreground shadow-xs hover:bg-secondary/80 rounded-xl font-medium",
         ghost:
-          "hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50",
+          "hover:bg-muted hover:text-foreground rounded-xl",
         link: "text-primary underline-offset-4 hover:underline",
       },
       size: {

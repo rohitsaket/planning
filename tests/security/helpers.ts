@@ -68,3 +68,15 @@ export async function makeCase(o: { status?: string; planner?: string; select?: 
   if (o.select !== false) await db.planningCase.update({ where: { id: c.id }, data: { selectedOptionId: o1.id } });
   return { caseId: c.id, roughId: rough.id, versionId: v.id, optionIds: [o1.id, o2.id] };
 }
+
+// Canonical registries a Sarin import is checked against. Upserts only, so a suite can
+// declare the countries and labs its fixtures use without disturbing anything else.
+export async function ensureCountryRegistry(codes: string[]) {
+  const group = await db.group.upsert({ where: { code: "TEST-GRP" }, update: {}, create: { code: "TEST-GRP", name: "Test Group" } });
+  const company = await db.company.upsert({ where: { code: "TEST-CO" }, update: {}, create: { code: "TEST-CO", name: "Test Company", groupId: group.id } });
+  for (const code of codes) await db.country.upsert({ where: { code }, update: {}, create: { code, name: code, companyId: company.id } });
+}
+
+export async function ensureLabRegistry(labs: string[]) {
+  for (const lab of labs) await db.labMapping.upsert({ where: { rawLab: lab }, update: { normalizedLab: lab, active: true }, create: { rawLab: lab, normalizedLab: lab, active: true } });
+}

@@ -16,6 +16,9 @@
   --color-sidebar-primary: var(--sidebar-primary);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar: var(--sidebar);
+  --color-brand-cta: var(--brand-cta);
+  --color-brand-cta-foreground: var(--brand-cta-foreground);
+  --color-brand-cta-hover: var(--brand-cta-hover);
   --color-chart-5: var(--chart-5);
   --color-chart-4: var(--chart-4);
   --color-chart-3: var(--chart-3);
@@ -25,6 +28,7 @@
   --color-input: var(--input);
   --color-border: var(--border);
   --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
   --color-accent-foreground: var(--accent-foreground);
   --color-accent: var(--accent);
   --color-muted-foreground: var(--muted-foreground);
@@ -45,71 +49,101 @@
 
 :root {
   --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  /* Visual Reference Theme — Warm Precision Pearl Palette */
+  --background: #FAF7F4;
+  --foreground: #18181B;
+  --card: #FFFFFF;
+  --card-foreground: #18181B;
+  --popover: #FFFFFF;
+  --popover-foreground: #18181B;
+  --primary: #18181B;
+  --primary-foreground: #FFFFFF;
+  --secondary: #F5EFEA;
+  --secondary-foreground: #18181B;
+  --muted: #F5EFEA;
+  --muted-foreground: #71717A;
+  --accent: #FFE5D3;
+  --accent-foreground: #C2410C;
+  --destructive: #DC2626;
+  --destructive-foreground: #FFFFFF;
+  --border: #EADBCE;
+  --input: #EADBCE;
+  --ring: #F9733E;
+  --brand-cta: #F9733E;
+  --brand-cta-foreground: #FFFFFF;
+  --brand-cta-hover: #EA580C;
+
+  /* Warm Peach / Champagne Sidebar matching Image */
+  --sidebar: #FFF0E5;
+  --sidebar-foreground: #292524;
+  --sidebar-primary: #F9733E;
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: #FFE3D1;
+  --sidebar-accent-foreground: #1C1917;
+  --sidebar-border: #F5DCD0;
+  --sidebar-ring: #F9733E;
+  --sidebar-selected-bg: #FFE5D3;
+  --sidebar-selected-fg: #1C1917;
+
+  /* Table Header Warm Apricot Tint */
+  --table-header-bg: #FFE7D3;
+  --table-header-fg: #5C4E46;
+
+  /* Charts */
+  --chart-1: #F9733E;
+  --chart-2: #10B981;
+  --chart-3: #F59E0B;
+  --chart-4: #8B5CF6;
+  --chart-5: #3B82F6;
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  /* Visual Reference Dark Palette */
+  --background: #0E1117;
+  --foreground: #F4F4F5;
+  --card: #151922;
+  --card-foreground: #F4F4F5;
+  --popover: #151922;
+  --popover-foreground: #F4F4F5;
+  --primary: #F4F4F5;
+  --primary-foreground: #0E1117;
+  --secondary: #1E2330;
+  --secondary-foreground: #F4F4F5;
+  --muted: #1E2330;
+  --muted-foreground: #A1A1AA;
+  --accent: #2A1F1B;
+  --accent-foreground: #FDBA74;
+  --destructive: #EF4444;
+  --destructive-foreground: #FFFFFF;
+  --border: #262D3D;
+  --input: #262D3D;
+  --ring: #F9733E;
+  --brand-cta: #F9733E;
+  --brand-cta-foreground: #FFFFFF;
+  --brand-cta-hover: #EA580C;
+
+  /* Dark Theme Sidebar */
+  --sidebar: #131720;
+  --sidebar-foreground: #F4F4F5;
+  --sidebar-primary: #F9733E;
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: #1F2636;
+  --sidebar-accent-foreground: #F4F4F5;
+  --sidebar-border: #22293A;
+  --sidebar-ring: #F9733E;
+  --sidebar-selected-bg: #272322;
+  --sidebar-selected-fg: #FFEDD5;
+
+  /* Table Header */
+  --table-header-bg: #1D2332;
+  --table-header-fg: #E4E4E7;
+
+  /* Charts */
+  --chart-1: #F9733E;
+  --chart-2: #10B981;
+  --chart-3: #F59E0B;
+  --chart-4: #8B5CF6;
+  --chart-5: #3B82F6;
 }
 
 @layer base {
@@ -117,8 +151,25 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   }
+}
+
+[data-app-shell] {
+  background: 
+    radial-gradient(ellipse 70% 55% at 95% 15%, #FEDFC8 0%, transparent 60%),
+    radial-gradient(ellipse 65% 50% at 5% 10%, #E6EEFA 0%, transparent 55%),
+    radial-gradient(ellipse 50% 50% at 85% 90%, #FFEFE2 0%, transparent 60%),
+    linear-gradient(135deg, #EFF4FD 0%, #FAF6F2 40%, #FFF4EC 100%);
+}
+
+.dark [data-app-shell] {
+  background: 
+    radial-gradient(ellipse 70% 55% at 95% 15%, rgba(249, 115, 62, 0.07) 0%, transparent 60%),
+    radial-gradient(ellipse 65% 50% at 5% 10%, rgba(59, 130, 246, 0.06) 0%, transparent 55%),
+    radial-gradient(ellipse 50% 50% at 85% 90%, rgba(30, 41, 59, 0.4) 0%, transparent 60%),
+    linear-gradient(135deg, #0A0D15 0%, #0C1019 50%, #0E1117 100%);
 }
 
 /* ============================================================

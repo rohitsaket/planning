@@ -85,6 +85,17 @@ export const PERMISSION_METAS: PermissionMeta[] = [
   { code: "plan.replan", name: "Trigger Replan", category: "Planning", description: "Trigger replan cycle when manufacturing criteria change." },
   { code: "plan.export", name: "Export Planning Cases", category: "Planning", description: "Export planning cases and piece allocations." },
 
+  // Sarin Import
+  { code: "sarin.import.read", name: "View Sarin Imports", category: "Sarin Import", description: "View Sarin import history, source previews and validation issues." },
+  { code: "sarin.import.upload", name: "Upload Sarin File", category: "Sarin Import", description: "Upload a Sarin CSV file with its declared stone type and scope." },
+  { code: "sarin.import.validate", name: "Validate Sarin Import", category: "Sarin Import", description: "Run or re-run validation of an uploaded Sarin import." },
+  { code: "sarin.issue.review", name: "Review Sarin Issues", category: "Sarin Import", description: "Triage validation issues raised on a Sarin import." },
+  { code: "sarin.issue.override", name: "Override Sarin Issue", category: "Sarin Import", description: "Record a reviewed, reasoned override of a validation finding." },
+  { code: "sarin.output.generate", name: "Generate Sarin Output", category: "Sarin Import", description: "Generate the structured planning output of a validated import." },
+  { code: "sarin.output.approve", name: "Approve Sarin Output", category: "Sarin Import", description: "Approve generated Sarin output for planning. Never granted by administrator roles." },
+  { code: "sarin.output.export", name: "Export Sarin Output", category: "Sarin Import", description: "Export a generated Sarin output version to Excel." },
+  { code: "sarin.mapping.manage", name: "Manage Sarin Shape Mappings", category: "Sarin Import", description: "Draft, approve and retire versioned Sarin shape mappings." },
+
   // Rough Inventory
   { code: "rough.read", name: "View Rough Stock", category: "Rough Diamond", description: "Read rough diamond stock, parcels, and lot details." },
   { code: "rough.reserve", name: "Reserve Rough Stones", category: "Rough Diamond", description: "Soft-reserve rough stones against approved planning options." },

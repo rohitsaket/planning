@@ -452,7 +452,7 @@ export function DemandTraceView() {
                 </div>
               ) : (
                 <>
-                  <div className="flex items-center gap-1 px-2 pt-2 pb-1 overflow-x-auto">
+                  <div className="flex items-center gap-1.5 px-2 pt-2 pb-1 overflow-x-auto">
                     {RECORD_TABS.map((tab) => {
                       const Icon = tab.icon;
                       const active = recordTab === tab.id;
@@ -462,13 +462,13 @@ export function DemandTraceView() {
                           type="button"
                           onClick={() => setRecordTab(tab.id)}
                           className={cn(
-                            "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] whitespace-nowrap border transition-colors",
+                            "inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs whitespace-nowrap transition-all cursor-pointer",
                             active
-                              ? "bg-primary text-primary-foreground border-primary font-medium"
-                              : "bg-background text-muted-foreground border-border hover:text-foreground",
+                              ? "bg-[#FFE2D1] text-[#18181B] dark:bg-[#272322] dark:text-[#FFEDD5] border border-[#F5DCD0]/70 dark:border-[#3A302A] font-bold shadow-2xs"
+                              : "bg-background text-muted-foreground border border-border hover:text-foreground hover:bg-muted/60",
                           )}
                         >
-                          <Icon className="h-3 w-3" />
+                          <Icon className={cn("h-3 w-3", active ? "text-[#F9733E]" : "text-muted-foreground")} />
                           {tab.label}
                         </button>
                       );

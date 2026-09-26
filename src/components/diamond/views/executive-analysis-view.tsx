@@ -280,7 +280,7 @@ export function ExecutiveAnalysisView() {
       cell: (r) => (
         <button
           type="button"
-          className="text-left font-medium text-primary hover:underline"
+          className="text-left font-semibold text-foreground hover:underline cursor-pointer"
           onClick={() => setView("analysis-sales", "analysis")}
           title={r.category}
         >
@@ -307,7 +307,7 @@ export function ExecutiveAnalysisView() {
       cell: (r) => (
         <button
           type="button"
-          className="text-left text-primary hover:underline"
+          className="text-left font-medium text-foreground hover:underline cursor-pointer"
           onClick={() => setView("analysis-inventory-position")}
         >
           {r.branch}
@@ -433,7 +433,7 @@ export function ExecutiveAnalysisView() {
       <SimulationBanner disclosure={readiness.data?.sourceDisclosure} />
 
       {/* Navigation Tabs */}
-      <div className="flex items-center gap-1.5 border-b border-border bg-card/60 p-1 rounded-lg">
+      <div className="flex items-center gap-1.5 border-b border-border bg-card/80 p-1 rounded-xl shadow-2xs">
         {TABS.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
@@ -443,13 +443,13 @@ export function ExecutiveAnalysisView() {
               type="button"
               onClick={() => setActiveTab(tab.id)}
               className={cn(
-                "flex items-center gap-2 px-3.5 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer",
+                "flex items-center gap-2 px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer",
                 isActive
-                  ? "bg-primary text-primary-foreground shadow-xs"
+                  ? "bg-[#FFE2D1] text-[#18181B] dark:bg-[#272322] dark:text-[#FFEDD5] font-bold shadow-2xs border border-[#F5DCD0]/70 dark:border-[#3A302A]"
                   : "text-muted-foreground hover:text-foreground hover:bg-muted/70"
               )}
             >
-              <Icon className="h-3.5 w-3.5" />
+              <Icon className={cn("h-3.5 w-3.5", isActive ? "text-[#F9733E]" : "text-muted-foreground")} />
               <span>{tab.label}</span>
             </button>
           );
@@ -568,18 +568,24 @@ export function ExecutiveAnalysisView() {
               : "Shortage and excess come from a completed demand run."
           }
           actions={
-            <div className="flex items-center gap-1">
-              {(["ALL", "SHORTAGE_ONLY", "EXCESS_ONLY"] as const).map((m) => (
-                <Button
-                  key={m}
-                  size="sm"
-                  variant={gapMode === m ? "default" : "outline"}
-                  className="h-7 px-2 text-xs cursor-pointer"
-                  onClick={() => { setGapMode(m); setGapPage(1); }}
-                >
-                  {m === "ALL" ? "All" : m === "SHORTAGE_ONLY" ? "Shortage only" : "Excess only"}
-                </Button>
-              ))}
+            <div className="flex items-center gap-1.5 bg-muted/60 p-1 rounded-xl border border-border/80">
+              {(["ALL", "SHORTAGE_ONLY", "EXCESS_ONLY"] as const).map((m) => {
+                const isSelected = gapMode === m;
+                return (
+                  <Button
+                    key={m}
+                    size="sm"
+                    variant={isSelected ? "brand" : "ghost"}
+                    className={cn(
+                      "h-7 px-3 text-xs font-semibold rounded-lg cursor-pointer transition-all",
+                      !isSelected && "hover:bg-card/80 text-muted-foreground"
+                    )}
+                    onClick={() => { setGapMode(m); setGapPage(1); }}
+                  >
+                    {m === "ALL" ? "All" : m === "SHORTAGE_ONLY" ? "Shortage only" : "Excess only"}
+                  </Button>
+                );
+              })}
             </div>
           }
         >

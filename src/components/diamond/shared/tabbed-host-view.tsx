@@ -125,14 +125,14 @@ export function TabbedHostView({
                   tabIndex={active ? 0 : -1}
                   onClick={() => handleTabClick(tab.id)}
                   className={cn(
-                    "flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap",
-                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
+                    "flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all whitespace-nowrap",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F9733E]/50 focus-visible:ring-offset-1",
                     active
-                      ? "bg-primary text-primary-foreground shadow-xs font-semibold"
+                      ? "bg-[#FFE2D1] text-[#18181B] dark:bg-[#272322] dark:text-[#FFEDD5] font-bold shadow-2xs"
                       : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
                   )}
                 >
-                  {tab.icon && <span className={cn("h-3.5 w-3.5 flex-shrink-0", active ? "text-primary-foreground" : "text-muted-foreground")}>{tab.icon}</span>}
+                  {tab.icon && <span className={cn("h-3.5 w-3.5 flex-shrink-0", active ? "text-[#18181B] dark:text-[#FFEDD5]" : "text-muted-foreground")}>{tab.icon}</span>}
                   <span>{tab.label}</span>
                   {!authorized && (
                     <span title="Restricted tab">
@@ -143,7 +143,7 @@ export function TabbedHostView({
                     <span className={cn(
                       "px-1.5 py-0.2 rounded text-[9px] font-mono",
                       active
-                        ? "bg-primary-foreground/20 text-primary-foreground"
+                        ? "bg-[#18181B]/15 text-[#18181B] dark:bg-white/20 dark:text-white"
                         : tab.badgeVariant === "advisory"
                         ? "bg-violet-500/10 text-violet-600 dark:text-violet-400"
                         : "bg-muted text-muted-foreground"

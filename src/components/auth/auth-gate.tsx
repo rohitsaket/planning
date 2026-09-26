@@ -127,10 +127,33 @@ export function UserMenu() {
     await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" }).catch(() => undefined);
     setUser(null);
   };
+  const initials = (user.displayName || user.username || "U")
+    .split(" ")
+    .map((n) => n[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
+
   return (
-    <div className="flex items-center gap-1.5">
-      <span className="hidden md:inline text-[11px] text-muted-foreground" title={user.role}>{user.displayName}</span>
-      <Button variant="ghost" size="sm" className="h-7 px-2 text-[11px]" onClick={signOut}>Sign out</Button>
+    <div className="flex items-center gap-2 pl-1 sm:pl-2">
+      <div className="flex items-center gap-2 px-2 py-1 rounded-full bg-[#F1F5F9] dark:bg-slate-800 border border-[#DCE3EC] dark:border-slate-700">
+        <div className="h-6 w-6 rounded-full bg-[#FFEAD8] dark:bg-amber-950/60 text-[#F9733E] dark:text-amber-400 font-bold text-[10px] flex items-center justify-center shrink-0 border border-[#F0DFD0] dark:border-amber-900/50">
+          {initials}
+        </div>
+        <div className="hidden lg:flex flex-col text-left leading-tight pr-1">
+          <span className="text-[11px] font-semibold text-foreground max-w-[120px] truncate">{user.displayName}</span>
+          <span className="text-[9px] text-muted-foreground capitalize truncate">{user.role?.toLowerCase().replace(/_/g, " ")}</span>
+        </div>
+      </div>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-7 px-2 text-[11px] text-muted-foreground hover:text-foreground"
+        onClick={signOut}
+        title="Sign out of Diamond ERP"
+      >
+        Sign out
+      </Button>
     </div>
   );
 }

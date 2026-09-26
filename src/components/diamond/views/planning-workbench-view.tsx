@@ -232,36 +232,36 @@ export function PlanningWorkbenchView() {
         }
       />
 
-      {/* Top KPIs */}
+      {/* Top Summary Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-        <div className="rounded-md border border-border bg-card p-3">
-          <div className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-muted-foreground mb-1">
-            <ListOrdered className="h-3 w-3" /> LEFT — Queue Size
+        <div className="rounded-xl border border-border bg-card p-3 shadow-xs border-l-4 border-l-primary">
+          <div className="flex items-center gap-1.5 text-[10px] uppercase font-bold tracking-wider text-muted-foreground mb-1">
+            <ListOrdered className="h-3.5 w-3.5 text-primary" /> LEFT — Queue Size
           </div>
-          <div className="text-xl font-semibold tabular-nums">{leftQueue.length}</div>
+          <div className="text-xl font-bold tabular-nums text-foreground">{leftQueue.length}</div>
           <p className="text-[10px] text-muted-foreground">Top 25 by priority & remaining</p>
         </div>
-        <div className="rounded-md border border-border bg-card p-3">
-          <div className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-muted-foreground mb-1">
-            <Gem className="h-3 w-3" /> CENTER — Available Rough
+        <div className="rounded-xl border border-border bg-card p-3 shadow-xs border-l-4 border-l-emerald-500">
+          <div className="flex items-center gap-1.5 text-[10px] uppercase font-bold tracking-wider text-muted-foreground mb-1">
+            <Gem className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" /> CENTER — Available Rough
           </div>
-          <div className="text-xl font-semibold tabular-nums">{centerRough.length}</div>
+          <div className="text-xl font-bold tabular-nums text-foreground">{centerRough.length}</div>
           <p className="text-[10px] text-muted-foreground">Top 20 eligible AVAILABLE</p>
         </div>
-        <div className="rounded-md border border-border bg-card p-3">
-          <div className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-muted-foreground mb-1">
-            <Layers className="h-3 w-3" /> RIGHT — Plan Cases
+        <div className="rounded-xl border border-border bg-card p-3 shadow-xs border-l-4 border-l-brand">
+          <div className="flex items-center gap-1.5 text-[10px] uppercase font-bold tracking-wider text-muted-foreground mb-1">
+            <Layers className="h-3.5 w-3.5 text-brand" /> RIGHT — Plan Cases
           </div>
-          <div className="text-xl font-semibold tabular-nums">{rightPlan?.length ?? 0}</div>
+          <div className="text-xl font-bold tabular-nums text-foreground">{rightPlan?.length ?? 0}</div>
           <p className="text-[10px] text-muted-foreground">Cases for selected rough</p>
         </div>
-        <div className="rounded-md border border-border bg-card p-3">
-          <div className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-muted-foreground mb-1">
-            <ArrowRight className="h-3 w-3" /> Actions
+        <div className="rounded-xl border border-border bg-card p-3 shadow-xs border-l-4 border-l-sky-500 flex flex-col justify-between">
+          <div className="flex items-center gap-1.5 text-[10px] uppercase font-bold tracking-wider text-muted-foreground mb-1">
+            <ArrowRight className="h-3.5 w-3.5 text-sky-600 dark:text-sky-400" /> Actions
           </div>
           <button
             onClick={() => setView("planning-reservations")}
-            className="text-[11px] text-sky-600 dark:text-sky-400 hover:underline"
+            className="text-xs font-semibold text-primary hover:text-primary/80 transition-colors flex items-center gap-1 text-left"
           >
             Reserve a rough →
           </button>
@@ -319,7 +319,7 @@ export function PlanningWorkbenchView() {
                 onRowClick={(r) => setSelectedRoughId(r.id)}
                 rowClassName={(r) =>
                   r.id === selectedRoughId
-                    ? "bg-sky-100 dark:bg-sky-950/40 ring-1 ring-inset ring-sky-400"
+                    ? "bg-primary/10 dark:bg-primary/20 ring-1 ring-inset ring-primary/60 font-medium"
                     : ""
                 }
               />

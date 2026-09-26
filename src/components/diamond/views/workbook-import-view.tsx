@@ -7,6 +7,7 @@ import { Badge, Pill, StatusBadge } from "@/components/diamond/shared/badges";
 import { EmptyState, InfoBanner } from "@/components/diamond/shared/empty-state";
 import { DataTable, type Column } from "@/components/diamond/shared/data-table";
 import { KpiCard } from "@/components/diamond/shared/kpi-card";
+import { SarinOutputPanel } from "@/components/diamond/views/sarin/sarin-output-panel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -729,6 +730,9 @@ export function WorkbookImportView() {
           </Section>
         </>
       )}
+
+      {/* Sarin structured output (shown only with sarin.import.read) */}
+      <SarinOutputPanel />
 
       {/* Shape normalization seed */}
       <Section

@@ -198,7 +198,7 @@ export function StockoutView() {
       cell: (r) => (
         <button
           type="button"
-          className="text-left font-medium text-primary hover:underline"
+          className="text-left font-semibold text-foreground hover:underline cursor-pointer"
           // The canonical key is carried verbatim.
           onClick={() => setTraceCategory(r.categoryId)}
           title={r.categoryId}

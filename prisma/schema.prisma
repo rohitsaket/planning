@@ -1729,3 +1729,515 @@ model FantasyProjectionCandidate {
   @@index([runId, inventoryClass])
   @@index([rowHash])
 }
+
+// ---------------------------------------------------------------------------
+// SARIN IMPORT FOUNDATION (additive).
+//
+// Persistence for the headerless Sarin CSV workflow:
+//   source file -> import batch -> source rows -> stone blocks -> validation issues ->
+//   reviewed overrides. Transformation and output versions arrive in later phases.
+//
+// Vocabulary (stone types, statuses, outcomes, kinds) lives in src/lib/sarin/domain.ts and
+// is enforced here by CHECK constraints, matching the repository's String-plus-CHECK
+// convention rather than Prisma enums.
+//
+// Rules Prisma cannot express are created in the migration and verified by
+// tests/security/sarin-foundation.test.ts:
+//   - immutability triggers on source files, file content, source rows and overrides;
+//   - status-transition, fencing and lineage triggers on batches, blocks and issues;
+//   - the lab-inclusive duplicate identity of a batch (expression unique index);
+//   - one override chain root per issue and one unconditional rule per raw shape
+//     (partial unique indexes);
+//   - non-overlapping ratio ranges within a mapping set (trigger);
+//   - the mapping-set content hash, computed by the database on approval.
+//
+// Actor ids (uploadedByUserId, appliedByUserId, ...) are deliberately not foreign keys,
+// matching AuditLog.actorUserId: deleting an account must neither destroy this history
+// nor be blocked by it. Every relation between Sarin tables is ON DELETE RESTRICT.
+// ---------------------------------------------------------------------------
+
+/// Immutable metadata of an uploaded Sarin file. The bytes live in
+/// SarinSourceFileContent so that no ordinary query on this model can load them.
+model SarinSourceFile {
+  id                String   @id @default(cuid())
+  /// Lowercase hex SHA-256 of the exact bytes; verified against the content by the database.
+  sha256            String   @unique
+  /// As supplied by the client. Display and audit only: never a path, never a header value.
+  originalFileName  String
+  sanitizedFileName String
+  byteSize          Int
+  detectedEncoding  String
+  createdAt         DateTime @default(now())
+
+  content SarinSourceFileContent?
+  batches SarinImportBatch[]
+}
+
+/// The exact uploaded bytes, one row per source file. Insert-only.
+model SarinSourceFileContent {
+  sourceFileId String          @id
+  sourceFile   SarinSourceFile @relation(fields: [sourceFileId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  content      Bytes
+  createdAt    DateTime        @default(now())
+}
+
+/// One declared-type import of one source file into one country (and optional lab) scope.
+/// Stone type and country have no default: both must be declared explicitly.
+model SarinImportBatch {
+  id                      String                @id @default(cuid())
+  sourceFileId            String
+  sourceFile              SarinSourceFile       @relation(fields: [sourceFileId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  /// BLUE | WHITE | PINK, declared by the uploader. Never inferred from Stone Name.
+  stoneType               String
+  /// Compared verbatim with UserAccessScope COUNTRY values.
+  country                 String
+  /// Optional; compared verbatim with UserAccessScope LAB values.
+  labScope                String?
+  /// Raw positional contract the rows were read against, e.g. SARIN_RAW_CSV_V1.
+  contractVersion         String
+  /// Business planning date declared by the uploader (date only, no time zone). Written
+  /// to the structured output's DATE column later. Never defaulted by the server.
+  planningDate            DateTime @db.Date
+  /// Set when a transformation runs (later phase).
+  transformProfileVersion String?
+  /// Mapping set in force for the current validation attempt; must be APPROVED.
+  shapeMappingSetId       String?
+  shapeMappingSet         SarinShapeMappingSet? @relation(fields: [shapeMappingSetId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  /// UPLOADED | VALIDATING | NEEDS_REVIEW | VALIDATED | FAILED | ARCHIVED.
+  /// Transitions are enforced by a database trigger.
+  status                  String                @default("UPLOADED")
+  /// Safe diagnostic code, required while FAILED. Never a source value or stack trace.
+  failureCode             String?
+  /// Incremented by exactly one on every entry into VALIDATING.
+  validationAttempt       Int                   @default(0)
+  rowCount                Int                   @default(0)
+  blockCount              Int                   @default(0)
+  quarantinedRowCount     Int                   @default(0)
+  quarantinedBlockCount   Int                   @default(0)
+  uploadedByUserId        String
+  statusChangedAt         DateTime              @default(now())
+  /// Worker claim. All three are set together or cleared together.
+  claimToken              String?
+  claimedAt               DateTime?
+  leaseExpiresAt          DateTime?
+  /// Monotonic. Must increase whenever a new claim token is issued.
+  fencingVersion          Int                   @default(0)
+  archivedAt              DateTime?
+  createdAt               DateTime              @default(now())
+  updatedAt               DateTime              @updatedAt
+
+  rows     SarinSourceRow[]
+  blocks   SarinStoneBlock[]
+  issues   SarinValidationIssue[]
+  attempts SarinValidationAttempt[]
+  outputs  SarinOutputVersion[]
+
+  // Duplicate identity (sourceFileId, stoneType, contractVersion, country, labScope,
+  // planningDate) is an expression unique index in the migration, because a NULL lab must
+  // still collide.
+  @@index([country, status, createdAt])
+  @@index([labScope, status])
+  @@index([status, createdAt])
+  @@index([sourceFileId])
+  @@index([uploadedByUserId, createdAt])
+}
+
+/// One physical line of the source file, preserved exactly. Insert-only.
+/// Typed values are NULL when the raw value was missing or invalid; they are never
+/// coerced to zero. Pink plan codes are positional and are therefore not stored here.
+model SarinSourceRow {
+  id              String           @id @default(cuid())
+  batchId         String
+  batch           SarinImportBatch @relation(fields: [batchId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  /// One-based physical line number within the file.
+  sourceRowNumber Int
+  rawLine         String
+  fieldCount      Int
+  /// Lowercase hex SHA-256 of rawLine.
+  rowHash         String
+  /// ACCEPTED | QUARANTINED | REJECTED_STRUCTURE.
+  outcome         String
+  /// JSON array of the record's fields exactly as read, one string per field. NULL only
+  /// when the record's quoting could not be read at all.
+  rawFieldsJson   String?
+  /// Comma-separated reason codes, present exactly when the row is not ACCEPTED.
+  rejectionCodes  String?
+  stoneNameRaw    String?
+  roughWeight     Decimal?         @db.Decimal(12, 3)
+  shapeRaw        String?
+  estimatedWeight Decimal?         @db.Decimal(12, 3)
+  clarity         String?
+  color           String?
+  depthPct        Decimal?         @db.Decimal(9, 3)
+  ratio           Decimal?         @db.Decimal(9, 3)
+  length          Decimal?         @db.Decimal(9, 3)
+  width           Decimal?         @db.Decimal(9, 3)
+  depthMm         Decimal?         @db.Decimal(9, 3)
+  createdAt       DateTime         @default(now())
+
+  blocksStartingHere SarinStoneBlock[]      @relation("SarinStoneBlockFirstRow")
+  blocksEndingHere   SarinStoneBlock[]      @relation("SarinStoneBlockLastRow")
+  issues             SarinValidationIssue[]
+  interpretations    SarinRowInterpretation[]
+  planPieces         SarinPlanPiece[]
+
+  @@unique([batchId, sourceRowNumber])
+  @@unique([id, batchId])
+  @@index([batchId, outcome])
+}
+
+/// A run of consecutive rows sharing one exact Stone Name. A repeated, non-consecutive
+/// name is a separate block: nothing here merges them.
+model SarinStoneBlock {
+  id             String           @id @default(cuid())
+  batchId        String
+  batch          SarinImportBatch @relation(fields: [batchId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  blockSequence  Int
+  stoneNameRaw   String
+  kapan          String?
+  /// Text: leading zeros are part of the identifier.
+  packet         String?
+  signer         String?
+  firstRowNumber Int
+  firstRow       SarinSourceRow   @relation("SarinStoneBlockFirstRow", fields: [batchId, firstRowNumber], references: [batchId, sourceRowNumber], onDelete: Restrict, onUpdate: Restrict)
+  lastRowNumber  Int
+  lastRow        SarinSourceRow   @relation("SarinStoneBlockLastRow", fields: [batchId, lastRowNumber], references: [batchId, sourceRowNumber], onDelete: Restrict, onUpdate: Restrict)
+  rowCount       Int
+  roughWeight    Decimal?         @db.Decimal(12, 3)
+  /// PENDING | PARSED | QUARANTINED. Leaves PENDING once and is then immutable.
+  parseStatus    String           @default("PENDING")
+  parsedAt       DateTime?
+  createdAt      DateTime         @default(now())
+
+  issues          SarinValidationIssue[]
+  interpretations SarinRowInterpretation[]
+  planOptions     SarinPlanOption[]
+
+  @@unique([batchId, blockSequence])
+  @@unique([id, batchId])
+  @@index([batchId, parseStatus])
+  @@index([batchId, kapan, packet])
+}
+
+/// A finding from one validation attempt. Identity columns are immutable; only the
+/// status moves, and only along the transitions the trigger allows.
+model SarinValidationIssue {
+  id                String                @id @default(cuid())
+  batchId           String
+  batch             SarinImportBatch      @relation(fields: [batchId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  /// Must belong to the same batch (composite foreign key).
+  stoneBlockId      String?
+  stoneBlock        SarinStoneBlock?      @relation(fields: [stoneBlockId, batchId], references: [id, batchId], onDelete: Restrict, onUpdate: Restrict)
+  /// Must belong to the same batch (composite foreign key).
+  sourceRowId       String?
+  sourceRow         SarinSourceRow?       @relation(fields: [sourceRowId, batchId], references: [id, batchId], onDelete: Restrict, onUpdate: Restrict)
+  /// The batch's validation attempt when raised.
+  validationAttempt Int
+  /// The mapping set in force when raised (lineage).
+  shapeMappingSetId String?
+  shapeMappingSet   SarinShapeMappingSet? @relation(fields: [shapeMappingSetId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  /// Stable machine code, e.g. STONE_NAME_MALFORMED.
+  code              String
+  /// BLOCKING | ERROR | WARNING | INFO.
+  severity          String
+  blocking          Boolean
+  /// One-based positional field (1-11) when the issue concerns one field.
+  fieldPosition     Int?
+  fieldName         String?
+  /// Bounded JSON object of safe parameters. Never a full row or payload.
+  parametersJson    String?
+  /// OPEN | OVERRIDDEN | RESOLVED | SUPERSEDED.
+  status            String                @default("OPEN")
+  createdAt         DateTime              @default(now())
+  resolvedAt        DateTime?
+  resolvedByUserId  String?
+  /// Position of the finding within its validation attempt, in the order raised: file order,
+  /// then findings that span blocks. NULL only for issues written outside a validation run.
+  ordinal           Int?
+
+  overrides SarinIssueOverride[]
+
+  @@index([batchId, status])
+  @@index([batchId, severity])
+  @@index([batchId, code])
+  @@index([stoneBlockId])
+  @@index([sourceRowId])
+}
+
+/// Append-only review decision on one issue. Each new decision supersedes the chain head
+/// of the same issue; the effective override is the unsuperseded head unless that head is
+/// a REVOCATION. Source rows are never changed by an override.
+model SarinIssueOverride {
+  id                   String               @id @default(cuid())
+  issueId              String
+  issue                SarinValidationIssue @relation(fields: [issueId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  /// ACKNOWLEDGE_WARNING | ASSIGN_NORMALIZED_SHAPE | REVOCATION.
+  kind                 String
+  /// Bounded JSON object carrying the validated decision, where the kind needs one.
+  decisionJson         String?
+  reason               String
+  appliedByUserId      String
+  /// The chain head this decision replaces; same issue (composite foreign key).
+  supersedesOverrideId String?
+  supersedes           SarinIssueOverride?  @relation("SarinOverrideChain", fields: [supersedesOverrideId, issueId], references: [id, issueId], onDelete: Restrict, onUpdate: Restrict)
+  supersededBy         SarinIssueOverride?  @relation("SarinOverrideChain")
+  createdAt            DateTime             @default(now())
+
+  // One chain root per issue is a partial unique index in the migration.
+  @@unique([id, issueId])
+  @@unique([supersedesOverrideId, issueId])
+  @@index([issueId, createdAt])
+  @@index([appliedByUserId])
+}
+
+/// A versioned Sarin-to-ecosystem shape mapping. Independent of the Fantasy ShapeMapping
+/// table, which keeps driving Fantasy category classification unchanged.
+model SarinShapeMappingSet {
+  id               String    @id @default(cuid())
+  /// SARIN.
+  sourceSystem     String
+  version          Int
+  /// DRAFT | APPROVED | RETIRED. Rules are editable only while DRAFT.
+  status           String    @default("DRAFT")
+  /// MIGRATION_BASELINE for the set seeded from the confirmed master; USER otherwise.
+  origin           String
+  description      String?
+  /// Computed by the database from the rules when the set is approved.
+  contentHash      String?
+  createdByUserId  String?
+  createdAt        DateTime  @default(now())
+  approvedByUserId String?
+  approvedAt       DateTime?
+  retiredByUserId  String?
+  retiredAt        DateTime?
+  /// Who last changed the draft's rules or description. The approver must be neither the
+  /// creator nor this person (enforced by the database on approval).
+  lastModifiedByUserId String?
+  lastModifiedAt       DateTime?
+
+  rules           SarinShapeMappingRule[]
+  batches         SarinImportBatch[]
+  issues          SarinValidationIssue[]
+  attempts        SarinValidationAttempt[]
+  interpretations SarinRowInterpretation[]
+  outputVersions  SarinOutputVersion[]
+
+  @@unique([sourceSystem, version])
+  @@index([sourceSystem, status])
+}
+
+/// One mapping from a canonical raw Sarin shape key to an ecosystem shape, optionally
+/// conditional on an inclusive Ratio range. Unknown raw shapes have no rule and are
+/// quarantined by validation; there is no fallback rule.
+model SarinShapeMappingRule {
+  id              String               @id @default(cuid())
+  mappingSetId    String
+  mappingSet      SarinShapeMappingSet @relation(fields: [mappingSetId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  /// upper(trim(raw shape)).
+  rawShapeKey     String
+  /// The raw shape exactly as the authoritative master spells it.
+  sourceRawShape  String
+  normalizedShape String
+  /// NONE | RATIO_RANGE.
+  conditionKind   String
+  /// Inclusive bounds; NULL means unbounded on that side. Both NULL only when NONE.
+  ratioMin        Decimal?             @db.Decimal(6, 3)
+  ratioMax        Decimal?             @db.Decimal(6, 3)
+  createdAt       DateTime             @default(now())
+
+  interpretations SarinRowInterpretation[]
+  planPieces      SarinPlanPiece[]
+
+  @@index([mappingSetId, rawShapeKey])
+}
+
+/// One validation attempt of one batch, bound to exactly one APPROVED mapping set.
+/// Append-only history: a row is written RUNNING when a worker claims the batch and is
+/// finalized once — COMPLETED with a result, FAILED, or ABANDONED when its lease expired.
+model SarinValidationAttempt {
+  id                    String               @id @default(cuid())
+  batchId               String
+  batch                 SarinImportBatch     @relation(fields: [batchId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  /// Equals the batch's validationAttempt when the attempt started.
+  attemptNumber         Int
+  shapeMappingSetId     String
+  shapeMappingSet       SarinShapeMappingSet @relation(fields: [shapeMappingSetId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  startedByUserId       String
+  /// The batch fencing version the claim was issued with.
+  claimFencingVersion   Int
+  /// The validation contract this attempt ran. A completed attempt proves only the checks
+  /// of its own profile, so reuse and output generation require the current profile.
+  validationProfileVersion String
+  /// RUNNING | COMPLETED | FAILED | ABANDONED.
+  status                String               @default("RUNNING")
+  /// VALIDATED | NEEDS_REVIEW, exactly when COMPLETED.
+  result                String?
+  /// Safe diagnostic code, exactly when FAILED or ABANDONED.
+  failureCode           String?
+  startedAt             DateTime             @default(now())
+  finishedAt            DateTime?
+  blockCount            Int?
+  parsedBlockCount      Int?
+  quarantinedBlockCount Int?
+  interpretationCount   Int?
+  issueCount            Int?
+  blockingIssueCount    Int?
+
+  interpretations SarinRowInterpretation[]
+  outputVersions  SarinOutputVersion[]
+
+  // At most one RUNNING attempt per batch is a partial unique index in the migration.
+  @@unique([batchId, attemptNumber])
+  @@unique([id, batchId])
+  @@index([batchId, status])
+  @@index([shapeMappingSetId, status])
+}
+
+/// How one source row was interpreted by one validation attempt. The immutable source row
+/// is never copied or changed; this records only the derived shape resolution and its
+/// lineage. Insert-only, one per row per attempt.
+model SarinRowInterpretation {
+  id                String                 @id @default(cuid())
+  batchId           String
+  attemptId         String
+  attempt           SarinValidationAttempt @relation(fields: [attemptId, batchId], references: [id, batchId], onDelete: Restrict, onUpdate: Restrict)
+  validationAttempt Int
+  sourceRowNumber   Int
+  sourceRow         SarinSourceRow         @relation(fields: [batchId, sourceRowNumber], references: [batchId, sourceRowNumber], onDelete: Restrict, onUpdate: Restrict)
+  stoneBlockId      String
+  stoneBlock        SarinStoneBlock        @relation(fields: [stoneBlockId, batchId], references: [id, batchId], onDelete: Restrict, onUpdate: Restrict)
+  shapeMappingSetId String
+  shapeMappingSet   SarinShapeMappingSet   @relation(fields: [shapeMappingSetId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  /// upper(trim(raw shape)); NULL when the row has no shape.
+  rawShapeKey       String?
+  normalizedShape   String?
+  mappingRuleId     String?
+  mappingRule       SarinShapeMappingRule? @relation(fields: [mappingRuleId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  /// MAPPED | CONDITIONALLY_MAPPED | UNMAPPED | AMBIGUOUS | OVERRIDDEN.
+  mappingResult     String
+  /// Bounded JSON object of safe facts, e.g. the Ratio a conditional rule was evaluated at.
+  metadataJson      String?
+  createdAt         DateTime               @default(now())
+
+  @@unique([batchId, validationAttempt, sourceRowNumber])
+  @@index([attemptId, mappingResult])
+  @@index([stoneBlockId])
+}
+
+/// One immutable structured output of a validated batch. Everything in it is derived on
+/// the server from persisted, validated evidence; its inputs hash identifies exactly which
+/// evidence and which rule versions produced it. Only the lifecycle status may change
+/// (GENERATED -> SUPERSEDED); the content never does.
+model SarinOutputVersion {
+  id                       String                 @id @default(cuid())
+  batchId                  String
+  batch                    SarinImportBatch       @relation(fields: [batchId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  validationAttemptId      String
+  validationAttempt        SarinValidationAttempt @relation(fields: [validationAttemptId, batchId], references: [id, batchId], onDelete: Restrict, onUpdate: Restrict)
+  shapeMappingSetId        String
+  shapeMappingSet          SarinShapeMappingSet   @relation(fields: [shapeMappingSetId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  validationProfileVersion String
+  transformProfileVersion  String
+  /// SHA-256 of the transformation profile definition.
+  transformProfileHash     String
+  versionNumber            Int
+  /// SHA-256 over the source file, contract, validation attempt, mapping set content,
+  /// validation profile and transformation profile.
+  inputsHash               String
+  stoneType                String
+  /// GENERATED | SUPERSEDED. Approval arrives in a later phase.
+  status                   String                 @default("GENERATED")
+  generatedByUserId        String
+  generatedAt              DateTime               @default(now())
+  supersededAt             DateTime?
+  /// The version this one replaced as the batch's current output.
+  supersedesVersionId      String?                @unique
+  supersedes               SarinOutputVersion?    @relation("SarinOutputSupersession", fields: [supersedesVersionId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  supersededBy             SarinOutputVersion?    @relation("SarinOutputSupersession")
+  stoneCount               Int
+  optionCount              Int
+  pieceCount               Int
+
+  options                  SarinPlanOption[]
+  pieces                   SarinPlanPiece[]
+
+  // At most one GENERATED version per batch is a partial unique index in the migration.
+  @@unique([batchId, versionNumber])
+  @@unique([batchId, inputsHash])
+  @@unique([id, batchId])
+  @@index([batchId, status])
+}
+
+/// One plan option of one stone: a MAIN individual plan or an ADDITIONAL group. Insert-only.
+/// Yield is stored as its exact numerator and denominator plus a fixed-precision result.
+model SarinPlanOption {
+  id                     String             @id @default(cuid())
+  outputVersionId        String
+  batchId                String
+  outputVersion          SarinOutputVersion @relation(fields: [outputVersionId, batchId], references: [id, batchId], onDelete: Restrict, onUpdate: Restrict)
+  stoneBlockId           String
+  stoneBlock             SarinStoneBlock    @relation(fields: [stoneBlockId, batchId], references: [id, batchId], onDelete: Restrict, onUpdate: Restrict)
+  /// 1..n within the stone, in output order.
+  optionSequence         Int
+  /// Blue/White: MAIN | ADDITIONAL. Pink: MK (Makeable) | SL (Solace) | BP (Best Pair) |
+  /// BT (Best Twin), derived from the physical record positions. Checked against the
+  /// version's stone type by the database.
+  optionKind             String
+  mainOrdinal            Int?
+  additionalGroupOrdinal Int?
+  pieceCount             Int
+  totalEstimatedWeight   Decimal            @db.Decimal(12, 3)
+  yieldNumerator         Decimal            @db.Decimal(12, 3)
+  yieldDenominator       Decimal            @db.Decimal(12, 3)
+  /// Percentage to ten decimal places, rounded half-up. Ranking can also compare the exact
+  /// numerator and denominator.
+  yieldPercent           Decimal            @db.Decimal(24, 10)
+  firstOutputRow         Int
+  lastOutputRow          Int
+  /// BT only: the absolute Estimated Weight difference of the two twins. No tolerance is
+  /// confirmed, so a non-zero value is an advisory, never a rejection.
+  pairWeightDifference   Decimal?           @db.Decimal(12, 3)
+  createdAt              DateTime           @default(now())
+
+  pieces                 SarinPlanPiece[]
+
+  @@unique([outputVersionId, stoneBlockId, optionSequence])
+  @@unique([id, outputVersionId])
+  @@index([outputVersionId, stoneBlockId])
+  @@index([outputVersionId, firstOutputRow])
+}
+
+/// One output row: a source row placed in a plan option. Insert-only. Raw Length and Width
+/// are stored as read; the export decides their column order.
+model SarinPlanPiece {
+  id                String             @id @default(cuid())
+  outputVersionId   String
+  outputVersion     SarinOutputVersion @relation(fields: [outputVersionId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  planOptionId      String
+  planOption        SarinPlanOption    @relation(fields: [planOptionId, outputVersionId], references: [id, outputVersionId], onDelete: Restrict, onUpdate: Restrict)
+  pieceSequence     Int
+  batchId           String
+  sourceRowId       String
+  sourceRow         SarinSourceRow     @relation(fields: [sourceRowId, batchId], references: [id, batchId], onDelete: Restrict, onUpdate: Restrict)
+  sourceRowNumber   Int
+  /// 1..N across the whole output version, in output order.
+  outputRowSequence Int
+  rawShape          String
+  normalizedShape   String
+  mappingRuleId     String
+  mappingRule       SarinShapeMappingRule @relation(fields: [mappingRuleId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  estimatedWeight   Decimal            @db.Decimal(12, 3)
+  clarity           String
+  color             String
+  depthPct          Decimal            @db.Decimal(9, 3)
+  ratio             Decimal            @db.Decimal(9, 3)
+  length            Decimal            @db.Decimal(9, 3)
+  width             Decimal            @db.Decimal(9, 3)
+  depthMm           Decimal            @db.Decimal(9, 3)
+  createdAt         DateTime           @default(now())
+
+  @@unique([outputVersionId, sourceRowId])
+  @@unique([outputVersionId, outputRowSequence])
+  @@unique([planOptionId, pieceSequence])
+  @@index([planOptionId])
+}
