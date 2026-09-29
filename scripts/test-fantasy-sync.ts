@@ -575,8 +575,7 @@ async function main() {
   console.log("🚀 [13/16] TEST 13: RBAC Separation & Authority Matrix...");
   // Case A: ADMIN must NOT automatically receive plan.approve
   assert(testHasPermission("ADMIN", "plan.approve") === false, "CRITICAL RBAC: ADMIN does NOT have plan.approve");
-  assert(testHasPermission("ADMIN", "feature_flag.manage") === false, "ADMIN does NOT have feature_flag.manage");
-  assert(testHasPermission("ADMIN", "feature_flag.manage") === false, "ADMIN does NOT have feature_flag.manage");
+  assert(testHasPermission("ADMIN", "approval_policy.manage") === false, "ADMIN does NOT have approval_policy.manage");
   assert(testHasPermission("ADMIN", "user.read") === true, "ADMIN has user.read");
   assert(testHasPermission("ADMIN", "user.super_admin.assign") === false, "ADMIN does NOT hold protected-role assignment authority");
 
@@ -590,11 +589,10 @@ async function main() {
   assert(testHasPermission("VIEWER", "fantasy.read") === false, "VIEWER does NOT have fantasy.read");
   assert(testHasPermission("VIEWER", "overall.export") === false, "VIEWER does NOT have overall.export");
 
-  // Case D: Fantasy Integration role cannot approve plans or broadcast notifications
+  // Case D: Fantasy Integration role cannot approve plans
   assert(testHasPermission("FANTASY_INTEGRATION", "fantasy.sync.run") === true, "FANTASY_INTEGRATION has fantasy.sync.run");
   assert(testHasPermission("FANTASY_INTEGRATION", "fantasy.sync.unlock") === false, "FANTASY_INTEGRATION cannot unlock a stuck sync: running one does not imply it");
   assert(testHasPermission("FANTASY_INTEGRATION", "plan.approve") === false, "FANTASY_INTEGRATION cannot approve plans");
-  assert(testHasPermission("FANTASY_INTEGRATION", "notification.broadcast") === false, "FANTASY_INTEGRATION cannot broadcast notifications");
 
 
   // Case F: Export permission separation

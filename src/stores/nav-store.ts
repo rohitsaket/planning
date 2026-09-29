@@ -4,14 +4,13 @@ import { create } from "zustand";
 import { isInventoryBucket, type InventoryBucket } from "@/lib/analysis/bucket-vocabulary";
 
 export type ViewId =
-  // Consolidated Workflow View IDs
+  // Pages in the sidebar
   | "dashboard"
-  | "fantasy-live"
-  | "fantasy-sync"
-  | "overall-data"
-  | "inventory-position"
-  | "customers-orders"
-  | "stock-strategy"
+  | "analysis-sales"
+  | "analysis-customers-orders"
+  | "analysis-inventory-position"
+  | "fantasy-data"
+  | "data-quality-issues"
   | "requirements-matrix"
   | "requirements-priority-queue"
   | "orders-exceptions"
@@ -19,86 +18,187 @@ export type ViewId =
   | "planning-rough-availability"
   | "planning-workbook-import"
   | "planning-workbench"
-  | "planning-comparison"
   | "planning-approval-queue"
-  | "data-science-forecasting"
-  | "data-science-predictive-models"
-  | "data-science-prediction-monitoring"
-  | "reports"
+  // Where links to retired pages land (manufacturing, traceability, plan versus actual,
+  // forecasting, reports, stock strategy): a plain "not available" state, never old data.
+  | "out-of-scope"
   | "admin-users-access"
   | "admin-mappings"
-  // Former ids, kept only as aliases of admin-mappings for old links.
-  | "admin-rules-mappings"
-  | "admin-sarin-shape-mappings"
-  | "admin-system-settings"
   | "admin-audit-log"
-  // Legacy / Embedded View IDs for Backward Compatibility & Direct Links
-  | "analysis-executive"
-  | "analysis-sales"
-  | "analysis-sales-trends"
-  | "analysis-customers-orders"
-  | "analysis-inventory-position"
+  // Direct views still opened from dashboard and page links
   | "analysis-customers"
   | "analysis-orders"
   | "analysis-country"
   | "analysis-polished"
   | "analysis-memo"
-  | "analysis-wip"
-  | "analysis-forecast"
-  | "analysis-stockout"
-  | "analysis-excess"
-  | "analysis-aging"
-  | "analysis-reorder-signals"
-  | "transfer-analyzer"
-  | "aging-dashboard"
   | "requirements-orders"
   | "requirements-replenishment"
   | "requirements-backorders"
   | "requirements-special"
   | "requirements-forecast-signals"
   | "requirements-allocation"
-  | "planning-cases"
-  | "planning-planned-pieces"
-  | "planning-reservations"
+  // Former ids, kept only as keys of LEGACY_VIEW_ALIASES so old links keep working
+  | LegacyViewId;
+
+type LegacyViewId =
+  | "analysis-executive"
+  | "analysis-sales-trends"
+  | "customers-orders"
+  | "inventory-position"
+  | "analysis-stockout"
+  | "analysis-excess"
+  | "analysis-aging"
+  | "aging-dashboard"
+  | "fantasy-live"
+  | "fantasy-sync"
+  | "overall-data"
   | "fantasy-rough"
   | "fantasy-polished"
   | "fantasy-departments"
   | "fantasy-locations"
-  | "fantasy-status-mapping"
-  | "data-quality-unmapped-labs"
-  | "data-quality-unmapped-shapes"
+  | "analysis-wip"
+  | "manufacturing-overview"
+  | "manufacturing-traceability"
+  | "manufacturing-tracking"
+  | "manufacturing-departments"
+  | "manufacturing-locations"
+  | "manufacturing-wip"
+  | "manufacturing"
+  | "plan-vs-actual"
+  | "manufacturing-plan-vs-actual"
+  | "stock-strategy"
+  | "analysis-reorder-signals"
+  | "transfer-analyzer"
+  | "data-science-forecasting"
+  | "data-science-predictive-models"
+  | "data-science-prediction-monitoring"
   | "data-science-anomaly-detection"
   | "data-science-yield-prediction"
   | "data-science-forecast"
   | "data-science-models"
   | "data-science-forecast-accuracy"
+  | "analysis-forecast"
+  | "reports"
+  | "admin-system-settings"
+  | "admin-feature-flags"
+  | "data-quality-unmapped-labs"
+  | "data-quality-unmapped-shapes"
+  | "planning-comparison"
+  | "planning-cases"
+  | "planning-planned-pieces"
+  | "planning-reservations"
+  | "admin-rules-mappings"
   | "admin-business-rules"
+  | "admin-sarin-shape-mappings"
   | "admin-weight-bands"
   | "admin-lab-mappings"
   | "admin-shape-mappings"
-  | "admin-feature-flags"
-  // Former Users and Access pages, kept only as aliases for old links.
+  | "fantasy-status-mapping"
   | "admin-users"
   | "admin-access-requests";
 
-// Merged modules. A legacy view id resolves to the host view that now owns it plus the tab
-// that holds the old page, so old bookmarks, deep links and setView() callers keep working.
-export const LEGACY_VIEW_ALIASES: Partial<Record<ViewId, { view: ViewId; tab: string | null }>> = {
-  // "Sales Analysis" + "Sales Trends" → one sidebar module "Sales Analysis & Trends"
+interface ViewTarget {
+  view: ViewId;
+  /** Tab to open; null opens the host's default (or first permitted) tab. */
+  tab: string | null;
+}
+
+interface ViewAlias extends ViewTarget {
+  /** Tabs of the former page that land somewhere more specific than `tab`. */
+  tabs?: Record<string, ViewTarget>;
+  /** The id was only renamed: a tab already in the link is kept. */
+  keepTab?: boolean;
+}
+
+/**
+ * THE alias table: every former page id and where it lives now. Old bookmarks, deep links,
+ * notifications and setView() callers all resolve through here, in one hop — no alias
+ * points at another alias. Row context (runId, category, bucket) is carried separately
+ * by the caller and is never touched by resolution.
+ */
+const OUT_OF_SCOPE: ViewTarget = { view: "out-of-scope", tab: null };
+
+export const LEGACY_VIEW_ALIASES: Record<LegacyViewId, ViewAlias> = {
+  // Dashboard → Overview
+  "analysis-executive": { view: "dashboard", tab: "analysis" },
+  // Analysis
   "analysis-sales-trends": { view: "analysis-sales", tab: "trends" },
-  // "Business Rules and Mappings" became "Mappings"; Business Rules is no longer a page.
+  "customers-orders": { view: "analysis-customers-orders", tab: null, keepTab: true },
+  "inventory-position": { view: "analysis-inventory-position", tab: null, keepTab: true },
+  "analysis-stockout": { view: "analysis-inventory-position", tab: "stockout" },
+  "analysis-excess": { view: "analysis-inventory-position", tab: "excess" },
+  "analysis-aging": { view: "analysis-inventory-position", tab: "aging" },
+  "aging-dashboard": { view: "analysis-inventory-position", tab: "aging" },
+  // Fantasy ERP and Overall Data → Fantasy Data.
+  "fantasy-live": {
+    view: "fantasy-data",
+    tab: "current",
+    tabs: { departments: OUT_OF_SCOPE, locations: OUT_OF_SCOPE },
+  },
+  "fantasy-rough": { view: "fantasy-data", tab: "current" },
+  "fantasy-polished": { view: "fantasy-data", tab: "current" },
+  "fantasy-sync": { view: "fantasy-data", tab: "integration" },
+  "overall-data": { view: "fantasy-data", tab: "history" },
+  "manufacturing-tracking": { view: "fantasy-data", tab: "integration" },
+  // Manufacturing execution, production tracking and plan versus actual are outside the
+  // planning utility.
+  manufacturing: OUT_OF_SCOPE,
+  "manufacturing-overview": { ...OUT_OF_SCOPE, tabs: { tracking: { view: "fantasy-data", tab: "integration" } } },
+  "manufacturing-traceability": OUT_OF_SCOPE,
+  "manufacturing-departments": OUT_OF_SCOPE,
+  "manufacturing-locations": OUT_OF_SCOPE,
+  "manufacturing-wip": OUT_OF_SCOPE,
+  "fantasy-departments": OUT_OF_SCOPE,
+  "fantasy-locations": OUT_OF_SCOPE,
+  "analysis-wip": OUT_OF_SCOPE,
+  "plan-vs-actual": OUT_OF_SCOPE,
+  "manufacturing-plan-vs-actual": OUT_OF_SCOPE,
+  // Retired features: stock strategy, reorder signals, transfer analysis, forecasting and
+  // predictive models, and the generic reports library are not part of the planning utility.
+  "stock-strategy": OUT_OF_SCOPE,
+  "analysis-reorder-signals": OUT_OF_SCOPE,
+  "transfer-analyzer": OUT_OF_SCOPE,
+  "data-science-forecasting": OUT_OF_SCOPE,
+  "data-science-predictive-models": OUT_OF_SCOPE,
+  "data-science-prediction-monitoring": OUT_OF_SCOPE,
+  "data-science-anomaly-detection": OUT_OF_SCOPE,
+  "data-science-yield-prediction": OUT_OF_SCOPE,
+  "data-science-forecast": OUT_OF_SCOPE,
+  "data-science-models": OUT_OF_SCOPE,
+  "data-science-forecast-accuracy": OUT_OF_SCOPE,
+  "analysis-forecast": OUT_OF_SCOPE,
+  reports: OUT_OF_SCOPE,
+  // The generic settings page is retired. Of the old feature flags only the plan approval
+  // policy was ever in force; it lives on the Permissions tab of Users & Access.
+  "admin-system-settings": OUT_OF_SCOPE,
+  "admin-feature-flags": { view: "admin-users-access", tab: "permissions" },
+  // Unmapped values are fixed where the mappings live.
+  "data-quality-unmapped-labs": { view: "admin-mappings", tab: "lab-mappings" },
+  "data-quality-unmapped-shapes": { view: "admin-mappings", tab: "shape-mappings" },
+  // Planning Workbench
+  "planning-comparison": { view: "planning-workbench", tab: "comparison" },
+  "planning-cases": { view: "planning-workbench", tab: "cases" },
+  "planning-planned-pieces": { view: "planning-workbench", tab: "pieces" },
+  "planning-reservations": { view: "planning-workbench", tab: "reservations" },
+  // Mappings
   "admin-rules-mappings": { view: "admin-mappings", tab: null },
   "admin-business-rules": { view: "admin-mappings", tab: null },
   "admin-sarin-shape-mappings": { view: "admin-mappings", tab: "sarin-shape-mapping" },
-  // User Directory, Roles & Policies, Permission Matrix and Access Requests became the two
-  // tabs of Users and Access; the review queue now sits on the Users tab.
+  "admin-weight-bands": { view: "admin-mappings", tab: "weight-bands" },
+  "admin-lab-mappings": { view: "admin-mappings", tab: "lab-mappings" },
+  "admin-shape-mappings": { view: "admin-mappings", tab: "shape-mappings" },
+  "fantasy-status-mapping": { view: "admin-mappings", tab: "status-mappings" },
+  // Users & Access: the review queue is on the Users tab.
   "admin-users": { view: "admin-users-access", tab: "users" },
   "admin-access-requests": { view: "admin-users-access", tab: "users" },
 };
 
-export function resolveViewAlias(view: ViewId, tab: string | null = null): { view: ViewId; tab: string | null } {
-  const alias = LEGACY_VIEW_ALIASES[view];
-  return alias ? { view: alias.view, tab: alias.tab } : { view, tab };
+export function resolveViewAlias(view: ViewId, tab: string | null = null): ViewTarget {
+  const alias = Object.prototype.hasOwnProperty.call(LEGACY_VIEW_ALIASES, view) ? LEGACY_VIEW_ALIASES[view as LegacyViewId] : undefined;
+  if (!alias) return { view, tab };
+  const specific = tab ? alias.tabs?.[tab] : undefined;
+  if (specific) return { view: specific.view, tab: specific.tab };
+  return { view: alias.view, tab: alias.keepTab && tab ? tab : alias.tab };
 }
 
 /**

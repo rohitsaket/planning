@@ -305,9 +305,9 @@ export function FantasySyncView() {
   ];
 
   return (
-    <div className="flex flex-col gap-3 p-3">
+    <div data-page-body className="flex flex-col gap-section px-page-x py-page-y">
       <PageHeader
-        title="Sync Monitor"
+        title="Integration Status"
         subtitle="Fantasy ERP synchronization status and history"
         actions={
           <div className="flex items-center gap-2">

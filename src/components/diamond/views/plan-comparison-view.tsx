@@ -645,7 +645,7 @@ export function PlanComparisonView() {
   ];
 
   return (
-    <div className="flex flex-col gap-3 p-3">
+    <div data-page-body className="flex flex-col gap-section px-page-x py-page-y">
       <PageHeader
         title="Plan Comparison"
         subtitle="Compare plan options by yield and requirement coverage"
@@ -662,7 +662,7 @@ export function PlanComparisonView() {
       <Section
         title="Select Planning Case"
         description="Select a planning case"
-        bodyClassName="p-3"
+       
       >
         <div className="flex items-end gap-2 flex-wrap">
           <div className="flex flex-col gap-1 min-w-[280px] flex-1">

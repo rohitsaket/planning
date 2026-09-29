@@ -64,6 +64,3 @@ db/*.db-journal
 # producing invalid CSS and breaking the dev server.
 .next-*/
 
-# security evidence may contain sensitive detail — keep the reports, not the raw evidence
-security-audit/evidence/
-security-audit/remediation/evidence/

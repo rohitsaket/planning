@@ -9,20 +9,20 @@ import { permissionsFor, ROLES, type Permission } from "@/lib/auth/permissions";
 
 const BASE: Permission[] = ["notification.read"];
 const NOTIFICATION_TRIAGE: Permission[] = ["notification.manage"];
-const PLANNING_READ: Permission[] = ["analysis.read", "requirement.read", "plan.read", "rough.read", "fantasy.read", "overall.read", "config.read"];
+const PLANNING_READ: Permission[] = ["analysis.read", "requirement.read", "plan.read", "rough.read", "fantasy.read", "overall.read", "data_quality.read", "config.read"];
 const COMMERCIAL_READ: Permission[] = ["sales.read", "customers.read", "orders.read"];
 const SARIN_READ: Permission[] = ["sarin.import.read"];
 const SARIN_PLANNING: Permission[] = [...SARIN_READ, "sarin.import.upload", "sarin.import.validate", "sarin.issue.review", "sarin.output.generate", "sarin.output.export"];
 const ADMIN_WITHHELD = new Set<Permission>([
-  "feature_flag.manage", "plan.approve", "role.manage", "role.permissions.assign", "user.super_admin.assign", "user.scope.assign", "forecast.methodology.read",
+  "approval_policy.manage", "plan.approve", "role.manage", "role.permissions.assign", "user.super_admin.assign", "user.scope.assign",
   "fantasy.sync.run", "fantasy.sync.retry", "fantasy.sync.unlock", "demand.run", "sarin.import.upload", "sarin.import.validate", "sarin.issue.review", "sarin.issue.override", "sarin.output.generate", "sarin.output.export", "sarin.mapping.read", "sarin.mapping.manage",
 ]);
 
 export const FIXTURE_ROLE_PERMISSIONS = {
   ADMIN: permissionsFor("SUPER_ADMIN").filter((p) => !ADMIN_WITHHELD.has(p)),
-  ANALYSIS_MANAGER: [...BASE, ...NOTIFICATION_TRIAGE, ...PLANNING_READ, ...COMMERCIAL_READ, "requirement.create", "requirement.override", "demand.run", "demand.trace", "demand.export", "overall.export", "analysis.export", "sales.export", "customers.export", "orders.export", "requirement.export", "fantasy.export", "audit.read"],
-  DATA_ANALYST: [...BASE, ...PLANNING_READ, ...COMMERCIAL_READ, "demand.trace", "demand.export", "overall.export", "analysis.export", "sales.export", "customers.export", "orders.export", "audit.read"],
-  DATA_SCIENTIST: [...BASE, ...PLANNING_READ, "sales.read", "demand.trace", "demand.export", "forecast.run", "forecast.publish", "forecast.methodology.read", "overall.export", "analysis.export", "sales.export", "audit.read"],
+  ANALYSIS_MANAGER: [...BASE, ...NOTIFICATION_TRIAGE, ...PLANNING_READ, ...COMMERCIAL_READ, "requirement.create", "requirement.override", "demand.run", "demand.trace", "demand.export", "overall.export", "analysis.export", "sales.export", "customers.export", "orders.export", "requirement.export", "fantasy.export", "data_quality.export", "audit.read"],
+  DATA_ANALYST: [...BASE, ...PLANNING_READ, ...COMMERCIAL_READ, "demand.trace", "demand.export", "overall.export", "analysis.export", "sales.export", "customers.export", "orders.export", "data_quality.read", "data_quality.export", "audit.read"],
+  DATA_SCIENTIST: [...BASE, ...PLANNING_READ, "sales.read", "demand.trace", "demand.export", "overall.export", "analysis.export", "sales.export", "data_quality.read", "audit.read"],
   PLANNING_MANAGER: [...BASE, ...NOTIFICATION_TRIAGE, ...PLANNING_READ, ...SARIN_PLANNING, "orders.read", "demand.trace", "plan.create", "plan.select", "plan.approve", "plan.replan", "rough.reserve", "overall.export", "analysis.export", "plan.export", "requirement.export", "audit.read", "sarin.issue.override", "sarin.output.approve"],
   PLANNER: [...BASE, ...PLANNING_READ, ...SARIN_PLANNING, "orders.read", "plan.create", "plan.select", "plan.replan", "rough.reserve", "plan.export"],
   PLANNING_VIEWER: [...BASE, ...PLANNING_READ, ...SARIN_READ],
@@ -30,8 +30,8 @@ export const FIXTURE_ROLE_PERMISSIONS = {
   MFG_VIEWER: [...BASE, "analysis.read", "plan.read", "rough.read", "fantasy.read", "overall.read"],
   SALES_MANAGER: [...BASE, ...NOTIFICATION_TRIAGE, "analysis.read", "requirement.read", ...COMMERCIAL_READ, "overall.export", "analysis.export", "sales.export", "customers.export", "orders.export", "audit.read"],
   SALES_VIEWER: [...BASE, "analysis.read", ...COMMERCIAL_READ],
-  FANTASY_INTEGRATION: ["fantasy.read", "fantasy.sync.run", "fantasy.sync.retry", "fantasy.projection.run", "fantasy.projection.read", "overall.read"],
-  AUDITOR: [...BASE, ...SARIN_READ, "audit.read", "audit.export", "overall.read", "fantasy.projection.read", "feature_flag.read", "config.read", "config.export"],
+  FANTASY_INTEGRATION: ["fantasy.read", "fantasy.sync.run", "fantasy.sync.retry", "overall.read", "data_quality.read"],
+  AUDITOR: [...BASE, ...SARIN_READ, "audit.read", "audit.export", "overall.read", "data_quality.read", "approval_policy.read", "config.read", "config.export"],
   VIEWER: [...BASE, "analysis.read", "requirement.read", "plan.read", "rough.read", "overall.read"],
 } as const satisfies Record<string, readonly Permission[]>;
 

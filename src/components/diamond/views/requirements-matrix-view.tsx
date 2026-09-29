@@ -1,5 +1,6 @@
 "use client";
 
+import { FilterBar } from "@/components/diamond/shared/density";
 import { useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -559,7 +560,7 @@ export function RequirementsMatrixView() {
   const totalCritical = rows.filter((r) => r.requirementPriority === "CRITICAL").length;
 
   return (
-    <div className="flex flex-col gap-3 p-3">
+    <div data-page-body className="flex flex-col gap-section px-page-x py-page-y">
       <PageHeader
         title="Requirements Matrix"
         subtitle="Requirements by status, priority and coverage"
@@ -596,10 +597,7 @@ export function RequirementsMatrixView() {
       </div>
 
       {/* Filter row */}
-      <Section
-        title="Filters"
-        description="Type, status, country, priority and free-text search"
-        bodyClassName="p-2"
+      <FilterBar
         actions={
           <div className="flex items-center gap-1">
             {activeFilters > 0 && (
@@ -686,7 +684,7 @@ export function RequirementsMatrixView() {
             />
           </div>
         </div>
-      </Section>
+      </FilterBar>
 
       {/* Saved Views bar — persisted to localStorage */}
       {savedViews.length > 0 && (

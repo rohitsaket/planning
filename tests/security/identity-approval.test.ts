@@ -4,7 +4,8 @@ import { POST as approvals } from "@/app/api/planning/approvals/route";
 import { POST as reserve } from "@/app/api/planning/reservations/route";
 import { POST as replan } from "@/app/api/planning/cases/[id]/replan/route";
 import { POST as priority } from "@/app/api/requirements/[id]/priority/route";
-import { POST as flags } from "@/app/api/admin/feature-flags/route";
+import { POST as policy } from "@/app/api/admin/approval-policy/route";
+import { readApprovalPolicy } from "@/lib/planning/approval-policy";
 
 let planner: Awaited<ReturnType<typeof makeUser>>, approver: typeof planner, root: typeof planner;
 beforeAll(async () => {
@@ -37,7 +38,7 @@ describe("identity integrity (SEC-002): body identity fields never become the ac
     expect([res?.reservedBy, res?.reservedByUserId]).toEqual(["planner1", planner.user.id]);
     expect((await lastAudit("RESERVATION"))?.actor).toBe("planner1");
   });
-  test("actor forged in replan / priority / flag / rule bodies → session user recorded", async () => {
+  test("actor forged in replan / priority / approval-policy bodies → session user recorded or refused", async () => {
     const c = await makeCase({ status: "APPROVED" });
     expect((await call(replan, { method: "POST", cookie: planner.cookie, params: { id: c.caseId }, body: { reason: "yield below threshold", actor: "admin" } })).status).toBe(200);
     expect((await lastAudit("PLAN_REPLAN"))?.actor).toBe("planner1");
@@ -48,16 +49,19 @@ describe("identity integrity (SEC-002): body identity fields never become the ac
     expect((await call(priority, { method: "POST", cookie: mgr.cookie, params: { id: req.id }, body: { priority: "HIGH", reason: "customer escalation", actor: "admin" } })).status).toBe(200);
     expect((await db.requirement.findUnique({ where: { id: req.id } }))?.updatedBy).toBe("analysis.mgr");
 
-    const flag = await db.featureFlag.create({ data: { code: `F_${Date.now()}`, name: "f" } });
-    expect((await call(flags, { method: "POST", cookie: root.cookie, body: { id: flag.id, enabled: true, actor: "someone.else" } })).status).toBe(200);
-    const fa = await lastAudit("FEATURE_FLAG_TOGGLE");
-    expect(fa?.actor).toBe("root1");
-    expect(fa?.before).toContain("false");
+    // The approval policy refuses any field it does not define, so a forged actor changes nothing.
+    const forged = await call(policy, { method: "POST", cookie: root.cookie, body: { requireSeparateApprover: false, reason: "forged actor test", actor: "someone.else" } });
+    expect(forged.status).toBe(400);
+    expect((await readApprovalPolicy(db)).requireSeparateApprover).toBe(true);
+    expect((await call(policy, { method: "POST", cookie: root.cookie, body: { requireSeparateApprover: true, reason: "confirm the default" } })).status).toBe(200);
+    const pa = await lastAudit("APPROVAL_POLICY_CHANGED");
+    expect([pa?.actor, pa?.category]).toEqual(["root1", "SECURITY"]);
+    expect(pa?.after).toContain("true");
   });
   test("privileged admin changes: ADMIN (no manage permission) → 403", async () => {
     const admin = await makeUser("admin1", "ADMIN");
-    const flag = await db.featureFlag.create({ data: { code: `F2_${Date.now()}`, name: "f" } });
-    expect((await call(flags, { method: "POST", cookie: admin.cookie, body: { id: flag.id, enabled: true } })).status).toBe(403);
+    expect((await call(policy, { method: "POST", cookie: admin.cookie, body: { requireSeparateApprover: false, reason: "admin should not" } })).status).toBe(403);
+    expect((await readApprovalPolicy(db)).requireSeparateApprover).toBe(true);
   });
 });
 
@@ -105,13 +109,13 @@ describe("approval integrity (SEC-007)", () => {
     const r = await call(approvals, { method: "POST", cookie: approver.cookie, body: { caseId: mine.caseId, action: "approve" } });
     expect([r.status, r.json.error.code]).toEqual([409, "ROUGH_RESERVED_ELSEWHERE"]);
   });
-  test("separation of duties: the case planner cannot approve (403); switching the flag off allows it", async () => {
+  test("separation of duties: the case planner cannot approve (403); switching the approval policy off allows it", async () => {
     const c = await makeCase({ planner: "Approver One" }); // matches approver1's display name
     const r = await call(approvals, { method: "POST", cookie: approver.cookie, body: { caseId: c.caseId, action: "approve" } });
     expect(r.status).toBe(403);
-    await db.featureFlag.create({ data: { code: "SOD_PLANNER_APPROVER", name: "SoD", enabled: false } });
+    expect((await call(policy, { method: "POST", cookie: root.cookie, body: { requireSeparateApprover: false, reason: "single approver site" } })).status).toBe(200);
     expect((await call(approvals, { method: "POST", cookie: approver.cookie, body: { caseId: c.caseId, action: "approve" } })).status).toBe(200);
-    await db.featureFlag.delete({ where: { code: "SOD_PLANNER_APPROVER" } });
+    expect((await call(policy, { method: "POST", cookie: root.cookie, body: { requireSeparateApprover: true, reason: "restore the default" } })).status).toBe(200);
   });
   test("planner (no plan.approve) → 403; unknown case → 404", async () => {
     const c = await makeCase();

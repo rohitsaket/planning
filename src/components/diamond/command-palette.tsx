@@ -4,80 +4,86 @@ import { useEffect, useState } from "react";
 import { useNavStore, ViewId } from "@/stores/nav-store";
 import { useAuthStore } from "@/stores/auth-store";
 import { isViewAuthorized } from "@/lib/auth/view-permissions";
+import { isTabPermitted, type HostTabItem } from "@/components/diamond/shared/tabbed-host-view";
+import { OVERVIEW_TABS } from "@/components/diamond/views/consolidated/overview-view";
+import { SALES_ANALYSIS_TABS } from "@/components/diamond/views/consolidated/sales-analysis-trends-view";
+import { INVENTORY_TABS } from "@/components/diamond/views/consolidated/inventory-position-view";
+import { FANTASY_DATA_TABS } from "@/components/diamond/views/consolidated/fantasy-data-view";
+import { PLANNING_WORKBENCH_TABS } from "@/components/diamond/views/consolidated/planning-workbench-host-view";
+import { MAPPINGS_TABS } from "@/components/diamond/views/consolidated/mappings-view";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import {
-  LayoutDashboard, BarChart3, TrendingUp, Users, ShoppingCart, Globe, Gem, FileText, Package, Boxes, Factory, AlertTriangle, FlaskConical, FileBarChart, Settings, Search, Diamond, Activity, Scale, Layers, Map, FileWarning, Workflow, ClipboardCheck, CalendarClock, Hash, RefreshCw, BookCheck, ClipboardList, Star, CornerDownLeft, UserPlus, Lock, HardDrive, ArrowLeftRight, Shapes,
+  LayoutDashboard, BarChart3, TrendingUp, Users, Gem, FileText, Package, Boxes, AlertTriangle, Search, Activity, Scale, FileWarning, Workflow, CalendarClock, Hash, RefreshCw, BookCheck, ClipboardList, CornerDownLeft, HardDrive, Shapes,
 } from "lucide-react";
 import { ReactNode } from "react";
 
 interface PaletteItem {
   id: ViewId;
-  // Tab inside a tabbed host view; several palette entries may target one view id.
+  /** A tab of a host page; its label names the host, e.g. "Inventory → Stockout Risk". */
   tab?: string;
   label: string;
   group: string;
   icon: ReactNode;
   keywords: string[];
-  advisory?: boolean;
-  /** Left out, rather than shown locked, for users who cannot open it. */
-  hideWhenUnauthorized?: boolean;
 }
 
-const ITEMS: PaletteItem[] = [
-  // 1. Dashboard
-  { id: "dashboard", label: "Executive Dashboard", group: "Dashboard", icon: <LayoutDashboard className="h-4 w-4" />, keywords: ["home", "main", "overview", "kpi", "executive"] },
+// Tabs of each host page, so a tab entry is offered only to someone that tab would admit.
+const HOST_TABS: Partial<Record<ViewId, readonly HostTabItem[]>> = {
+  dashboard: OVERVIEW_TABS,
+  "analysis-sales": SALES_ANALYSIS_TABS,
+  "analysis-inventory-position": INVENTORY_TABS,
+  "fantasy-data": FANTASY_DATA_TABS,
+  "planning-workbench": PLANNING_WORKBENCH_TABS,
+  "admin-mappings": MAPPINGS_TABS,
+};
 
-  // 2. Analysis (Direct Analytical Workspace)
-  { id: "analysis-executive", label: "Executive Analysis", group: "Analysis", icon: <BarChart3 className="h-4 w-4" />, keywords: ["executive", "summary", "kpi", "demand", "inventory"] },
-  { id: "analysis-sales", tab: "analysis", label: "Sales Analysis & Trends → Sales Analysis", group: "Analysis", icon: <TrendingUp className="h-4 w-4" />, keywords: ["sales", "invoices", "revenue", "category", "customer", "sales analysis"] },
-  { id: "analysis-sales", tab: "trends", label: "Sales Analysis & Trends → Sales Trends", group: "Analysis", icon: <Activity className="h-4 w-4" />, keywords: ["trends", "30 day", "90 day", "velocity", "history", "sales trends"] },
-  { id: "analysis-customers-orders", label: "Customers & Orders", group: "Analysis", icon: <Users className="h-4 w-4" />, keywords: ["customers", "orders", "country", "branch", "buyer", "geography", "accounts"] },
-  { id: "analysis-inventory-position", label: "Inventory", group: "Analysis", icon: <Package className="h-4 w-4" />, keywords: ["rough", "wip", "polished", "memo", "inventory", "stock", "pipeline"] },
-  { id: "analysis-stockout", label: "Stockout Risk", group: "Analysis", icon: <AlertTriangle className="h-4 w-4" />, advisory: true, keywords: ["stockout", "shortage", "risk", "projected stock"] },
-  { id: "analysis-excess", label: "Excess Stock", group: "Analysis", icon: <Package className="h-4 w-4" />, keywords: ["excess", "surplus", "overstock"] },
-  { id: "analysis-aging", label: "Stock Aging", group: "Analysis", icon: <CalendarClock className="h-4 w-4" />, keywords: ["aging", "slow moving", "days", "old stock"] },
-  { id: "analysis-reorder-signals", label: "Reorder Signals", group: "Analysis", icon: <Star className="h-4 w-4" />, advisory: true, keywords: ["reorder", "repeat customer", "prediction"] },
-  { id: "transfer-analyzer", label: "Transfer Analyzer", group: "Analysis", icon: <ArrowLeftRight className="h-4 w-4" />, advisory: true, keywords: ["transfer", "country", "branch", "excess", "shortage"] },
-  { id: "aging-dashboard", label: "Aging Dashboard", group: "Analysis", icon: <LayoutDashboard className="h-4 w-4" />, keywords: ["aging", "dashboard", "slow moving", "inventory"] },
+/** Offered only when the page — and, for a tab entry, that tab — is open to this user. */
+export function isPaletteItemAllowed(item: Pick<PaletteItem, "id" | "tab">, perms: readonly string[] | undefined): boolean {
+  if (!isViewAuthorized(perms ? [...perms] : undefined, item.id)) return false;
+  if (!item.tab) return true;
+  const tab = HOST_TABS[item.id]?.find((t) => t.id === item.tab);
+  return !!tab && isTabPermitted(tab.permission, perms ?? []);
+}
 
-  // 3. Fantasy ERP
-  { id: "fantasy-live", label: "Current Data", group: "Fantasy ERP", icon: <Boxes className="h-4 w-4" />, keywords: ["rough stock", "polished stock", "departments", "locations", "erp", "live data", "current"] },
-  { id: "fantasy-sync", label: "Sync Monitor", group: "Fantasy ERP", icon: <RefreshCw className="h-4 w-4" />, keywords: ["sync", "reconciliation", "monitor", "integration", "dashboard"] },
-
-  // 4. Overall Data
-  { id: "overall-data", label: "Overall Data", group: "Overall Data", icon: <HardDrive className="h-4 w-4" />, keywords: ["historical", "archive", "lots", "permanent", "records"] },
-
-  // 6. Requirements and Priority
-  { id: "requirements-matrix", label: "Requirement Matrix", group: "Requirements and Priority", icon: <Hash className="h-4 w-4" />, keywords: ["requirement", "matrix", "demand", "target", "carat"] },
-  { id: "requirements-priority-queue", label: "Priority Queue", group: "Requirements and Priority", icon: <AlertTriangle className="h-4 w-4" />, keywords: ["priority", "critical", "high", "ranking", "urgent"] },
-  { id: "orders-exceptions", label: "Orders and Exceptions", group: "Requirements and Priority", icon: <FileText className="h-4 w-4" />, keywords: ["customer orders", "backorders", "special requirements", "exceptions"] },
-  { id: "replenishment-allocation", label: "Replenishment and Allocation", group: "Requirements and Priority", icon: <Workflow className="h-4 w-4" />, keywords: ["replenishment", "allocation", "stock replenishment", "reserve"] },
-
-  // 7. Planning
-  { id: "planning-rough-availability", label: "Rough Availability", group: "Planning", icon: <Gem className="h-4 w-4" />, keywords: ["rough inventory", "rough reservations", "available stones", "kapan"] },
-  { id: "planning-workbook-import", label: "Workbook Import", group: "Planning", icon: <FileText className="h-4 w-4" />, keywords: ["workbook", "import", "sarin", "csv", "process", "output", "export"] },
-  { id: "planning-workbench", label: "Planning Workbench", group: "Planning", icon: <LayoutDashboard className="h-4 w-4" />, keywords: ["planning cases", "planned pieces", "workbench", "planner"] },
-  { id: "planning-comparison", label: "Plan Comparison", group: "Planning", icon: <Scale className="h-4 w-4" />, keywords: ["plan comparison", "evaluate", "versions", "side by side"] },
-  { id: "planning-approval-queue", label: "Approval Queue", group: "Planning", icon: <BookCheck className="h-4 w-4" />, keywords: ["approval", "queue", "signoff", "manager approval"] },
-
-  // 10. Data Science (Advisory / Future)
-  { id: "data-science-forecasting", label: "Forecasting", group: "Data Science", icon: <TrendingUp className="h-4 w-4" />, advisory: true, keywords: ["operational forecast", "predictive forecast", "forecast accuracy", "future"] },
-  { id: "data-science-predictive-models", label: "Predictive Models", group: "Data Science", icon: <Layers className="h-4 w-4" />, advisory: true, keywords: ["anomaly detection", "yield prediction", "models", "advisory"] },
-  { id: "data-science-prediction-monitoring", label: "Model Monitoring", group: "Data Science", icon: <Activity className="h-4 w-4" />, advisory: true, keywords: ["prediction monitoring", "drift", "metrics", "monitoring"] },
-
-  // 11. Reports
-  { id: "reports", label: "Reports Library", group: "Reports", icon: <FileBarChart className="h-4 w-4" />, keywords: ["reports", "export", "pdf", "excel", "summary"] },
-
-  // 12. Administration
-  { id: "admin-users-access", label: "Users and Access", group: "Administration", icon: <Users className="h-4 w-4" />, keywords: ["users", "roles", "permissions", "access requests", "rbac"] },
-  { id: "admin-mappings", label: "Mappings", group: "Administration", icon: <Shapes className="h-4 w-4" />, keywords: ["mappings", "weight bands", "lab mapping", "shape mapping", "status mapping"], hideWhenUnauthorized: true },
-  { id: "admin-mappings", tab: "sarin-shape-mapping", label: "Sarin Shape Mapping", group: "Administration", icon: <Shapes className="h-4 w-4" />, keywords: ["sarin shape", "fantasy shape", "ratio", "needs mapping"], hideWhenUnauthorized: true },
-  { id: "admin-system-settings", label: "System Settings", group: "Administration", icon: <Settings className="h-4 w-4" />, keywords: ["feature flags", "system settings", "integrations", "config"] },
-  { id: "admin-audit-log", label: "Audit Log", group: "Administration", icon: <ClipboardList className="h-4 w-4" />, keywords: ["audit log", "security", "activity trail", "events"] },
+// Mirrors the sidebar (src/components/layout/app-shell.tsx), plus the tabs worth reaching
+// directly. Pages kept out of the sidebar are kept out of here too.
+export const PALETTE_ITEMS: PaletteItem[] = [
+  // Dashboard
+  { id: "dashboard", label: "Overview", group: "Dashboard", icon: <LayoutDashboard className="h-4 w-4" />, keywords: ["home", "dashboard", "kpi", "overview"] },
+  { id: "dashboard", tab: "analysis", label: "Overview → Analysis", group: "Dashboard", icon: <BarChart3 className="h-4 w-4" />, keywords: ["executive analysis", "summary", "demand", "shortage"] },
+  // Analysis
+  { id: "analysis-sales", label: "Sales & Trends", group: "Analysis", icon: <TrendingUp className="h-4 w-4" />, keywords: ["sales", "sales analysis", "invoices", "revenue", "category"] },
+  { id: "analysis-sales", tab: "trends", label: "Sales & Trends → Sales Trends", group: "Analysis", icon: <Activity className="h-4 w-4" />, keywords: ["trends", "30 day", "90 day", "velocity"] },
+  { id: "analysis-customers-orders", label: "Customers & Orders", group: "Analysis", icon: <Users className="h-4 w-4" />, keywords: ["customers", "orders", "country", "branch", "buyer"] },
+  { id: "analysis-inventory-position", label: "Inventory", group: "Analysis", icon: <Package className="h-4 w-4" />, keywords: ["inventory", "stock", "position", "lots", "categories"] },
+  { id: "analysis-inventory-position", tab: "stockout", label: "Inventory → Stockout Risk", group: "Analysis", icon: <AlertTriangle className="h-4 w-4" />, keywords: ["stockout", "shortage", "risk"] },
+  { id: "analysis-inventory-position", tab: "excess", label: "Inventory → Excess Stock", group: "Analysis", icon: <Package className="h-4 w-4" />, keywords: ["excess", "surplus", "overstock"] },
+  { id: "analysis-inventory-position", tab: "aging", label: "Inventory → Aging", group: "Analysis", icon: <CalendarClock className="h-4 w-4" />, keywords: ["aging", "stock aging", "bucket", "location"] },
+  // Data
+  { id: "fantasy-data", label: "Fantasy Data", group: "Data", icon: <Boxes className="h-4 w-4" />, keywords: ["fantasy", "current data", "rough stock", "polished stock"] },
+  { id: "fantasy-data", tab: "integration", label: "Fantasy Data → Integration Status", group: "Data", icon: <RefreshCw className="h-4 w-4" />, keywords: ["sync", "synchronization", "integration", "freshness", "retry"] },
+  { id: "fantasy-data", tab: "history", label: "Fantasy Data → Historical Data", group: "Data", icon: <HardDrive className="h-4 w-4" />, keywords: ["historical", "archive", "lots", "overall data"] },
+  { id: "data-quality-issues", label: "Import Issues", group: "Data", icon: <FileWarning className="h-4 w-4" />, keywords: ["import issues", "invalid records", "unmapped", "reconciliation", "rejected records", "data quality"] },
+  // Requirements
+  { id: "requirements-matrix", label: "Requirement Matrix", group: "Requirements", icon: <Hash className="h-4 w-4" />, keywords: ["requirement", "matrix", "demand", "target"] },
+  { id: "requirements-priority-queue", label: "Priority Queue", group: "Requirements", icon: <AlertTriangle className="h-4 w-4" />, keywords: ["priority", "critical", "urgent"] },
+  { id: "orders-exceptions", label: "Order Exceptions", group: "Requirements", icon: <FileText className="h-4 w-4" />, keywords: ["customer orders", "backorders", "special requirements", "exceptions"] },
+  { id: "replenishment-allocation", label: "Replenishment & Allocation", group: "Requirements", icon: <Workflow className="h-4 w-4" />, keywords: ["replenishment", "allocation", "reserve"] },
+  // Planning
+  { id: "planning-rough-availability", label: "Rough Availability", group: "Planning", icon: <Gem className="h-4 w-4" />, keywords: ["rough", "available stones", "kapan", "packet type"] },
+  { id: "planning-workbook-import", label: "Workbook Import", group: "Planning", icon: <FileText className="h-4 w-4" />, keywords: ["workbook", "import", "sarin", "csv", "output", "export"] },
+  { id: "planning-workbench", label: "Planning Workbench", group: "Planning", icon: <LayoutDashboard className="h-4 w-4" />, keywords: ["planning cases", "candidate plans", "planned pieces", "reservations"] },
+  { id: "planning-workbench", tab: "comparison", label: "Planning Workbench → Comparison", group: "Planning", icon: <Scale className="h-4 w-4" />, keywords: ["plan comparison", "compare", "yield", "coverage"] },
+  { id: "planning-approval-queue", label: "Approval Queue", group: "Planning", icon: <BookCheck className="h-4 w-4" />, keywords: ["approval", "queue", "sign-off"] },
+  // Administration
+  { id: "admin-users-access", label: "Users & Access", group: "Administration", icon: <Users className="h-4 w-4" />, keywords: ["users", "roles", "permissions", "access requests"] },
+  { id: "admin-mappings", label: "Mappings", group: "Administration", icon: <Shapes className="h-4 w-4" />, keywords: ["mappings", "weight bands", "lab mapping", "shape mapping", "status mapping"] },
+  { id: "admin-mappings", tab: "sarin-shape-mapping", label: "Mappings → Sarin Shape Mapping", group: "Administration", icon: <Shapes className="h-4 w-4" />, keywords: ["sarin shape", "fantasy shape", "needs mapping"] },
+  { id: "admin-audit-log", label: "Audit Log", group: "Administration", icon: <ClipboardList className="h-4 w-4" />, keywords: ["audit log", "security", "activity trail"] },
 ];
 
 export function CommandPalette() {
@@ -108,7 +114,7 @@ export function CommandPalette() {
     setOpen(next);
   };
 
-  const visible = ITEMS.filter((item) => !item.hideWhenUnauthorized || isViewAuthorized(perms, item.id));
+  const visible = PALETTE_ITEMS.filter((item) => isPaletteItemAllowed(item, perms));
   const filtered = query.trim()
     ? visible.filter((item) => {
         const q = query.toLowerCase();
@@ -164,7 +170,6 @@ export function CommandPalette() {
               {items.map((item) => {
                 const idx = flatFiltered.indexOf(item);
                 const active = idx === activeIdx;
-                const authorized = isViewAuthorized(perms, item.id);
                 return (
                   <button
                     key={item.tab ? `${item.id}:${item.tab}` : item.id}
@@ -173,22 +178,10 @@ export function CommandPalette() {
                     className={cn(
                       "w-full flex items-center gap-3 px-3 py-2 text-left text-sm transition-colors",
                       active ? "bg-primary/10 text-foreground" : "hover:bg-muted/50",
-                      !authorized && !active && "text-muted-foreground/70"
                     )}
                   >
                     <span className={cn("text-muted-foreground", active && "text-primary")}>{item.icon}</span>
                     <span className="flex-1 truncate">{item.label}</span>
-                    {item.advisory && (
-                      <span className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-violet-500/10 text-violet-600 dark:text-violet-400 border border-violet-500/20">
-                        Advisory
-                      </span>
-                    )}
-                    {!authorized && (
-                      <span className="flex items-center gap-1 text-[10px] font-medium text-amber-600 dark:text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20">
-                        <Lock className="h-3 w-3" />
-                        Locked
-                      </span>
-                    )}
                     {active && <CornerDownLeft className="h-3 w-3 text-muted-foreground" />}
                   </button>
                 );

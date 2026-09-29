@@ -6,7 +6,6 @@ import { Prisma } from "@prisma/client";
 import { GET as inventory } from "@/app/api/analysis/inventory/route";
 import { GET as aging } from "@/app/api/analysis/aging/route";
 import { GET as agingDashboard } from "@/app/api/analysis/aging-dashboard/route";
-import { GET as transferCandidates } from "@/app/api/analysis/transfer-candidates/route";
 import { GET as countries } from "@/app/api/analysis/countries/route";
 import { GET as stockout } from "@/app/api/analysis/stockout/route";
 import {
@@ -35,10 +34,9 @@ const BATCH = "DISCLOSURE-TEST";
 const ANALYSIS_VIEWS = [
   "src/components/diamond/views/stockout-view.tsx",
   "src/components/diamond/views/excess-view.tsx",
-  "src/components/diamond/views/reorder-signals-view.tsx",
+  // Stock Aging also hosts the former Aging Dashboard's summary (aging-summary.tsx), which
+  // sits under this view's banner rather than repeating it.
   "src/components/diamond/views/aging-view.tsx",
-  "src/components/diamond/views/aging-dashboard-view.tsx",
-  "src/components/diamond/views/transfer-analyzer-view.tsx",
   "src/components/diamond/views/country-view.tsx",
   "src/components/diamond/views/executive-analysis-view.tsx",
   "src/components/diamond/views/sales-analysis-view.tsx",
@@ -139,7 +137,6 @@ describe("Source disclosure — every Analysis API states its source", () => {
       ["aging lots", aging, "/api/analysis/aging?section=lots"],
       ["aging summary", aging, "/api/analysis/aging?section=summary"],
       ["aging dashboard", agingDashboard, "/api/analysis/aging-dashboard"],
-      ["transfer", transferCandidates, "/api/analysis/transfer-candidates"],
       ["countries", countries, "/api/analysis/countries"],
     ] as const) {
       resetRateLimits();

@@ -6,8 +6,7 @@ const R = 8;
 const P = 1;
 const KEYLEN = 32;
 
-export const PASSWORD_MIN_LENGTH = 12;
-export const PASSWORD_MAX_LENGTH = 200;
+export { PASSWORD_MIN_LENGTH, PASSWORD_MAX_LENGTH } from "@/lib/auth/password-policy";
 
 function derive(password: string, salt: Buffer, n: number, r: number, p: number, keylen: number): Promise<Buffer> {
   return new Promise((resolve, reject) => {

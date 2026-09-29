@@ -311,9 +311,9 @@ export function OverallDataView() {
   ];
 
   return (
-    <div className="flex flex-col gap-3 p-3">
+    <div data-page-body className="flex flex-col gap-section px-page-x py-page-y">
       <PageHeader
-        title="Overall Data"
+        title="Historical Data"
         subtitle="Current and past lot records from Fantasy"
         actions={
           canExport ? (

@@ -35,9 +35,12 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { createPortal } from "react-dom";
 import { exportDataTableToExcel } from "@/lib/excel-export";
 import { exportToPDF } from "@/lib/pdf-export";
 import { useAuthStore } from "@/stores/auth-store";
+import { useSectionContext } from "@/components/diamond/shared/density";
+import { readTableLayout, reconcileColumnOrder, tableLayoutStorageKey } from "@/components/diamond/shared/table-layout";
 
 /**
  * Viewport-aware row-viewport height for data-dense tables. Roughly 7–12 rows: ~336px at
@@ -45,6 +48,9 @@ import { useAuthStore } from "@/stores/auth-store";
  * `dvh` follows the real viewport on mobile browsers; the surrounding chrome (shell header,
  * tab strip, section header, KPIs, chart) is what the 27rem accounts for.
  */
+/** Below this many rows on screen, `maxHeight` is not applied (see the scroll area). */
+const BOUNDED_TABLE_MIN_ROWS = 50;
+
 export const DATA_TABLE_VIEWPORT_MAX_HEIGHT =
   "clamp(300px, calc(100dvh - 27rem), 520px)";
 
@@ -61,6 +67,11 @@ export interface Column<T> {
   width?: string;
   sticky?: "left" | "right";
   align?: "left" | "right" | "center";
+  /**
+   * Let long text wrap onto several lines. Off by default: cells stay on one line at the
+   * compact row height, truncate with an ellipsis, and show the full value as a tooltip.
+   */
+  wrap?: boolean;
 }
 
 export function getColumnValueString<T>(col: Column<T>, row: T): string {
@@ -91,6 +102,18 @@ export function getColumnValueString<T>(col: Column<T>, row: T): string {
   }
   if (raw === null || raw === undefined || raw === "") return "(Blank)";
   return String(raw);
+}
+
+/**
+ * The full text of a truncated cell, for its tooltip: the plain value the cell shows, never
+ * an export representation (which may be structured) and never a placeholder.
+ */
+function cellTooltip<T>(col: Column<T>, row: T): string | undefined {
+  const raw = (row as Record<string, unknown>)[col.key];
+  const value = typeof raw === "string" || typeof raw === "number" ? String(raw) : col.filterValue ? col.filterValue(row) : undefined;
+  if (value === null || value === undefined) return undefined;
+  const text = String(value).trim();
+  return text.length > 18 && !/^[[{]/.test(text) ? text : undefined;
 }
 
 export interface DataTableProps<T> {
@@ -176,6 +199,7 @@ export function DataTable<T>({
   enableColumnValueFilter = true,
   tableId,
 }: DataTableProps<T>) {
+  const { inSection, hasHeader, headerSlot } = useSectionContext();
   const user = useAuthStore((s) => s.user);
   const exportRequested = exportable || excelExportable || pdfExportable;
 
@@ -210,16 +234,24 @@ export function DataTable<T>({
   const [page, setPage] = useState(1);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Column order state
-  const [orderedKeys, setOrderedKeys] = useState<string[]>(() =>
-    initialColumns.map((c) => c.key)
-  );
-
-  // Column visibility state (hidden column keys)
-  const [hiddenKeys, setHiddenKeys] = useState<Set<string>>(new Set());
-
-  // Column widths state
-  const [colWidths, setColWidths] = useState<Record<string, number>>({});
+  // Column layout: the user's column order, hidden columns and widths start from the layout
+  // saved for this tableId. The order shown is derived from the user's order and the current
+  // column definitions, so a column added or removed by the caller needs no syncing.
+  const [savedLayout] = useState(() => readTableLayout(tableId));
+  const [layoutFor, setLayoutFor] = useState(tableId);
+  const [userOrder, setUserOrder] = useState<string[]>(savedLayout.orderedKeys);
+  const [hiddenKeys, setHiddenKeys] = useState<Set<string>>(() => new Set(savedLayout.hiddenKeys));
+  const [colWidths, setColWidths] = useState<Record<string, number>>(savedLayout.colWidths);
+  if (layoutFor !== tableId) {
+    // The same table slot now shows another table: switch to that table's saved layout.
+    const next = readTableLayout(tableId);
+    setLayoutFor(tableId);
+    setUserOrder(next.orderedKeys);
+    setHiddenKeys(new Set(next.hiddenKeys));
+    setColWidths(next.colWidths);
+  }
+  const columnKeys = useMemo(() => initialColumns.map((c) => c.key), [initialColumns]);
+  const orderedKeys = useMemo(() => reconcileColumnOrder(userOrder, columnKeys), [userOrder, columnKeys]);
 
   // Column search inside customize columns popover
   const [columnSearch, setColumnSearch] = useState("");
@@ -240,50 +272,13 @@ export function DataTable<T>({
     startWidth: number;
   } | null>(null);
 
-  // Sync ordered keys when initialColumns change
-  useEffect(() => {
-    setOrderedKeys((prev) => {
-      const incomingKeys = initialColumns.map((c) => c.key);
-      const existing = prev.filter((k) => incomingKeys.includes(k));
-      const added = incomingKeys.filter((k) => !existing.includes(k));
-      return [...existing, ...added];
-    });
-  }, [initialColumns]);
-
-  // Load from localStorage if tableId is provided
-  useEffect(() => {
-    if (!tableId || typeof window === "undefined") return;
-    try {
-      const saved = localStorage.getItem(`dt_layout_${tableId}`);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed.orderedKeys)) {
-          const validKeys = initialColumns.map((c) => c.key);
-          const filtered = parsed.orderedKeys.filter((k: string) =>
-            validKeys.includes(k)
-          );
-          const missing = validKeys.filter((k) => !filtered.includes(k));
-          setOrderedKeys([...filtered, ...missing]);
-        }
-        if (Array.isArray(parsed.hiddenKeys)) {
-          setHiddenKeys(new Set(parsed.hiddenKeys));
-        }
-        if (parsed.colWidths && typeof parsed.colWidths === "object") {
-          setColWidths(parsed.colWidths);
-        }
-      }
-    } catch {
-      // Ignore storage errors
-    }
-  }, [tableId, initialColumns]);
-
   // Save to localStorage when layout changes
   const persistLayout = useCallback(
     (keys: string[], hidden: Set<string>, widths: Record<string, number>) => {
       if (!tableId || typeof window === "undefined") return;
       try {
         localStorage.setItem(
-          `dt_layout_${tableId}`,
+          tableLayoutStorageKey(tableId),
           JSON.stringify({
             orderedKeys: keys,
             hiddenKeys: Array.from(hidden),
@@ -411,32 +406,28 @@ export function DataTable<T>({
     key: string,
     direction: "left" | "right" | "up" | "down"
   ) => {
-    setOrderedKeys((prev) => {
-      const idx = prev.indexOf(key);
-      if (idx === -1) return prev;
-      const targetIdx =
-        direction === "left" || direction === "up" ? idx - 1 : idx + 1;
-      if (targetIdx < 0 || targetIdx >= prev.length) return prev;
-      const updated = [...prev];
-      const [item] = updated.splice(idx, 1);
-      updated.splice(targetIdx, 0, item);
-      persistLayout(updated, hiddenKeys, colWidths);
-      return updated;
-    });
+    const idx = orderedKeys.indexOf(key);
+    if (idx === -1) return;
+    const targetIdx =
+      direction === "left" || direction === "up" ? idx - 1 : idx + 1;
+    if (targetIdx < 0 || targetIdx >= orderedKeys.length) return;
+    const updated = [...orderedKeys];
+    const [item] = updated.splice(idx, 1);
+    updated.splice(targetIdx, 0, item);
+    setUserOrder(updated);
+    persistLayout(updated, hiddenKeys, colWidths);
   };
 
   const reorderColumn = (sourceKey: string, targetKey: string) => {
     if (sourceKey === targetKey) return;
-    setOrderedKeys((prev) => {
-      const sourceIdx = prev.indexOf(sourceKey);
-      const targetIdx = prev.indexOf(targetKey);
-      if (sourceIdx === -1 || targetIdx === -1) return prev;
-      const updated = [...prev];
-      const [item] = updated.splice(sourceIdx, 1);
-      updated.splice(targetIdx, 0, item);
-      persistLayout(updated, hiddenKeys, colWidths);
-      return updated;
-    });
+    const sourceIdx = orderedKeys.indexOf(sourceKey);
+    const targetIdx = orderedKeys.indexOf(targetKey);
+    if (sourceIdx === -1 || targetIdx === -1) return;
+    const updated = [...orderedKeys];
+    const [item] = updated.splice(sourceIdx, 1);
+    updated.splice(targetIdx, 0, item);
+    setUserOrder(updated);
+    persistLayout(updated, hiddenKeys, colWidths);
   };
 
   // Visibility toggle helper
@@ -463,17 +454,13 @@ export function DataTable<T>({
   };
 
   const resetColumns = () => {
-    const defaultKeys = initialColumns.map((c) => c.key);
-    const defaultHidden = new Set<string>();
-    const defaultWidths = {};
-    setOrderedKeys(defaultKeys);
-    setHiddenKeys(defaultHidden);
-    setColWidths(defaultWidths);
+    setUserOrder([]);
+    setHiddenKeys(new Set());
+    setColWidths({});
     setColumnFilters({});
-    persistLayout(defaultKeys, defaultHidden, defaultWidths);
     if (tableId && typeof window !== "undefined") {
       try {
-        localStorage.removeItem(`dt_layout_${tableId}`);
+        localStorage.removeItem(tableLayoutStorageKey(tableId));
       } catch {
         // Ignore
       }
@@ -580,243 +567,248 @@ export function DataTable<T>({
     return map;
   }, [initialColumns, rows]);
 
+  const shouldPortalToSectionHeader = inSection && hasHeader && !title;
+  const hasToolbarItems = Boolean(
+    title ||
+      searchable ||
+      toolbar ||
+      enableColumnFilter ||
+      activeColumnFilterKeys.length > 0 ||
+      exportable ||
+      excelExportable ||
+      pdfExportable
+  );
+
+  const toolbarControls = (
+    <div className="flex items-center gap-1.5 flex-wrap ml-auto">
+      {searchable && (
+        <div className="relative w-44 sm:w-56 md:w-64">
+          <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+          <Input
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setPage(1);
+            }}
+            placeholder={searchPlaceholder}
+            aria-label={searchPlaceholder}
+            className="h-control bg-background/90 pl-7 text-xs"
+          />
+        </div>
+      )}
+
+      {/* Clear All Column Filters Button */}
+      {activeColumnFilterKeys.length > 0 && (
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-control gap-1 border-amber-500/30 bg-amber-500/10 px-2 text-xs font-medium text-amber-700 hover:bg-amber-500/20 dark:text-amber-400"
+          onClick={clearAllColumnFilters}
+          title="Clear all active column filters"
+        >
+          <FilterX className="h-3 w-3" />
+          <span>Clear Filters ({activeColumnFilterKeys.length})</span>
+        </Button>
+      )}
+
+      {/* Column Customizer / Filter Popover */}
+      {enableColumnFilter && (
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-control gap-1.5 bg-background/90 px-2 text-xs font-medium text-foreground hover:bg-muted"
+              title="Customize & filter columns"
+            >
+              <SlidersHorizontal className="h-3 w-3 text-muted-foreground" />
+              <span>Columns</span>
+              <span className="rounded bg-muted px-1 font-mono text-[10px] text-muted-foreground">
+                {visibleColumns.length}/{initialColumns.length}
+              </span>
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent
+            align="end"
+            className="w-72 p-2.5 space-y-2 bg-popover shadow-lg border border-border"
+          >
+            <div className="flex items-center justify-between border-b border-border/80 pb-1.5">
+              <div className="flex items-center gap-1.5">
+                <SlidersHorizontal className="h-3.5 w-3.5 text-primary" />
+                <span className="text-xs font-semibold text-foreground">
+                  Column Settings
+                </span>
+              </div>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-5 px-1.5 text-[10px] text-muted-foreground hover:text-foreground"
+                  onClick={showAllColumns}
+                >
+                  <Eye className="h-2.5 w-2.5 mr-1" /> All
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-5 px-1.5 text-[10px] text-muted-foreground hover:text-foreground"
+                  onClick={resetColumns}
+                  title="Reset to default order, visibility and filters"
+                >
+                  <RotateCcw className="h-2.5 w-2.5 mr-1" /> Reset
+                </Button>
+              </div>
+            </div>
+
+            {initialColumns.length > 6 && (
+              <div className="relative">
+                <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
+                <Input
+                  value={columnSearch}
+                  onChange={(e) => setColumnSearch(e.target.value)}
+                  placeholder="Search columns..."
+                  className="h-6 pl-6 text-[11px] bg-muted/40"
+                />
+              </div>
+            )}
+
+            <div className="max-h-60 overflow-y-auto space-y-0.5 pr-0.5">
+              {filteredColumnsForPopover.map((col, idx) => {
+                const isVisible = !hiddenKeys.has(col.key);
+                const isFirst = idx === 0;
+                const isLast =
+                  idx === filteredColumnsForPopover.length - 1;
+
+                return (
+                  <div
+                    key={col.key}
+                    className={cn(
+                      "flex items-center justify-between gap-1.5 px-1.5 py-1 rounded text-xs transition-colors hover:bg-muted/60 group",
+                      !isVisible && "opacity-50"
+                    )}
+                  >
+                    <label className="flex items-center gap-2 cursor-pointer min-w-0 flex-1 select-none">
+                      <Checkbox
+                        checked={isVisible}
+                        onCheckedChange={() =>
+                          toggleColumnVisibility(col.key)
+                        }
+                        className="h-3.5 w-3.5"
+                      />
+                      <span
+                        className={cn(
+                          "text-[11px] truncate",
+                          isVisible
+                            ? "text-foreground font-medium"
+                            : "text-muted-foreground line-through"
+                        )}
+                      >
+                        {col.header}
+                      </span>
+                    </label>
+
+                    {enableColumnReorder && (
+                      <div className="flex items-center gap-0.5 opacity-60 group-hover:opacity-100 transition-opacity">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-5 w-5 p-0 text-muted-foreground hover:text-foreground disabled:opacity-20"
+                          disabled={isFirst}
+                          onClick={() => moveColumn(col.key, "up")}
+                          title="Move Up / Left"
+                        >
+                          <ChevronUp className="h-3 w-3" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-5 w-5 p-0 text-muted-foreground hover:text-foreground disabled:opacity-20"
+                          disabled={isLast}
+                          onClick={() => moveColumn(col.key, "down")}
+                          title="Move Down / Right"
+                        >
+                          <ChevronDown className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="border-t border-border/80 pt-1.5 text-[11px] leading-tight text-muted-foreground">
+              Drag headers to reorder. Use the filter icon to filter.
+            </div>
+          </PopoverContent>
+        </Popover>
+      )}
+
+      {toolbar}
+
+      {userCanExport && (exportable || excelExportable || pdfExportable) && (
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button variant="outline" size="sm" className="h-control gap-1 bg-background/90 px-2 text-xs" title={pageScoped ? "Exports the rows on this page only" : "Exports the loaded rows"}>
+              <Download className="h-3.5 w-3.5" /> Export
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-56 p-1">
+            <p className="px-2 py-1 text-[11px] text-muted-foreground">{pageScoped ? "Rows on this page" : "Loaded rows"}</p>
+            {exportable && (
+              <button type="button" className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-muted focus-visible:bg-muted focus-visible:outline-none" onClick={exportCsv}>
+                <Download className="h-3.5 w-3.5" /> {pageScoped ? "Export visible rows (CSV)" : "Export loaded rows (CSV)"}
+              </button>
+            )}
+            {excelExportable && (
+              <button type="button" className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-muted focus-visible:bg-muted focus-visible:outline-none" onClick={exportExcel}>
+                <FileSpreadsheet className="h-3.5 w-3.5" /> {pageScoped ? "Export visible rows (Excel)" : "Export loaded rows (Excel)"}
+              </button>
+            )}
+            {pdfExportable && (
+              <button type="button" className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-muted focus-visible:bg-muted focus-visible:outline-none" onClick={exportPDF}>
+                <FileText className="h-3.5 w-3.5" /> Export loaded rows (PDF)
+              </button>
+            )}
+          </PopoverContent>
+        </Popover>
+      )}
+      <div className="whitespace-nowrap pl-1 text-[11px] tabular-nums text-muted-foreground">
+        {processed.length} {processed.length === 1 ? "row" : "rows"}
+      </div>
+    </div>
+  );
+
   return (
-    <div className="rounded-2xl border border-border/80 overflow-hidden bg-card flex-1 min-h-0 flex flex-col shadow-[0_4px_24px_-4px_rgba(249,115,62,0.04)]">
-      {/* Upper Single-Row Table Header: Title on Left, Search/Columns/Exports/Count on Right */}
-      {(title ||
-        searchable ||
-        toolbar ||
-        enableColumnFilter ||
-        activeColumnFilterKeys.length > 0 ||
-        exportable ||
-        excelExportable ||
-        pdfExportable) && (
-        <div className="flex items-center justify-between gap-2 px-3 py-1.5 border-b border-border bg-muted/40 flex-wrap min-h-10 flex-shrink-0">
+    <div
+      data-table-root
+      className={cn(
+        "flex min-h-0 flex-1 flex-col overflow-hidden bg-card",
+        // Inside a Section the panel already draws the border; a second card is not repeated.
+        !inSection && "rounded-lg border border-border/80",
+      )}
+    >
+      {/* If inside a Section with a header and table has no title, portal toolbar controls to Section header */}
+      {shouldPortalToSectionHeader && headerSlot && createPortal(toolbarControls, headerSlot)}
+
+      {/* Standalone Table Header: Title on Left, Search/Columns/Exports/Count on Right */}
+      {!shouldPortalToSectionHeader && hasToolbarItems && (
+        <div className="flex flex-shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border bg-muted/30 px-card py-1.5">
           {/* Left: Title & Subtle description */}
           <div className="flex items-center gap-2 min-w-0">
             {title && (
-              <h2 className="text-xs font-semibold tracking-wide text-foreground truncate">
+              <h2 className="truncate text-[13px] font-semibold text-foreground">
                 {title}
               </h2>
             )}
             {description && (
-              <span className="text-[10px] text-muted-foreground hidden sm:inline truncate">
+              <span className="hidden truncate text-xs text-muted-foreground sm:inline">
                 · {description}
               </span>
             )}
           </div>
 
           {/* Right: Search + Active Filter Badges + Columns Popover + Toolbar + Exports + Row Count */}
-          <div className="flex items-center gap-1.5 flex-wrap ml-auto">
-            {searchable && (
-              <div className="relative w-44 sm:w-56 md:w-64">
-                <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-                <Input
-                  value={query}
-                  onChange={(e) => {
-                    setQuery(e.target.value);
-                    setPage(1);
-                  }}
-                  placeholder={searchPlaceholder}
-                  className="h-7 pl-7 text-xs bg-background/90"
-                />
-              </div>
-            )}
-
-            {/* Clear All Column Filters Button */}
-            {activeColumnFilterKeys.length > 0 && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-7 px-2 text-[11px] gap-1 bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/20 font-medium"
-                onClick={clearAllColumnFilters}
-                title="Clear all active column filters"
-              >
-                <FilterX className="h-3 w-3" />
-                <span>Clear Filters ({activeColumnFilterKeys.length})</span>
-              </Button>
-            )}
-
-            {/* Column Customizer / Filter Popover */}
-            {enableColumnFilter && (
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-7 px-2 text-[11px] gap-1.5 bg-background/90 font-medium text-foreground hover:bg-muted"
-                    title="Customize & filter columns"
-                  >
-                    <SlidersHorizontal className="h-3 w-3 text-muted-foreground" />
-                    <span>Columns</span>
-                    <span className="text-[9px] px-1 py-0.2 rounded bg-muted font-mono text-muted-foreground">
-                      {visibleColumns.length}/{initialColumns.length}
-                    </span>
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent
-                  align="end"
-                  className="w-72 p-2.5 space-y-2 bg-popover shadow-lg border border-border"
-                >
-                  <div className="flex items-center justify-between border-b border-border/80 pb-1.5">
-                    <div className="flex items-center gap-1.5">
-                      <SlidersHorizontal className="h-3.5 w-3.5 text-primary" />
-                      <span className="text-xs font-semibold text-foreground">
-                        Column Settings
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-5 px-1.5 text-[10px] text-muted-foreground hover:text-foreground"
-                        onClick={showAllColumns}
-                      >
-                        <Eye className="h-2.5 w-2.5 mr-1" /> All
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-5 px-1.5 text-[10px] text-muted-foreground hover:text-foreground"
-                        onClick={resetColumns}
-                        title="Reset to default order, visibility and filters"
-                      >
-                        <RotateCcw className="h-2.5 w-2.5 mr-1" /> Reset
-                      </Button>
-                    </div>
-                  </div>
-
-                  {initialColumns.length > 6 && (
-                    <div className="relative">
-                      <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
-                      <Input
-                        value={columnSearch}
-                        onChange={(e) => setColumnSearch(e.target.value)}
-                        placeholder="Search columns..."
-                        className="h-6 pl-6 text-[11px] bg-muted/40"
-                      />
-                    </div>
-                  )}
-
-                  <div className="max-h-60 overflow-y-auto space-y-0.5 pr-0.5">
-                    {filteredColumnsForPopover.map((col, idx) => {
-                      const isVisible = !hiddenKeys.has(col.key);
-                      const isFirst = idx === 0;
-                      const isLast =
-                        idx === filteredColumnsForPopover.length - 1;
-
-                      return (
-                        <div
-                          key={col.key}
-                          className={cn(
-                            "flex items-center justify-between gap-1.5 px-1.5 py-1 rounded text-xs transition-colors hover:bg-muted/60 group",
-                            !isVisible && "opacity-50"
-                          )}
-                        >
-                          <label className="flex items-center gap-2 cursor-pointer min-w-0 flex-1 select-none">
-                            <Checkbox
-                              checked={isVisible}
-                              onCheckedChange={() =>
-                                toggleColumnVisibility(col.key)
-                              }
-                              className="h-3.5 w-3.5"
-                            />
-                            <span
-                              className={cn(
-                                "text-[11px] truncate",
-                                isVisible
-                                  ? "text-foreground font-medium"
-                                  : "text-muted-foreground line-through"
-                              )}
-                            >
-                              {col.header}
-                            </span>
-                          </label>
-
-                          {enableColumnReorder && (
-                            <div className="flex items-center gap-0.5 opacity-60 group-hover:opacity-100 transition-opacity">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-5 w-5 p-0 text-muted-foreground hover:text-foreground disabled:opacity-20"
-                                disabled={isFirst}
-                                onClick={() => moveColumn(col.key, "up")}
-                                title="Move Up / Left"
-                              >
-                                <ChevronUp className="h-3 w-3" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-5 w-5 p-0 text-muted-foreground hover:text-foreground disabled:opacity-20"
-                                disabled={isLast}
-                                onClick={() => moveColumn(col.key, "down")}
-                                title="Move Down / Right"
-                              >
-                                <ChevronDown className="h-3 w-3" />
-                              </Button>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  <div className="text-[9.5px] text-muted-foreground border-t border-border/80 pt-1.5 leading-tight">
-                    Drag headers to reorder. Use the filter icon to filter.
-                  </div>
-                </PopoverContent>
-              </Popover>
-            )}
-
-            {toolbar}
-
-            {exportable && userCanExport && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-7 px-2 text-[11px] gap-1 bg-background/90"
-                onClick={exportCsv}
-                title={
-                  pageScoped
-                    ? "Exports the rows on this page only"
-                    : undefined
-                }
-              >
-                <Download className="h-3 w-3" />{" "}
-                {pageScoped ? "Export visible rows (CSV)" : "Export loaded rows (CSV)"}
-              </Button>
-            )}
-            {excelExportable && userCanExport && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-7 px-2 text-[11px] gap-1 bg-background/90"
-                onClick={exportExcel}
-                title={
-                  pageScoped
-                    ? "Exports the rows on this page only"
-                    : undefined
-                }
-              >
-                <FileSpreadsheet className="h-3 w-3" />{" "}
-                {pageScoped ? "Export visible rows (Excel)" : "Export loaded rows (Excel)"}
-              </Button>
-            )}
-            {pdfExportable && userCanExport && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-7 px-2 text-[11px] gap-1 bg-background/90"
-                onClick={exportPDF}
-              >
-                <FileText className="h-3 w-3" /> Export loaded rows (PDF)
-              </Button>
-            )}
-            <div className="text-[10px] text-muted-foreground pl-1 font-mono whitespace-nowrap">
-              {processed.length} {processed.length === 1 ? "row" : "rows"}
-            </div>
-          </div>
+          {toolbarControls}
         </div>
       )}
 
@@ -826,11 +818,14 @@ export function DataTable<T>({
         tabIndex={0}
         aria-label={title ? `${title} rows` : "Table rows"}
         className="overflow-auto flex-1 min-h-0 w-full max-w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-        style={maxHeight ? { maxHeight } : undefined}
+        // A bounded scroll area only for a genuinely long list. A paged table (client or server)
+        // shows at most a page, so it scrolls with the page instead of adding a second
+        // scrollbar inside it.
+        style={maxHeight && currentRows.length > BOUNDED_TABLE_MIN_ROWS ? { maxHeight } : undefined}
       >
         <table className="w-full text-xs border-collapse">
-          <thead className={cn(stickyHeader && "sticky top-0 z-20 bg-[#FFE7D3] dark:bg-[#1D2332]")}>
-            <tr className="bg-[#FFE7D3] dark:bg-[#1D2332]">
+          <thead className={cn(stickyHeader && "sticky top-0 z-20 bg-[#FEE1C7] dark:bg-[#1D2332]")}>
+            <tr className="bg-[#FEE1C7] dark:bg-[#1D2332]">
               {visibleColumns.map((c, colIndex) => {
                 const isFirst = colIndex === 0;
                 const isLast = colIndex === visibleColumns.length - 1;
@@ -850,6 +845,7 @@ export function DataTable<T>({
                 return (
                   <th
                     key={c.key}
+                    scope="col"
                     draggable={enableColumnReorder}
                     onDragStart={(e) => {
                       if (!enableColumnReorder) return;
@@ -884,7 +880,7 @@ export function DataTable<T>({
                       setDragOverColKey(null);
                     }}
                     className={cn(
-                      "group relative px-2.5 py-2 font-bold text-[#5C4E46] dark:text-[#E4E4E7] uppercase tracking-wider text-[10px] whitespace-nowrap bg-[#FFE7D3] dark:bg-[#1D2332] border-b border-[#F0D5C0] dark:border-border border-r border-[#F0D5C0]/60 dark:border-border/50 last:border-r-0 transition-colors select-none",
+                      "group relative select-none whitespace-nowrap border-b border-[#FDBA74] bg-[#FEE1C7]/92 backdrop-blur-md px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-[#7C2D12] transition-colors dark:border-border dark:bg-[#1D2332]/92 dark:text-[#E4E4E7]",
                       stickyHeader &&
                         "sticky top-0 z-20 shadow-[inset_0_-1px_0_0_var(--color-border)]",
                       c.align === "right"
@@ -892,9 +888,9 @@ export function DataTable<T>({
                         : c.align === "center"
                         ? "text-center"
                         : "text-left",
-                      c.sortable && "hover:bg-[#FCD8BE] dark:hover:bg-muted/70",
-                      c.sticky === "left" && "sticky left-0 bg-[#FFE7D3] dark:bg-[#1D2332] z-25 border-r border-[#F0D5C0] dark:border-border",
-                      c.sticky === "right" && "sticky right-0 bg-[#FFE7D3] dark:bg-[#1D2332] z-25 border-l border-[#F0D5C0] dark:border-border",
+                      c.sortable && "hover:bg-[#FED7AA] dark:hover:bg-muted/70",
+                      c.sticky === "left" && "sticky left-0 bg-[#FEE1C7]/95 dark:bg-[#1D2332]/95 z-25 border-r border-[#FDBA74] dark:border-border",
+                      c.sticky === "right" && "sticky right-0 bg-[#FEE1C7]/95 dark:bg-[#1D2332]/95 z-25 border-l border-[#FDBA74] dark:border-border",
                       draggedColKey === c.key && "opacity-40",
                       dragOverColKey === c.key &&
                         draggedColKey !== c.key &&
@@ -990,7 +986,7 @@ export function DataTable<T>({
               <tr>
                 <td
                   colSpan={visibleColumns.length || 1}
-                  className="px-3 py-8 text-center text-muted-foreground"
+                  className="px-3 py-6 text-center text-muted-foreground"
                 >
                   <div className="inline-flex items-center gap-2">
                     <div className="h-3 w-3 border-2 border-muted-foreground border-t-transparent rounded-full animate-spin" />
@@ -1003,7 +999,7 @@ export function DataTable<T>({
               <tr>
                 <td
                   colSpan={visibleColumns.length || 1}
-                  className="px-3 py-8 text-center text-muted-foreground text-xs"
+                  className="px-3 py-6 text-center text-xs text-muted-foreground"
                 >
                   {emptyMessage}
                 </td>
@@ -1014,13 +1010,16 @@ export function DataTable<T>({
                 <tr
                   key={idx}
                   onClick={() => onRowClick?.(row)}
+                  tabIndex={onRowClick ? 0 : undefined}
+                  onKeyDown={onRowClick ? (e) => { if (e.key === "Enter") onRowClick(row); } : undefined}
                   className={cn(
-                    "border-b border-border/40 last:border-b-0 transition-colors duration-150",
+                    "h-row border-b border-border/40 transition-colors duration-150 last:border-b-0",
+                    onRowClick && "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
                     // zebra striping
                     idx % 2 === 1 && !onRowClick && "bg-muted/15",
                     onRowClick
-                      ? "cursor-pointer hover:bg-[#FFEEDB] dark:hover:bg-white/[0.06] hover:text-foreground"
-                      : "hover:bg-[#FFF6EF] dark:hover:bg-white/[0.04]",
+                      ? "cursor-pointer hover:bg-[#FEEBD8] dark:hover:bg-white/[0.06] hover:text-foreground"
+                      : "hover:bg-[#FFF2E5] dark:hover:bg-white/[0.04]",
                     rowClassName?.(row)
                   )}
                 >
@@ -1032,16 +1031,19 @@ export function DataTable<T>({
                       ? { width: c.width }
                       : undefined;
 
+                    const fullValue = c.wrap ? undefined : cellTooltip(c, row);
                     return (
                       <td
                         key={c.key}
                         style={widthStyle}
+                        title={fullValue}
                         className={cn(
-                          "px-2.5 py-1.5 align-middle border-r border-border/40 last:border-r-0",
+                          "px-2.5 py-1 align-middle",
                           c.align === "right" &&
                             "text-right tabular-nums whitespace-nowrap",
                           c.align === "center" && "text-center whitespace-nowrap",
                           (!c.align || c.align === "left") && "text-left",
+                          (!c.align || c.align === "left") && !c.wrap && "max-w-[22rem] truncate whitespace-nowrap",
                           c.sticky === "left" &&
                             "sticky left-0 bg-inherit z-10 border-r border-border/50",
                           c.sticky === "right" &&
@@ -1059,14 +1061,14 @@ export function DataTable<T>({
       </div>
 
       {pagination && totalPages > 1 && (
-        <div className="flex items-center gap-2 text-[11px] text-muted-foreground px-3 py-1.5 border-t border-border bg-muted/30 flex-shrink-0">
+        <div className="flex flex-shrink-0 items-center gap-2 border-t border-border/80 bg-[#FFF3EB]/95 dark:bg-[#131720]/95 backdrop-blur-md px-card py-1.5 text-[11px] text-muted-foreground">
           <span>
             Page {page} of {totalPages}
           </span>
           <Button
             size="sm"
             variant="outline"
-            className="h-6 text-xs px-2"
+            className="h-7 px-2 text-xs"
             disabled={page === 1}
             onClick={() => setPage((p) => Math.max(1, p - 1))}
           >
@@ -1075,7 +1077,7 @@ export function DataTable<T>({
           <Button
             size="sm"
             variant="outline"
-            className="h-6 text-xs px-2"
+            className="h-7 px-2 text-xs"
             disabled={page === totalPages}
             onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
           >
@@ -1106,22 +1108,19 @@ function ColumnValueFilterPopover<T>({
   const [open, setOpen] = useState(false);
   const [searchValue, setSearchValue] = useState("");
 
-  // Staged selection while popover is open
-  const [stagedSelection, setStagedSelection] = useState<Set<string>>(() => {
-    if (activeSelectedValues && activeSelectedValues.size > 0) {
-      return new Set(activeSelectedValues);
-    }
-    return new Set(allUniqueValues.map((v) => v.value));
-  });
+  // The applied filter, or every value when no filter is applied.
+  const appliedSelection = () =>
+    activeSelectedValues && activeSelectedValues.size > 0
+      ? new Set(activeSelectedValues)
+      : new Set(allUniqueValues.map((v) => v.value));
 
-  // Keep staged selection in sync when active filter changes
-  useEffect(() => {
-    if (activeSelectedValues && activeSelectedValues.size > 0) {
-      setStagedSelection(new Set(activeSelectedValues));
-    } else {
-      setStagedSelection(new Set(allUniqueValues.map((v) => v.value)));
-    }
-  }, [activeSelectedValues, allUniqueValues]);
+  // Selection being edited. It starts from the applied filter each time the popover opens,
+  // so a change made elsewhere (Reset, Clear filters) is what the next edit starts from.
+  const [stagedSelection, setStagedSelection] = useState<Set<string>>(appliedSelection);
+  const handleOpenChange = (next: boolean) => {
+    if (next) setStagedSelection(appliedSelection());
+    setOpen(next);
+  };
 
   const filteredValues = useMemo(() => {
     if (!searchValue.trim()) return allUniqueValues;
@@ -1162,7 +1161,7 @@ function ColumnValueFilterPopover<T>({
   };
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>
         <button
           type="button"

@@ -556,7 +556,8 @@ describe("category navigation carries the exact key", () => {
     for (const category of [heartCategory, asscherCategory]) {
       const hash = navHash("analysis-stockout", null, { runId, category, malformed: false });
       const parsed = parseNavHash(hash);
-      expect(parsed?.view).toBe("analysis-stockout");
+      // Stockout Risk is a tab of Inventory; the former id resolves there with its context.
+      expect([parsed?.view, parsed?.tab]).toEqual(["analysis-inventory-position", "stockout"]);
       expect(parsed?.trace?.category).toBe(category);
       expect(parsed?.trace?.runId).toBe(runId);
     }

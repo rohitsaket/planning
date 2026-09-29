@@ -230,7 +230,7 @@ function StoneFact({ label, children, mono, numeric }: { label: string; children
 
 const TINT = { none: "", a: "bg-sky-50/70 dark:bg-sky-950/20", b: "bg-slate-50 dark:bg-slate-900/40" } as const;
 // Vertical rules separate the columns; the first cell of a row (and a full-width group label) has none.
-const cellPad = "px-3 py-1.5 border-l border-border/70 first:border-l-0";
+const cellPad = "px-3 py-1.5";
 
 /**
  * The only scroll region of the preview is this table's horizontal overflow, used when the

@@ -115,10 +115,9 @@ describe("runtime 401/403 sweep over every handler", () => {
       }
       rows.push(`| ${e.method} ${e.route} | ${e.guard} | ${anon} | ${cells.join(" | ")} |`);
     }
-    // The tracked matrix is documentation: it is rewritten only on request
-    // (ROUTE_SWEEP_MATRIX=update). An ordinary run writes its matrix to the system temp
-    // directory, so verification leaves no documentation change behind.
-    const out = process.env.ROUTE_SWEEP_MATRIX === "update" ? path.join(ROOT, "security-audit/remediation") : path.join(tmpdir(), "planning-route-sweep");
+    // Generated evidence, not source: written to the system temp directory so a run leaves
+    // nothing behind in the repository.
+    const out = path.join(tmpdir(), "planning-route-sweep");
     mkdirSync(out, { recursive: true });
     writeFileSync(
       path.join(out, "route-sweep-matrix.md"),

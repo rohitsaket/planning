@@ -1,11 +1,11 @@
+import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { ok } from "@/lib/api-utils";
 import { withApi } from "@/lib/api/with-api";
 import { badRequest } from "@/lib/api/errors";
 import { LIMITS } from "@/lib/api/rate-limit";
 import { hashPassword, verifyPassword, PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH } from "@/lib/auth/password";
-import { revokeAllSessions } from "@/lib/auth/session";
+import { createSession, revokeAllSessions, sessionCookie } from "@/lib/auth/session";
 
 /**
  * Authenticated password change, and the only way out of a restricted session.
@@ -16,6 +16,11 @@ import { revokeAllSessions } from "@/lib/auth/session";
  *
  * The current password is always verified, so possession of a live session is not by
  * itself enough to change the credential.
+ *
+ * On success the session is rotated: every session for the account, including the one that
+ * made the change, is ended and a fresh session is issued to this browser. Another device
+ * that held the old credential is signed out, and the token that was used while the
+ * password was temporary never becomes a full session.
  */
 const bodySchema = z
   .object({
@@ -26,7 +31,7 @@ const bodySchema = z
 
 export const POST = withApi(
   { authenticated: true, allowPasswordChangeSession: true, body: bodySchema, rateLimit: LIMITS.login },
-  async (_req, _ctx, api) => {
+  async (req, _ctx, api) => {
     const user = await db.user.findUniqueOrThrow({ where: { id: api.principal.userId } });
 
     if (!(await verifyPassword(api.body.currentPassword, user.passwordHash))) {
@@ -63,10 +68,10 @@ export const POST = withApi(
       });
     });
 
-    // Every other session for this account is ended, so a second session cannot keep
-    // using the old credential or bypass the restriction that has just been cleared.
-    await revokeAllSessions(user.id, { exceptSessionId: api.principal.sessionId });
-
-    return ok({ ok: true, mustChangePassword: false });
+    await revokeAllSessions(user.id);
+    const { token, maxAgeSeconds } = await createSession(user.id, { ip: api.sourceIp, userAgent: req.headers.get("user-agent") });
+    const res = NextResponse.json({ ok: true, mustChangePassword: false });
+    res.headers.append("set-cookie", sessionCookie(token, maxAgeSeconds));
+    return res;
   },
 );

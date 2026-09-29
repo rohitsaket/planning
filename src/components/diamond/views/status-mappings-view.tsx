@@ -34,7 +34,7 @@ const columns: Column<StatusMappingRow>[] = [
 export function StatusMappingsView() {
   const { data, isLoading } = useApi<{ rows: StatusMappingRow[] }>("/api/admin/status-mappings");
   return (
-    <div className="flex flex-col gap-3 p-3">
+    <div data-page-body className="flex flex-col gap-section px-page-x py-page-y">
       <Section title="Status Mapping" description="How each Fantasy status is classified for planning">
         <DataTable
           columns={columns}

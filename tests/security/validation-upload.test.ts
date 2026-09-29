@@ -2,7 +2,6 @@ import { beforeAll, describe, expect, test } from "./harness";
 import { call, db, makeCase, makeRough, makeUser, resetDb } from "./helpers";
 import { POST as approvals } from "@/app/api/planning/approvals/route";
 import { GET as sales } from "@/app/api/analysis/sales/route";
-import { GET as auditRecent } from "@/app/api/audit/recent/route";
 import { GET as cases } from "@/app/api/planning/cases/route";
 import { GET as requirements } from "@/app/api/requirements/route";
 import { PAGE_DEFAULT, PAGE_MAX, SCAN_MAX, scanned } from "@/lib/api/with-api";
@@ -45,10 +44,6 @@ describe("input handling (REL-002)", () => {
       expect(r.status).toBe(bad === "" ? 200 : 400);
     });
   }
-  test("audit/recent limit cannot be negative, NaN or above the cap", async () => {
-    for (const bad of ["-100000", "abc", "51"]) expect((await call(auditRecent, { cookie: admin.cookie, path: `/api/audit/recent?limit=${bad}` })).status).toBe(400);
-    expect((await call(auditRecent, { cookie: admin.cookie, path: "/api/audit/recent?limit=50" })).status).toBe(200);
-  });
 });
 
 describe("pagination (REL-001)", () => {

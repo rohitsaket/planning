@@ -104,7 +104,7 @@ export function SarinShapeMappingsView() {
   };
 
   return (
-    <div className="flex flex-col gap-3 p-3">
+    <div data-page-body className="flex flex-col gap-section px-page-x py-page-y">
       <div className="flex flex-wrap items-center gap-2">
         <h2 className="text-sm font-semibold">Sarin Shape Mapping</h2>
         <div className="ml-auto flex flex-wrap items-center gap-2">
@@ -340,7 +340,7 @@ function MappingForm({ initial, onCancel, onSaved }: { initial: FormValues; onCa
     ) : null;
 
   return (
-    <Section title={v.ruleId ? "Edit Mapping" : "Add Mapping"} bodyClassName="p-3">
+    <Section title={v.ruleId ? "Edit Mapping" : "Add Mapping"}>
       <form
         className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-6"
         aria-label={v.ruleId ? "Edit mapping" : "Add mapping"}

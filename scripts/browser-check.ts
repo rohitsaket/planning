@@ -10,7 +10,7 @@ import path from "node:path";
 const BASE = process.env.BROWSER_BASE || "http://127.0.0.1:3187";
 const CHROME = process.env.CHROME_BIN || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const PORT = 9333 + Math.floor(Math.random() * 500);
-const VIEWS = (process.env.BROWSER_VIEWS || "dashboard,analysis-sales,analysis-customers,requirements-matrix,planning-cases,planning-approval-queue,planning-reservations,admin-audit-log,admin-users-access").split(",");
+const VIEWS = (process.env.BROWSER_VIEWS || "dashboard,analysis-sales,analysis-customers-orders,analysis-inventory-position,fantasy-data,data-quality-issues,requirements-matrix,planning-workbook-import,planning-workbench,planning-approval-queue,admin-users-access,admin-mappings,admin-audit-log").split(",");
 
 const profile = mkdtempSync(path.join(tmpdir(), "sec-chrome-"));
 const chrome = spawn(CHROME, ["--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check", `--remote-debugging-port=${PORT}`, `--user-data-dir=${profile}`, "about:blank"], { stdio: "ignore" });
@@ -70,7 +70,7 @@ const setValue = (sel: string, v: string) =>
 await setValue("#username", process.env.BROWSER_USER!);
 await setValue("#password", process.env.BROWSER_PASS!);
 await evaluate(`document.querySelector('form button[type=submit]').click()`);
-const signedIn = await waitFor(`[...document.querySelectorAll('button')].some(b => b.textContent.trim() === 'Sign out')`);
+const signedIn = await waitFor(`!!document.querySelector('button[aria-label="Account menu"]')`);
 record("sign-in through the form reaches the application shell", signedIn);
 const cookieVisibleToJs = await evaluate(`document.cookie.includes('dp_session')`);
 record("session cookie is not readable from JavaScript (HttpOnly)", cookieVisibleToJs === false);
@@ -94,13 +94,16 @@ for (const view of VIEWS) {
 const csp = events.filter((e) => JSON.stringify(e.params).includes("Content Security Policy"));
 record("no Content-Security-Policy violations across all views", csp.length === 0, csp.slice(0, 3).map((e) => (e.params.entry?.text ?? "").slice(0, 200)).join(" ; "));
 
+// Sign out lives in the account menu opened from the profile chip.
+await evaluate(`document.querySelector('button[aria-label="Account menu"]').click(); true`);
+await waitFor(`[...document.querySelectorAll('button')].some(b => b.textContent.trim() === 'Sign out')`);
 await evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Sign out').click()`);
 record("sign out returns to the sign-in gate", await waitFor(`!!document.querySelector('input[autocomplete="current-password"]')`));
 
 ws.close();
 chrome.kill();
-const scriptDir = import.meta.dirname || (import.meta as any).dir || path.dirname(new URL(import.meta.url).pathname);
-const out = path.resolve(scriptDir, "../security-audit/remediation");
+// Generated evidence, not source: it goes to the system temp directory, never the repository.
+const out = path.join(tmpdir(), "planning-browser-check");
 mkdirSync(out, { recursive: true });
 writeFileSync(path.join(out, "browser-check.md"), `# Browser check — headless Chrome via DevTools protocol against ${BASE}\n\nRun: ${new Date().toISOString()}\n\n| Result | Check | Detail |\n|---|---|---|\n${results.map((r) => `| ${r.ok ? "PASS" : "FAIL"} | ${r.check} | ${r.detail.replace(/\|/g, "\\|")} |`).join("\n")}\n`);
 const failed = results.filter((r) => !r.ok);

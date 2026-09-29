@@ -81,6 +81,11 @@ export function ApprovalQueueView() {
   const [actingId, setActingId] = useState<string | null>(null);
   const [replanTarget, setReplanTarget] = useState<ApprovalRow | null>(null);
   const [replanReason, setReplanReason] = useState("");
+  const [actionTarget, setActionTarget] = useState<{
+    row: ApprovalRow;
+    action: "approve" | "reject";
+  } | null>(null);
+  const [actionComment, setActionComment] = useState("");
   const canApprove = useAuthStore((s) => !!s.user?.permissions.includes("plan.approve"));
   const canReplan = useAuthStore((s) => !!s.user?.permissions.includes("plan.replan"));
 
@@ -104,6 +109,8 @@ export function ApprovalQueueView() {
       qc.invalidateQueries({ queryKey: ["/api/planning/approvals"] });
       qc.invalidateQueries({ queryKey: ["/api/planning/cases"] });
       setActingId(null);
+      setActionTarget(null);
+      setActionComment("");
     },
     onError: (e: unknown) => {
       toast({
@@ -159,17 +166,25 @@ export function ApprovalQueueView() {
     });
   };
 
-  const act = (row: ApprovalRow, action: "approve" | "reject") => {
-    const comment =
-      window.prompt(
-        `${action === "approve" ? "Approve this plan" : "Reject this plan"} (${row.caseCode}). Comment (optional):`,
-        row.approvalComment ?? ""
-      ) ?? "";
-    // If user hits Cancel on prompt, window.prompt returns null — treat as abort.
-    if (comment === null && action === "approve") return;
-    if (comment === null) return;
+  const openAction = (row: ApprovalRow, action: "approve" | "reject") => {
+    setActionTarget({ row, action });
+    setActionComment(row.approvalComment ?? "");
+  };
+
+  const cancelAction = () => {
+    setActionTarget(null);
+    setActionComment("");
+  };
+
+  const confirmAction = () => {
+    if (!actionTarget) return;
+    const { row, action } = actionTarget;
     setActingId(row.id);
-    mutation.mutate({ caseId: row.id, action, comment });
+    mutation.mutate({
+      caseId: row.id,
+      action,
+      comment: actionComment.trim(),
+    });
   };
 
   const columns: Column<ApprovalRow>[] = [
@@ -328,12 +343,12 @@ export function ApprovalQueueView() {
             <Button
               size="sm"
               variant="default"
-              className="h-7 text-xs"
+              className="h-7 text-xs bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer"
               disabled={acting}
-              onClick={() => act(r, "approve")}
+              onClick={() => openAction(r, "approve")}
               title="Approve this plan"
             >
-              {mutation.isPending && actingId === r.id ? (
+              {mutation.isPending && actingId === r.id && actionTarget?.action === "approve" ? (
                 <div className="h-3 w-3 border-2 border-white border-t-transparent rounded-full animate-spin mr-1" />
               ) : (
                 <Check className="h-3 w-3 mr-1" />
@@ -345,12 +360,16 @@ export function ApprovalQueueView() {
             <Button
               size="sm"
               variant="outline"
-              className="h-7 text-xs text-rose-700 dark:text-rose-300 border-rose-300 dark:border-rose-900"
+              className="h-7 text-xs text-rose-700 dark:text-rose-300 border-rose-300 dark:border-rose-900 hover:bg-rose-50 dark:hover:bg-rose-950/40 cursor-pointer"
               disabled={acting}
-              onClick={() => act(r, "reject")}
+              onClick={() => openAction(r, "reject")}
               title="Reject this plan"
             >
-              <X className="h-3 w-3 mr-1" />
+              {mutation.isPending && actingId === r.id && actionTarget?.action === "reject" ? (
+                <div className="h-3 w-3 border-2 border-rose-600 border-t-transparent rounded-full animate-spin mr-1" />
+              ) : (
+                <X className="h-3 w-3 mr-1" />
+              )}
               Reject
             </Button>
             )}
@@ -378,7 +397,7 @@ export function ApprovalQueueView() {
   ];
 
   return (
-    <div className="flex flex-col gap-3 p-3">
+    <div data-page-body className="flex flex-col gap-section px-page-x py-page-y">
       <PageHeader
         title="Approval Queue"
         subtitle="Plans awaiting review"
@@ -501,6 +520,109 @@ export function ApprovalQueueView() {
                 <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
               )}
               Confirm Replan
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {/* Approve / Reject Confirmation Dialog */}
+      <Dialog
+        open={!!actionTarget}
+        onOpenChange={(o) => {
+          if (!o) cancelAction();
+        }}
+      >
+        <DialogContent className="max-w-md sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-sm font-semibold">
+              {actionTarget?.action === "approve" ? (
+                <>
+                  <div className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
+                    <Check className="h-4 w-4" />
+                  </div>
+                  <span>Approve Plan ({actionTarget.row.caseCode})</span>
+                </>
+              ) : (
+                <>
+                  <div className="flex h-7 w-7 items-center justify-center rounded-full bg-rose-500/15 text-rose-600 dark:text-rose-400">
+                    <X className="h-4 w-4" />
+                  </div>
+                  <span>Reject Plan ({actionTarget?.row.caseCode})</span>
+                </>
+              )}
+            </DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground pt-1">
+              {actionTarget?.action === "approve" ? (
+                <>
+                  Are you sure you want to approve plan <span className="font-semibold text-foreground">{actionTarget.row.caseCode}</span>?
+                  {actionTarget.row.selectedOptionCode && (
+                    <span> Selected option: <span className="font-mono text-foreground">{actionTarget.row.selectedOptionCode}</span>.</span>
+                  )}
+                </>
+              ) : (
+                <>
+                  Are you sure you want to reject plan <span className="font-semibold text-foreground">{actionTarget?.row.caseCode}</span>?
+                  The plan will be sent back with your review notes.
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+
+          {actionTarget?.row.validationWarnings && (
+            <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 text-xs text-amber-800 dark:text-amber-200">
+              <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
+              <div>
+                <span className="font-semibold">Validation Warnings:</span> {actionTarget.row.validationWarnings}
+              </div>
+            </div>
+          )}
+
+          <div className="flex flex-col gap-1.5 py-1">
+            <Label htmlFor="action-comment" className="text-xs font-medium text-foreground">
+              {actionTarget?.action === "approve" ? "Approval Notes (Optional)" : "Rejection Reason / Notes (Optional)"}
+            </Label>
+            <Textarea
+              id="action-comment"
+              value={actionComment}
+              onChange={(e) => setActionComment(e.target.value)}
+              placeholder={
+                actionTarget?.action === "approve"
+                  ? "Add optional confirmation notes or manufacturing instructions..."
+                  : "Add feedback explaining why this plan was rejected..."
+              }
+              rows={3}
+              className="text-xs resize-none"
+              autoFocus
+            />
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 text-xs cursor-pointer"
+              onClick={cancelAction}
+              disabled={mutation.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              className={
+                actionTarget?.action === "approve"
+                  ? "h-8 text-xs bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5 cursor-pointer shadow-sm"
+                  : "h-8 text-xs bg-rose-600 hover:bg-rose-700 text-white gap-1.5 cursor-pointer shadow-sm"
+              }
+              onClick={confirmAction}
+              disabled={mutation.isPending}
+            >
+              {mutation.isPending ? (
+                <div className="h-3.5 w-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              ) : actionTarget?.action === "approve" ? (
+                <Check className="h-3.5 w-3.5" />
+              ) : (
+                <X className="h-3.5 w-3.5" />
+              )}
+              {actionTarget?.action === "approve" ? "Confirm Approval" : "Confirm Rejection"}
             </Button>
           </DialogFooter>
         </DialogContent>

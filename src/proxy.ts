@@ -59,15 +59,16 @@ export function proxy(req: NextRequest) {
   }
 
   const nonce = btoa(crypto.randomUUID());
-  const realtime = isDev ? " http://localhost:3001 ws://localhost:3001 ws://localhost:* ws://127.0.0.1:* ws: wss:" : "";
+  // Development only: the local hot-reload socket. The application opens no other connections.
+  const devReload = isDev ? " ws://localhost:* ws://127.0.0.1:*" : "";
   const csp = [
     "default-src 'self'",
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${isDev ? " 'unsafe-eval'" : ""}`,
-    // Radix, Recharts and framer-motion set inline style attributes; inline <script> stays blocked.
+    // Radix and Recharts set inline style attributes; inline <script> stays blocked.
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob:",
     "font-src 'self'",
-    `connect-src 'self'${realtime}`,
+    `connect-src 'self'${devReload}`,
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",

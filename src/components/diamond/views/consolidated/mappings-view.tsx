@@ -9,7 +9,7 @@ import { SarinShapeMappingsView } from "@/components/diamond/views/sarin/sarin-s
 import { Scale, Gem, Diamond, Workflow, Shapes } from "lucide-react";
 
 // Mapping and master-data tabs. Each keeps its own permission, enforced by its API.
-const TABS: HostTabItem[] = [
+export const MAPPINGS_TABS: HostTabItem[] = [
   { id: "weight-bands", label: "Weight Bands", icon: <Scale className="h-3.5 w-3.5" />, permission: "config.read", component: WeightBandsView },
   { id: "lab-mappings", label: "Lab Mapping", icon: <Gem className="h-3.5 w-3.5" />, permission: "config.read", component: LabMappingsView },
   { id: "shape-mappings", label: "Shape Mapping", icon: <Diamond className="h-3.5 w-3.5" />, permission: "config.read", component: ShapeMappingsView },
@@ -18,5 +18,5 @@ const TABS: HostTabItem[] = [
 ];
 
 export function MappingsView() {
-  return <TabbedHostView title="Mappings" subtitle="How incoming values map to business values" tabs={TABS} defaultTab="weight-bands" />;
+  return <TabbedHostView title="Mappings" subtitle="How incoming values map to business values" tabs={MAPPINGS_TABS} defaultTab="weight-bands" />;
 }

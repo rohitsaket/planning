@@ -419,11 +419,11 @@ export function ExecutiveAnalysisView() {
               className={cn(
                 "flex items-center gap-2 px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer",
                 isActive
-                  ? "bg-[#FFE2D1] text-[#18181B] dark:bg-[#272322] dark:text-[#FFEDD5] font-bold shadow-2xs border border-[#F5DCD0]/70 dark:border-[#3A302A]"
+                  ? "bg-[#FED7AA] text-[#7C2D12] dark:bg-[#272322] dark:text-[#FFEDD5] font-bold shadow-2xs border border-[#FB923C]/70 dark:border-[#3A302A]"
                   : "text-muted-foreground hover:text-foreground hover:bg-muted/70"
               )}
             >
-              <Icon className={cn("h-3.5 w-3.5", isActive ? "text-[#F9733E]" : "text-muted-foreground")} />
+              <Icon className={cn("h-3.5 w-3.5", isActive ? "text-[#F97316]" : "text-muted-foreground")} />
               <span>{tab.label}</span>
             </button>
           );

@@ -9,7 +9,6 @@ import {
   readInventoryPosition,
   readInventoryReadiness,
   readLotInventory,
-  reconcileWithMirrors,
   SHORTAGE_ELIGIBLE_BUCKET,
 } from "@/lib/analysis/inventory-position";
 
@@ -206,8 +205,7 @@ describe("Analysis Inventory — buckets", () => {
     expect(stored).toBe(1);
   });
 
-  test("shadow projection candidates never enter inventory", async () => {
-    const recon = await reconcileWithMirrors();
+  test("retired shadow projection history never enters inventory", async () => {
     const lots = await readLotInventory(SCOPED, { page: 1, pageSize: 200 }, "lotId", false);
     const canonical = new Set(
       (await db.lotMasterRecord.findMany({ where: { isCurrent: true, lotId: { contains: BATCH } }, select: { lotId: true } })).map((r) => r.lotId),
@@ -215,7 +213,6 @@ describe("Analysis Inventory — buckets", () => {
     // Every lot shown is a canonical record; the projection tables are never a source.
     expect({ notCanonical: lots.rows.filter((r) => !canonical.has(r.lotId)).map((r) => r.lotId) })
       .toEqual({ notCanonical: [] });
-    expect(recon.shadowProjectionCandidates >= 0).toBe(true);
   });
 });
 

@@ -170,7 +170,7 @@ export function OrdersView() {
   }, [filteredRows]);
 
   return (
-    <div className="flex flex-col gap-3 p-3">
+    <div data-page-body className="flex flex-col gap-section px-page-x py-page-y">
       <PageHeader
         title="Order Analysis"
         subtitle="Sales orders with line-level quantities, outstanding balances and backorders"

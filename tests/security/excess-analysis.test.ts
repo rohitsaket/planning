@@ -340,7 +340,8 @@ describe("excess navigation carries the exact category", () => {
   test("Heart opens Heart and Asscher opens Asscher through the shared hash contract", () => {
     for (const category of ["GIA|HEART|1.10-1.49", "GIA|ASSCHER|1.10-1.49"]) {
       const parsed = parseNavHash(navHash("analysis-excess", null, { runId, category, malformed: false }));
-      expect(parsed?.view).toBe("analysis-excess");
+      // Excess Stock is a tab of Inventory; the former id resolves there with its context.
+      expect([parsed?.view, parsed?.tab]).toEqual(["analysis-inventory-position", "excess"]);
       expect(parsed?.trace?.category).toBe(category);
       expect(parsed?.trace?.runId).toBe(runId);
     }

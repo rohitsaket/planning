@@ -68,7 +68,7 @@ export function UsersTab() {
   };
 
   return (
-    <div className="flex flex-col gap-3 p-3 sm:p-4">
+    <div data-page-body className="flex flex-col gap-section px-page-x py-page-y">
       {canReview && <AccessRequestQueue onDecided={refresh} />}
 
       {canReadUsers ? (
@@ -94,14 +94,14 @@ export function UsersTab() {
             <table className="w-full min-w-[880px] text-left text-xs">
               <thead className="bg-muted/40 text-[11px] uppercase tracking-wide text-muted-foreground">
                 <tr>
-                  <th scope="col" className="px-3 py-2 font-semibold">Name</th>
-                  <th scope="col" className="px-3 py-2 font-semibold">Username / email</th>
-                  <th scope="col" className="px-3 py-2 font-semibold">Status</th>
-                  <th scope="col" className="px-3 py-2 font-semibold">Roles</th>
-                  <th scope="col" className="px-3 py-2 font-semibold">Scope</th>
-                  <th scope="col" className="px-3 py-2 font-semibold">Last sign-in</th>
-                  <th scope="col" className="px-3 py-2 font-semibold">Access</th>
-                  <th scope="col" className="px-3 py-2 font-semibold"><span className="sr-only">Actions</span></th>
+                  <th scope="col" className="px-3 py-1.5 font-semibold">Name</th>
+                  <th scope="col" className="px-3 py-1.5 font-semibold">Username / email</th>
+                  <th scope="col" className="px-3 py-1.5 font-semibold">Status</th>
+                  <th scope="col" className="px-3 py-1.5 font-semibold">Roles</th>
+                  <th scope="col" className="px-3 py-1.5 font-semibold">Scope</th>
+                  <th scope="col" className="px-3 py-1.5 font-semibold">Last sign-in</th>
+                  <th scope="col" className="px-3 py-1.5 font-semibold">Access</th>
+                  <th scope="col" className="px-3 py-1.5 font-semibold"><span className="sr-only">Actions</span></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -113,22 +113,22 @@ export function UsersTab() {
                   <tr><td colSpan={8} className="px-3 py-6 text-center text-muted-foreground">{search ? "No users match your search." : "No users yet."}</td></tr>
                 ) : (
                   rows.map((u) => (
-                    <tr key={u.id} className="hover:bg-muted/30">
-                      <td className="px-3 py-2 font-medium">{u.name}</td>
-                      <td className="px-3 py-2">
+                    <tr key={u.id} className="h-row hover:bg-muted/30">
+                      <td className="whitespace-nowrap px-3 py-1 font-medium">{u.name}</td>
+                      <td className="whitespace-nowrap px-3 py-1">
                         <span className="font-mono">{u.username}</span>
-                        {u.email && <span className="block text-muted-foreground">{u.email}</span>}
+                        {u.email && <span className="text-muted-foreground"> · {u.email}</span>}
                       </td>
-                      <td className="px-3 py-2"><Badge variant={STATUS_VARIANT[u.displayStatus]}>{STATUS_LABEL[u.displayStatus]}</Badge></td>
-                      <td className="px-3 py-2">
+                      <td className="whitespace-nowrap px-3 py-1"><Badge variant={STATUS_VARIANT[u.displayStatus]}>{STATUS_LABEL[u.displayStatus]}</Badge></td>
+                      <td className="whitespace-nowrap px-3 py-1">
                         <div className="flex flex-wrap gap-1">
                           {u.roles.map((code) => <Badge key={code} variant={code === "SUPER_ADMIN" ? "critical" : "default"}>{roleName(code)}</Badge>)}
                         </div>
                       </td>
-                      <td className="max-w-[220px] px-3 py-2 text-muted-foreground">{scopeSummary(u.accessScope)}</td>
-                      <td className="px-3 py-2 tabular-nums text-muted-foreground">{formatWhen(u.lastActive)}</td>
-                      <td className="px-3 py-2 tabular-nums">{u.permissionCount} permissions</td>
-                      <td className="px-3 py-2 text-right">
+                      <td className="max-w-[220px] truncate px-3 py-1 text-muted-foreground" title={scopeSummary(u.accessScope)}>{scopeSummary(u.accessScope)}</td>
+                      <td className="whitespace-nowrap px-3 py-1 tabular-nums text-muted-foreground">{formatWhen(u.lastActive)}</td>
+                      <td className="whitespace-nowrap px-3 py-1 tabular-nums">{u.permissionCount} permissions</td>
+                      <td className="whitespace-nowrap px-3 py-1 text-right">
                         <Button size="sm" variant="outline" className="h-7" onClick={() => setSelectedId(u.id)} aria-label={`Details for ${u.name}`}>Details</Button>
                       </td>
                     </tr>

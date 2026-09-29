@@ -5,7 +5,7 @@ import { SalesAnalysisView } from "@/components/diamond/views/sales-analysis-vie
 import { SalesTrendsView } from "@/components/diamond/views/sales-trends-view";
 import { TrendingUp, Activity } from "lucide-react";
 
-// Sidebar module "Sales Analysis & Trends" (view id `analysis-sales`).
+// Sidebar module "Sales & Trends" (view id `analysis-sales`).
 // Two tabs over one authoritative sales snapshot: what sold and in which category
 // (/api/analysis/sales, /api/analysis/sales/records), and how activity moved between
 // periods (/api/analysis/sales/trend, /movement, /contribution). Only the active tab is
@@ -24,7 +24,7 @@ export const SALES_ANALYSIS_DEFAULT_TAB = "analysis";
 export function SalesAnalysisTrendsView() {
   return (
     <TabbedHostView
-      title="Sales Analysis & Trends"
+      title="Sales & Trends"
       subtitle="Confirmed sales by category and period"
       tabs={SALES_ANALYSIS_TABS}
       defaultTab={SALES_ANALYSIS_DEFAULT_TAB}

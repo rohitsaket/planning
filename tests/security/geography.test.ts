@@ -5,7 +5,6 @@ import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { Prisma } from "@prisma/client";
 import { GET as countries } from "@/app/api/analysis/countries/route";
-import { GET as transferCandidates } from "@/app/api/analysis/transfer-candidates/route";
 import {
   EMPTY_GEOGRAPHY_FILTERS,
   GEOGRAPHIC_DEMAND_UNAVAILABLE_MESSAGE,
@@ -177,21 +176,6 @@ describe("Country & Branch — no geographic demand is invented", () => {
     resetRateLimits();
     const res = await call(countries, { path: "/api/analysis/countries", cookie: analyst.cookie });
     expect(JSON.stringify(res.json).includes(BATCH + "-REQ")).toBe(false);
-  });
-
-  test("the Country page and the Transfer Analyzer give the same reason", async () => {
-    const analyst = await makeUser("geo.agree", "DATA_ANALYST");
-    resetRateLimits();
-    const country = await call(countries, { path: "/api/analysis/countries", cookie: analyst.cookie });
-    resetRateLimits();
-    const transfer = await call(transferCandidates, { path: "/api/analysis/transfer-candidates", cookie: analyst.cookie });
-
-    // Both must say demand is not calculated per location, and neither may offer a
-    // recommendation. The contradiction was that one of them did.
-    expect(country.json.geographicDemandMessage).toContain("not currently calculated by country or branch");
-    expect(String(transfer.json.unavailableMessage)).toContain("not currently calculated by country or branch");
-    expect(transfer.json.recommendationsAvailable).toBe(false);
-    expect(country.json.geographicDemandAvailable).toBe(false);
   });
 
   test("the legacy stock-position analytics module is gone, not merely unused", async () => {

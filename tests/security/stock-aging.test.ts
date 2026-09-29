@@ -4,7 +4,6 @@ import { resetRateLimits } from "@/lib/api/rate-limit";
 import { Prisma } from "@prisma/client";
 import { GET as aging } from "@/app/api/analysis/aging/route";
 import { GET as agingDashboard } from "@/app/api/analysis/aging-dashboard/route";
-import { GET as transferCandidates } from "@/app/api/analysis/transfer-candidates/route";
 import {
   AGING_LOCATION_MAX,
   EMPTY_AGING_FILTERS,
@@ -105,7 +104,6 @@ describe("Stock Aging — authorization", () => {
       ["aging lots", aging, "/api/analysis/aging?section=lots"],
       ["aging summary", aging, "/api/analysis/aging?section=summary"],
       ["dashboard", agingDashboard, "/api/analysis/aging-dashboard"],
-      ["transfer", transferCandidates, "/api/analysis/transfer-candidates"],
     ] as const) {
       resetRateLimits();
       const res = await call(handler, { path });
@@ -126,7 +124,6 @@ describe("Stock Aging — authorization", () => {
       ["aging lots", aging, "/api/analysis/aging?section=lots"],
       ["aging summary", aging, "/api/analysis/aging?section=summary"],
       ["dashboard", agingDashboard, "/api/analysis/aging-dashboard"],
-      ["transfer", transferCandidates, "/api/analysis/transfer-candidates"],
     ] as const) {
       resetRateLimits();
       const res = await call(handler, { path, cookie: analyst.cookie });
@@ -406,14 +403,5 @@ describe("Stock Aging — no age is reported", () => {
     ]);
     expect(summary.availability).toBe(lots.availability);
     expect(summary.unavailableMessage).toBe(lots.unavailableMessage);
-  });
-
-  test("the transfer surface still makes no recommendation", async () => {
-    const analyst = await makeUser("aging.transfer", "DATA_ANALYST");
-    resetRateLimits();
-    const res = await call(transferCandidates, { path: `/api/analysis/transfer-candidates?search=${BATCH}`, cookie: analyst.cookie });
-    expect(res.status).toBe(200);
-    expect(res.json.recommendationsAvailable).toBe(false);
-    expect(res.json.candidates).toEqual([]);
   });
 });

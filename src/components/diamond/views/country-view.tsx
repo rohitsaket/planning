@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useApi } from "@/lib/api-client";
 import { useGlobalFilter } from "@/stores/global-filter";
 import { KpiCard } from "@/components/diamond/shared/kpi-card";
@@ -10,6 +10,7 @@ import { NumberCell, InfoBanner } from "@/components/diamond/shared/empty-state"
 import { Boxes, Globe, Info, Package, Users } from "lucide-react";
 import { SimulationBanner } from "@/components/diamond/shared/simulation-banner";
 import type { SourceDisclosure } from "@/lib/analysis/source-disclosure";
+import { cn } from "@/lib/utils";
 
 /**
  * COUNTRY & BRANCH — what is known per location.
@@ -147,125 +148,193 @@ export function CountryView() {
     { key: "lotsNeedingReview", header: "Needing review", align: "right", cell: (r) => <NumberCell value={r.lotsNeedingReview} zeroAsDash intent="warning" /> },
   ];
 
-  return (
-    <div className="flex flex-col gap-3 p-3">
-      <PageHeader
-        title="Country / Branch Analysis"
-        subtitle="Confirmed sales and current inventory, by location"
-        meta={
-          sales?.snapshot ? (
-            <span className="text-[10px] text-muted-foreground">
-              Sales snapshot: {sales.snapshot.periodLabel}
-              {sales.snapshot.isSimulated ? " · fixture simulation" : ""}
-            </span>
-          ) : undefined
-        }
-      />
-      {/* Persistent and unmistakable while fixture data is on screen. */}
-      <SimulationBanner disclosure={data?.sourceDisclosure} />
+  const [activeTab, setActiveTab] = useState<"country" | "branch" | "inventory">("country");
 
-      {/*
-        Stated on every render, not only when a snapshot is missing. The demand target is
-        calculated once per planning category for the whole business and carries no
-        location, so a country-level shortage cannot be derived from it. Without this the
-        two tables below read as a shortage analysis that simply has no shortage column.
-      */}
-      <InfoBanner variant="warning">
-        <div className="space-y-1">
-          <span className="flex items-center gap-2 font-semibold">
-            <Info className="h-4 w-4" />
-            {data?.geographicDemandMessage ??
-              "Demand is not currently calculated by country or branch."}
+  const renderTabs = (active: "country" | "branch" | "inventory") => (
+    <div className="flex items-center gap-1.5 p-0.5 rounded-lg border border-border/80 bg-muted/40 backdrop-blur-md shadow-2xs">
+      <button
+        type="button"
+        onClick={() => setActiveTab("country")}
+        className={cn(
+          "flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-md transition-all cursor-pointer",
+          active === "country"
+            ? "bg-[#FFE2D1] text-[#18181B] dark:bg-[#272322] dark:text-[#FFEDD5] font-bold shadow-2xs border border-[#F5DCD0]/70 dark:border-[#3A302A]"
+            : "text-muted-foreground hover:text-foreground hover:bg-muted/70"
+        )}
+      >
+        <span>Sales by Country</span>
+        {sales?.byCountry !== undefined && (
+          <span className={cn("px-1.5 py-0.2 rounded-full text-[10px]", active === "country" ? "bg-[#18181B]/15 text-[#18181B] dark:bg-white/20 dark:text-white" : "bg-muted text-muted-foreground")}>
+            {sales.byCountry.length}
           </span>
+        )}
+      </button>
+      <button
+        type="button"
+        onClick={() => setActiveTab("branch")}
+        className={cn(
+          "flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-md transition-all cursor-pointer",
+          active === "branch"
+            ? "bg-[#FFE2D1] text-[#18181B] dark:bg-[#272322] dark:text-[#FFEDD5] font-bold shadow-2xs border border-[#F5DCD0]/70 dark:border-[#3A302A]"
+            : "text-muted-foreground hover:text-foreground hover:bg-muted/70"
+        )}
+      >
+        <span>Sales by Branch</span>
+        {sales?.byBranch !== undefined && (
+          <span className={cn("px-1.5 py-0.2 rounded-full text-[10px]", active === "branch" ? "bg-[#18181B]/15 text-[#18181B] dark:bg-white/20 dark:text-white" : "bg-muted text-muted-foreground")}>
+            {sales.byBranch.length}
+          </span>
+        )}
+      </button>
+      <button
+        type="button"
+        onClick={() => setActiveTab("inventory")}
+        className={cn(
+          "flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-md transition-all cursor-pointer",
+          active === "inventory"
+            ? "bg-[#FFE2D1] text-[#18181B] dark:bg-[#272322] dark:text-[#FFEDD5] font-bold shadow-2xs border border-[#F5DCD0]/70 dark:border-[#3A302A]"
+            : "text-muted-foreground hover:text-foreground hover:bg-muted/70"
+        )}
+      >
+        <span>Inventory by Location</span>
+        {data?.inventory.byLocation !== undefined && (
+          <span className={cn("px-1.5 py-0.2 rounded-full text-[10px]", active === "inventory" ? "bg-[#18181B]/15 text-[#18181B] dark:bg-white/20 dark:text-white" : "bg-muted text-muted-foreground")}>
+            {data.inventory.byLocation.length}
+          </span>
+        )}
+      </button>
+    </div>
+  );
+
+  return (
+    <div data-page-body className="flex flex-col gap-section px-page-x py-page-y flex-1 min-h-0 overflow-hidden">
+      <div className="flex-shrink-0 flex flex-col gap-section">
+        <PageHeader
+          title="Country / Branch Analysis"
+          subtitle="Confirmed sales and current inventory, by location"
+          meta={
+            sales?.snapshot ? (
+              <span className="text-[10px] text-muted-foreground">
+                Sales snapshot: {sales.snapshot.periodLabel}
+                {sales.snapshot.isSimulated ? " · fixture simulation" : ""}
+              </span>
+            ) : undefined
+          }
+        />
+        {/* Persistent and unmistakable while fixture data is on screen. */}
+        <SimulationBanner disclosure={data?.sourceDisclosure} />
+
+        {/*
+          Stated on every render, not only when a snapshot is missing. The demand target is
+          calculated once per planning category for the whole business and carries no
+          location, so a country-level shortage cannot be derived from it. Without this the
+          tables read as a shortage analysis that simply has no shortage column.
+        */}
+        <InfoBanner variant="warning">
+          <div className="space-y-1">
+            <span className="flex items-center gap-2 font-semibold">
+              <Info className="h-4 w-4" />
+              {data?.geographicDemandMessage ??
+                "Demand is not currently calculated by country or branch."}
+            </span>
+          </div>
+        </InfoBanner>
+
+        {sales && !sales.available && sales.unavailableMessage && (
+          <InfoBanner variant="warning">{sales.unavailableMessage}</InfoBanner>
+        )}
+
+        <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+          <KpiCard label="Countries with sales" value={sales?.totals.countries ?? 0} intent="info" icon={Globe} hint="In the confirmed sales snapshot" />
+          <KpiCard label="Sold quantity" value={sales?.totals.confirmedQuantity ?? 0} unit="pcs" intent="success" icon={Package} hint="Confirmed sales in the snapshot window" />
+          <KpiCard label="Sale records" value={sales?.totals.saleRecordCount ?? 0} intent="default" icon={Users} hint="Individual confirmed sale records" />
+          <KpiCard label="Current lots" value={data?.inventory.currentLots ?? 0} intent="info" icon={Boxes} hint="Records currently in stock" />
         </div>
-      </InfoBanner>
-
-      {sales && !sales.available && sales.unavailableMessage && (
-        <InfoBanner variant="warning">{sales.unavailableMessage}</InfoBanner>
-      )}
-
-      <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-        <KpiCard label="Countries with sales" value={sales?.totals.countries ?? 0} intent="info" icon={Globe} hint="In the confirmed sales snapshot" />
-        <KpiCard label="Sold quantity" value={sales?.totals.confirmedQuantity ?? 0} unit="pcs" intent="success" icon={Package} hint="Confirmed sales in the snapshot window" />
-        <KpiCard label="Sale records" value={sales?.totals.saleRecordCount ?? 0} intent="default" icon={Users} hint="Individual confirmed sale records" />
-        <KpiCard label="Current lots" value={data?.inventory.currentLots ?? 0} intent="info" icon={Boxes} hint="Records currently in stock" />
       </div>
 
-      <Section
-        title="Confirmed sales by country"
-        description="Confirmed sales in the snapshot window, by country"
-      >
-        {sales?.rows.truncated && (
-          <div className="border-b border-border px-4 py-2 text-[11px] text-muted-foreground">
-            The list is limited to {sales.rows.limit} rows; narrow the filters to see the rest.
-          </div>
+      <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+        {activeTab === "country" && (
+          <Section
+            title={renderTabs("country")}
+            description="Confirmed sales in the snapshot window, by country"
+            className="flex-1 min-h-0 flex flex-col"
+          >
+            {sales?.rows.truncated && (
+              <div className="border-b border-border px-4 py-2 text-[11px] text-muted-foreground flex-shrink-0">
+                The list is limited to {sales.rows.limit} rows; narrow the filters to see the rest.
+              </div>
+            )}
+            <DataTable<SalesRow>
+              columns={salesColumns}
+              rows={sales?.byCountry ?? []}
+              loading={isLoading}
+              emptyMessage="No confirmed sales in the snapshot window match the active filters."
+              initialSortKey="confirmedQuantity"
+              initialSortDir="desc"
+              exportable
+              exportPermission="analysis.export"
+              exportFilename="sales-by-country.csv"
+              searchable
+              searchPlaceholder="Search country..."
+              searchFn={(r, q) => r.country.toLowerCase().includes(q.toLowerCase())}
+              pagination
+              pageSize={25}
+            />
+          </Section>
         )}
-        <DataTable<SalesRow>
-          columns={salesColumns}
-          rows={sales?.byCountry ?? []}
-          loading={isLoading}
-          emptyMessage="No confirmed sales in the snapshot window match the active filters."
-          initialSortKey="confirmedQuantity"
-          initialSortDir="desc"
-          exportable
-          exportPermission="analysis.export"
-          exportFilename="sales-by-country.csv"
-          searchable
-          searchPlaceholder="Search country..."
-          searchFn={(r, q) => r.country.toLowerCase().includes(q.toLowerCase())}
-          pagination
-          pageSize={25}
-          maxHeight="420px"
-        />
-      </Section>
 
-      <Section
-        title="Confirmed sales by branch"
-        description={
-          identityVisible
-            ? "The same sales, broken down by branch."
-            : "The same sales, broken down by branch. Customer counts are withheld without customer access."
-        }
-      >
-        <DataTable<SalesRow>
-          columns={branchColumns}
-          rows={sales?.byBranch ?? []}
-          loading={isLoading}
-          emptyMessage="No confirmed sales in the snapshot window match the active filters."
-          initialSortKey="confirmedQuantity"
-          initialSortDir="desc"
-          exportable
-          exportPermission="analysis.export"
-          exportFilename="sales-by-branch.csv"
-          pagination
-          pageSize={25}
-          maxHeight="420px"
-        />
-      </Section>
-
-      <Section
-        title="Current inventory by location"
-        description="Where current stock sits today"
-      >
-        {data?.inventory.locations.truncated && (
-          <div className="border-b border-border px-4 py-2 text-[11px] text-muted-foreground">
-            Showing {data.inventory.locations.shown} of {data.inventory.locations.total} locations. The list is
-            limited to {data.inventory.locations.limit}; narrow the filters to see the rest.
-          </div>
+        {activeTab === "branch" && (
+          <Section
+            title={renderTabs("branch")}
+            description={
+              identityVisible
+                ? "The same sales, broken down by branch."
+                : "The same sales, broken down by branch. Customer counts are withheld without customer access."
+            }
+            className="flex-1 min-h-0 flex flex-col"
+          >
+            <DataTable<SalesRow>
+              columns={branchColumns}
+              rows={sales?.byBranch ?? []}
+              loading={isLoading}
+              emptyMessage="No confirmed sales in the snapshot window match the active filters."
+              initialSortKey="confirmedQuantity"
+              initialSortDir="desc"
+              exportable
+              exportPermission="analysis.export"
+              exportFilename="sales-by-branch.csv"
+              pagination
+              pageSize={25}
+            />
+          </Section>
         )}
-        <DataTable<InventoryRow>
-          columns={inventoryColumns}
-          rows={data?.inventory.byLocation ?? []}
-          loading={isLoading}
-          emptyMessage="No current stock matches the active filters."
-          exportable
-          exportPermission="analysis.export"
-          exportFilename="inventory-by-location.csv"
-          pagination
-          pageSize={25}
-          maxHeight="420px"
-        />
-      </Section>
+
+        {activeTab === "inventory" && (
+          <Section
+            title={renderTabs("inventory")}
+            description="Where current stock sits today"
+            className="flex-1 min-h-0 flex flex-col"
+          >
+            {data?.inventory.locations.truncated && (
+              <div className="border-b border-border px-4 py-2 text-[11px] text-muted-foreground flex-shrink-0">
+                Showing {data.inventory.locations.shown} of {data.inventory.locations.total} locations. The list is
+                limited to {data.inventory.locations.limit}; narrow the filters to see the rest.
+              </div>
+            )}
+            <DataTable<InventoryRow>
+              columns={inventoryColumns}
+              rows={data?.inventory.byLocation ?? []}
+              loading={isLoading}
+              emptyMessage="No current stock matches the active filters."
+              exportable
+              exportPermission="analysis.export"
+              exportFilename="inventory-by-location.csv"
+              pagination
+              pageSize={25}
+            />
+          </Section>
+        )}
+      </div>
     </div>
   );
 }

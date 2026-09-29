@@ -1,5 +1,5 @@
 import { describe, expect, test } from "./harness";
-import { readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { execSync } from "node:child_process";
 import path from "node:path";
 import { csvSafeCell, toCsv, columnExportValue, type CsvColumn } from "@/lib/csv-export";
@@ -73,10 +73,21 @@ describe("proxy configuration (SEC-003)", () => {
     expect(caddy).not.toContain("XTransformPort");
     expect(caddy).not.toMatch(/reverse_proxy[^\n]*\{(query|http\.request|header|path|uri)/);
     const upstreams = [...caddy.matchAll(/reverse_proxy\s+(\S+)/g)].map((m) => m[1]).sort();
-    expect(upstreams).toEqual(["127.0.0.1:3000", "127.0.0.1:3001"]);
+    // The realtime notification upstream was retired with its service; only the app remains.
+    expect(upstreams).toEqual(["127.0.0.1:3000"]);
+    expect(caddy).not.toContain("socket.io");
   });
-  test("the app client no longer sends a port", () => {
-    expect(read("src/components/diamond/realtime-provider.tsx")).not.toContain("XTransformPort");
+  test("no application source sends a port for the proxy to follow", () => {
+    const hits: string[] = [];
+    const walk = (d: string) => {
+      for (const e of readdirSync(d, { withFileTypes: true })) {
+        const p = path.join(d, e.name);
+        if (e.isDirectory()) walk(p);
+        else if (/\.(ts|tsx)$/.test(e.name) && readFileSync(p, "utf8").includes("XTransformPort")) hits.push(p);
+      }
+    };
+    walk(path.join(ROOT, "src"));
+    expect(hits).toEqual([]);
   });
 });
 
@@ -87,11 +98,12 @@ describe("repository hygiene (CFG-002) and service config (SEC-004)", () => {
     expect(read(".env.example")).toContain("USER:PASSWORD@");
     expect(read(".gitignore")).toContain("db/*.db");
   });
-  test("notifications service: no wildcard CORS, loopback bind, token-gated broadcast", () => {
-    const src = read("mini-services/notifications-service/index.ts");
-    expect(src).not.toMatch(/origin:\s*"\*"/);
-    expect(src).not.toContain('"Access-Control-Allow-Origin", "*"');
-    expect(src).toContain('"127.0.0.1"');
-    expect(src).toContain("timingSafeEqual");
+  test("the realtime notification service is retired: no service, broadcast route or socket dependency", () => {
+    expect(existsSync(path.join(ROOT, "mini-services/notifications-service/index.ts"))).toBe(false);
+    expect(existsSync(path.join(ROOT, "src/app/api/notifications/broadcast"))).toBe(false);
+    const pkg = JSON.parse(read("package.json")) as { dependencies?: Record<string, string>; devDependencies?: Record<string, string> };
+    const deps = Object.keys({ ...pkg.dependencies, ...pkg.devDependencies });
+    expect(deps.filter((d) => d.startsWith("socket.io"))).toEqual([]);
+    expect(read(".env.example")).not.toMatch(/NOTIFICATIONS?_|REALTIME/);
   });
 });

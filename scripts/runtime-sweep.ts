@@ -3,13 +3,15 @@
 // creds file: one "<username> <password>" per line for roles VIEWER, DATA_ANALYST, PLANNER, PLANNING_MANAGER, ADMIN, SUPER_ADMIN.
 import { readFileSync, writeFileSync, mkdirSync, readdirSync } from "node:fs";
 import path from "node:path";
+import { tmpdir } from "node:os";
 // Roles other than SUPER_ADMIN are test fixture custom roles (tests/security/fixture-roles.ts).
 import { testHasPermission } from "../tests/security/fixture-roles";
 
 const BASE = process.env.SWEEP_BASE || "http://127.0.0.1:3100";
 const scriptDir = import.meta.dirname || (import.meta as any).dir || path.dirname(new URL(import.meta.url).pathname);
 const ROOT = path.resolve(scriptDir, "..");
-const OUT = path.join(ROOT, "security-audit/remediation");
+// Generated evidence, not source: it goes to the system temp directory, never the repository.
+const OUT = path.join(tmpdir(), "planning-runtime-sweep");
 const PUBLIC = new Set(["GET /api", "POST /api/auth/login", "POST /api/auth/logout"]);
 let failures = 0;
 const notes: string[] = [];
@@ -111,7 +113,7 @@ const queue = (await (await j(approver.cookie, "/api/planning/approvals")).json(
 const target = queue.rows.find((x) => x.hasSelection && ["APPROVAL_PENDING", "SELECTED"].includes(x.status));
 if (target) {
   r = await j(approver.cookie, "/api/planning/approvals", { method: "POST", body: JSON.stringify({ caseId: target.id, action: "approve", approver: "ceo", actor: "ceo" }) });
-  const audit = (await (await j(admin.cookie, "/api/audit/recent?limit=5")).json()) as { rows: { actor: string; action: string; entityId: string }[] };
+  const audit = (await (await j(admin.cookie, "/api/admin/audit?action=PLAN_APPROVED&pageSize=5")).json()) as { rows: { actor: string; action: string; entityId: string }[] };
   const row = audit.rows.find((a) => a.action === "PLAN_APPROVED" && a.entityId === target.id);
   check("forged approver 'ceo' over HTTP → audit actor is the session user", r.status === 200 && row?.actor === approver.username, `status ${r.status}, actor ${row?.actor}`);
   r = await j(approver.cookie, "/api/planning/approvals", { method: "POST", body: JSON.stringify({ caseId: target.id, action: "approve" }) });

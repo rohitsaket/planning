@@ -19,101 +19,48 @@
 // endpoint independently; this is UX, not the security boundary.
 
 const EXACT: Record<string, string | readonly string[]> = {
-  // Consolidated Workflow Views
-  "dashboard": "analysis.read",
-  "fantasy-live": "fantasy.read",
-  "fantasy-sync": "fantasy.read",
-  "overall-data": "overall.read",
-  "inventory-position": "analysis.read",
-  // Customers tab needs customers.read, Orders tab needs orders.read; either admits
-  // the page, and each tab still enforces its own.
-  "customers-orders": ["customers.read", "orders.read"],
-  "stock-strategy": "analysis.read",
+  // Sidebar pages. A host whose tabs carry different permissions lists them all: holding
+  // any one admits the page, which then shows only the tabs that permission opens.
+  "dashboard": "analysis.read", // Overview: Overview and Analysis tabs
+  "analysis-sales": "sales.read",
+  // Customers tab needs customers.read, Orders tab needs orders.read; either admits the
+  // page, and each tab still enforces its own.
+  "analysis-customers-orders": ["customers.read", "orders.read"],
+  "analysis-inventory-position": "analysis.read", // Inventory, including Stockout, Excess and Aging
+  "fantasy-data": ["rough.read", "fantasy.read", "overall.read"],
+  "data-quality-issues": "data_quality.read",
   "requirements-matrix": "requirement.read",
   "requirements-priority-queue": "requirement.read",
   "orders-exceptions": "orders.read",
   "replenishment-allocation": "requirement.read",
   "planning-rough-availability": "rough.read",
   // Sarin file processing. Every action (upload, validate, generate, export) keeps its own
-  // permission, enforced per control and per route. Sarin shape mappings are a tab of
-  // admin-mappings.
+  // permission, enforced per control and per route.
   "planning-workbook-import": "sarin.import.read",
-  "planning-workbench": "plan.read",
-  "planning-comparison": "plan.read",
+  "planning-workbench": ["plan.read", "rough.read"],
   // Reading the queue needs plan.read; approving/rejecting needs plan.approve and is
   // enforced on POST /api/planning/approvals and gated per button.
   "planning-approval-queue": "plan.read",
-  "data-science-forecasting": "analysis.read",
-  "data-science-predictive-models": "analysis.read",
-  "data-science-prediction-monitoring": "analysis.read",
-  "reports": "analysis.read",
-  // Users tab: account readers and access-request reviewers; Permissions tab: role readers.
-  // Each tab, and each control and API inside it, enforces its own permission.
-  "admin-users-access": ["user.read", "access_request.review", "role.read"],
+  // Users tab: account readers and access-request reviewers; Permissions tab: role readers
+  // and approval-policy readers.
+  "admin-users-access": ["user.read", "access_request.review", "role.read", "approval_policy.read"],
   // Mappings: master-data tabs need config.read, the Sarin Shape Mapping tab needs
-  // sarin.mapping.read; either admits the page and each tab enforces its own. Changing Sarin
-  // mappings needs sarin.mapping.manage, per control and per route.
+  // sarin.mapping.read. Changes need each tab's manage permission.
   "admin-mappings": ["config.read", "sarin.mapping.read"],
-  "admin-system-settings": "feature_flag.read",
   "admin-audit-log": "audit.read",
 
-  // Analysis Section & Direct Subpages
-  "analysis-executive": "analysis.read",
-  "analysis-sales": "sales.read", // "Sales Analysis & Trends" module (tabs: analysis | trends)
-  "analysis-sales-trends": "sales.read", // legacy id, redirected to analysis-sales?tab=trends
-  // Alias of "customers-orders"; kept in step with it so a stale link is authorized
-  // identically to the canonical id it resolves to.
-  "analysis-customers-orders": ["customers.read", "orders.read"],
-  "analysis-inventory-position": "analysis.read",
+  // Direct views opened from dashboard tiles and page links.
   "analysis-customers": "customers.read",
   "analysis-orders": "orders.read",
   "analysis-country": "analysis.read",
   "analysis-polished": "analysis.read",
   "analysis-memo": "sales.read",
-  "analysis-wip": "analysis.read",
-  "analysis-forecast": "analysis.read",
-  "analysis-stockout": "analysis.read",
-  "analysis-excess": "analysis.read",
-  "analysis-aging": "analysis.read",
-  "analysis-reorder-signals": "analysis.read",
-  "transfer-analyzer": "analysis.read",
-  "aging-dashboard": "analysis.read",
-
-  // Legacy Views & Direct Subpages
   "requirements-orders": "orders.read",
-  "planning-reservations": "rough.read",
-  "fantasy-status-mapping": "config.read",
-  "data-quality-unmapped-labs": "config.read",
-  "data-quality-unmapped-shapes": "config.read",
-  "admin-feature-flags": "feature_flag.read",
-  "admin-weight-bands": "config.read",
-  "admin-lab-mappings": "config.read",
-  "admin-shape-mappings": "config.read",
-
-  // Fantasy subpages. Rough stock is served by /api/fantasy/rough, which enforces
-  // rough.read — not fantasy.read.
-  "fantasy-rough": "rough.read",
-  "fantasy-polished": "fantasy.read",
-  "fantasy-departments": "fantasy.read",
-  "fantasy-locations": "fantasy.read",
-
-  // Planning subpages.
-  "planning-cases": "plan.read",
-  "planning-planned-pieces": "plan.read",
-
-  // Requirements subpages (all render the requirements matrix).
   "requirements-allocation": "requirement.read",
   "requirements-backorders": "requirement.read",
   "requirements-forecast-signals": "requirement.read",
   "requirements-replenishment": "requirement.read",
   "requirements-special": "requirement.read",
-
-  // Data-science subpages.
-  "data-science-forecast": "analysis.read",
-  "data-science-forecast-accuracy": "analysis.read",
-  "data-science-models": "analysis.read",
-  "data-science-anomaly-detection": "analysis.read",
-  "data-science-yield-prediction": "analysis.read",
 };
 
 /**
@@ -161,7 +108,6 @@ export function isViewAuthorized(userPerms: string[] | undefined | null, viewId:
 export const PERMISSION_LABELS: Record<string, string> = {
   "analysis.read": "Executive Analytics & Dashboard Access",
   "analysis.export": "Inventory & Analysis Export",
-  "forecast.methodology.read": "Forecast Model Methodology & Validation Metrics",
   "sales.read": "Commercial & Sales Analysis Access",
   "sales.export": "Sales & Memo Export",
   "customers.read": "Customer Information Access",
@@ -184,14 +130,14 @@ export const PERMISSION_LABELS: Record<string, string> = {
   "rough.read": "Rough Diamond Inventory Access",
   "rough.reserve": "Rough Reservation Authority",
   "demand.run": "Demand Calculation Execution",
-  "forecast.run": "Forecast Model Execution",
-  "forecast.publish": "Forecast Publishing",
   "fantasy.read": "Fantasy ERP & Manufacturing Data Access",
   "overall.read": "Overall Historical Data Access",
   "overall.export": "Overall Historical Data Export",
+  "data_quality.read": "Import Issues Access",
+  "data_quality.export": "Import Issues Export",
   "config.read": "Master Configuration Access",
-  "feature_flag.read": "System Settings & Flags Access",
-  "feature_flag.manage": "Feature Flags Management",
+  "approval_policy.read": "Approval Policy Access",
+  "approval_policy.manage": "Approval Policy Change",
   "audit.read": "Audit Trail & System Logs Access",
   "user.read": "User Directory Access",
   "user.create": "Account Creation",

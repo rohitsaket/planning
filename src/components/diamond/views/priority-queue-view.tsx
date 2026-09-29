@@ -246,7 +246,7 @@ export function PriorityQueueView() {
   const openMatrix = () => setView("requirements-matrix");
 
   return (
-    <div className="flex flex-col gap-3 p-3">
+    <div data-page-body className="flex flex-col gap-section px-page-x py-page-y">
       <PageHeader
         title="Priority Queue"
         subtitle="Open requirements by priority — plan from the top"
@@ -315,30 +315,35 @@ export function PriorityQueueView() {
         />
       )}
 
-      <PrioritySection
-        title="CRITICAL"
-        intent="critical"
-        rows={critical}
-        loading={cLoading}
-        columns={buildCols("CRITICAL")}
-        onOpenMatrix={openMatrix}
-      />
-      <PrioritySection
-        title="HIGH"
-        intent="warning"
-        rows={high}
-        loading={hLoading}
-        columns={buildCols("HIGH")}
-        onOpenMatrix={openMatrix}
-      />
-      <PrioritySection
-        title="NORMAL"
-        intent="default"
-        rows={normal}
-        loading={nLoading}
-        columns={buildCols("NORMAL")}
-        onOpenMatrix={openMatrix}
-      />
+      {/* With nothing open the message above says so; three empty tables add nothing. */}
+      {!(totalAll === 0 && !cLoading && !hLoading && !nLoading) && (
+        <>
+        <PrioritySection
+          title="CRITICAL"
+          intent="critical"
+          rows={critical}
+          loading={cLoading}
+          columns={buildCols("CRITICAL")}
+          onOpenMatrix={openMatrix}
+        />
+        <PrioritySection
+          title="HIGH"
+          intent="warning"
+          rows={high}
+          loading={hLoading}
+          columns={buildCols("HIGH")}
+          onOpenMatrix={openMatrix}
+        />
+        <PrioritySection
+          title="NORMAL"
+          intent="default"
+          rows={normal}
+          loading={nLoading}
+          columns={buildCols("NORMAL")}
+          onOpenMatrix={openMatrix}
+        />
+        </>
+      )}
     </div>
   );
 }

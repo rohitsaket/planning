@@ -3,13 +3,6 @@
 {$SITE_ADDRESS::81} {
 	# Upstreams are fixed and server-owned. Nothing in the request (query string, header
 	# or path) can select a host or port.
-	@realtime path /socket.io/*
-	handle @realtime {
-		reverse_proxy 127.0.0.1:3001 {
-			header_up X-Real-IP {remote_host}
-		}
-	}
-
 	handle {
 		reverse_proxy 127.0.0.1:3000 {
 			header_up X-Real-IP {remote_host}

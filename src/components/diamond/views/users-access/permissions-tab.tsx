@@ -13,11 +13,24 @@ import { useAuthStore } from "@/stores/auth-store";
 import { useAccessFocusStore } from "@/stores/access-focus-store";
 import { PermissionEditor } from "./permission-editor";
 import { UserAccessInspector } from "./user-access-inspector";
+import { ApprovalPolicySection } from "./approval-policy-section";
 import { ROLES_URL, USERS_URL, useAccessRefresh, type PermissionMeta, type RoleRow, type RolesResponse, type UsersResponse } from "./shared";
 
 const sameSet = (a: ReadonlySet<string>, b: ReadonlySet<string>) => a.size === b.size && [...a].every((v) => b.has(v));
 
+// The tab opens for role readers and for approval-policy readers; each part is shown only to
+// holders of its own permission, and each API refuses anyone else.
 export function PermissionsTab() {
+  const perms = useAuthStore((s) => s.user?.permissions) ?? [];
+  return (
+    <div data-page-body className="flex flex-col gap-section px-page-x py-page-y">
+      {perms.includes("approval_policy.read") && <ApprovalPolicySection canManage={perms.includes("approval_policy.manage")} />}
+      {perms.includes("role.read") && <RolePermissions />}
+    </div>
+  );
+}
+
+function RolePermissions() {
   const session = useAuthStore((s) => s.user);
   const perms = session?.permissions ?? [];
   const canReadUsers = perms.includes("user.read");
@@ -71,14 +84,14 @@ export function PermissionsTab() {
   const focusQ = useApi<UsersResponse>(canReadUsers && focusUserId ? `${USERS_URL}?id=${encodeURIComponent(focusUserId)}` : null);
   const focusUser = focusQ.data?.rows[0] ?? null;
 
-  if (rolesQ.isLoading) return <p className="p-4 text-xs text-muted-foreground">Loading roles…</p>;
-  if (rolesQ.error || !catalog) return <p className="p-4 text-xs text-muted-foreground">Roles could not be loaded.</p>;
+  if (rolesQ.isLoading) return <p className="text-xs text-muted-foreground">Loading roles…</p>;
+  if (rolesQ.error || !catalog) return <p className="text-xs text-muted-foreground">Roles could not be loaded.</p>;
 
   const added = catalog.permissions.filter((p) => draft.has(p.id) && !baseline.has(p.id));
   const removed = catalog.permissions.filter((p) => !draft.has(p.id) && baseline.has(p.id));
 
   return (
-    <div className="flex flex-col gap-3 p-3 sm:p-4">
+    <div className="flex flex-col gap-section">
       {canReadUsers && <UserPicker onPick={(id) => setFocusUserId(id)} />}
       {focusUser && (
         <UserAccessInspector user={focusUser} roles={roles} catalog={catalog.permissions} areas={catalog.areas} onClose={() => setFocusUserId(null)} onSelectRole={selectRole} />
@@ -102,7 +115,7 @@ export function PermissionsTab() {
                   type="button"
                   aria-current={r.id === selected?.id ? "true" : undefined}
                   onClick={() => selectRole(r.id)}
-                  className={cn("w-full rounded-md px-2.5 py-2 text-left text-xs hover:bg-muted/60", r.id === selected?.id && "bg-[#FFE2D1] dark:bg-[#272322]")}
+                  className={cn("w-full rounded-md px-2.5 py-2 text-left text-xs hover:bg-muted/60", r.id === selected?.id && "bg-[#FED7AA] text-[#7C2D12] dark:bg-[#272322] dark:text-[#FFEDD5]")}
                 >
                   <span className="flex items-center gap-1.5 font-semibold">
                     {r.name}

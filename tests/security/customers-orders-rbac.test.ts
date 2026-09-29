@@ -8,6 +8,7 @@ import { GET as orderAvailability } from "@/app/api/analysis/customers-orders/or
 import { GET as countries } from "@/app/api/analysis/countries/route";
 import { isViewAuthorized, viewPermissions } from "@/lib/auth/view-permissions";
 import { resolveActiveTab } from "@/components/diamond/shared/tabbed-host-view";
+import { resolveViewAlias } from "@/stores/nav-store";
 import type { Permission } from "@/lib/auth/permissions";
 
 /**
@@ -92,7 +93,7 @@ describe("customers-only access", () => {
 
   test("may enter the page, and the page opens on a tab it can read", () => {
     const perms = ["customers.read"];
-    expect(isViewAuthorized(perms, "customers-orders")).toBe(true);
+    expect(isViewAuthorized(perms, "analysis-customers-orders")).toBe(true);
     expect(resolveActiveTab(TABS, null, "customers", perms)).toBe("customers");
   });
 });
@@ -126,8 +127,9 @@ describe("orders-only access", () => {
 
   test("may enter the page — the old single-permission mapping locked this user out", () => {
     const perms = ["orders.read"];
-    expect(isViewAuthorized(perms, "customers-orders")).toBe(true);
     expect(isViewAuthorized(perms, "analysis-customers-orders")).toBe(true);
+    // The former id is an alias of the same page, so old links reach it too.
+    expect(resolveViewAlias("customers-orders").view).toBe("analysis-customers-orders");
   });
 
   test("the page opens on Orders rather than showing Access Restricted on the default tab", () => {
@@ -144,15 +146,14 @@ describe("orders-only access", () => {
 describe("page entry requires at least one section permission", () => {
   test("holding neither denies the page", () => {
     // PLANNER-style permissions: real, but unrelated to this page.
-    expect(isViewAuthorized(["plan.read", "rough.read"], "customers-orders")).toBe(false);
-    expect(isViewAuthorized([], "customers-orders")).toBe(false);
+    expect(isViewAuthorized(["plan.read", "rough.read"], "analysis-customers-orders")).toBe(false);
+    expect(isViewAuthorized([], "analysis-customers-orders")).toBe(false);
   });
 
   test("the mapping lists both section permissions and nothing broader", () => {
-    expect([...viewPermissions("customers-orders")].sort()).toEqual(["customers.read", "orders.read"]);
     expect([...viewPermissions("analysis-customers-orders")].sort()).toEqual(["customers.read", "orders.read"]);
     // Explicitly not admitted by the most widely held read permission.
-    expect(isViewAuthorized(["analysis.read"], "customers-orders")).toBe(false);
+    expect(isViewAuthorized(["analysis.read"], "analysis-customers-orders")).toBe(false);
   });
 
   test("no tab is selected when none is authorized, so the host shows Access Restricted", () => {

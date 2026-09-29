@@ -1,5 +1,6 @@
 "use client";
 
+import { FilterBar } from "@/components/diamond/shared/density";
 import { useAuthStore } from "@/stores/auth-store";
 import { useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -429,7 +430,7 @@ export function PlanningCasesView() {
   ];
 
   return (
-    <div className="flex flex-col gap-3 p-3">
+    <div data-page-body className="flex flex-col gap-section px-page-x py-page-y">
       <PageHeader
         title="Planning Cases"
         subtitle="Planning cases, versions, options and pieces"
@@ -447,9 +448,7 @@ export function PlanningCasesView() {
         <KpiCard label="Draft" value={draft} unit="cases" intent="info" onClick={() => setView("planning-workbench")} />
       </div>
 
-      <Section
-        title="Filters"
-        bodyClassName="p-2"
+      <FilterBar
         actions={
           activeFilters > 0 ? (
             <button onClick={clearFilters} className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground">
@@ -502,7 +501,7 @@ export function PlanningCasesView() {
             </SelectContent>
           </Select>
         </div>
-      </Section>
+      </FilterBar>
 
       <DataTable<CaseRow>
         columns={columns}

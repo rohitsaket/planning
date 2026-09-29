@@ -622,11 +622,10 @@ async function main() {
   // =========================================================================
   // PLANNING CASES + VERSIONS + OPTIONS + PIECES (Hundreds of records)
   // =========================================================================
-  console.log("Seeding planning cases, plan versions, options, pieces, and reconciliations...");
+  console.log("Seeding planning cases, plan versions, options and pieces...");
   let caseCounter = 1;
   let optCounter = 1;
   let pieceCounter = 1;
-  const approvedOptionsForRecon: { optionId: string; caseId: string; roughWeight: number; plannedYield: number; expPieces: number; expWeight: number; cov: number }[] = [];
 
   for (let i = 0; i < Math.min(roughIds.length, 120); i++) {
     const rough = await prisma.roughStone.findUnique({ where: { id: roughIds[i] } });
@@ -708,17 +707,6 @@ async function main() {
 
       if (isSelected) {
         selectedOptionId = opt.id;
-        if (status === "APPROVED" || status === "RELEASED_TO_MANUFACTURING") {
-          approvedOptionsForRecon.push({
-            optionId: opt.id,
-            caseId: caseRecord.id,
-            roughWeight: Number(rough.roughWeight),
-            plannedYield: yieldPct,
-            expPieces: expectedPieces,
-            expWeight: expectedWeight,
-            cov: coverage,
-          });
-        }
       }
 
       // Generate Pieces for each option
@@ -761,39 +749,8 @@ async function main() {
     }
   }
 
-  // =========================================================================
-  // PLAN-ACTUAL RECONCILIATION (Dense historical data for Yield Prediction ML/Baselines)
-  // =========================================================================
-  console.log("Seeding dense plan-actual reconciliation records for yield prediction...");
-  // Reconcile 60% of approved options, leaving the rest un-reconciled so live Yield Predictions are populated!
-  const reconcileSubset = approvedOptionsForRecon.slice(0, Math.floor(approvedOptionsForRecon.length * 0.65));
-  for (const item of reconcileSubset) {
-    const expPieces = item.expPieces;
-    const actualPieces = Math.max(1, randInt(expPieces - 1, expPieces + 1));
-    const expTotal = item.expWeight;
-    // Introduce realistic variance ±8%
-    const actTotal = randDec(expTotal * 0.92, expTotal * 1.06, 3);
-    const plannedYield = item.plannedYield;
-    const actualYield = Math.round((actTotal / item.roughWeight) * 10000) / 100;
-
-    await prisma.planActualReconciliation.create({
-      data: {
-        planOptionId: item.optionId,
-        expectedPieces: expPieces,
-        actualPieces,
-        expectedTotalWeight: expTotal,
-        actualTotalWeight: actTotal,
-        plannedYieldPct: plannedYield,
-        actualYieldPct: actualYield,
-        yieldVariance: Math.round((actualYield - plannedYield) * 100) / 100,
-        expectedCoverage: item.cov,
-        actualCoverage: Math.min(actualPieces, item.cov),
-        coverageVariance: Math.min(actualPieces, item.cov) - item.cov,
-        status: Math.abs(actualYield - plannedYield) <= 2.0 ? "RECONCILED" : "VARIANCE",
-        reconciledAt: dayOffset(randInt(1, 60)),
-      },
-    });
-  }
+  // No plan-versus-actual records: actual production results are outside the planning utility,
+  // and demonstration records must not be presented as real reconciliation.
 
   // =========================================================================
   // SALES ORDERS & ORDER LINES (Hundreds of detailed line items)
@@ -1044,19 +1001,7 @@ async function main() {
       },
     });
   }
-  const flags = [
-    { code: "FF_COLOR_DIMENSION", name: "Enable Color as Requirement Dimension", enabled: false },
-    { code: "FF_CLARITY_DIMENSION", name: "Enable Clarity as Requirement Dimension", enabled: false },
-    { code: "FF_TREATMENT_DIMENSION", name: "Enable Treatment as Requirement Dimension", enabled: false },
-    { code: "FF_FORECAST_AUTO_ORDER", name: "Forecast Auto-Creates Production Orders", enabled: false },
-    { code: "FF_PLANNER_SELF_APPROVE", name: "Allow Planner to Approve Own Plan", enabled: false },
-    { code: "FF_TRANSFER_AUTO", name: "Automatic Cross-Country Transfers", enabled: false },
-  ];
-  for (const f of flags) {
-    await prisma.featureFlag.create({
-      data: { code: f.code, name: f.name, enabled: f.enabled, description: "Configurable feature flag — default OFF until business approves." },
-    });
-  }
+  // No approval policy row: without one, plan approval requires a separate approver.
 
   // =========================================================================
   // AUDIT LOGS & DATA QUALITY ISSUES

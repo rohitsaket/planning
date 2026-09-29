@@ -3,6 +3,7 @@ import { ok, num } from "@/lib/api-utils";
 import { z } from "zod";
 import { withApi, idSchema, log } from "@/lib/api/with-api";
 import { conflict, forbidden, notFound } from "@/lib/api/errors";
+import { readApprovalPolicy } from "@/lib/planning/approval-policy";
 
 // Approval Queue — plans awaiting approval. POST to approve/reject.
 export const GET = withApi({ permission: "plan.read" }, async () => {
@@ -42,7 +43,6 @@ export const GET = withApi({ permission: "plan.read" }, async () => {
 // APPROVED, RELEASED and REPLAN_REQUIRED are deliberately absent: a rejected or superseded plan
 // can only come back through the explicit replan workflow.
 const DECIDABLE = ["READY_FOR_REVIEW", "SELECTED", "APPROVAL_PENDING"];
-const SOD_FLAG = "SOD_PLANNER_APPROVER";
 
 const bodySchema = z.object({
   caseId: idSchema,
@@ -75,9 +75,8 @@ export const POST = withApi({ permission: "plan.approve", body: bodySchema }, as
       throw conflict("VERSION_NOT_CURRENT", "The current plan version is missing or superseded.");
     }
 
-    // Separation of duties — enforced unless the feature flag exists and is switched off.
-    const sod = await tx.featureFlag.findUnique({ where: { code: SOD_FLAG } });
-    if (sod?.enabled !== false) {
+    // Separation of duties — enforced unless the approval policy has been switched off.
+    if ((await readApprovalPolicy(tx)).requireSeparateApprover) {
       const authors = [c.planner, version.createdBy];
       if (authors.some((a) => same(a, me.username) || same(a, me.displayName))) {
         throw forbidden("Separation of duties: the planner of a case cannot approve or reject it.");

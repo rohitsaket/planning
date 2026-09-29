@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
-import { withApi, SCAN_MAX, scanned } from "@/lib/api/with-api";
+import { withApi } from "@/lib/api/with-api";
 
 // Executive Dashboard KPIs - all values drilldown to evidence
 export const GET = withApi({ permission: "analysis.read" }, async (req: Request) => {
@@ -61,7 +61,8 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request)
   const roughReserved = await db.roughStone.count({
     where: { ...roughWhere, planningStatus: { in: ["RESERVED", "PLAN_APPROVED", "RELEASED_TO_MANUFACTURING"] } },
   });
-  const currentWip = await db.planOptionPiece.count({
+  // Pieces in approved plans: a planning output, not manufacturing work in progress.
+  const approvedPlanPieces = await db.planOptionPiece.count({
     where: {
       planOption: {
         approvalStatus: { in: ["APPROVED", "RELEASED"] },
@@ -97,16 +98,8 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request)
   // No run yet is NOT_RUN, never a healthy default.
   const fantasySyncHealth = lastSyncs.length === 0 ? "NOT_RUN" : hasFailed ? "FAILED" : hasPartial ? "PARTIAL" : "HEALTHY";
 
-  // Yield variance
-  const reconciliations = await db.planActualReconciliation.findMany({ take: SCAN_MAX }).then(scanned);
-  let plannedYield = 0;
-  let actualYield = 0;
-  let yieldVariance = 0;
-  if (reconciliations.length > 0) {
-    plannedYield = num(reconciliations.reduce((s, r) => s + num(r.plannedYieldPct), 0) / reconciliations.length);
-    actualYield = num(reconciliations.reduce((s, r) => s + num(r.actualYieldPct), 0) / reconciliations.length);
-    yieldVariance = num(reconciliations.reduce((s, r) => s + num(r.yieldVariance), 0) / reconciliations.length);
-  }
+  // No yield figures: plan-versus-actual results are outside the planning utility, and the only
+  // stored reconciliation records are demonstration data.
 
   return ok({
     physicalShortage,
@@ -117,7 +110,7 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request)
     polishedStock,
     roughAvailable,
     roughReserved,
-    currentWip,
+    approvedPlanPieces,
     criticalRequirements,
     highRequirements,
     overdueRequirements,
@@ -125,9 +118,6 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request)
     backorders: num(backorders._sum.backorderQty),
     memoExposure: num(memoExposure._sum.memoValueUsd),
     fantasySyncHealth,
-    plannedYield,
-    actualYield,
-    yieldVariance,
     demandRunId: latestRun?.id ?? null,
     demandRunDate: latestRun?.runDate?.toISOString() ?? null,
   });

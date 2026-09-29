@@ -56,7 +56,7 @@ export function ServerPagination({
   };
 
   return (
-    <div className="flex items-center justify-between gap-3 px-3 py-2 border-t border-border bg-card/60 text-xs flex-wrap">
+    <div className="flex items-center justify-between gap-3 px-3 py-2 border-t border-border/80 bg-[#FFF3EB]/95 dark:bg-[#131720]/95 text-xs flex-wrap backdrop-blur-md">
       <span className="text-muted-foreground tabular-nums text-[11px]">
         {total === 0 ? (
           `No ${label}`

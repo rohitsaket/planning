@@ -8,7 +8,6 @@ import { GET as inventory } from "@/app/api/analysis/inventory/route";
 import { GET as aging } from "@/app/api/analysis/aging/route";
 import { GET as agingDashboard } from "@/app/api/analysis/aging-dashboard/route";
 import { GET as countries } from "@/app/api/analysis/countries/route";
-import { GET as transferCandidates } from "@/app/api/analysis/transfer-candidates/route";
 import { GET as stockout } from "@/app/api/analysis/stockout/route";
 import { GET as memo } from "@/app/api/analysis/memo/route";
 import { GET as adminUsers, POST as adminUsersPost } from "@/app/api/admin/users/route";
@@ -297,12 +296,6 @@ describe("Access scope — enforcement across the real API boundary", () => {
       expect({ name, status: res.status }).toEqual({ name, status: 200 });
       surfaces.push({ name, lots: res.json.currentLots });
     }
-    resetRateLimits();
-    const transfer = await call(transferCandidates, {
-      path: `/api/analysis/transfer-candidates?search=${BATCH}`,
-      cookie: scopedCookie,
-    });
-    surfaces.push({ name: "transfer", lots: transfer.json.distribution.currentLots });
 
     expect(surfaces.filter((s) => s.lots !== 7)).toEqual([]);
   });

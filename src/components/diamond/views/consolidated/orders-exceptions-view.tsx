@@ -14,7 +14,7 @@ const TABS: HostTabItem[] = [
 export function OrdersExceptionsView() {
   return (
     <TabbedHostView
-      title="Orders and Exceptions"
+      title="Order Exceptions"
       subtitle="Sales orders, backorders and special requests"
       tabs={TABS}
       defaultTab="orders"

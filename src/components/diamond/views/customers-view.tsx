@@ -492,7 +492,7 @@ export function CustomersView() {
   }, [top7Customers]);
 
   return (
-    <div className="flex flex-col gap-3 p-3">
+    <div data-page-body className="flex flex-col gap-section px-page-x py-page-y">
       <PageHeader
         title="Customer 360"
         subtitle="Sales, memo exposure, open orders & priority classification over the trailing 365 days"

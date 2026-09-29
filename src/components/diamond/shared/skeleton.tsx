@@ -96,7 +96,7 @@ export function SectionSkeleton({ hasChart = false }: { hasChart?: boolean }) {
 // Full page skeleton
 export function PageSkeleton({ kpiCount = 6, sections = 3 }: { kpiCount?: number; sections?: number }) {
   return (
-    <div className="flex flex-col gap-3 p-3">
+    <div data-page-body className="flex flex-col gap-section px-page-x py-page-y">
       <Skeleton className="h-12 w-full" />
       <KpiGridSkeleton count={kpiCount} />
       {Array.from({ length: sections }).map((_, i) => <SectionSkeleton key={i} hasChart={i % 2 === 0} />)}

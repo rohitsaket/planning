@@ -1,7 +1,7 @@
 /**
  * SALES HISTORY — SHARED CONTRACT
  *
- * Vocabulary shared by the Sales Analysis & Trends page and its API routes. Pure and
+ * Vocabulary shared by the Sales & Trends page and its API routes. Pure and
  * client-safe: no database client, no environment read, no query text, no formula.
  *
  * The page analyses *historical confirmed sales only*. It never calculates a

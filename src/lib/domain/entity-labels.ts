@@ -1,7 +1,7 @@
 /**
  * Business names for the records the application audits and quality-checks.
  *
- * Data Quality Issues and the Audit Log both filter by which kind of record an entry
+ * The Audit Log filters by which kind of record an entry
  * concerns. The stored value is the Prisma model name, which is a storage detail: it
  * tells a reader how the database is laid out and means nothing to them in business
  * terms. This module is the one place that maps the stored key to what a user sees.
@@ -28,7 +28,9 @@ export const ENTITY_LABELS = {
   ForecastRun: "Forecast Runs",
   DemandRun: "Demand Calculations",
   BusinessRule: "Business Rules",
-  FeatureFlag: "Feature Flags",
+  ApprovalPolicy: "Approval Policy",
+  // Rows written before the approval policy had its own page.
+  FeatureFlag: "Feature Flags (retired)",
   LabMapping: "Lab Mappings",
   ShapeMapping: "Shape Mappings",
   WeightBand: "Weight Bands",

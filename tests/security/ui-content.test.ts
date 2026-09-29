@@ -39,14 +39,11 @@ import { PlanComparisonView } from "@/components/diamond/views/plan-comparison-v
 import { MappingsView } from "@/components/diamond/views/consolidated/mappings-view";
 import { StatusMappingsView } from "@/components/diamond/views/status-mappings-view";
 import { applyCatalog } from "./sarin-catalog";
-import { FeatureFlagsView } from "@/components/diamond/views/feature-flags-view";
+import { PermissionsTab } from "@/components/diamond/views/users-access/permissions-tab";
 import { SalesAnalysisView } from "@/components/diamond/views/sales-analysis-view";
 import { OrderSourceView } from "@/components/diamond/views/customers-orders/order-source-view";
 import { FantasySyncView } from "@/components/diamond/views/fantasy-sync-view";
 import { DashboardView } from "@/components/diamond/views/dashboard-view";
-import { ForecastModelsView } from "@/components/diamond/views/forecast-models-view";
-import { YieldPredictionView } from "@/components/diamond/views/yield-prediction-view";
-import { AnomalyDetectionView } from "@/components/diamond/views/anomaly-detection-view";
 import { InventoryPositionTab } from "@/components/diamond/views/inventory/inventory-tabs";
 import { AppShell } from "@/components/layout/app-shell";
 
@@ -177,12 +174,13 @@ beforeAll(async () => {
   if (validated.json.batch.status !== "VALIDATED") throw new Error(`pink validation ${validated.json.batch.status}`);
   pinkVersion = (await post(generateOutput, planner.cookie, {}, { batchId: pinkBatch })).json.output.version.id;
 
-  // Administration fixtures carrying the identifiers the pages must translate.
+  // Administration fixtures carrying the identifiers the pages must translate, and the retired
+  // settings rows a database that has not yet applied their withdrawal still holds.
   await db.featureFlag.createMany({
     data: [
       { code: "FF_COLOR_DIMENSION", name: "Enable Color as Requirement Dimension" },
-      { code: "FF_CLARITY_DIMENSION", name: "Enable Clarity as Requirement Dimension" },
-      { code: "FF_TREATMENT_DIMENSION", name: "Enable Treatment as Requirement Dimension" },
+      { code: "FF_FORECAST_AUTO_ORDER", name: "Forecast Auto-Creates Production Orders" },
+      { code: "FF_TRANSFER_AUTO", name: "Automatic Cross-Country Transfers" },
     ],
   });
   await db.businessRule.create({
@@ -244,27 +242,28 @@ describe("ui content: no technical detail reaches a rendered page", () => {
     expect([queue.includes("Weight band edge case"), queue.includes("Check girdle"), queue.includes("WB_EDGE")]).toEqual([true, true, false]);
   });
 
-  test("administration, sales, orders, Fantasy, model and inventory pages", async () => {
+  test("administration, sales, orders, Fantasy and inventory pages", async () => {
     const pages = [
       await render(MappingsView, {}, root),
       await render(StatusMappingsView, {}, root),
-      await render(FeatureFlagsView, {}, root),
+      await render(PermissionsTab, {}, root),
       await render(SalesAnalysisView, {}, root),
       await render(OrderSourceView, {}, root),
       await render(FantasySyncView, {}, root),
-      await render(ForecastModelsView, {}, root),
-      await render(YieldPredictionView, {}, root),
-      await render(AnomalyDetectionView, {}, root),
       await render(InventoryPositionTab, {}, root),
     ];
     expect(pages.map((p) => prohibited(p.text))).toEqual(pages.map(() => []));
-    const [mappings, statuses, flags, sales, orders, sync, models, yieldPage, anomaly] = pages.map((p) => p.text);
-    // Business Rules is no longer a page: Mappings carries only its five tabs, without rule identifiers or formulas.
+    const [mappings, statuses, permissions, sales, orders, sync] = pages.map((p) => p.text);
+    // Business Rules is no longer a page: Mappings carries its mapping tabs, without rule
+    // identifiers or formulas, and no generic settings.
     for (const tab of ["Weight Bands", "Lab Mapping", "Shape Mapping", "Status Mapping", "Sarin Shape Mapping"]) expect([tab, mappings.includes(tab)]).toEqual([tab, true]);
+    expect(/Feature Flags|Planning Dimensions/.test(mappings)).toBe(false);
+    // The approval policy sits on the Permissions tab in business wording; retired settings
+    // never appear, even while their rows are still stored.
+    expect([permissions.includes("Approval Policy"), permissions.includes("Require a different user to approve a plan"), permissions.includes("On — a separate approver is required")]).toEqual([true, true, true]);
+    expect(/Feature Flag|production orders|Cross-Country|Color categorization|FF_/i.test(permissions)).toBe(false);
     expect(/Business Rules|BR-[A-Z]+-\d|windowDays|\{"/.test(mappings + statuses)).toBe(false);
-    expect([/MAE =|WAPE =|RMSE =|Metrics Formulas/.test(models), /Methodology|ŷ|spec §|OPEN rule/.test(yieldPage), /How to read this page|y = x/.test(anomaly)]).toEqual([false, false, false]);
     expect([/Mathematical|Reconciled 100%|Checkpoint/.test(sync), /methodology|freshness threshold|authoritative/i.test(sales), /field|seeded/i.test(orders)]).toEqual([false, false, false]);
-    expect(["Color categorization", "Clarity categorization", "Treatment categorization"].every((l) => flags.includes(l))).toBe(true);
   });
 
   test("the global footer carries no rule text", async () => {
@@ -327,9 +326,9 @@ describe("ui content: what users need is still shown", () => {
     const approverQueue = await render(ApprovalQueueView, {}, planApprover);
     const readerQueue = await render(ApprovalQueueView, {}, reader);
     expect([approverQueue.html.includes('title="Approve this plan"'), approverQueue.html.includes('title="Request replanning"'), readerQueue.html.includes('title="Approve this plan"'), readerQueue.html.includes('title="Request replanning"')]).toEqual([true, true, false, false]);
-    const flagsAdmin = (await render(FeatureFlagsView, {}, root)).html;
-    const flagsReader = (await render(FeatureFlagsView, {}, await userWith("flagreader", ["feature_flag.read"]))).html;
-    expect([flagsAdmin.includes('aria-label="Enable Color categorization"'), flagsReader.includes('aria-label="Enable Color categorization"')]).toEqual([true, false]);
+    const policyManager = (await render(PermissionsTab, {}, root)).text;
+    const policyReader = (await render(PermissionsTab, {}, await userWith("policyreader", ["approval_policy.read"]))).text;
+    expect([policyManager.includes("Turn off"), policyReader.includes("Turn off"), policyReader.includes("On — a separate approver is required"), policyReader.includes("Roles")]).toEqual([true, false, true, false]);
   });
 
   test("Sarin Shape Mapping offers adding, editing and removing to managers only, and no approval or version workflow", async () => {

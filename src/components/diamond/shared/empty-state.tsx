@@ -6,10 +6,10 @@ import { cn } from "@/lib/utils";
 
 export function EmptyState({ title, message, icon }: { title: string; message?: string; icon?: ReactNode }) {
   return (
-    <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
-      {icon && <div className="text-muted-foreground/40 mb-3 p-3 rounded-full bg-[#F1F5F9] dark:bg-slate-800">{icon}</div>}
-      <p className="text-sm font-semibold text-foreground tracking-tight">{title}</p>
-      {message && <p className="text-xs text-muted-foreground mt-1 max-w-md leading-relaxed">{message}</p>}
+    <div data-empty-state className="flex flex-col items-center justify-center px-4 py-6 text-center">
+      {icon && <div className="mb-2 rounded-full bg-muted/70 p-2 text-muted-foreground/60 [&_svg]:h-4 [&_svg]:w-4">{icon}</div>}
+      <p className="text-sm font-semibold tracking-tight text-foreground">{title}</p>
+      {message && <p className="mt-0.5 max-w-md text-xs leading-relaxed text-muted-foreground">{message}</p>}
     </div>
   );
 }
@@ -24,7 +24,7 @@ export function InfoBanner({ children, variant = "info" }: { children: ReactNode
     advisory: "bg-purple-50 border-purple-200 text-purple-900 dark:bg-purple-950/40 dark:border-purple-900 dark:text-purple-200",
   };
   return (
-    <div className={cn("rounded-lg border px-3.5 py-2.5 text-xs leading-relaxed font-normal shadow-2xs", classes[variant])}>
+    <div data-banner={variant} className={cn("rounded-md border px-3 py-1.5 text-xs leading-snug font-normal", classes[variant])}>
       {children}
     </div>
   );

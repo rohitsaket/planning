@@ -95,7 +95,8 @@ interface CategoriesResponse {
 interface DetailResponse {
   available: boolean;
   runId: string | null;
-  detail:
+  /** Absent when no demand calculation has run (`available` is false). */
+  detail?:
     | ({ found: true } & StockoutRow & {
         reservedQuantity: number;
         blockedQuantity: number;
@@ -231,7 +232,7 @@ export function StockoutView() {
   ];
 
   return (
-    <div className="space-y-4 p-3">
+    <div data-page-body className="flex flex-col gap-section px-page-x py-page-y">
       <PageHeader
         title="Stockout Risk"
         subtitle="Categories short of target stock"
@@ -415,13 +416,16 @@ export function StockoutView() {
         >
           {detail.isLoading ? (
             <div className="px-3 py-4 text-xs text-muted-foreground">Loading category detail…</div>
-          ) : detail.data?.detail.found === false ? (
+          ) : detail.data && !detail.data.available ? (
+            // No demand calculation has run: the API answers with a state, not a detail.
+            <EmptyState title="No demand calculation yet" message="Category detail appears once demand has been calculated." icon={<Info className="h-5 w-5" />} />
+          ) : detail.data?.detail?.found === false ? (
             <EmptyState
               title="Category not in this run"
               message={detail.data.detail.message}
               icon={<Info className="h-5 w-5" />}
             />
-          ) : detail.data?.detail.found === true ? (
+          ) : detail.data?.detail?.found === true ? (
             <CategoryDetail d={detail.data.detail} />
           ) : null}
         </Section>

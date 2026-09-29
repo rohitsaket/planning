@@ -187,7 +187,7 @@ export function ExcessView() {
   ];
 
   return (
-    <div className="space-y-4 p-3">
+    <div data-page-body className="flex flex-col gap-section px-page-x py-page-y">
       <PageHeader
         title="Excess Stock"
         subtitle="Categories with stock above target"

@@ -397,9 +397,10 @@ describe("sarin mapping catalog: the page and navigation", () => {
     const page = await render(MappingsView, {}, root);
     for (const tab of ["Weight Bands", "Lab Mapping", "Shape Mapping", "Status Mapping", "Sarin Shape Mapping"]) expect([tab, page.text.includes(tab)]).toEqual([tab, true]);
     expect(/Business Rules|Business Rule\b/.test(page.text)).toBe(false);
-    // A user with only sarin.mapping.read opens on the Sarin tab; the others show as restricted.
+    // A user with only sarin.mapping.read opens on the Sarin tab; the tabs they cannot open
+    // are not shown at all, so a single remaining tab needs no tab strip.
     const onlySarin = await render(MappingsView, {}, reader);
-    expect([onlySarin.text.includes("Current mappings"), (onlySarin.html.match(/title="Restricted tab"/g) ?? []).length]).toEqual([true, 4]);
+    expect([onlySarin.text.includes("Current mappings"), (onlySarin.html.match(/role="tab"/g) ?? []).length, onlySarin.text.includes("Weight Bands")]).toEqual([true, 0, false]);
   });
 
   test("the Sarin Shape Mapping page offers editing to managers only, with no workflow vocabulary", async () => {

@@ -28,41 +28,24 @@ export const PERMISSIONS = [
   "demand.run",
   "demand.trace",
   "demand.export",
-  "forecast.run",
-  "forecast.publish",
-  // How a prediction is produced — algorithm, training and validation windows, and the
-  // error metrics a model is judged on. Separate from reading the prediction itself:
-  // a planner acts on the forecast, while only model governance needs to see the method
-  // behind it. Deliberately not implied by `analysis.read`, which every read-only role
-  // holds, nor by `forecast.run`/`forecast.publish`, which are actions on a model.
-  "forecast.methodology.read",
   "fantasy.read",
   // Running a routine synchronization, retrying a failed one and force-releasing a
   // stuck lock are three different risks and are authorized separately.
   "fantasy.sync.run",
   "fantasy.sync.retry",
   "fantasy.sync.unlock",
-  // Shadow projection is a diagnostic capability, separate from synchronization.
-  // Running one costs real work over a whole batch; reading a run's reconciliation
-  // exposes how source data would be interpreted. Neither implies the other, and
-  // neither implies any authority over live synchronization.
-  "fantasy.projection.run",
-  "fantasy.projection.read",
-  // Aborting someone else's running projection is an administrative recovery action,
-  // not a consequence of being allowed to start or read one. Kept separate so it can be
-  // granted to whoever actually holds operational recovery authority.
-  "fantasy.projection.recover",
   "fantasy.export",
   "overall.read",
   "overall.export",
+  "data_quality.read",
+  "data_quality.export",
   "config.read",
   "config.export",
-  "feature_flag.read",
-  "feature_flag.manage",
+  "approval_policy.read",
+  "approval_policy.manage",
   "notification.read",
   // Marking a notification read is a write: it must not travel on the read permission.
   "notification.manage",
-  "notification.broadcast",
   "audit.read",
   "audit.export",
 
@@ -125,6 +108,7 @@ export const EXPORT_PERMISSIONS = [
   "demand.export",
   "fantasy.export",
   "overall.export",
+  "data_quality.export",
   "config.export",
   "audit.export",
   "security_audit.export",

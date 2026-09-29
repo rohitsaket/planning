@@ -12,7 +12,7 @@ const TABS: HostTabItem[] = [
 export function ReplenishmentAllocationView() {
   return (
     <TabbedHostView
-      title="Replenishment and Allocation"
+      title="Replenishment & Allocation"
       subtitle="Replenishment targets, coverage and allocations"
       tabs={TABS}
       defaultTab="replenishment"

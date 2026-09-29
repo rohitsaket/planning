@@ -69,12 +69,12 @@ export function BrandingPanel({
   version: string;
 }) {
   return (
-    <div className="relative flex h-full flex-col overflow-hidden bg-[#FFF0E5] px-6 py-8 sm:px-10 lg:px-14 lg:py-12 dark:bg-[#131720] border-r border-[#F5DCD0] dark:border-[#22293A]">
+    <div className="relative flex h-full flex-col overflow-hidden bg-[#FFF1E2] px-6 py-8 sm:px-10 lg:px-14 lg:py-12 dark:bg-[#131720] border-r border-[#FDC698] dark:border-[#22293A]">
       <BackdropGeometry />
 
       <div className="relative flex min-h-0 flex-1 flex-col">
         {/* Brand Capsule matching AppShell header */}
-        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[#FFE2D0]/95 dark:bg-[#25201D] border border-[#F5CEB5] dark:border-[#3D322C] shadow-2xs mb-6 w-fit">
+        <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[#FED7AA]/95 dark:bg-[#25201D] border border-[#FB923C]/50 dark:border-[#3D322C] shadow-2xs mb-6 w-fit">
           <div className="h-6 w-6 rounded-lg bg-[#18181B] text-white flex items-center justify-center flex-shrink-0 shadow-xs">
             <DiamondMark className="h-3.5 w-3.5" />
           </div>

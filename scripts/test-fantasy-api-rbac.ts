@@ -1,7 +1,8 @@
 import { db } from "../src/lib/db";
 // Roles other than SUPER_ADMIN are test fixture custom roles (tests/security/fixture-roles.ts).
 import { testHasPermission } from "../tests/security/fixture-roles";
-import { viewPermission } from "../src/lib/auth/view-permissions";
+import { viewPermissions } from "../src/lib/auth/view-permissions";
+import { resolveViewAlias } from "../src/stores/nav-store";
 
 function assert(condition: boolean, message: string) {
   if (!condition) {
@@ -39,9 +40,13 @@ async function main() {
 
   // 2. View Permission Registry
   console.log("\n[2/4] Verifying View Permission Registry...");
-  assert(viewPermission("overall-data") === "overall.read", "overall-data view maps to overall.read");
-  assert(viewPermission("fantasy-sync") === "fantasy.read", "fantasy-sync view maps to fantasy.read");
-  assert(viewPermission("fantasy-live") === "fantasy.read", "fantasy-live view maps to fantasy.read");
+  // Current Data, Integration Status and Historical Data are tabs of Fantasy Data; each
+  // tab keeps its own permission and the page opens for any of them.
+  assert(JSON.stringify([...viewPermissions("fantasy-data")].sort()) === JSON.stringify(["fantasy.read", "overall.read", "rough.read"]), "Fantasy Data is admitted by rough.read, fantasy.read or overall.read");
+  for (const [legacy, tab] of [["fantasy-live", "current"], ["fantasy-sync", "integration"], ["overall-data", "history"]] as const) {
+    const r = resolveViewAlias(legacy);
+    assert(r.view === "fantasy-data" && r.tab === tab, `${legacy} opens Fantasy Data → ${tab}`);
+  }
 
   // 3. Verify Database Seed Users
   console.log("\n[3/4] Verifying Database Seed Users & Roles...");

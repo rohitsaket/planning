@@ -223,7 +223,7 @@ export function ReservationsView() {
   );
 
   return (
-    <div className="flex flex-col gap-3 p-3">
+    <div data-page-body className="flex flex-col gap-section px-page-x py-page-y">
       <PageHeader
         title="Rough Reservations"
         subtitle="Reserve rough for planning and track reservations"

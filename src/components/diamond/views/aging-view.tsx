@@ -16,6 +16,7 @@ import { AlertTriangle, Boxes, Search } from "lucide-react";
 import { BUCKET_LABELS } from "@/lib/analysis/bucket-vocabulary";
 import { SimulationBanner } from "@/components/diamond/shared/simulation-banner";
 import type { SourceDisclosure } from "@/lib/analysis/source-disclosure";
+import { AgingSummary } from "./aging-summary";
 
 /**
  * STOCK AGING — current stock, and an honest statement that age cannot yet be derived.
@@ -61,12 +62,13 @@ const PAGE_SIZE = 50;
 
 export function AgingView() {
   const trace = useNavStore((s) => s.trace);
+  const openCategoryView = useNavStore((s) => s.openCategoryView);
   const globalFilter = useGlobalFilter();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [appliedSearch, setAppliedSearch] = useState("");
 
-  // A drill-down from the Aging Dashboard arrives in the typed `bucket` field of the nav
+  // A drill-down from the bucket summary (formerly the Aging Dashboard) arrives in the typed `bucket` field of the nav
   // context. It used to be read from the generic `category` field, which carried a raw
   // `inventoryClass` value the API refused — so the filter never applied and the page
   // showed everything while claiming to show one bucket.
@@ -123,13 +125,20 @@ export function AgingView() {
   ];
 
   return (
-    <div className="space-y-4 p-3">
+    <div data-page-body className="flex flex-col gap-section px-page-x py-page-y">
       <PageHeader
         title="Stock Aging"
         subtitle={
           bucketFromNav
             ? `Current stock — ${BUCKET_LABELS[bucketFromNav]}`
             : "Current stock by bucket, category and location"
+        }
+        actions={
+          bucketFromNav ? (
+            <Button size="sm" variant="outline" className="h-8" onClick={() => openCategoryView("analysis-aging", {})}>
+              Show all buckets
+            </Button>
+          ) : undefined
         }
       />
       {/* Persistent and unmistakable while fixture data is on screen. */}
@@ -143,6 +152,8 @@ export function AgingView() {
         <KpiCard label="Confirmed quantity" value={data?.totals.confirmedQuantity ?? 0} unit="pcs" intent="success" hint="Confirmed pieces in stock" />
         <KpiCard label="Needing review" value={data?.totals.lotsNeedingReview ?? 0} intent="warning" hint="Quantity or classification not confirmed" />
       </div>
+
+      <AgingSummary />
 
       <Section
         title="Current stock"

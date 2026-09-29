@@ -28,9 +28,7 @@ export function resetRateLimits() {
 export const LIMITS = {
   login: { limit: 10, windowMs: 5 * 60_000 }, // per username
   loginPerClient: { limit: 100, windowMs: 5 * 60_000 }, // per client IP (one shared bucket when the IP is unknown)
-  mutation: { limit: 60, windowMs: 60_000 },
   upload: { limit: 10, windowMs: 60_000 },
   expensive: { limit: 30, windowMs: 60_000 },
-  broadcast: { limit: 20, windowMs: 60_000 },
   batch: { limit: 3, windowMs: 60_000 },
 } satisfies Record<string, RateLimit>;

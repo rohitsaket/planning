@@ -45,52 +45,91 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+
+  /* Density tokens (see :root). Each becomes a spacing utility: px-page-x, py-page-y,
+     gap-section, p-card, h-control, h-row, h-tab, h-bar, h-nav-row, w-sidebar. */
+  --spacing-page-x: var(--dp-page-x);
+  --spacing-page-y: var(--dp-page-y);
+  --spacing-section: var(--dp-section-gap);
+  --spacing-card: var(--dp-card-pad);
+  --spacing-control: var(--dp-control-h);
+  --spacing-row: var(--dp-row-h);
+  --spacing-tab: var(--dp-tab-h);
+  --spacing-bar: var(--dp-bar-h);
+  --spacing-nav-row: var(--dp-nav-row-h);
+  --spacing-sidebar: var(--dp-sidebar-w);
+}
+
+/* Compact density for information-heavy operational work. One set of dimensions for the
+   whole application; components use the utilities above rather than their own sizes.
+   Phones get comfortable touch targets instead of desktop density. */
+:root {
+  --dp-page-x: 1rem;          /* 16px page gutter */
+  --dp-page-y: 0.75rem;       /* 12px */
+  --dp-section-gap: 0.75rem;  /* 12px between blocks */
+  --dp-card-pad: 0.75rem;     /* 12px inside cards and panels */
+  --dp-control-h: 2rem;       /* 32px inputs, selects and buttons */
+  --dp-row-h: 2.25rem;        /* 36px table rows */
+  --dp-tab-h: 2rem;           /* 32px tabs */
+  --dp-bar-h: 2.75rem;        /* 44px top bar */
+  --dp-nav-row-h: 2rem;       /* 32px sidebar rows */
+  --dp-sidebar-w: 15rem;      /* 240px: the longest page name fits without truncation */
+}
+
+@media (max-width: 767px) {
+  :root {
+    --dp-page-x: 0.75rem;
+    --dp-control-h: 2.5rem;   /* 40px touch targets */
+    --dp-row-h: 2.5rem;
+    --dp-tab-h: 2.5rem;
+    --dp-nav-row-h: 2.5rem;
+  }
 }
 
 :root {
   --radius: 0.625rem;
-  /* Visual Reference Theme — Warm Precision Pearl Palette */
-  --background: #FAF7F4;
-  --foreground: #18181B;
+  /* Visual Reference Theme — Vibrant Light Orange Theme */
+  --background: #FFF9F3;
+  --foreground: #1C1917;
   --card: #FFFFFF;
-  --card-foreground: #18181B;
+  --card-foreground: #1C1917;
   --popover: #FFFFFF;
-  --popover-foreground: #18181B;
-  --primary: #18181B;
+  --popover-foreground: #1C1917;
+  --primary: #1C1917;
   --primary-foreground: #FFFFFF;
-  --secondary: #F5EFEA;
-  --secondary-foreground: #18181B;
-  --muted: #F5EFEA;
-  --muted-foreground: #71717A;
-  --accent: #FFE5D3;
-  --accent-foreground: #C2410C;
+  --secondary: #FFF0E0;
+  --secondary-foreground: #7C2D12;
+  --muted: #FDE8D4;
+  --muted-foreground: #78716C;
+  --accent: #FED7AA;
+  --accent-foreground: #9A3412;
   --destructive: #DC2626;
   --destructive-foreground: #FFFFFF;
-  --border: #EADBCE;
-  --input: #EADBCE;
-  --ring: #F9733E;
-  --brand-cta: #F9733E;
+  --border: #FCD5B5;
+  --input: #FCD5B5;
+  --ring: #F97316;
+  --brand-cta: #F97316;
   --brand-cta-foreground: #FFFFFF;
   --brand-cta-hover: #EA580C;
 
-  /* Warm Peach / Champagne Sidebar matching Image */
-  --sidebar: #FFF0E5;
-  --sidebar-foreground: #292524;
-  --sidebar-primary: #F9733E;
+  /* Fully Light Orange Sidebar */
+  --sidebar: #FFE8D6;
+  --sidebar-foreground: #7C2D12;
+  --sidebar-primary: #EA580C;
   --sidebar-primary-foreground: #FFFFFF;
-  --sidebar-accent: #FFE3D1;
-  --sidebar-accent-foreground: #1C1917;
-  --sidebar-border: #F5DCD0;
-  --sidebar-ring: #F9733E;
-  --sidebar-selected-bg: #FFE5D3;
-  --sidebar-selected-fg: #1C1917;
+  --sidebar-accent: rgba(234, 88, 12, 0.12);
+  --sidebar-accent-foreground: #431407;
+  --sidebar-border: #FCD5B5;
+  --sidebar-ring: #F97316;
+  --sidebar-selected-bg: #EA580C;
+  --sidebar-selected-fg: #FFFFFF;
 
-  /* Table Header Warm Apricot Tint */
-  --table-header-bg: #FFE7D3;
-  --table-header-fg: #5C4E46;
+  /* Table Header Distinct Light Orange */
+  --table-header-bg: #FEE1C7;
+  --table-header-fg: #7C2D12;
 
   /* Charts */
-  --chart-1: #F9733E;
+  --chart-1: #F97316;
   --chart-2: #10B981;
   --chart-3: #F59E0B;
   --chart-4: #8B5CF6;
@@ -154,14 +193,31 @@
     @apply bg-background text-foreground antialiased;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   }
+  /* Vertical grid lines between columns in every table, header and body alike. Zero
+     specificity, so a table that sets its own cell borders (row accents) keeps them. */
+  :where(table) :where(th, td) + :where(th, td) {
+    border-left: 1px solid var(--border);
+  }
+}
+
+/* Phones: controls stay comfortably touchable even where a page sizes them for desktop.
+   Buttons inside tables (sort headers, row actions) keep the table's own row rhythm. */
+@media (max-width: 767px) {
+  main :is(input:not([type="checkbox"]):not([type="radio"]), select, button[role="combobox"], [role="tab"]) {
+    min-height: var(--dp-control-h);
+  }
+  main button:not(table button):not([role="checkbox"]):not([role="radio"]):not([role="tab"]) {
+    min-height: 2.25rem;
+  }
 }
 
 [data-app-shell] {
   background: 
-    radial-gradient(ellipse 70% 55% at 95% 15%, #FEDFC8 0%, transparent 60%),
-    radial-gradient(ellipse 65% 50% at 5% 10%, #E6EEFA 0%, transparent 55%),
-    radial-gradient(ellipse 50% 50% at 85% 90%, #FFEFE2 0%, transparent 60%),
-    linear-gradient(135deg, #EFF4FD 0%, #FAF6F2 40%, #FFF4EC 100%);
+    radial-gradient(ellipse 70% 55% at 95% 15%, #FED7AA 0%, transparent 60%),
+    radial-gradient(ellipse 65% 50% at 5% 10%, #FFF7ED 0%, transparent 55%),
+    radial-gradient(ellipse 50% 50% at 85% 90%, #FEE5CC 0%, transparent 60%),
+    linear-gradient(135deg, #FFFDFB 0%, #FFF5EB 50%, #FEE8D2 100%);
+  background-attachment: fixed;
 }
 
 .dark [data-app-shell] {
@@ -170,6 +226,7 @@
     radial-gradient(ellipse 65% 50% at 5% 10%, rgba(59, 130, 246, 0.06) 0%, transparent 55%),
     radial-gradient(ellipse 50% 50% at 85% 90%, rgba(30, 41, 59, 0.4) 0%, transparent 60%),
     linear-gradient(135deg, #0A0D15 0%, #0C1019 50%, #0E1117 100%);
+  background-attachment: fixed;
 }
 
 /* ============================================================

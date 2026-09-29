@@ -44,7 +44,7 @@ export function WeightBandsView() {
   const { data, isLoading } = useApi<WeightBandsData>("/api/admin/weight-bands");
 
   return (
-    <div className="flex flex-col gap-3 p-3">
+    <div data-page-body className="flex flex-col gap-section px-page-x py-page-y">
       <PageHeader
         title="Weight Bands"
         subtitle="Weight bands from 1.00 ct and above"

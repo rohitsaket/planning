@@ -125,23 +125,8 @@ export async function revokeSession(sessionId: string) {
   await db.session.updateMany({ where: { id: sessionId, revokedAt: null }, data: { revokedAt: new Date() } });
 }
 
-/**
- * Ends every live session for a user and reports how many were ended, so the count can
- * be audited. `exceptSessionId` keeps the caller's own session alive — used by the
- * password-change flow, where the user should stay signed in on the device they just
- * used while every other session is invalidated.
- */
-export async function revokeAllSessions(
-  userId: string,
-  options: { exceptSessionId?: string } = {},
-): Promise<number> {
-  const result = await db.session.updateMany({
-    where: {
-      userId,
-      revokedAt: null,
-      ...(options.exceptSessionId ? { id: { not: options.exceptSessionId } } : {}),
-    },
-    data: { revokedAt: new Date() },
-  });
+/** Ends every live session for a user and reports how many were ended, so the count can be audited. */
+export async function revokeAllSessions(userId: string): Promise<number> {
+  const result = await db.session.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date() } });
   return result.count;
 }

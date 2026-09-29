@@ -7,6 +7,12 @@ export interface SessionUser {
   role: string;
   permissions: string[];
   /**
+   * The account is on a temporary password. The server refuses everything except its own
+   * identity, the password change and sign-out until it is replaced; the client shows only
+   * the password screen meanwhile.
+   */
+  mustChangePassword?: boolean;
+  /**
    * The countries and labs this session may read. `null` in either list means
    * unrestricted for that dimension.
    *

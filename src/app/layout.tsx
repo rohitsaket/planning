@@ -5,7 +5,6 @@ import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as SonnerToaster } from "@/components/ui/sonner";
 import { ThemeProvider } from "next-themes";
-import { RealtimeProvider } from "@/components/diamond/realtime-provider";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -46,7 +45,7 @@ export default async function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground h-full overflow-hidden`}
       >
         <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false} nonce={nonce}>
-          <RealtimeProvider>{children}</RealtimeProvider>
+          {children}
         </ThemeProvider>
         <Toaster />
         <SonnerToaster position="top-right" richColors closeButton />

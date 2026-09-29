@@ -187,8 +187,54 @@ export function SalesAnalysisView() {
     },
   ];
 
+  const renderTabs = (active: "summary" | "records") => (
+    <div className="flex items-center gap-1.5 p-0.5 rounded-lg border border-border/80 bg-muted/40 backdrop-blur-md shadow-2xs">
+      <button
+        type="button"
+        onClick={() => setActiveTab("summary")}
+        className={cn(
+          "flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-md transition-all cursor-pointer",
+          active === "summary"
+            ? "bg-[#FFE2D1] text-[#18181B] dark:bg-[#272322] dark:text-[#FFEDD5] font-bold shadow-2xs border border-[#F5DCD0]/70 dark:border-[#3A302A]"
+            : "text-muted-foreground hover:text-foreground hover:bg-muted/70"
+        )}
+      >
+        <Layers className={cn("h-3.5 w-3.5", active === "summary" ? "text-[#F9733E]" : "text-muted-foreground")} />
+        <span>Category Sales Summary</span>
+        {data?.paging.total !== undefined && (
+          <span className={cn("px-1.5 py-0.2 rounded-full text-[10px]", active === "summary" ? "bg-[#18181B]/15 text-[#18181B] dark:bg-white/20 dark:text-white" : "bg-muted text-muted-foreground")}>
+            {data.paging.total}
+          </span>
+        )}
+      </button>
+      <button
+        type="button"
+        onClick={() => setActiveTab("records")}
+        className={cn(
+          "flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-md transition-all cursor-pointer",
+          active === "records"
+            ? "bg-[#FFE2D1] text-[#18181B] dark:bg-[#272322] dark:text-[#FFEDD5] font-bold shadow-2xs border border-[#F5DCD0]/70 dark:border-[#3A302A]"
+            : "text-muted-foreground hover:text-foreground hover:bg-muted/70"
+        )}
+      >
+        <Rows3 className={cn("h-3.5 w-3.5", active === "records" ? "text-[#F9733E]" : "text-muted-foreground")} />
+        <span>Supporting Records</span>
+        {selectedCategory && (
+          <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#F9733E]/15 text-[#C2410C] dark:text-[#FDBA74] font-mono max-w-[140px] truncate">
+            {selectedCategory}
+          </span>
+        )}
+        {records.data?.paging.total !== undefined && (
+          <span className={cn("px-1.5 py-0.2 rounded-full text-[10px]", active === "records" ? "bg-[#18181B]/15 text-[#18181B] dark:bg-white/20 dark:text-white" : "bg-muted text-muted-foreground")}>
+            {records.data.paging.total}
+          </span>
+        )}
+      </button>
+    </div>
+  );
+
   return (
-    <div className="flex flex-col gap-3 p-3">
+    <div data-page-body className="flex flex-col gap-section px-page-x py-page-y flex-1 min-h-0 overflow-hidden">
       <SimulationBanner disclosure={data?.sourceDisclosure} />
       <PageHeader
         title="Sales Analysis"
@@ -222,112 +268,75 @@ export function SalesAnalysisView() {
         <KpiCard label="Categories" value={totals.categories} intent="default" hint="Categories with sales" icon={Layers} />
       </div>
 
-      {/* Navigation Tabs */}
-      <div className="flex items-center gap-1.5 border-b border-border bg-card/80 p-1 rounded-xl shadow-2xs">
-        <button
-          type="button"
-          onClick={() => setActiveTab("summary")}
-          className={cn(
-            "flex items-center gap-2 px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer",
-            activeTab === "summary"
-              ? "bg-[#FFE2D1] text-[#18181B] dark:bg-[#272322] dark:text-[#FFEDD5] font-bold shadow-2xs border border-[#F5DCD0]/70 dark:border-[#3A302A]"
-              : "text-muted-foreground hover:text-foreground hover:bg-muted/70"
-          )}
-        >
-          <Layers className={cn("h-3.5 w-3.5", activeTab === "summary" ? "text-[#F9733E]" : "text-muted-foreground")} />
-          <span>Category Sales Summary</span>
-          {data?.paging.total !== undefined && (
-            <span className={cn("px-1.5 py-0.2 rounded-full text-[10px]", activeTab === "summary" ? "bg-[#18181B]/15 text-[#18181B] dark:bg-white/20 dark:text-white" : "bg-muted text-muted-foreground")}>
-              {data.paging.total}
-            </span>
-          )}
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab("records")}
-          className={cn(
-            "flex items-center gap-2 px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-all cursor-pointer",
-            activeTab === "records"
-              ? "bg-[#FFE2D1] text-[#18181B] dark:bg-[#272322] dark:text-[#FFEDD5] font-bold shadow-2xs border border-[#F5DCD0]/70 dark:border-[#3A302A]"
-              : "text-muted-foreground hover:text-foreground hover:bg-muted/70"
-          )}
-        >
-          <Rows3 className={cn("h-3.5 w-3.5", activeTab === "records" ? "text-[#F9733E]" : "text-muted-foreground")} />
-          <span>Supporting Records</span>
-          {selectedCategory && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#F9733E]/15 text-[#C2410C] dark:text-[#FDBA74] font-mono max-w-[140px] truncate">
-              {selectedCategory}
-            </span>
-          )}
-          {records.data?.paging.total !== undefined && (
-            <span className={cn("px-1.5 py-0.2 rounded-full text-[10px]", activeTab === "records" ? "bg-[#18181B]/15 text-[#18181B] dark:bg-white/20 dark:text-white" : "bg-muted text-muted-foreground")}>
-              {records.data.paging.total}
-            </span>
-          )}
-        </button>
-      </div>
+      <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+        {activeTab === "summary" && (
+          <Section
+            title={renderTabs("summary")}
+            actions={<SortControls keys={CATEGORY_SORT_KEYS} labels={CATEGORY_SORT_LABELS} value={sort} onChange={setSort} label="Sort the category summary" />}
+            bodyClassName="p-0 flex-1 min-h-0 flex flex-col"
+            className="flex-1 min-h-0 flex flex-col"
+          >
+            <DataTable<CategorySalesRow>
+              columns={columns}
+              rows={data?.rows ?? []}
+              loading={isLoading}
+              emptyMessage={
+                readiness?.state === "NOT_RUN"
+                  ? "No sales data yet."
+                  : "No confirmed sales match these filters."
+              }
+              maxHeight={DATA_TABLE_VIEWPORT_MAX_HEIGHT}
+              enableColumnValueFilter={false}
+            />
+            <div className="flex-shrink-0">
+              <ServerPagination
+                page={data?.paging.page ?? 1}
+                pageSize={data?.paging.pageSize ?? PAGE_SIZE}
+                total={data?.paging.total ?? 0}
+                hasMore={data?.paging.hasMore ?? false}
+                onPageChange={setPage}
+                loading={isLoading}
+                label="categories"
+              />
+            </div>
+          </Section>
+        )}
 
-      {activeTab === "summary" && (
-        <Section
-          title="Category Sales Summary"
-          actions={<SortControls keys={CATEGORY_SORT_KEYS} labels={CATEGORY_SORT_LABELS} value={sort} onChange={setSort} label="Sort the category summary" />}
-          bodyClassName="p-0"
-        >
-          <DataTable<CategorySalesRow>
-            columns={columns}
-            rows={data?.rows ?? []}
-            loading={isLoading}
-            emptyMessage={
-              readiness?.state === "NOT_RUN"
-                ? "No sales data yet."
-                : "No confirmed sales match these filters."
+        {activeTab === "records" && (
+          <Section
+            title={renderTabs("records")}
+            description={
+              selectedCategory
+                ? `for ${selectedCategory}`
+                : undefined
             }
-            maxHeight={DATA_TABLE_VIEWPORT_MAX_HEIGHT}
-            enableColumnValueFilter={false}
-          />
-          <ServerPagination
-            page={data?.paging.page ?? 1}
-            pageSize={data?.paging.pageSize ?? PAGE_SIZE}
-            total={data?.paging.total ?? 0}
-            hasMore={data?.paging.hasMore ?? false}
-            onPageChange={setPage}
-            loading={isLoading}
-            label="categories"
-          />
-        </Section>
-      )}
-
-      {activeTab === "records" && (
-        <Section
-          title="Supporting Records"
-          description={
-            selectedCategory
-              ? `Sale records for ${selectedCategory}`
-              : "Select Records on a category to narrow this list."
-          }
-          actions={<SortControls keys={RECORD_SORT_KEYS} labels={RECORD_SORT_LABELS} value={recordSort} onChange={setRecordSort} label="Sort the supporting records" />}
-          bodyClassName="p-0"
-        >
-          {records.error && <div className="p-3"><InfoBanner variant="critical">Supporting records could not be loaded. {records.error.message}</InfoBanner></div>}
-          <DataTable<SupportingRecordRow>
-            columns={recordColumns}
-            rows={records.data?.rows ?? []}
-            loading={records.isLoading}
-            emptyMessage="No confirmed sale records match these filters."
-            maxHeight={DATA_TABLE_VIEWPORT_MAX_HEIGHT}
-            enableColumnValueFilter={false}
-          />
-          <ServerPagination
-            page={records.data?.paging.page ?? 1}
-            pageSize={records.data?.paging.pageSize ?? PAGE_SIZE}
-            total={records.data?.paging.total ?? 0}
-            hasMore={records.data?.paging.hasMore ?? false}
-            onPageChange={setRecordPage}
-            loading={records.isLoading}
-            label="sale records"
-          />
-        </Section>
-      )}
+            actions={<SortControls keys={RECORD_SORT_KEYS} labels={RECORD_SORT_LABELS} value={recordSort} onChange={setRecordSort} label="Sort the supporting records" />}
+            bodyClassName="p-0 flex-1 min-h-0 flex flex-col"
+            className="flex-1 min-h-0 flex flex-col"
+          >
+            {records.error && <div className="p-3"><InfoBanner variant="critical">Supporting records could not be loaded. {records.error.message}</InfoBanner></div>}
+            <DataTable<SupportingRecordRow>
+              columns={recordColumns}
+              rows={records.data?.rows ?? []}
+              loading={records.isLoading}
+              emptyMessage="No confirmed sale records match these filters."
+              maxHeight={DATA_TABLE_VIEWPORT_MAX_HEIGHT}
+              enableColumnValueFilter={false}
+            />
+            <div className="flex-shrink-0">
+              <ServerPagination
+                page={records.data?.paging.page ?? 1}
+                pageSize={records.data?.paging.pageSize ?? PAGE_SIZE}
+                total={records.data?.paging.total ?? 0}
+                hasMore={records.data?.paging.hasMore ?? false}
+                onPageChange={setRecordPage}
+                loading={records.isLoading}
+                label="sale records"
+              />
+            </div>
+          </Section>
+        )}
+      </div>
     </div>
   );
 }

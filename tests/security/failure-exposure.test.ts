@@ -3,7 +3,6 @@ import { call, db, makeUser, resetDb } from "./helpers";
 import { resetRateLimits } from "@/lib/api/rate-limit";
 import { GET as demandHistory } from "@/app/api/demand/history/route";
 import { GET as fantasySync } from "@/app/api/fantasy/sync/route";
-import { GET as anomalies } from "@/app/api/analysis/anomalies/route";
 import { GET as excess } from "@/app/api/analysis/excess/route";
 import {
   readPublicFailure,
@@ -246,27 +245,6 @@ describe("analysis responses carry results, not mechanics", () => {
     viewerCookie = (await makeUser("mechanics-viewer", "VIEWER")).cookie;
   });
 
-  test("anomaly detection publishes direction and rank, never the measure behind them", async () => {
-    const res = await call(anomalies, { path: "/api/analysis/anomalies", cookie: viewerCookie });
-    expect(res.status).toBe(200);
-
-    const serialized = JSON.stringify(res.json);
-    for (const m of MECHANICS) expect(serialized.includes(m)).toBe(false);
-
-    // Ordering is still delivered, so removing the measure did not degrade the result.
-    const rows = res.json.rows as any[];
-    rows.forEach((r, i) => {
-      expect(r.rank).toBe(i + 1);
-      expect(r.zScore).toBe(undefined);
-      expect(["UNUSUALLY_HIGH", "UNUSUALLY_LOW"].includes(r.direction)).toBe(true);
-    });
-
-    // An empty result is stated honestly rather than left blank.
-    if (rows.length === 0) {
-      expect(typeof res.json.summary.noneFlaggedMessage).toBe("string");
-    }
-  });
-
   test("excess analysis explains what the number means without stating how it is derived", async () => {
     const res = await call(excess, { path: "/api/analysis/excess?section=status", cookie: viewerCookie });
     expect(res.status).toBe(200);
@@ -283,7 +261,6 @@ describe("analysis responses carry results, not mechanics", () => {
   });
 
   test("both endpoints still refuse an unauthenticated caller", async () => {
-    expect((await call(anomalies, { path: "/api/analysis/anomalies" })).status).toBe(401);
     expect((await call(excess, { path: "/api/analysis/excess" })).status).toBe(401);
     expect((await call(demandHistory, { path: "/api/demand/history" })).status).toBe(401);
     expect((await call(fantasySync, { path: "/api/fantasy/sync" })).status).toBe(401);

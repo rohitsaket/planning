@@ -1,5 +1,6 @@
 "use client";
 
+import { FilterBar } from "@/components/diamond/shared/density";
 import { useMemo, useState } from "react";
 import { useApi } from "@/lib/api-client";
 import { PageHeader, Section } from "@/components/diamond/shared/page-header";
@@ -226,7 +227,7 @@ export function PlannedPiecesView() {
   ];
 
   return (
-    <div className="flex flex-col gap-3 p-3">
+    <div data-page-body className="flex flex-col gap-section px-page-x py-page-y">
       <PageHeader
         title="Planned Pieces"
         subtitle="Planned pieces, expected vs actual"
@@ -250,9 +251,7 @@ export function PlannedPiecesView() {
         />
       </div>
 
-      <Section
-        title="Filters"
-        bodyClassName="p-2"
+      <FilterBar
         actions={
           activeFilters > 0 ? (
             <button onClick={clearFilters} className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground">
@@ -301,7 +300,7 @@ export function PlannedPiecesView() {
             </SelectContent>
           </Select>
         </div>
-      </Section>
+      </FilterBar>
 
       <DataTable<PieceRow>
         columns={columns}

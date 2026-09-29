@@ -1,25 +1,21 @@
 "use client";
 
 import { useAuthStore } from "@/stores/auth-store";
-import { useApi } from "@/lib/api-client";
+import { useApi, apiFetch } from "@/lib/api-client";
 import { KpiCard } from "@/components/diamond/shared/kpi-card";
-import { Section, PageHeader } from "@/components/diamond/shared/page-header";
+import { Section } from "@/components/diamond/shared/page-header";
 import { useNavStore } from "@/stores/nav-store";
 import { useGlobalFilter } from "@/stores/global-filter";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiFetch, apiPost } from "@/lib/api-client";
+import { useQuery } from "@tanstack/react-query";
 import {
   ResponsiveContainer, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   PieChart, Pie, Cell, Legend, ComposedChart,
 } from "recharts";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import {
   AlertTriangle, Gem, Boxes, ShoppingCart, FileWarning,
-  RefreshCw, TrendingUp, TrendingDown,
-  ShieldCheck, Clock, Zap,
+  TrendingUp, TrendingDown, ShieldCheck, Clock, RefreshCw,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { toast } from "sonner";
 import { KpiGridSkeleton, PageSkeleton } from "@/components/diamond/shared/skeleton";
 
 interface DashboardKpi {
@@ -31,7 +27,7 @@ interface DashboardKpi {
   polishedStock: number;
   roughAvailable: number;
   roughReserved: number;
-  currentWip: number;
+  approvedPlanPieces: number;
   criticalRequirements: number;
   highRequirements: number;
   overdueRequirements: number;
@@ -39,9 +35,6 @@ interface DashboardKpi {
   backorders: number;
   memoExposure: number;
   fantasySyncHealth: "HEALTHY" | "PARTIAL" | "FAILED" | "NOT_RUN";
-  plannedYield: number;
-  actualYield: number;
-  yieldVariance: number;
   demandRunDate?: string | null;
 }
 
@@ -58,9 +51,7 @@ const SYNC_HEALTH_LABEL: Record<string, string> = { HEALTHY: "Healthy", PARTIAL:
 
 export function DashboardView() {
   const setView = useNavStore((s) => s.setView);
-  const qc = useQueryClient();
   const globalFilter = useGlobalFilter();
-  const [runningDemand, setRunningDemand] = useState(false);
 
   const filterQs = useMemo(() => {
     const params = new URLSearchParams();
@@ -76,21 +67,6 @@ export function DashboardView() {
   // Widgets are fetched only when the role may read them (UX only — the API enforces it anyway).
   const perms = useAuthStore((s) => s.user?.permissions ?? []);
   const canSales = perms.includes("sales.read");
-  const canRunDemand = perms.includes("demand.run");
-
-  const demandMutation = useMutation({
-    mutationFn: () => apiPost<{ runId: string; categoriesProcessed: number; totalShortage: number }>("/api/demand/run", {}),
-    onMutate: () => setRunningDemand(true),
-    onSuccess: (r) => {
-      toast.success(`Demand recalculated — ${r.categoriesProcessed} categories, shortage ${r.totalShortage} pcs`);
-      qc.invalidateQueries({
-        predicate: (q) =>
-          typeof q.queryKey[0] === "string" && q.queryKey[0].startsWith("/api/dashboard"),
-      });
-    },
-    onError: (e) => toast.error(`Demand run failed: ${(e as Error).message}`),
-    onSettled: () => setRunningDemand(false),
-  });
 
   // Sales trend (sparkline data)
   const { data: trendData } = useQuery({
@@ -208,41 +184,17 @@ export function DashboardView() {
   }, [memoData]);
 
   return (
-    <div className="flex flex-col gap-3 p-3">
-      <PageHeader
-        title="Executive Dashboard"
-        subtitle="Manufacturing need, inventory and priorities"
-        meta={
-          <div className="flex items-center gap-2">
-            {kpi?.demandRunDate && (
-              <span className="text-[10px] text-muted-foreground">
-                Last demand run: {new Date(kpi.demandRunDate).toLocaleString()}
-              </span>
-            )}
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-7 text-[11px] gap-1.5"
-              onClick={() => demandMutation.mutate()}
-              disabled={runningDemand || !canRunDemand}
-            >
-              {runningDemand ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Zap className="h-3 w-3" />}
-              {runningDemand ? "Recalculating..." : "Run Demand Calc"}
-            </Button>
-          </div>
-        }
-      />
-
+    <div data-page-body className="flex flex-col gap-section px-page-x py-page-y">
       {isLoading && !kpi ? (
         <PageSkeleton kpiCount={18} sections={4} />
       ) : (
         <>
 
-      {/* GROUP 1: Manufacturing Need — the four requirement numbers */}
+      {/* GROUP 1: Planning Need — the confirmed requirement numbers */}
       <div>
         <div className="flex items-center gap-2 mb-2 px-1">
           <div className="h-4 w-1 rounded-full bg-rose-500" />
-          <h2 className="text-[11px] font-bold uppercase tracking-wide text-foreground">Manufacturing Need</h2>
+          <h2 className="text-[11px] font-bold uppercase tracking-wide text-foreground">Planning Need</h2>
         </div>
         {isLoading ? (
           <KpiGridSkeleton count={5} />
@@ -252,7 +204,7 @@ export function DashboardView() {
             <KpiCard label="Pipeline-Adjusted" value={kpi?.pipelineAdjusted ?? 0} unit="pcs" intent="warning" icon={TrendingDown} hint="Still needed after work in progress" onClick={() => setView("requirements-matrix")} />
             <KpiCard label="Approved Plan Coverage" value={kpi?.approvedPlanCoverage ?? 0} unit="pcs" intent="success" icon={ShieldCheck} hint="Coverage from approved plans" onClick={() => setView("planning-approval-queue")} />
             <KpiCard label="Remaining Unplanned" value={kpi?.remainingUnplanned ?? 0} unit="pcs" intent="critical" icon={AlertTriangle} hint="Still needed after approved plans" onClick={() => setView("requirements-matrix")} />
-            <KpiCard label="Forecast Signal" value={kpi?.forecastRequirement ?? 0} unit="pcs" intent="info" icon={TrendingUp} hint="Advisory. Not confirmed demand" sparkline={forecastSparkline} onClick={() => setView("data-science-forecast")} />
+            <KpiCard label="Forecast Signal" value={kpi?.forecastRequirement ?? 0} unit="pcs" intent="info" icon={TrendingUp} hint="Advisory. Not confirmed demand" sparkline={forecastSparkline} />
           </div>
         )}
       </div>
@@ -271,7 +223,7 @@ export function DashboardView() {
             <KpiCard label="Polished Stock" value={kpi?.polishedStock ?? 0} unit="lots" intent="default" icon={Gem} hint="Polished lots in stock" onClick={() => setView("analysis-polished")} />
             <KpiCard label="Rough Available" value={kpi?.roughAvailable ?? 0} unit="stones" intent="success" icon={Gem} onClick={() => setView("planning-rough-availability")} />
             <KpiCard label="Rough Reserved" value={kpi?.roughReserved ?? 0} unit="stones" intent="warning" icon={ShieldCheck} onClick={() => setView("planning-reservations")} />
-            <KpiCard label="Current WIP" value={kpi?.currentWip ?? 0} unit="pcs" intent="info" icon={Boxes} hint="Pieces in manufacturing" onClick={() => setView("analysis-wip")} />
+            <KpiCard label="Approved Plan Pieces" value={kpi?.approvedPlanPieces ?? 0} unit="pcs" intent="info" icon={Boxes} hint="Pieces in approved plans" onClick={() => setView("planning-workbench", "pieces")} />
             <KpiCard label="Open Orders" value={kpi?.openOrders ?? 0} intent="default" icon={ShoppingCart} onClick={() => setView("analysis-orders")} />
             <KpiCard label="Backorders" value={kpi?.backorders ?? 0} unit="pcs" intent="critical" icon={FileWarning} onClick={() => setView("requirements-backorders")} />
             <KpiCard label="Memo Exposure" value={fmtMoney(kpi?.memoExposure ?? 0)} intent="warning" icon={FileWarning} hint="Open memo value" sparkline={memoSparkline} onClick={() => setView("analysis-memo")} />
@@ -284,18 +236,16 @@ export function DashboardView() {
         <div className="flex items-center gap-2 mb-2 px-1">
           <div className="h-4 w-1 rounded-full bg-emerald-500" />
           <h2 className="text-[11px] font-bold uppercase tracking-wide text-foreground">Priority & Sync Health</h2>
-          <span className="text-[10px] text-muted-foreground">— Requirements, sync status and yield</span>
+          <span className="text-[10px] text-muted-foreground">— Requirements and sync status</span>
         </div>
         {isLoading ? (
           <KpiGridSkeleton count={6} />
         ) : (
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
             <KpiCard label="Critical Reqs" value={kpi?.criticalRequirements ?? 0} intent="critical" icon={AlertTriangle} hint="Critical, not yet planned" onClick={() => setView("requirements-priority-queue")} />
             <KpiCard label="High Reqs" value={kpi?.highRequirements ?? 0} intent="warning" icon={AlertTriangle} hint="High priority, not yet planned" onClick={() => setView("requirements-priority-queue")} />
             <KpiCard label="Overdue Reqs" value={kpi?.overdueRequirements ?? 0} intent="critical" icon={Clock} hint="Past required date" onClick={() => setView("requirements-priority-queue")} />
             <KpiCard label="Fantasy Sync" value={kpi?.fantasySyncHealth ? SYNC_HEALTH_LABEL[kpi.fantasySyncHealth] ?? kpi.fantasySyncHealth : "—"} intent={kpi?.fantasySyncHealth === "HEALTHY" ? "success" : kpi?.fantasySyncHealth === "NOT_RUN" ? "default" : kpi?.fantasySyncHealth === "PARTIAL" ? "warning" : "critical"} icon={RefreshCw} onClick={() => setView("fantasy-sync")} />
-            <KpiCard label="Planned Yield" value={`${(kpi?.plannedYield ?? 0).toFixed(2)}%`} intent="info" icon={TrendingUp} onClick={() => setView("reports")} />
-            <KpiCard label="Yield Variance" value={`${(kpi?.yieldVariance ?? 0).toFixed(2)}%`} intent={(kpi?.yieldVariance ?? 0) < 0 ? "critical" : "success"} icon={(kpi?.yieldVariance ?? 0) < 0 ? TrendingDown : TrendingUp} hint={`Actual ${(kpi?.actualYield ?? 0).toFixed(2)}% vs Planned ${(kpi?.plannedYield ?? 0).toFixed(2)}%`} onClick={() => setView("reports")} />
           </div>
         )}
       </div>
@@ -303,7 +253,7 @@ export function DashboardView() {
       {/* Charts row */}
       <div className="grid grid-cols-1 gap-3">
         <Section title="Sales Trend (30D windows by shape)" description="Sales by shape over the last three 30-day periods">
-          <div className="h-64">
+          <div className="h-52">
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart data={trendData ?? []}>
                 <defs>
@@ -330,7 +280,7 @@ export function DashboardView() {
       {/* Lower row: priority pies */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         <Section title="Unplanned by Priority" description="Open requirement pieces by priority class">
-          <div className="h-56 flex items-center justify-center">
+          <div className="h-48 flex items-center justify-center">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie data={priorityBreakdown?.priority ?? []} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={70} label={(e) => `${e.name}: ${e.value}`} labelLine={false} fontSize={9}>
@@ -343,7 +293,7 @@ export function DashboardView() {
         </Section>
 
         <Section title="Unplanned by Type" description="Open requirement pieces by source type">
-          <div className="h-56 flex items-center justify-center">
+          <div className="h-48 flex items-center justify-center">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie data={priorityBreakdown?.type ?? []} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={70} label={(e) => `${e.name}: ${e.value}`} labelLine={false} fontSize={9}>

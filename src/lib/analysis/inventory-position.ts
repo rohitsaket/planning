@@ -12,7 +12,7 @@
  *     They may be compared against canonical stock for reconciliation, and they may
  *     restrict, but they can never promote an excluded canonical record into available
  *     stock.
- *   - `FantasyProjectionCandidate` — shadow projection output, never authoritative.
+ *   - `FantasyProjectionCandidate` — history of a retired shadow projection, never authoritative.
  *   - Non-current records — a sold, closed or superseded version is history, not stock.
  *
  * Server-only.
@@ -649,7 +649,6 @@ export interface MirrorReconciliation {
   readonly mirrorOnlyLegacySeed: number;
   /** Lots where the mirror's planning class disagrees with the canonical classification. */
   readonly classificationDisagreements: number;
-  readonly shadowProjectionCandidates: number;
 }
 
 /**
@@ -660,8 +659,7 @@ export interface MirrorReconciliation {
  * corroborate or restrict, never promote.
  */
 export async function reconcileWithMirrors(client: DbClient = db): Promise<MirrorReconciliation> {
-  const [agg, shadow] = await Promise.all([
-    client.$queryRaw<Array<{
+  const agg = await client.$queryRaw<Array<{
       canonical: number; polished: number; rough: number; memo: number;
       both: number; canonical_only: number; mirror_only: number; disagree: number;
     }>>`
@@ -679,9 +677,7 @@ export async function reconcileWithMirrors(client: DbClient = db): Promise<Mirro
           WHERE NOT EXISTS (SELECT 1 FROM "LotMasterRecord" m WHERE m."lotId" = p."fantasyLotId" AND m."isCurrent" = TRUE)) AS mirror_only,
         (SELECT COUNT(*)::int FROM "PolishedStone" p
            JOIN "LotMasterRecord" m ON m."lotId" = p."fantasyLotId" AND m."isCurrent" = TRUE
-          WHERE (m."inventoryClass" = 'PHYSICAL_AVAILABLE') <> (p."planningClass" IN ('PHYSICAL', 'PLANNING_AVAILABLE'))) AS disagree`,
-    client.fantasyProjectionCandidate.count(),
-  ]);
+          WHERE (m."inventoryClass" = 'PHYSICAL_AVAILABLE') <> (p."planningClass" IN ('PHYSICAL', 'PLANNING_AVAILABLE'))) AS disagree`;
 
   const a = agg[0];
   return {
@@ -693,8 +689,6 @@ export async function reconcileWithMirrors(client: DbClient = db): Promise<Mirro
     canonicalOnly: a?.canonical_only ?? 0,
     mirrorOnlyLegacySeed: a?.mirror_only ?? 0,
     classificationDisagreements: a?.disagree ?? 0,
-    // Reported so its absence from every figure above is visible, not merely asserted.
-    shadowProjectionCandidates: shadow,
   };
 }
 

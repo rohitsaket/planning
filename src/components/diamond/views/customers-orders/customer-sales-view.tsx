@@ -86,6 +86,8 @@ interface DetailResponse {
 const PAGE_SIZE = 25;
 const DATA_STATE_LABEL: Record<string, string> = { CONFIRMED: "Confirmed", IDENTITY_MISSING: "Customer ID missing", INSUFFICIENT_HISTORY: "Limited history" };
 
+import { cn } from "@/lib/utils";
+
 export function CustomerSalesView() {
   const setView = useNavStore((s) => s.setView);
   const globalFilter = useGlobalFilter();
@@ -94,6 +96,7 @@ export function CustomerSalesView() {
   const [appliedSearch, setAppliedSearch] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
   const [detailPage, setDetailPage] = useState(1);
+  const [activeDetailTab, setActiveDetailTab] = useState<"categories" | "records">("categories");
 
   const scope = useMemo(() => {
     const p = new URLSearchParams();
@@ -127,7 +130,7 @@ export function CustomerSalesView() {
         ) : (
           <button
             type="button"
-            className="text-left font-medium text-primary hover:underline"
+            className="text-left font-medium text-primary hover:underline cursor-pointer"
             onClick={() => { setSelected(r.customerKey); setDetailPage(1); }}
           >
             {r.customerCode}
@@ -163,7 +166,7 @@ export function CustomerSalesView() {
       cell: (r) => (
         <button
           type="button"
-          className="text-left text-primary hover:underline"
+          className="text-left text-primary hover:underline cursor-pointer"
           // The canonical key is carried verbatim, so Heart opens Heart.
           onClick={() => setView("analysis-sales", "analysis")}
           title={r.categoryId}
@@ -187,69 +190,73 @@ export function CustomerSalesView() {
   ];
 
   return (
-    <div className="space-y-4">
+    <div data-page-body className="flex flex-col gap-section px-page-x py-page-y flex-1 min-h-0 overflow-hidden">
       {/* Persistent and unmistakable while fixture data is on screen. */}
       <SimulationBanner disclosure={customers.data?.sourceDisclosure} />
-      <Section
-        title="Customers"
-        description={
-          customers.data?.available
-            ? `Confirmed sales for the 90 days ending ${customers.data.businessDateIst} (IST)`
-            : "Customer activity comes from a completed 90-day sales snapshot."
-        }
-        actions={
-          <div className="flex items-center gap-2">
-            <div className="relative">
-              <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") applySearch(); }}
-                placeholder="Customer code or name…"
-                className="h-8 w-60 pl-7 text-xs"
-              />
-            </div>
-            <Button size="sm" variant="outline" className="h-8" onClick={applySearch}>Apply</Button>
-          </div>
-        }
-      >
-        {customers.data && !customers.data.available ? (
-          <EmptyState
-            title="NOT RUN"
-            message="No sales snapshot yet. Customer activity is unavailable."
-            icon={<Info className="h-5 w-5" />}
-          />
-        ) : (
-          <>
-            <DataTable
-              columns={customerColumns}
-              rows={customers.data?.rows ?? []}
-              loading={customers.isLoading}
-              emptyMessage="No customer generated a confirmed sale under the active filters."
-              pagination={false}
-              exportScope="current-page"
-            />
-            <ServerPagination
-              page={customers.data?.paging.page ?? 1}
-              pageSize={customers.data?.paging.pageSize ?? PAGE_SIZE}
-              total={customers.data?.paging.total ?? 0}
-              hasMore={customers.data?.paging.hasMore ?? false}
-              onPageChange={setPage}
-              loading={customers.isLoading}
-              label="customers"
-            />
-            {customers.data && (
-              <div className="border-t border-border bg-muted/20 px-3 py-1.5 text-[11px] text-muted-foreground">
-                Totals across every matching customer — confirmed {customers.data.totals.confirmedQuantity} pcs ·{" "}
-                {customers.data.totals.measuredWeight} ct · {customers.data.totals.saleRecordCount} sale records ·{" "}
-                {customers.data.totals.customers} customers
-              </div>
-            )}
-          </>
-        )}
-      </Section>
 
-      {selected && (
+      {!selected ? (
+        <Section
+          title="Customers"
+          description={
+            customers.data?.available
+              ? `Confirmed sales for the 90 days ending ${customers.data.businessDateIst} (IST)`
+              : "Customer activity comes from a completed 90-day sales snapshot."
+          }
+          className="flex-1 min-h-0 flex flex-col"
+          actions={
+            <div className="flex items-center gap-2">
+              <div className="relative">
+                <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") applySearch(); }}
+                  placeholder="Customer code or name…"
+                  className="h-8 w-60 pl-7 text-xs"
+                />
+              </div>
+              <Button size="sm" variant="outline" className="h-8 cursor-pointer" onClick={applySearch}>Apply</Button>
+            </div>
+          }
+        >
+          {customers.data && !customers.data.available ? (
+            <EmptyState
+              title="NOT RUN"
+              message="No sales snapshot yet. Customer activity is unavailable."
+              icon={<Info className="h-5 w-5" />}
+            />
+          ) : (
+            <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+              <DataTable
+                columns={customerColumns}
+                rows={customers.data?.rows ?? []}
+                loading={customers.isLoading}
+                emptyMessage="No customer generated a confirmed sale under the active filters."
+                pagination={false}
+                exportScope="current-page"
+              />
+              <div className="flex-shrink-0">
+                <ServerPagination
+                  page={customers.data?.paging.page ?? 1}
+                  pageSize={customers.data?.paging.pageSize ?? PAGE_SIZE}
+                  total={customers.data?.paging.total ?? 0}
+                  hasMore={customers.data?.paging.hasMore ?? false}
+                  onPageChange={setPage}
+                  loading={customers.isLoading}
+                  label="customers"
+                />
+                {customers.data && (
+                  <div className="border-t border-border bg-muted/20 px-3 py-1.5 text-[11px] text-muted-foreground">
+                    Totals across every matching customer — confirmed {customers.data.totals.confirmedQuantity} pcs ·{" "}
+                    {customers.data.totals.measuredWeight} ct · {customers.data.totals.saleRecordCount} sale records ·{" "}
+                    {customers.data.totals.customers} customers
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </Section>
+      ) : (
         <Section
           title="Customer detail"
           description={
@@ -257,55 +264,96 @@ export function CustomerSalesView() {
               ? `${detail.data.customerCode ?? "Unidentified"}${detail.data.customerName ? ` — ${detail.data.customerName}` : ""} · snapshot business date ${detail.data.businessDateIst} (IST)`
               : "Loading…"
           }
+          className="flex-1 min-h-0 flex flex-col"
           actions={
-            <Button size="sm" variant="outline" className="h-7 gap-1" onClick={() => setSelected(null)}>
-              <X className="h-3.5 w-3.5" /> Close
+            <Button size="sm" variant="outline" className="h-7 gap-1 cursor-pointer" onClick={() => setSelected(null)}>
+              <X className="h-3.5 w-3.5" /> Back to Customers
             </Button>
           }
         >
-          {detail.data?.periods && (
-            <div className="flex flex-wrap gap-2 px-3 pb-2 text-[11px]">
-              {detail.data.periods.map((p) => (
-                <Badge key={p.key} variant="info">
-                  {p.label} ({p.startDate} … {p.endDate}): {p.confirmedQuantity} pcs
-                </Badge>
-              ))}
+          <div className="flex-1 min-h-0 flex flex-col overflow-hidden gap-2">
+            {detail.data?.periods && (
+              <div className="flex flex-wrap gap-2 px-3 pb-1 text-[11px] flex-shrink-0">
+                {detail.data.periods.map((p) => (
+                  <Badge key={p.key} variant="info">
+                    {p.label} ({p.startDate} … {p.endDate}): {p.confirmedQuantity} pcs
+                  </Badge>
+                ))}
+              </div>
+            )}
+
+            {/* Segmented Sub-Tab Switcher inside Customer Detail */}
+            <div className="flex items-center gap-1.5 p-1 rounded-full border border-border/80 bg-muted/40 backdrop-blur-md shadow-2xs w-fit flex-shrink-0">
+              <button
+                type="button"
+                onClick={() => setActiveDetailTab("categories")}
+                className={cn(
+                  "rounded-full px-3.5 py-1 text-xs font-semibold transition-all cursor-pointer",
+                  activeDetailTab === "categories"
+                    ? "bg-[#EA580C] text-white shadow-xs dark:bg-[#EA580C] dark:text-white"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                Category Contribution ({detail.data?.categories.length ?? 0})
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveDetailTab("records")}
+                className={cn(
+                  "rounded-full px-3.5 py-1 text-xs font-semibold transition-all cursor-pointer",
+                  activeDetailTab === "records"
+                    ? "bg-[#EA580C] text-white shadow-xs dark:bg-[#EA580C] dark:text-white"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                Confirmed Sale Records ({detail.data?.recordPaging.total ?? 0})
+              </button>
             </div>
-          )}
 
-          <DataTable
-            title="Category contribution"
-            columns={categoryColumns}
-            rows={detail.data?.categories ?? []}
-            loading={detail.isLoading}
-            emptyMessage="No category contribution for this customer."
-            pagination={false}
-          />
+            <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+              {activeDetailTab === "categories" && (
+                <DataTable
+                  columns={categoryColumns}
+                  rows={detail.data?.categories ?? []}
+                  loading={detail.isLoading}
+                  emptyMessage="No category contribution for this customer."
+                  pagination={false}
+                />
+              )}
 
-          <DataTable
-            title="Confirmed sale records"
-            columns={recordColumns}
-            rows={detail.data?.records ?? []}
-            loading={detail.isLoading}
-            emptyMessage="No confirmed sale records for this customer."
-            pagination={false}
-          />
-          <ServerPagination
-            page={detail.data?.recordPaging.page ?? 1}
-            pageSize={detail.data?.recordPaging.pageSize ?? PAGE_SIZE}
-            total={detail.data?.recordPaging.total ?? 0}
-            hasMore={detail.data?.recordPaging.hasMore ?? false}
-            onPageChange={setDetailPage}
-            loading={detail.isLoading}
-            label="sale records"
-          />
+              {activeDetailTab === "records" && (
+                <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+                  <DataTable
+                    columns={recordColumns}
+                    rows={detail.data?.records ?? []}
+                    loading={detail.isLoading}
+                    emptyMessage="No confirmed sale records for this customer."
+                    pagination={false}
+                  />
+                  <div className="flex-shrink-0">
+                    <ServerPagination
+                      page={detail.data?.recordPaging.page ?? 1}
+                      pageSize={detail.data?.recordPaging.pageSize ?? PAGE_SIZE}
+                      total={detail.data?.recordPaging.total ?? 0}
+                      hasMore={detail.data?.recordPaging.hasMore ?? false}
+                      onPageChange={setDetailPage}
+                      loading={detail.isLoading}
+                      label="sale records"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
 
-          {detail.data && detail.data.exclusionCodes.length > 0 && (
-            <InfoBanner variant="info">
-              Excluded records for this customer:{" "}
-              {detail.data.exclusionCodes.reduce((sum, e) => sum + e.count, 0).toLocaleString()}.
-            </InfoBanner>
-          )}
+            {detail.data && detail.data.exclusionCodes.length > 0 && (
+              <div className="flex-shrink-0">
+                <InfoBanner variant="info">
+                  Excluded records for this customer:{" "}
+                  {detail.data.exclusionCodes.reduce((sum, e) => sum + e.count, 0).toLocaleString()}.
+                </InfoBanner>
+              </div>
+            )}
+          </div>
         </Section>
       )}
     </div>

@@ -113,7 +113,7 @@ export function FantasyRoughView() {
   ];
 
   return (
-    <div className="flex flex-col gap-2.5 p-3 h-full min-h-0 flex-1 overflow-y-auto">
+    <div data-page-body className="flex flex-col gap-section px-page-x py-page-y">
 
       {/* KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2 flex-shrink-0">

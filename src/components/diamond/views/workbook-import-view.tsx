@@ -22,7 +22,7 @@ export function WorkbookImportView() {
   const processing = useSarinProcessing();
 
   return (
-    <div className="flex flex-col gap-3 p-3">
+    <div data-page-body className="flex flex-col gap-section px-page-x py-page-y">
       <PageHeader title="Workbook Import" subtitle="Prepare the structured output of a Sarin file" />
       <SarinProcessCard rights={rights} open={processing.open} stage={processing.stage} onRun={processing.run} onClose={() => processing.setOpen(null)} />
       <SarinRecentFiles

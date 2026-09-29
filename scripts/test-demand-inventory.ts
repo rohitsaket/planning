@@ -35,10 +35,8 @@ import { CONFIRMED_WEIGHT_BANDS } from "../src/lib/domain/diamond-rules";
 
 // Route handlers — exercised through withApi, so authentication, permission checks,
 // rate limiting, validation and error mapping all run exactly as in production.
-import { GET as wipGET } from "../src/app/api/analysis/wip/route";
 import { GET as traceGET } from "../src/app/api/analysis/demand-trace/route";
 import { GET as countriesGET } from "../src/app/api/analysis/countries/route";
-import { GET as transfersGET } from "../src/app/api/analysis/transfer-candidates/route";
 import { GET as polishedGET } from "../src/app/api/analysis/polished/route";
 import { GET as agingGET } from "../src/app/api/analysis/aging/route";
 import { GET as agingDashGET } from "../src/app/api/analysis/aging-dashboard/route";
@@ -46,7 +44,6 @@ import { GET as customersGET } from "../src/app/api/analysis/customers/route";
 import { GET as timelineGET } from "../src/app/api/analysis/customers/[id]/timeline/route";
 import { GET as ordersGET } from "../src/app/api/analysis/orders/route";
 import { GET as memoGET } from "../src/app/api/analysis/memo/route";
-import { GET as reorderGET } from "../src/app/api/analysis/reorder-signals/route";
 import { GET as historyGET } from "../src/app/api/demand/history/route";
 import { POST as demandRunPOST } from "../src/app/api/demand/run/route";
 
@@ -403,19 +400,6 @@ async function main() {
   assert(cat?.pipelineNeed === 1, `Pipeline = 3 - 2 = 1, got ${cat?.pipelineNeed}`);
 
   const admin = await makeUser("wip-admin", "ADMIN");
-  let res = await call(wipGET, { path: "/api/analysis/wip", cookie: admin.cookie });
-  assert(res.status === 200, "WIP API responds to an authorized caller");
-  const totalEngineWip = (await db.demandMetric.aggregate({ where: { runId: run.runId }, _sum: { wipCoverage: true } }))._sum.wipCoverage ?? 0;
-  assert(
-    res.json.eligibleWipPieces === totalEngineWip,
-    `WIP page eligible pieces (${res.json.eligibleWipPieces}) equals engine WIP coverage (${totalEngineWip})`,
-  );
-  assert(res.json.policy.status === "CONFIGURED", "WIP API reports the configured policy");
-  assert(
-    Array.isArray(res.json.policy.eligibleStages) && res.json.policy.eligibleStages.join(",") === "GRADING,POLISHING",
-    "WIP API returns the configured eligible stages",
-  );
-
   const dqAmbiguous = await db.dataQualityIssue.findFirst({ where: { recordId: "WIP-AMB-1" } });
   assert(dqAmbiguous !== null, "Ambiguous WIP raises a data quality issue");
   const quarantined = await db.demandMetricTraceItem.findFirst({
@@ -484,36 +468,7 @@ async function main() {
     await makePolished({ lotId: `IN-STOCK-${i}`, weight: 1.05, bandId: fx.bandRound.id, country: "IN", branch: "Surat" });
   }
 
-  const beforeCounts = {
-    requirements: await db.requirement.count(),
-    reservations: await db.roughReservation.count(),
-    orders: await db.salesOrder.count(),
-  };
-
-  res = await call(transfersGET, { path: "/api/analysis/transfer-candidates", cookie: admin.cookie });
-  assert(res.status === 200, "Transfer API responds");
-  // No candidate is produced: the authoritative demand result has no country or branch,
-  // so neither the short location nor the surplus location can be identified.
-  assert(res.json.recommendationsAvailable === false, "Transfer recommendations are reported unavailable");
-  assert(Array.isArray(res.json.candidates) && res.json.candidates.length === 0, "No transfer candidate is generated");
-  const transferPayload = JSON.stringify(res.json);
-  for (const invented of ["transferQty", "totalTransferQty", "fromCountry", "toCountry", "savings", "priority"]) {
-    assert(!transferPayload.includes(invented), `Transfer API exposes no ${invented}`);
-  }
-  // What remains is factual: where current stock actually sits.
-  assert(Array.isArray(res.json.distribution.byLocation), "Transfer API shows current inventory distribution");
-  assert(
-    typeof res.json.distribution.locations?.total === "number",
-    "Transfer API discloses how many locations exist, not only how many are listed",
-  );
-  assert(
-    (await db.requirement.count()) === beforeCounts.requirements &&
-      (await db.roughReservation.count()) === beforeCounts.reservations &&
-      (await db.salesOrder.count()) === beforeCounts.orders,
-    "Reading transfer candidates creates no requirement, reservation or order",
-  );
-
-  res = await call(countriesGET, { path: "/api/analysis/countries", cookie: admin.cookie });
+  let res = await call(countriesGET, { path: "/api/analysis/countries", cookie: admin.cookie });
   assert(res.status === 200, "Country API responds");
   assert(
     res.json.geographicDemandAvailable === false && typeof res.json.geographicDemandMessage === "string",
@@ -680,20 +635,6 @@ async function main() {
     "Aging returns no age while its anchor is unconfirmed",
   );
 
-  const reorderRes = await call(reorderGET, {
-    path: "/api/analysis/reorder-signals?section=signals&shortageOnly=false&page=1&pageSize=10",
-    cookie: admin.cookie,
-  });
-  assert(reorderRes.status === 200 && typeof reorderRes.json.paging.total === "number", "Reorder signals are paginated with a real total");
-  assert(reorderRes.json.rows.length <= 10, "Reorder signals return one page of rows");
-  assert(reorderRes.json.advisory === true, "Reorder signals stay advisory");
-  // The predictive model the old page invented — a likely reorder date and a confidence
-  // derived from the spacing of past sales — is gone.
-  const reorderPayload = JSON.stringify(reorderRes.json);
-  for (const invented of ["likelyReorderWindow", "likelyReorderDate", "confidence", "velocity"]) {
-    assert(!reorderPayload.includes(invented), `Reorder signals expose no ${invented}`);
-  }
-
   const historyRes = await call(historyGET, { path: "/api/demand/history?page=1&pageSize=2", cookie: admin.cookie });
   assert(historyRes.status === 200 && historyRes.json.rows.length <= 2, "Demand history is paginated");
   assert(historyRes.json.total >= 4, "Demand history reports the total number of runs");
@@ -732,7 +673,6 @@ async function main() {
   // Unauthenticated
   assert((await call(demandRunPOST, { method: "POST", path: "/api/demand/run", body: {} })).status === 401, "POST /api/demand/run rejects an anonymous caller");
   assert((await call(traceGET, { path: "/api/analysis/demand-trace" })).status === 401, "GET /api/analysis/demand-trace rejects an anonymous caller");
-  assert((await call(wipGET, { path: "/api/analysis/wip" })).status === 401, "GET /api/analysis/wip rejects an anonymous caller");
   assert((await call(customersGET, { path: "/api/analysis/customers" })).status === 401, "GET /api/analysis/customers rejects an anonymous caller");
   assert((await call(ordersGET, { path: "/api/analysis/orders" })).status === 401, "GET /api/analysis/orders rejects an anonymous caller");
   assert((await call(memoGET, { path: "/api/analysis/memo" })).status === 401, "GET /api/analysis/memo rejects an anonymous caller");
@@ -742,7 +682,7 @@ async function main() {
   assert((await call(demandRunPOST, { method: "POST", path: "/api/demand/run", cookie: analyst.cookie, body: {} })).status === 403, "DATA_ANALYST cannot run the demand calculation");
   assert((await call(customersGET, { path: "/api/analysis/customers", cookie: planner.cookie })).status === 403, "PLANNER cannot read customer data");
   assert((await call(memoGET, { path: "/api/analysis/memo", cookie: planner.cookie })).status === 403, "PLANNER cannot read memo data");
-  assert((await call(wipGET, { path: "/api/analysis/wip", cookie: salesMgr.cookie })).status === 200, "SALES_MANAGER may read WIP aggregates (analysis.read)");
+  assert((await call(memoGET, { path: "/api/analysis/memo", cookie: salesMgr.cookie })).status === 200, "SALES_MANAGER may read memo aggregates (sales.read)");
 
   // Authenticated with permission
   assert((await call(customersGET, { path: "/api/analysis/customers", cookie: analyst.cookie })).status === 200, "DATA_ANALYST may read customer data");
@@ -753,13 +693,13 @@ async function main() {
   // Expired / revoked sessions
   const expiring = await makeUser("rbac-expired", "ADMIN");
   await db.session.update({ where: { id: expiring.session.id }, data: { expiresAt: daysAgo(1) } });
-  assert((await call(wipGET, { path: "/api/analysis/wip", cookie: expiring.cookie })).status === 401, "An expired session is rejected");
+  assert((await call(customersGET, { path: "/api/analysis/customers", cookie: expiring.cookie })).status === 401, "An expired session is rejected");
   const revoked = await makeUser("rbac-revoked", "ADMIN");
   await db.session.update({ where: { id: revoked.session.id }, data: { revokedAt: new Date() } });
-  assert((await call(wipGET, { path: "/api/analysis/wip", cookie: revoked.cookie })).status === 401, "A revoked session is rejected");
+  assert((await call(customersGET, { path: "/api/analysis/customers", cookie: revoked.cookie })).status === 401, "A revoked session is rejected");
   const disabled = await makeUser("rbac-disabled", "ADMIN");
   await db.user.update({ where: { id: disabled.user.id }, data: { status: "DISABLED" } });
-  assert((await call(wipGET, { path: "/api/analysis/wip", cookie: disabled.cookie })).status === 401, "A disabled user's session is rejected");
+  assert((await call(customersGET, { path: "/api/analysis/customers", cookie: disabled.cookie })).status === 401, "A disabled user's session is rejected");
 
 
   // =========================================================================
@@ -923,13 +863,6 @@ async function main() {
     unknownRun.json.categories.length === 0 && unknownRun.json.runId === null,
     "An unknown runId never falls back to another run's figures",
   );
-
-  // Lot-level WIP records follow the same rule as the trace endpoint.
-  const wipNoTrace = await call(wipGET, { path: "/api/analysis/wip", cookie: traceViewer.cookie });
-  assert(wipNoTrace.status === 200 && wipNoTrace.json.detailAccessRestricted === true, "WIP API restricts lot-level rows without demand.trace");
-  assert(wipNoTrace.json.rows.length === 0, "WIP API returns no lot rows without demand.trace");
-  assert(!JSON.stringify(wipNoTrace.json).includes("WIP-POL-1"), "WIP API does not leak lot ids without demand.trace");
-  assert(wipNoTrace.json.summary.totalPieces > 0, "WIP aggregates remain visible with analysis.read");
 
   // =========================================================================
   section("G. Export authorization policy");

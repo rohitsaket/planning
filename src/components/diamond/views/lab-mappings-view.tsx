@@ -37,7 +37,7 @@ export function LabMappingsView() {
   const { data, isLoading } = useApi<LabMappingsData>("/api/admin/lab-mappings");
 
   return (
-    <div className="flex flex-col gap-3 p-3">
+    <div data-page-body className="flex flex-col gap-section px-page-x py-page-y">
       <PageHeader
         title="Lab Mapping"
         subtitle="How lab names are standardized"

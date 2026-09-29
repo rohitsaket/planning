@@ -1,6 +1,7 @@
 "use client";
 
 import { useApi } from "@/lib/api-client";
+import { FilterBar } from "@/components/diamond/shared/density";
 import { Section, PageHeader } from "@/components/diamond/shared/page-header";
 import { DataTable, type Column } from "@/components/diamond/shared/data-table";
 import { InfoBanner } from "@/components/diamond/shared/empty-state";
@@ -66,7 +67,7 @@ export function AuditLogView() {
   }, [data, search]);
 
   return (
-    <div className="flex flex-col gap-3 p-3">
+    <div data-page-body className="flex flex-col gap-section px-page-x py-page-y">
       <PageHeader
         title="Audit Log"
         subtitle="Record of all changes made in the system"
@@ -77,9 +78,7 @@ export function AuditLogView() {
         Audit entries cannot be edited or deleted.
       </InfoBanner>
 
-      <Section
-        title="Filters"
-        description="Filter by record type, action, or actor"
+      <FilterBar
         actions={
           <div className="flex items-center gap-2 flex-wrap">
             <Select value={entity || "__all"} onValueChange={(v) => setEntity(v === "__all" ? "" : v)}>
@@ -118,8 +117,7 @@ export function AuditLogView() {
           </div>
         }
       >
-        <div />
-      </Section>
+      </FilterBar>
 
       <Section title="Audit Entries" description="Most recent 200 entries">
         <DataTable

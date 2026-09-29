@@ -58,7 +58,7 @@ interface Props {
 export function SarinProcessCard({ rights, open, stage, onRun, onClose }: Props) {
   const busy = stage !== null;
   return (
-    <Section title="Prepare Sarin Output" bodyClassName="p-4">
+    <Section title="Prepare Sarin Output">
       <div className="flex flex-col gap-3">
         {open ? (
           <SarinFileResult
@@ -127,7 +127,7 @@ function ProcessForm({ rights, busy, onRun }: { rights: ProcessingRights; busy: 
   if (!constraints) return <InfoBanner variant="warning">File processing is not available right now. Reload the page to try again.</InfoBanner>;
   return (
     <form
-      className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4"
+      className="grid grid-cols-1 gap-x-3 gap-y-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6"
       onSubmit={(e) => {
         e.preventDefault();
         void submit();
@@ -147,7 +147,7 @@ function ProcessForm({ rights, busy, onRun }: { rights: ProcessingRights; busy: 
           }}
           aria-invalid={!!fileProblem}
           aria-describedby={`${ids}-file-help`}
-          className="h-9 text-xs"
+          className="text-xs"
         />
         <p id={`${ids}-file-help`} className="text-[11px] text-muted-foreground" aria-live="polite">
           {fileProblem ? <span className="text-rose-700 dark:text-rose-400">{fileProblem}</span> : `CSV without a header · Maximum ${formatBytes(constraints.maxFileBytes)}`}
@@ -157,7 +157,7 @@ function ProcessForm({ rights, busy, onRun }: { rights: ProcessingRights; busy: 
       <div className="flex flex-col gap-1">
         <Label htmlFor={`${ids}-type`} className="text-xs">Packet type</Label>
         <Select value={packetType} onValueChange={setPacketType} disabled={busy}>
-          <SelectTrigger id={`${ids}-type`} className="h-9 text-xs" aria-label="Packet type"><SelectValue placeholder="Choose" /></SelectTrigger>
+          <SelectTrigger id={`${ids}-type`} className="text-xs" aria-label="Packet type"><SelectValue placeholder="Choose" /></SelectTrigger>
           <SelectContent>
             {SARIN_PACKET_TYPES.map((t) => (
               <SelectItem key={t} value={t} className="text-xs">
@@ -171,13 +171,13 @@ function ProcessForm({ rights, busy, onRun }: { rights: ProcessingRights; busy: 
 
       <div className="flex flex-col gap-1">
         <Label htmlFor={`${ids}-date`} className="text-xs">Planning date</Label>
-        <Input id={`${ids}-date`} type="date" value={planningDate} disabled={busy} className="h-9 text-xs" onChange={(e) => setPlanningDate(e.target.value)} />
+        <Input id={`${ids}-date`} type="date" value={planningDate} disabled={busy} className="text-xs" onChange={(e) => setPlanningDate(e.target.value)} />
       </div>
 
       <div className="flex flex-col gap-1">
         <Label htmlFor={`${ids}-lab`} className="text-xs">{labRequired ? "Lab" : "Lab (optional)"}</Label>
         <Select value={labChosen ? lab : labRequired ? "" : "__none"} onValueChange={(v) => setLab(v === "__none" ? "" : v)} disabled={busy}>
-          <SelectTrigger id={`${ids}-lab`} className="h-9 text-xs" aria-label="Lab"><SelectValue placeholder="Choose" /></SelectTrigger>
+          <SelectTrigger id={`${ids}-lab`} className="text-xs" aria-label="Lab"><SelectValue placeholder="Choose" /></SelectTrigger>
           <SelectContent>
             {!labRequired && <SelectItem value="__none" className="text-xs">No lab</SelectItem>}
             {labs.map((l) => <SelectItem key={l} value={l} className="text-xs">{l}</SelectItem>)}
@@ -186,13 +186,13 @@ function ProcessForm({ rights, busy, onRun }: { rights: ProcessingRights; busy: 
       </div>
 
       {noMappings && (
-        <div className="sm:col-span-2 lg:col-span-4">
+        <div className="sm:col-span-2 lg:col-span-4 xl:col-span-6">
           <MappingsNotConfigured />
         </div>
       )}
 
-      <div className="flex flex-wrap items-end gap-3 sm:col-span-2 lg:col-span-4">
-        <Button type="submit" className="h-9 px-5" disabled={!ready || busy} aria-busy={busy}>
+      <div className="flex flex-wrap items-start gap-3 sm:col-span-2 lg:col-span-4 xl:col-span-1 xl:pt-5">
+        <Button type="submit" className="px-5" disabled={!ready || busy} aria-busy={busy}>
           {busy ? "Processing…" : "Process File"}
         </Button>
         {uploadError && (

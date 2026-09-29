@@ -66,7 +66,7 @@ interface ReconciliationResponse {
   sourceDisclosure: SourceDisclosure | null;
   canonicalCurrent: number; polishedMirrorRows: number; roughMirrorRows: number; memoMirrorRows: number;
   presentInBoth: number; canonicalOnly: number; mirrorOnlyLegacySeed: number;
-  classificationDisagreements: number; shadowProjectionCandidates: number;
+  classificationDisagreements: number;
 }
 
 const PAGE_SIZE = 25;
@@ -130,16 +130,17 @@ export function InventoryPositionTab() {
   ];
 
   return (
-    <div className="space-y-4">
+    <div data-page-body className="flex flex-col gap-section px-page-x py-page-y flex-1 min-h-0 overflow-hidden">
       {/* Persistent and unmistakable while fixture data is on screen. */}
       <SimulationBanner disclosure={data?.sourceDisclosure} />
       <Section
         title="Inventory position"
         description="Current stock by bucket"
+        className="flex-1 min-h-0 flex flex-col"
         actions={
           <div className="flex flex-wrap items-center gap-1">
             {GROUPINGS.map((g) => (
-              <Button key={g} size="sm" variant={grouping === g ? "default" : "outline"} className="h-7 px-2 text-xs" onClick={() => setGrouping(g)}>
+              <Button key={g} size="sm" variant={grouping === g ? "default" : "outline"} className="h-7 px-2 text-xs cursor-pointer" onClick={() => setGrouping(g)}>
                 {GROUPING_LABEL[g]}
               </Button>
             ))}
@@ -155,7 +156,7 @@ export function InventoryPositionTab() {
           exportScope="current-page"
         />
         {data && (
-          <div className="border-t border-border bg-muted/20 px-3 py-1.5 text-[11px] text-muted-foreground">
+          <div className="flex-shrink-0 border-t border-border bg-muted/20 px-3 py-1.5 text-[11px] text-muted-foreground">
             Totals across every matching record — {data.totals.confirmedQuantity} pcs · {data.totals.measuredWeight} ct ·{" "}
             {data.totals.lotRecordCount} lot records · {data.totals.reviewRequiredCount} review required
           </div>
@@ -215,12 +216,13 @@ export function InventoryCategoriesTab() {
   ];
 
   return (
-    <div className="space-y-4">
+    <div data-page-body className="flex flex-col gap-section px-page-x py-page-y flex-1 min-h-0 overflow-hidden">
       {/* Persistent and unmistakable while fixture data is on screen. */}
       <SimulationBanner disclosure={data?.sourceDisclosure} />
       <Section
         title="Category inventory"
         description="Current stock by category"
+        className="flex-1 min-h-0 flex flex-col"
       >
         <DataTable
           columns={columns}
@@ -230,15 +232,17 @@ export function InventoryCategoriesTab() {
           pagination={false}
           exportScope="current-page"
         />
-        <ServerPagination
-          page={data?.paging.page ?? 1}
-          pageSize={data?.paging.pageSize ?? PAGE_SIZE}
-          total={data?.paging.total ?? 0}
-          hasMore={data?.paging.hasMore ?? false}
-          onPageChange={setPage}
-          loading={isLoading}
-          label="categories"
-        />
+        <div className="flex-shrink-0">
+          <ServerPagination
+            page={data?.paging.page ?? 1}
+            pageSize={data?.paging.pageSize ?? PAGE_SIZE}
+            total={data?.paging.total ?? 0}
+            hasMore={data?.paging.hasMore ?? false}
+            onPageChange={setPage}
+            loading={isLoading}
+            label="categories"
+          />
+        </div>
       </Section>
     </div>
   );
@@ -308,12 +312,13 @@ export function InventoryLotsTab() {
   ];
 
   return (
-    <div className="space-y-4">
+    <div data-page-body className="flex flex-col gap-section px-page-x py-page-y flex-1 min-h-0 overflow-hidden">
       {/* Persistent and unmistakable while fixture data is on screen. */}
       <SimulationBanner disclosure={data?.sourceDisclosure} />
       <Section
         title="Lot-level inventory"
         description="Current lots only"
+        className="flex-1 min-h-0 flex flex-col"
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <select
@@ -383,7 +388,6 @@ export function InventoryReconciliationTab() {
         { label: "Inventory only", value: data.canonicalOnly, note: "Not in operational records.", intent: "default" },
         { label: "Demo records (excluded)", value: data.mirrorOnlyLegacySeed, note: "Demo data, not counted.", intent: data.mirrorOnlyLegacySeed > 0 ? "warning" : "default" },
         { label: "Classification disagreements", value: data.classificationDisagreements, note: "Lots with conflicting classification.", intent: data.classificationDisagreements > 0 ? "critical" : "default" },
-        { label: "Projection records included", value: data.shadowProjectionCandidates, note: "Projections are never counted as inventory.", intent: data.shadowProjectionCandidates > 0 ? "critical" : "default" },
       ]
     : [];
 
@@ -394,17 +398,19 @@ export function InventoryReconciliationTab() {
   ];
 
   return (
-    <div className="space-y-4">
+    <div data-page-body className="flex flex-col gap-section px-page-x py-page-y flex-1 min-h-0 overflow-hidden">
       {/* Persistent and unmistakable while fixture data is on screen. */}
       <SimulationBanner disclosure={data?.sourceDisclosure} />
-      <InfoBanner variant="info">
-        <span className="flex items-center gap-2">
-          <Info className="h-4 w-4" />
-          Demo records are shown for comparison only and are not counted in inventory.
-        </span>
-      </InfoBanner>
+      <div className="flex-shrink-0">
+        <InfoBanner variant="info">
+          <span className="flex items-center gap-2">
+            <Info className="h-4 w-4" />
+            Demo records are shown for comparison only and are not counted in inventory.
+          </span>
+        </InfoBanner>
+      </div>
 
-      <Section title="Inventory reconciliation" description="Inventory compared with operational records">
+      <Section title="Inventory reconciliation" description="Inventory compared with operational records" className="flex-1 min-h-0 flex flex-col">
         {!isLoading && !data ? (
           <EmptyState title="UNAVAILABLE" message="Reconciliation could not be computed." icon={<Database className="h-5 w-5" />} />
         ) : (

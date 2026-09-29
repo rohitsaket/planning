@@ -13,6 +13,7 @@ import {
   Legend,
 } from "recharts";
 import { Gem, Diamond, Layers } from "lucide-react";
+import { cn } from "@/lib/utils";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -181,127 +182,205 @@ export function PolishedView() {
     { key: "lastUpdated", header: "Last Updated", align: "center", sortable: true, sortValue: (r) => r.lastUpdated, cell: (r) => <span className="text-[11px]">{new Date(r.lastUpdated).toLocaleDateString()}</span> },
   ];
 
+  const [activeTab, setActiveTab] = useState<"dimension" | "lots" | "aging">("dimension");
+
+  const renderTabs = (active: "dimension" | "lots" | "aging") => (
+    <div className="flex items-center gap-1.5 p-0.5 rounded-lg border border-border/80 bg-muted/40 backdrop-blur-md shadow-2xs">
+      <button
+        type="button"
+        onClick={() => setActiveTab("dimension")}
+        className={cn(
+          "flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-md transition-all cursor-pointer",
+          active === "dimension"
+            ? "bg-[#FFE2D1] text-[#18181B] dark:bg-[#272322] dark:text-[#FFEDD5] font-bold shadow-2xs border border-[#F5DCD0]/70 dark:border-[#3A302A]"
+            : "text-muted-foreground hover:text-foreground hover:bg-muted/70"
+        )}
+      >
+        <span>By {DIMENSIONS.find((d) => d.value === dimension)?.label ?? "Dimension"}</span>
+        <span className={cn("px-1.5 py-0.2 rounded-full text-[10px]", active === "dimension" ? "bg-[#18181B]/15 text-[#18181B] dark:bg-white/20 dark:text-white" : "bg-muted text-muted-foreground")}>
+          {rows.length}
+        </span>
+      </button>
+      <button
+        type="button"
+        onClick={() => setActiveTab("lots")}
+        className={cn(
+          "flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-md transition-all cursor-pointer",
+          active === "lots"
+            ? "bg-[#FFE2D1] text-[#18181B] dark:bg-[#272322] dark:text-[#FFEDD5] font-bold shadow-2xs border border-[#F5DCD0]/70 dark:border-[#3A302A]"
+            : "text-muted-foreground hover:text-foreground hover:bg-muted/70"
+        )}
+      >
+        <span>Polished Lots</span>
+        {data?.total !== undefined && (
+          <span className={cn("px-1.5 py-0.2 rounded-full text-[10px]", active === "lots" ? "bg-[#18181B]/15 text-[#18181B] dark:bg-white/20 dark:text-white" : "bg-muted text-muted-foreground")}>
+            {data.total}
+          </span>
+        )}
+      </button>
+      <button
+        type="button"
+        onClick={() => setActiveTab("aging")}
+        className={cn(
+          "flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-md transition-all cursor-pointer",
+          active === "aging"
+            ? "bg-[#FFE2D1] text-[#18181B] dark:bg-[#272322] dark:text-[#FFEDD5] font-bold shadow-2xs border border-[#F5DCD0]/70 dark:border-[#3A302A]"
+            : "text-muted-foreground hover:text-foreground hover:bg-muted/70"
+        )}
+      >
+        <span>Aging Breakdown</span>
+        <span className={cn("px-1.5 py-0.2 rounded-full text-[10px]", active === "aging" ? "bg-[#18181B]/15 text-[#18181B] dark:bg-white/20 dark:text-white" : "bg-muted text-muted-foreground")}>
+          {aging.length}
+        </span>
+      </button>
+    </div>
+  );
+
   return (
-    <div className="flex flex-col gap-3 p-3">
-      <PageHeader
-        title="Polished Stock Analysis"
-        subtitle="Polished inventory by dimension and age"
-        actions={
-          <Select value={dimension} onValueChange={setDimension}>
-            <SelectTrigger size="sm" className="h-8 w-[170px] text-xs">
-              <SelectValue placeholder="Dimension" />
-            </SelectTrigger>
-            <SelectContent>
-              {DIMENSIONS.map((d) => (
-                <SelectItem key={d.value} value={d.value} className="text-xs">{d.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        }
-        meta={
-          <div className="flex items-center gap-2 flex-wrap">
-            {globalFilter.hasActiveFilters() && (
-              <span className="text-[10px] text-sky-600 dark:text-sky-400 font-medium">
-                Filtered by: {[
-                  globalFilter.country && `Country=${globalFilter.country}`,
-                  globalFilter.branch && `Branch=${globalFilter.branch}`,
-                  globalFilter.lab && `Lab=${globalFilter.lab}`,
-                ].filter(Boolean).join(", ")}
+    <div data-page-body className="flex flex-col gap-section px-page-x py-page-y flex-1 min-h-0 overflow-hidden">
+      <div className="flex-shrink-0 flex flex-col gap-section">
+        <PageHeader
+          title="Polished Stock Analysis"
+          subtitle="Polished inventory by dimension and age"
+          actions={
+            <Select value={dimension} onValueChange={setDimension}>
+              <SelectTrigger size="sm" className="h-8 w-[170px] text-xs">
+                <SelectValue placeholder="Dimension" />
+              </SelectTrigger>
+              <SelectContent>
+                {DIMENSIONS.map((d) => (
+                  <SelectItem key={d.value} value={d.value} className="text-xs">{d.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          }
+          meta={
+            <div className="flex items-center gap-2 flex-wrap">
+              {globalFilter.hasActiveFilters() && (
+                <span className="text-[10px] text-sky-600 dark:text-sky-400 font-medium">
+                  Filtered by: {[
+                    globalFilter.country && `Country=${globalFilter.country}`,
+                    globalFilter.branch && `Branch=${globalFilter.branch}`,
+                    globalFilter.lab && `Lab=${globalFilter.lab}`,
+                  ].filter(Boolean).join(", ")}
+                </span>
+              )}
+              <span className="text-[10px] text-muted-foreground">Dimension: {DIMENSIONS.find((d) => d.value === dimension)?.label}</span>
+              <span
+                className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded font-mono border ${
+                  valuationAvailable
+                    ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20"
+                    : "bg-muted text-muted-foreground border-border"
+                }`}
+              >
+                Valuation: {valuationAvailable ? "Estimate" : "Not configured"}
               </span>
-            )}
-            <span className="text-[10px] text-muted-foreground">Dimension: {DIMENSIONS.find((d) => d.value === dimension)?.label}</span>
-            <span
-              className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded font-mono border ${
-                valuationAvailable
-                  ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20"
-                  : "bg-muted text-muted-foreground border-border"
-              }`}
-            >
-              Valuation: {valuationAvailable ? "Estimate" : "Not configured"}
-            </span>
-          </div>
-        }
-      />
-
-      {data?.valuation && (
-        <InfoBanner variant={valuationAvailable ? "info" : "warning"}>{data.valuation.message}</InfoBanner>
-      )}
-
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
-        <KpiCard label="Total Pieces" value={data?.summary.pieces ?? 0} unit="pcs" intent="info" hint="Polished lots matching the filters" icon={Gem} sparkline={piecesSpark} />
-        <KpiCard label="Total Carats" value={(data?.summary.carats ?? 0).toFixed(2)} unit="ct" intent="default" hint="Total weight" icon={Diamond} sparkline={caratsSpark} />
-        <KpiCard
-          label="Estimated Value"
-          value={valuationAvailable && data?.summary.estimatedValue !== null ? (data?.summary.estimatedValue ?? 0) : "UNAVAILABLE"}
-          unit={valuationAvailable ? data?.valuation.currency ?? "USD" : undefined}
-          intent={valuationAvailable ? "success" : "warning"}
-          hint={valuationAvailable ? `${data?.summary.valuedPieces ?? 0} of ${data?.summary.pieces ?? 0} pieces priced by the model` : "No approved valuation model configured"}
-          icon={Layers}
+            </div>
+          }
         />
-        <KpiCard label="Dimensions Distinct" value={rows.length} intent="success" hint={`By ${DIMENSIONS.find((d) => d.value === dimension)?.label}`} icon={Layers} sparkline={dimPiecesSpark} />
+
+        {data?.valuation && (
+          <InfoBanner variant={valuationAvailable ? "info" : "warning"}>{data.valuation.message}</InfoBanner>
+        )}
+
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
+          <KpiCard label="Total Pieces" value={data?.summary.pieces ?? 0} unit="pcs" intent="info" hint="Polished lots matching the filters" icon={Gem} sparkline={piecesSpark} />
+          <KpiCard label="Total Carats" value={(data?.summary.carats ?? 0).toFixed(2)} unit="ct" intent="default" hint="Total weight" icon={Diamond} sparkline={caratsSpark} />
+          <KpiCard
+            label="Estimated Value"
+            value={valuationAvailable && data?.summary.estimatedValue !== null ? (data?.summary.estimatedValue ?? 0) : "UNAVAILABLE"}
+            unit={valuationAvailable ? data?.valuation.currency ?? "USD" : undefined}
+            intent={valuationAvailable ? "success" : "warning"}
+            hint={valuationAvailable ? `${data?.summary.valuedPieces ?? 0} of ${data?.summary.pieces ?? 0} pieces priced by the model` : "No approved valuation model configured"}
+            icon={Layers}
+          />
+          <KpiCard label="Dimensions Distinct" value={rows.length} intent="success" hint={`By ${DIMENSIONS.find((d) => d.value === dimension)?.label}`} icon={Layers} sparkline={dimPiecesSpark} />
+        </div>
       </div>
 
-      <Section title="Aging Buckets" description="Polished lot count by days since last update">
-        <div className="h-56">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={agingData} margin={{ top: 4, right: 8, bottom: 8, left: 0 }}>
-              <defs>
-                <linearGradient id="polishedAgingGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#0ea5e9" stopOpacity={0.9} />
-                  <stop offset="100%" stopColor="#0ea5e9" stopOpacity={0.3} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.4} />
-              <XAxis dataKey="name" tick={{ fontSize: 10 }} />
-              <YAxis tick={{ fontSize: 10 }} />
-              <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8, border: "1px solid hsl(var(--border))" }} />
-              <Legend wrapperStyle={{ fontSize: 10 }} />
-              <Bar dataKey="pieces" name="Pieces" fill="url(#polishedAgingGrad)" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </Section>
+      <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+        {activeTab === "dimension" && (
+          <Section
+            title={renderTabs("dimension")}
+            description="Pieces, carats and estimated value"
+            className="flex-1 min-h-0 flex flex-col"
+          >
+            <DataTable<PolishedRow>
+              columns={columns}
+              rows={rows}
+              loading={isLoading}
+              emptyMessage="No polished stock data available."
+              initialSortKey="pieces"
+              initialSortDir="desc"
+              exportable
+              exportPermission="analysis.export"
+              exportFilename={`polished-${dimension}.csv`}
+              searchable
+              searchPlaceholder="Search dimension..."
+              searchFn={(r, q) => r.dimension.toLowerCase().includes(q.toLowerCase())}
+              pagination
+              pageSize={25}
+            />
+          </Section>
+        )}
 
-      <Section title={`By ${DIMENSIONS.find((d) => d.value === dimension)?.label}`} description="Pieces, carats and estimated value">
-        <DataTable<PolishedRow>
-          columns={columns}
-          rows={rows}
-          loading={isLoading}
-          emptyMessage="No polished stock data available."
-          initialSortKey="pieces"
-          initialSortDir="desc"
-          exportable
-          exportPermission="analysis.export"
-          exportFilename={`polished-${dimension}.csv`}
-          searchable
-          searchPlaceholder="Search dimension..."
-          searchFn={(r, q) => r.dimension.toLowerCase().includes(q.toLowerCase())}
-          maxHeight="500px"
-        />
-      </Section>
+        {activeTab === "lots" && (
+          <Section
+            title={renderTabs("lots")}
+            description="Individual lots for the current filters"
+            className="flex-1 min-h-0 flex flex-col"
+          >
+            <DataTable<PolishedDetailRow>
+              columns={detailColumns}
+              rows={data?.detail ?? []}
+              loading={isLoading}
+              emptyMessage="No polished lots for the current filters."
+              exportable
+              exportPermission="analysis.export"
+              exportFilename="polished-lots.csv"
+              exportScope="current-page"
+            />
+            <div className="flex-shrink-0">
+              <ServerPagination
+                page={data?.page ?? 1}
+                pageSize={data?.pageSize ?? 50}
+                total={data?.total ?? 0}
+                hasMore={data?.hasMore ?? false}
+                onPageChange={setPage}
+                loading={isLoading}
+                label="polished lots"
+              />
+            </div>
+          </Section>
+        )}
 
-      <Section title="Polished Lots" description="Individual lots for the current filters">
-        <DataTable<PolishedDetailRow>
-          columns={detailColumns}
-          rows={data?.detail ?? []}
-          loading={isLoading}
-          emptyMessage="No polished lots for the current filters."
-          exportable
-          exportPermission="analysis.export"
-          exportFilename="polished-lots.csv"
-          exportScope="current-page"
-          maxHeight="420px"
-        />
-        <ServerPagination
-          page={data?.page ?? 1}
-          pageSize={data?.pageSize ?? 50}
-          total={data?.total ?? 0}
-          hasMore={data?.hasMore ?? false}
-          onPageChange={setPage}
-          loading={isLoading}
-          label="polished lots"
-        />
-      </Section>
+        {activeTab === "aging" && (
+          <Section
+            title={renderTabs("aging")}
+            description="Polished lot count by days since last update"
+            className="flex-1 min-h-0 flex flex-col"
+          >
+            <div className="flex-1 min-h-[260px] p-4">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={agingData} margin={{ top: 12, right: 16, bottom: 12, left: 0 }}>
+                  <defs>
+                    <linearGradient id="polishedAgingGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#EA580C" stopOpacity={0.9} />
+                      <stop offset="100%" stopColor="#EA580C" stopOpacity={0.3} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.4} />
+                  <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} />
+                  <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8, border: "1px solid hsl(var(--border))" }} />
+                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                  <Bar dataKey="pieces" name="Pieces" fill="url(#polishedAgingGrad)" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </Section>
+        )}
+      </div>
     </div>
   );
 }

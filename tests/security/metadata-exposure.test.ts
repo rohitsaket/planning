@@ -4,10 +4,8 @@ import { resetRateLimits } from "@/lib/api/rate-limit";
 import { GET as demandHistory } from "@/app/api/demand/history/route";
 import { POST as demandRun } from "@/app/api/demand/run/route";
 import { GET as dashboard } from "@/app/api/dashboard/route";
-import { GET as forecast } from "@/app/api/forecast/route";
-import { GET as wip } from "@/app/api/analysis/wip/route";
 import { GET as countries } from "@/app/api/analysis/countries/route";
-import { GET as transferCandidates } from "@/app/api/analysis/transfer-candidates/route";
+import { GET as dataQuality } from "@/app/api/data-quality/route";
 import { GET as auditLog } from "@/app/api/admin/audit/route";
 import { GET as overallExport, OVERALL_EXPORT_ROW_LIMIT } from "@/app/api/fantasy/overall/export/route";
 import { GET as overallList } from "@/app/api/fantasy/overall/route";
@@ -128,16 +126,6 @@ describe("policy status without rule identifiers", () => {
     viewerCookie = (await makeUser("policy-viewer", "VIEWER")).cookie;
   });
 
-  test("WIP analysis returns policy status but not the rule behind it", async () => {
-    const res = await call(wip, { path: "/api/analysis/wip", cookie: viewerCookie });
-    expect(res.status).toBe(200);
-    assertNoInternalFields(JSON.stringify(res.json));
-    // The operationally relevant part is still there.
-    expect(typeof res.json.policy.status).toBe("string");
-    expect(res.json.policy.ruleId).toBe(undefined);
-    expect(res.json.policy.ruleVersion).toBe(undefined);
-  });
-
   test("country analysis names no rule and claims no geographic demand", async () => {
     const res = await call(countries, { path: "/api/analysis/countries", cookie: viewerCookie });
     expect(res.status).toBe(200);
@@ -150,89 +138,16 @@ describe("policy status without rule identifiers", () => {
     expect(res.json.geographicDemandAvailable).toBe(false);
   });
 
-  test("transfer candidates stay advisory without naming the rule", async () => {
-    const res = await call(transferCandidates, { path: "/api/analysis/transfer-candidates", cookie: viewerCookie });
-    expect(res.status).toBe(200);
-    assertNoInternalFields(JSON.stringify(res.json));
-    expect(res.json.ruleId).toBe(undefined);
-    // The page no longer produces candidates at all: the authoritative demand result has
-    // no country or branch, so a recommendation cannot be made. `autoExecuted` went with
-    // the candidates — there is nothing that could have been executed.
-    expect(res.json.recommendationsAvailable).toBe(false);
-    expect(res.json.candidates).toEqual([]);
-  });
-});
-
-describe("forecast methodology is a separate authority", () => {
-  const P = "forecast.methodology.read";
-
-  test("only Super Admin holds it by default; any other account needs a custom role that names it", () => {
-    expect([...ROLES]).toEqual(["SUPER_ADMIN"]);
-    expect(ROLE_PERMISSIONS.SUPER_ADMIN.includes(P)).toBe(true);
-  });
-
-  test("an ordinary viewer receives predictions without the method behind them", async () => {
-    await resetDb();
-    resetRateLimits();
-    const cookie = (await makeUser("fc-viewer", "VIEWER")).cookie;
-    await db.modelVersion.create({
-      data: {
-        modelName: "demand-forecast",
-        version: "v7",
-        algorithm: "GradientBoostedTrees",
-        trainingPeriod: "2025-01..2025-09",
-        validationPeriod: "2025-10..2025-12",
-        metricsJson: JSON.stringify({ mae: 1.2, rmse: 3.4, wape: 0.1, bias: -0.2 }),
-        status: "PUBLISHED",
-      },
-    });
-
-    const res = await call(forecast, { path: "/api/forecast", cookie });
-    expect(res.status).toBe(200);
-    expect(res.json.canSeeMethodology).toBe(false);
-    assertNoInternalFields(JSON.stringify(res.json));
-
-    const model = res.json.models[0];
-    expect(Object.keys(model).sort()).toEqual(["id", "modelName", "publishedAt", "publishedBy", "status"]);
-    // The business result is still delivered.
-    expect(model.status).toBe("PUBLISHED");
-  });
-
-  test("an ordinary viewer asking for methodology directly is refused, not quietly emptied", async () => {
-    const cookie = (await makeUser("fc-viewer-2", "VIEWER")).cookie;
-    const res = await call(forecast, { path: "/api/forecast?include=methodology", cookie });
-    expect(res.status).toBe(403);
-  });
-
-  test("a system administrator without the permission is refused the same way", async () => {
-    const cookie = (await makeUser("fc-admin", "ADMIN")).cookie;
-    expect((await call(forecast, { path: "/api/forecast?include=methodology", cookie })).status).toBe(403);
-    const res = await call(forecast, { path: "/api/forecast", cookie });
-    expect(res.json.canSeeMethodology).toBe(false);
-    expect(res.json.models[0].algorithm).toBe(undefined);
-  });
-
-  test("the model-governance role receives the method", async () => {
-    const cookie = (await makeUser("fc-scientist", "DATA_SCIENTIST")).cookie;
-    const res = await call(forecast, { path: "/api/forecast", cookie });
-    expect(res.status).toBe(200);
-    expect(res.json.canSeeMethodology).toBe(true);
-    expect(res.json.models[0].algorithm).toBe("GradientBoostedTrees");
-    expect(res.json.models[0].metrics.rmse).toBe(3.4);
-    expect((await call(forecast, { path: "/api/forecast?include=methodology", cookie })).status).toBe(200);
-  });
-
-  test("an unauthenticated caller is refused", async () => {
-    expect((await call(forecast, { path: "/api/forecast" })).status).toBe(401);
-  });
 });
 
 describe("record types are named for people, and only known keys reach a query", () => {
+  let dqCookie = "";
   let auditCookie = "";
 
   beforeAll(async () => {
     await resetDb();
     resetRateLimits();
+    dqCookie = (await makeUser("label-dq", "DATA_ANALYST")).cookie;
     auditCookie = (await makeUser("label-audit", "AUDITOR")).cookie;
   });
 
@@ -249,6 +164,20 @@ describe("record types are named for people, and only known keys reach a query",
     expect(entityLabel(null)).toBe("Unknown entity");
     // It must not be folded into a neighbouring known type.
     expect(AUDITABLE_ENTITIES.includes("SomeRetiredModel" as never)).toBe(false);
+  });
+
+  test("data quality accepts a known issue type and refuses anything else, and names issues for people", async () => {
+    await db.dataQualityIssue.create({
+      data: { issueCode: `DQ-LABEL-TEST-${Date.now()}`, source: "FANTASY", entity: "LOT", recordId: "LOT-LABEL-1", rule: "UNMAPPED_LAB_WARNING", message: "Lab value is not mapped.", severity: "WARNING", status: "OPEN", syncRunId: "sync-run-internal", batchId: "batch-internal", rawValue: "raw-lab-value" },
+    });
+    const okRes = await call(dataQuality, { path: "/api/data-quality?type=UNMAPPED_VALUE", cookie: dqCookie });
+    expect(okRes.status).toBe(200);
+    expect(okRes.json.rows.map((r: { type: string }) => r.type)).toContain("UNMAPPED_VALUE");
+    // Internal rule codes, batch and run identifiers and raw source values stay on the server.
+    expect(JSON.stringify(okRes.json)).not.toMatch(/UNMAPPED_LAB_WARNING|batch-internal|sync-run-internal|raw-lab-value|issueCode|DQ-LABEL-TEST/);
+    const bad = await call(dataQuality, { path: "/api/data-quality?type=DROP+TABLE", cookie: dqCookie });
+    expect(bad.status).toBe(400);
+    expect(bad.json.error.code).toBe("BAD_REQUEST");
   });
 
   test("the audit log accepts a known key and refuses anything else", async () => {
