@@ -294,8 +294,8 @@ export function DashboardView() {
             <KpiCard label="High Reqs" value={kpi?.highRequirements ?? 0} intent="warning" icon={AlertTriangle} hint="High priority, not yet planned" onClick={() => setView("requirements-priority-queue")} />
             <KpiCard label="Overdue Reqs" value={kpi?.overdueRequirements ?? 0} intent="critical" icon={Clock} hint="Past required date" onClick={() => setView("requirements-priority-queue")} />
             <KpiCard label="Fantasy Sync" value={kpi?.fantasySyncHealth ? SYNC_HEALTH_LABEL[kpi.fantasySyncHealth] ?? kpi.fantasySyncHealth : "—"} intent={kpi?.fantasySyncHealth === "HEALTHY" ? "success" : kpi?.fantasySyncHealth === "NOT_RUN" ? "default" : kpi?.fantasySyncHealth === "PARTIAL" ? "warning" : "critical"} icon={RefreshCw} onClick={() => setView("fantasy-sync")} />
-            <KpiCard label="Planned Yield" value={`${(kpi?.plannedYield ?? 0).toFixed(2)}%`} intent="info" icon={TrendingUp} onClick={() => setView("manufacturing-plan-vs-actual")} />
-            <KpiCard label="Yield Variance" value={`${(kpi?.yieldVariance ?? 0).toFixed(2)}%`} intent={(kpi?.yieldVariance ?? 0) < 0 ? "critical" : "success"} icon={(kpi?.yieldVariance ?? 0) < 0 ? TrendingDown : TrendingUp} hint={`Actual ${(kpi?.actualYield ?? 0).toFixed(2)}% vs Planned ${(kpi?.plannedYield ?? 0).toFixed(2)}%`} onClick={() => setView("manufacturing-plan-vs-actual")} />
+            <KpiCard label="Planned Yield" value={`${(kpi?.plannedYield ?? 0).toFixed(2)}%`} intent="info" icon={TrendingUp} onClick={() => setView("reports")} />
+            <KpiCard label="Yield Variance" value={`${(kpi?.yieldVariance ?? 0).toFixed(2)}%`} intent={(kpi?.yieldVariance ?? 0) < 0 ? "critical" : "success"} icon={(kpi?.yieldVariance ?? 0) < 0 ? TrendingDown : TrendingUp} hint={`Actual ${(kpi?.actualYield ?? 0).toFixed(2)}% vs Planned ${(kpi?.plannedYield ?? 0).toFixed(2)}%`} onClick={() => setView("reports")} />
           </div>
         )}
       </div>

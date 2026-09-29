@@ -11,7 +11,8 @@ export interface HostTabItem {
   id: string;
   label: string;
   icon?: ReactNode;
-  permission?: string;
+  /** The permission the tab needs, or several of which any one admits it. */
+  permission?: string | readonly string[];
   badge?: string;
   badgeVariant?: "default" | "secondary" | "advisory" | "outline";
   component: React.ComponentType;
@@ -29,13 +30,18 @@ export interface HostTabItem {
  *
  * Returns undefined when no tab is authorized — the caller shows Access Restricted.
  */
+export function isTabPermitted(permission: string | readonly string[] | undefined, userPerms: readonly string[]): boolean {
+  if (!permission) return true;
+  return typeof permission === "string" ? userPerms.includes(permission) : permission.some((p) => userPerms.includes(p));
+}
+
 export function resolveActiveTab(
-  tabs: ReadonlyArray<{ id: string; permission?: string }>,
+  tabs: ReadonlyArray<{ id: string; permission?: string | readonly string[] }>,
   navTab: string | null | undefined,
   defaultTab?: string,
   userPerms?: readonly string[],
 ): string | undefined {
-  const allowed = (t: { permission?: string }) => !userPerms || !t.permission || userPerms.includes(t.permission);
+  const allowed = (t: { permission?: string | readonly string[] }) => !userPerms || isTabPermitted(t.permission, userPerms);
   const pick = (id: string | null | undefined) => tabs.find((t) => t.id === id && allowed(t))?.id;
   return pick(navTab) ?? pick(defaultTab) ?? tabs.find(allowed)?.id;
 }
@@ -88,7 +94,7 @@ export function TabbedHostView({
 
   // `activeTab` is undefined only when the user may read none of them.
   const currentTab = tabs.find((t) => t.id === activeTab);
-  const isTabAuthorized = Boolean(currentTab) && (!currentTab!.permission || userPerms.includes(currentTab!.permission));
+  const isTabAuthorized = Boolean(currentTab) && isTabPermitted(currentTab!.permission, userPerms);
   const ActiveComponent = currentTab?.component;
 
   return (
@@ -112,7 +118,7 @@ export function TabbedHostView({
           <div role="tablist" aria-label={title} onKeyDown={handleTabKeyDown} className="flex items-center gap-1 flex-shrink-0">
             {tabs.map((tab) => {
               const active = tab.id === activeTab;
-              const authorized = !tab.permission || userPerms.includes(tab.permission);
+              const authorized = isTabPermitted(tab.permission, userPerms);
               return (
                 <button
                   key={tab.id}
@@ -180,7 +186,7 @@ export function TabbedHostView({
         {!isTabAuthorized ? (
           <AccessRestricted
             title={currentTab ? `Access Restricted: ${currentTab.label}` : "Access Restricted"}
-            requiredPermission={currentTab?.permission}
+            requiredPermission={typeof currentTab?.permission === "string" ? currentTab.permission : undefined}
             description={
               currentTab
                 ? "You don't have access to this tab."

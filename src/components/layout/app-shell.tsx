@@ -6,13 +6,7 @@ import { isViewAuthorized } from "@/lib/auth/view-permissions";
 import { useNavStore, ViewId } from "@/stores/nav-store";
 import { cn } from "@/lib/utils";
 import {
-  LayoutDashboard, BarChart3, TrendingUp, Users, ShoppingCart, Globe, Gem,
-  FileText, Package, Boxes, Factory, GitBranch, ShieldCheck, AlertTriangle,
-  FlaskConical, FileBarChart, Settings, ChevronDown, ChevronRight, Search,
-  Bell, User, Database, Activity, Scale, Layers, Map, FileWarning,
-  Workflow, ClipboardCheck, CalendarClock, Hash, RefreshCw, BookCheck, ClipboardList, Diamond,
-  Moon, Sun, Monitor, Command as CommandIcon, History, Calculator, ArrowLeftRight, UserPlus,
-  Lock, HardDrive, X, Star, Shapes
+  LayoutDashboard, BarChart3, TrendingUp, Users, ShoppingCart, Globe, Gem, FileText, Package, Boxes, ShieldCheck, AlertTriangle, FlaskConical, FileBarChart, Settings, ChevronDown, ChevronRight, Search, Bell, User, Database, Activity, Scale, Layers, Map, Workflow, CalendarClock, Hash, RefreshCw, BookCheck, ClipboardList, Diamond, Moon, Sun, Monitor, Command as CommandIcon, ArrowLeftRight, UserPlus, Lock, HardDrive, X, Star, Shapes,
 } from "lucide-react";
 import { ReactNode, useState, useEffect, useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button";
@@ -67,8 +61,6 @@ export const NAV: NavGroup[] = [
       { id: "analysis-excess", label: "Excess Stock", icon: <Package className="h-3.5 w-3.5" /> },
       { id: "analysis-aging", label: "Stock Aging", icon: <CalendarClock className="h-3.5 w-3.5" /> },
       { id: "analysis-reorder-signals", label: "Reorder Signals", icon: <Star className="h-3.5 w-3.5" />, advisory: true },
-      // Demand Run History and Demand Trace moved to the Demand section. Their view ids,
-      // hashes, routes and components are unchanged — only the sidebar placement moved.
       { id: "transfer-analyzer", label: "Transfer Analyzer", icon: <ArrowLeftRight className="h-3.5 w-3.5" />, advisory: true },
       { id: "aging-dashboard", label: "Aging Dashboard", icon: <LayoutDashboard className="h-3.5 w-3.5" /> },
     ],
@@ -90,30 +82,6 @@ export const NAV: NavGroup[] = [
     icon: <HardDrive className="h-4 w-4" />,
     items: [
       { id: "overall-data", label: "Overall Data", icon: <HardDrive className="h-3.5 w-3.5" /> },
-    ],
-  },
-  // 4. Data Quality (Integrity)
-  {
-    id: "data-quality-group",
-    label: "Data Quality",
-    icon: <FileWarning className="h-4 w-4" />,
-    items: [
-      { id: "data-quality-issues", label: "Data Quality Issues", icon: <AlertTriangle className="h-3.5 w-3.5" /> },
-    ],
-  },
-  // 5. Demand (Market signal and its calculation history)
-  //
-  // Inventory stays in Analysis; this section is only about demand. Stock Strategy is
-  // hidden here because it belongs to the later planning/replenishment phase — its view
-  // id, route, component, permission and tests are all untouched, so re-listing it is a
-  // one-line change when that phase starts.
-  {
-    id: "demand-group",
-    label: "Demand",
-    icon: <BarChart3 className="h-4 w-4" />,
-    items: [
-      { id: "demand-overview", label: "Demand Overview", icon: <Activity className="h-3.5 w-3.5" /> },
-      { id: "analysis-demand-trace", label: "Demand Trace", icon: <Calculator className="h-3.5 w-3.5" /> },
     ],
   },
   // 6. Requirements and Priority (Demand Translation)
@@ -139,25 +107,6 @@ export const NAV: NavGroup[] = [
       { id: "planning-workbench", label: "Planning Workbench", icon: <LayoutDashboard className="h-3.5 w-3.5" /> },
       { id: "planning-comparison", label: "Plan Comparison", icon: <Scale className="h-3.5 w-3.5" /> },
       { id: "planning-approval-queue", label: "Approval Queue", icon: <BookCheck className="h-3.5 w-3.5" /> },
-    ],
-  },
-  // 8. Manufacturing (Execution)
-  {
-    id: "manufacturing-group",
-    label: "Manufacturing",
-    icon: <Factory className="h-4 w-4" />,
-    items: [
-      { id: "manufacturing-overview", label: "Manufacturing Overview", icon: <Boxes className="h-3.5 w-3.5" /> },
-      { id: "manufacturing-traceability", label: "Traceability", icon: <GitBranch className="h-3.5 w-3.5" /> },
-    ],
-  },
-  // 9. Evaluation and Reconciliation (Plan vs Actual)
-  {
-    id: "evaluation-group",
-    label: "Evaluation and Reconciliation",
-    icon: <Scale className="h-4 w-4" />,
-    items: [
-      { id: "plan-vs-actual", label: "Plan vs Actual", icon: <ClipboardCheck className="h-3.5 w-3.5" /> },
     ],
   },
   // 10. Data Science (Advisory / Future)

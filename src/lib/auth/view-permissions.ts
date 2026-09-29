@@ -24,15 +24,10 @@ const EXACT: Record<string, string | readonly string[]> = {
   "fantasy-live": "fantasy.read",
   "fantasy-sync": "fantasy.read",
   "overall-data": "overall.read",
-  "data-quality-issues": "data_quality.read",
-  "demand-overview": "analysis.read",
   "inventory-position": "analysis.read",
   // Customers tab needs customers.read, Orders tab needs orders.read; either admits
   // the page, and each tab still enforces its own.
   "customers-orders": ["customers.read", "orders.read"],
-  // Legacy alias for "analysis-demand-trace"; kept in step with it so a stale link is
-  // authorized identically to the canonical id it resolves to.
-  "demand-trace": "analysis.read",
   "stock-strategy": "analysis.read",
   "requirements-matrix": "requirement.read",
   "requirements-priority-queue": "requirement.read",
@@ -48,15 +43,13 @@ const EXACT: Record<string, string | readonly string[]> = {
   // Reading the queue needs plan.read; approving/rejecting needs plan.approve and is
   // enforced on POST /api/planning/approvals and gated per button.
   "planning-approval-queue": "plan.read",
-  "manufacturing-overview": "fantasy.read",
-  // /api/traceability/[query] resolves rough, cases, plans and pieces: plan.read.
-  "manufacturing-traceability": "plan.read",
-  "plan-vs-actual": "plan.read",
   "data-science-forecasting": "analysis.read",
   "data-science-predictive-models": "analysis.read",
   "data-science-prediction-monitoring": "analysis.read",
   "reports": "analysis.read",
-  "admin-users-access": "user.read",
+  // Users tab: account readers and access-request reviewers; Permissions tab: role readers.
+  // Each tab, and each control and API inside it, enforces its own permission.
+  "admin-users-access": ["user.read", "access_request.review", "role.read"],
   // Mappings: master-data tabs need config.read, the Sarin Shape Mapping tab needs
   // sarin.mapping.read; either admits the page and each tab enforces its own. Changing Sarin
   // mappings needs sarin.mapping.manage, per control and per route.
@@ -83,8 +76,6 @@ const EXACT: Record<string, string | readonly string[]> = {
   "analysis-excess": "analysis.read",
   "analysis-aging": "analysis.read",
   "analysis-reorder-signals": "analysis.read",
-  "demand-history": "analysis.read",
-  "analysis-demand-trace": "analysis.read",
   "transfer-analyzer": "analysis.read",
   "aging-dashboard": "analysis.read",
 
@@ -95,8 +86,6 @@ const EXACT: Record<string, string | readonly string[]> = {
   "data-quality-unmapped-labs": "config.read",
   "data-quality-unmapped-shapes": "config.read",
   "admin-feature-flags": "feature_flag.read",
-  "admin-users": "user.read",
-  "admin-access-requests": "access_request.review",
   "admin-weight-bands": "config.read",
   "admin-lab-mappings": "config.read",
   "admin-shape-mappings": "config.read",
@@ -107,14 +96,6 @@ const EXACT: Record<string, string | readonly string[]> = {
   "fantasy-polished": "fantasy.read",
   "fantasy-departments": "fantasy.read",
   "fantasy-locations": "fantasy.read",
-  "fantasy-reconciliation": "fantasy.read",
-
-  // Manufacturing subpages.
-  "manufacturing-departments": "fantasy.read",
-  "manufacturing-locations": "fantasy.read",
-  "manufacturing-tracking": "fantasy.read",
-  "manufacturing-wip": "analysis.read",
-  "manufacturing-plan-vs-actual": "plan.read",
 
   // Planning subpages.
   "planning-cases": "plan.read",
@@ -208,9 +189,6 @@ export const PERMISSION_LABELS: Record<string, string> = {
   "fantasy.read": "Fantasy ERP & Manufacturing Data Access",
   "overall.read": "Overall Historical Data Access",
   "overall.export": "Overall Historical Data Export",
-  "data_quality.read": "Data Quality Issues & Diagnostics Access",
-  "data_quality.manage": "Data Quality Resolution Management",
-  "data_quality.export": "Data Quality Issues Export",
   "config.read": "Master Configuration Access",
   "feature_flag.read": "System Settings & Flags Access",
   "feature_flag.manage": "Feature Flags Management",
@@ -225,7 +203,7 @@ export const PERMISSION_LABELS: Record<string, string> = {
   "user.sessions.revoke": "Session Revocation",
   "user.super_admin.assign": "Protected Administrator Assignment",
   "access_request.review": "Access Request Review",
-  "role.read": "Role & Permission Matrix Access",
+  "role.read": "Role & Permission Access",
   "role.manage": "Role Administration",
   "role.permissions.assign": "Role Permission Assignment",
   "security_audit.read": "Access Security History",

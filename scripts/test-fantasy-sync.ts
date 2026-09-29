@@ -596,10 +596,6 @@ async function main() {
   assert(testHasPermission("FANTASY_INTEGRATION", "plan.approve") === false, "FANTASY_INTEGRATION cannot approve plans");
   assert(testHasPermission("FANTASY_INTEGRATION", "notification.broadcast") === false, "FANTASY_INTEGRATION cannot broadcast notifications");
 
-  // Case E: Dedicated data-quality permissions
-  assert(testHasPermission("ANALYSIS_MANAGER", "data_quality.manage") === true, "ANALYSIS_MANAGER has data_quality.manage");
-  assert(testHasPermission("DATA_ANALYST", "data_quality.read") === true, "DATA_ANALYST has data_quality.read");
-  assert(testHasPermission("DATA_ANALYST", "data_quality.manage") === false, "DATA_ANALYST does NOT have data_quality.manage");
 
   // Case F: Export permission separation
   assert(testHasPermission("DATA_ANALYST", "overall.read") === true, "DATA_ANALYST has overall.read");

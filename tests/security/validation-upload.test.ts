@@ -3,7 +3,6 @@ import { call, db, makeCase, makeRough, makeUser, resetDb } from "./helpers";
 import { POST as approvals } from "@/app/api/planning/approvals/route";
 import { GET as sales } from "@/app/api/analysis/sales/route";
 import { GET as auditRecent } from "@/app/api/audit/recent/route";
-import { GET as trace } from "@/app/api/traceability/[query]/route";
 import { GET as cases } from "@/app/api/planning/cases/route";
 import { GET as requirements } from "@/app/api/requirements/route";
 import { PAGE_DEFAULT, PAGE_MAX, SCAN_MAX, scanned } from "@/lib/api/with-api";
@@ -49,23 +48,6 @@ describe("input handling (REL-002)", () => {
   test("audit/recent limit cannot be negative, NaN or above the cap", async () => {
     for (const bad of ["-100000", "abc", "51"]) expect((await call(auditRecent, { cookie: admin.cookie, path: `/api/audit/recent?limit=${bad}` })).status).toBe(400);
     expect((await call(auditRecent, { cookie: admin.cookie, path: "/api/audit/recent?limit=50" })).status).toBe(200);
-  });
-});
-
-describe("traceability search: special characters are literals, never wildcards or errors", () => {
-  for (const q of ["%", "_", "\\", "'", '"', "100%", "%%%", "a_b", "'; DROP TABLE \"User\"; --", "ダイヤモンド💎", "%E0"]) {
-    test(`query ${JSON.stringify(q)} → controlled 404 (no wildcard match, no 500)`, async () => {
-      const r = await call(trace, { cookie: admin.cookie, params: { query: q } });
-      expect(r.status).toBe(404);
-      expect(r.json.error.code).toBe("NOT_FOUND");
-    });
-  }
-  test("very long and empty input → 400; a real value still matches", async () => {
-    expect((await call(trace, { cookie: admin.cookie, params: { query: "x".repeat(101) } })).status).toBe(400);
-    expect((await call(trace, { cookie: admin.cookie, params: { query: "   " } })).status).toBe(400);
-    const rough = await db.roughStone.findFirst();
-    expect((await call(trace, { cookie: admin.cookie, params: { query: rough!.fantasyRoughId } })).status).toBe(200);
-    expect(await db.user.count()).toBeGreaterThan(0); // table still there
   });
 });
 

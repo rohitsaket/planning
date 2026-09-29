@@ -10,12 +10,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import {
-  LayoutDashboard, BarChart3, TrendingUp, Users, ShoppingCart, Globe, Gem,
-  FileText, Package, Boxes, Factory, GitBranch, AlertTriangle,
-  FlaskConical, FileBarChart, Settings, Search, Diamond, Activity, Scale, Layers,
-  Map, FileWarning, Workflow, ClipboardCheck, CalendarClock, Hash, RefreshCw,
-  BookCheck, ClipboardList, Star, CornerDownLeft, UserPlus, Lock, HardDrive,
-  Calculator, ArrowLeftRight, History, Shapes
+  LayoutDashboard, BarChart3, TrendingUp, Users, ShoppingCart, Globe, Gem, FileText, Package, Boxes, Factory, AlertTriangle, FlaskConical, FileBarChart, Settings, Search, Diamond, Activity, Scale, Layers, Map, FileWarning, Workflow, ClipboardCheck, CalendarClock, Hash, RefreshCw, BookCheck, ClipboardList, Star, CornerDownLeft, UserPlus, Lock, HardDrive, ArrowLeftRight, Shapes,
 } from "lucide-react";
 import { ReactNode } from "react";
 
@@ -56,14 +51,6 @@ const ITEMS: PaletteItem[] = [
   // 4. Overall Data
   { id: "overall-data", label: "Overall Data", group: "Overall Data", icon: <HardDrive className="h-4 w-4" />, keywords: ["historical", "archive", "lots", "permanent", "records"] },
 
-  // 5. Data Quality
-  { id: "data-quality-issues", label: "Data Quality Issues", group: "Data Quality", icon: <AlertTriangle className="h-4 w-4" />, keywords: ["quality", "unmapped", "labs", "shapes", "issues", "anomalies"] },
-
-  // 6. Demand
-  { id: "demand-overview", label: "Demand Overview", group: "Demand", icon: <Activity className="h-4 w-4" />, keywords: ["demand calculation", "categories", "shortage", "wip coverage", "demand run history"] },
-  { id: "demand-history", label: "Demand Run History", group: "Demand", icon: <History className="h-4 w-4" />, keywords: ["demand", "run", "history", "calculation"] },
-  { id: "analysis-demand-trace", label: "Demand Trace", group: "Demand", icon: <Calculator className="h-4 w-4" />, keywords: ["demand", "trace", "formula", "calculation", "lots"] },
-
   // 6. Requirements and Priority
   { id: "requirements-matrix", label: "Requirement Matrix", group: "Requirements and Priority", icon: <Hash className="h-4 w-4" />, keywords: ["requirement", "matrix", "demand", "target", "carat"] },
   { id: "requirements-priority-queue", label: "Priority Queue", group: "Requirements and Priority", icon: <AlertTriangle className="h-4 w-4" />, keywords: ["priority", "critical", "high", "ranking", "urgent"] },
@@ -77,13 +64,6 @@ const ITEMS: PaletteItem[] = [
   { id: "planning-comparison", label: "Plan Comparison", group: "Planning", icon: <Scale className="h-4 w-4" />, keywords: ["plan comparison", "evaluate", "versions", "side by side"] },
   { id: "planning-approval-queue", label: "Approval Queue", group: "Planning", icon: <BookCheck className="h-4 w-4" />, keywords: ["approval", "queue", "signoff", "manager approval"] },
 
-  // 8. Manufacturing
-  { id: "manufacturing-overview", label: "Manufacturing Overview", group: "Manufacturing", icon: <Boxes className="h-4 w-4" />, keywords: ["fantasy tracking", "department view", "location view", "wip"] },
-  { id: "manufacturing-traceability", label: "Traceability", group: "Manufacturing", icon: <GitBranch className="h-4 w-4" />, keywords: ["trace", "genealogy", "stone history", "parent rough"] },
-
-  // 9. Evaluation and Reconciliation
-  { id: "plan-vs-actual", label: "Plan vs Actual", group: "Evaluation and Reconciliation", icon: <Scale className="h-4 w-4" />, keywords: ["plan vs actual", "fantasy reconciliation", "yield variance", "reconciliation"] },
-
   // 10. Data Science (Advisory / Future)
   { id: "data-science-forecasting", label: "Forecasting", group: "Data Science", icon: <TrendingUp className="h-4 w-4" />, advisory: true, keywords: ["operational forecast", "predictive forecast", "forecast accuracy", "future"] },
   { id: "data-science-predictive-models", label: "Predictive Models", group: "Data Science", icon: <Layers className="h-4 w-4" />, advisory: true, keywords: ["anomaly detection", "yield prediction", "models", "advisory"] },
@@ -93,7 +73,7 @@ const ITEMS: PaletteItem[] = [
   { id: "reports", label: "Reports Library", group: "Reports", icon: <FileBarChart className="h-4 w-4" />, keywords: ["reports", "export", "pdf", "excel", "summary"] },
 
   // 12. Administration
-  { id: "admin-users-access", label: "Users and Access", group: "Administration", icon: <Users className="h-4 w-4" />, keywords: ["users and roles", "access requests", "rbac", "permissions"] },
+  { id: "admin-users-access", label: "Users and Access", group: "Administration", icon: <Users className="h-4 w-4" />, keywords: ["users", "roles", "permissions", "access requests", "rbac"] },
   { id: "admin-mappings", label: "Mappings", group: "Administration", icon: <Shapes className="h-4 w-4" />, keywords: ["mappings", "weight bands", "lab mapping", "shape mapping", "status mapping"], hideWhenUnauthorized: true },
   { id: "admin-mappings", tab: "sarin-shape-mapping", label: "Sarin Shape Mapping", group: "Administration", icon: <Shapes className="h-4 w-4" />, keywords: ["sarin shape", "fantasy shape", "ratio", "needs mapping"], hideWhenUnauthorized: true },
   { id: "admin-system-settings", label: "System Settings", group: "Administration", icon: <Settings className="h-4 w-4" />, keywords: ["feature flags", "system settings", "integrations", "config"] },

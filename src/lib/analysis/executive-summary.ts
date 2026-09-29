@@ -894,22 +894,25 @@ export const ATTENTION_KINDS = [
 ] as const;
 export type AttentionKind = (typeof ATTENTION_KINDS)[number];
 
-/** Neutral navigation only. Nothing here ranks work or recommends what to manufacture. */
+/**
+ * Neutral navigation only. Nothing here ranks work or recommends what to manufacture. A
+ * null action means the row is information only: there is no page to act on it from.
+ */
 export const ATTENTION_ACTIONS = {
   CATEGORY_PHYSICAL_SHORTAGE: "Review shortage",
   SOURCE_DATA_STALE: "Review source data",
-  CATEGORY_BLOCKED_BY_DATA_QUALITY: "Open data-quality issue",
+  CATEGORY_BLOCKED_BY_DATA_QUALITY: null,
   INVENTORY_UNCLASSIFIED: "Review inventory",
   INVENTORY_HOLD_UNKNOWN: "Review inventory",
-  DEMAND_NOT_RUN: "Open demand trace",
-} as const satisfies Record<AttentionKind, string>;
+  DEMAND_NOT_RUN: "Run demand calculation",
+} as const satisfies Record<AttentionKind, string | null>;
 
 export interface AttentionRow {
   readonly kind: AttentionKind;
   readonly subject: string;
   readonly detail: string;
   readonly count: number;
-  readonly action: string;
+  readonly action: string | null;
   /** Canonical category key when the row is about one category, else null. */
   readonly category: string | null;
 }

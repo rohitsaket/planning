@@ -483,13 +483,16 @@ describe("sarin foundation: import batches", () => {
     await expect(db.$executeRaw`DELETE FROM "SarinSourceFile" WHERE "id" = ${b.sourceFileId}`).rejects.toThrow(/insert-only/);
   });
 
-  test("deleting the uploader's account through the real admin route leaves the batch intact", async () => {
+  test("an uploader who leaves is disabled, not deleted, and the batch keeps its uploader", async () => {
     const root = await makeUser("sarin.root.delete", "SUPER_ADMIN");
     const leaver = await makeUser("sarin.leaver", "PLANNER");
     const b = await makeBatch({ uploader: leaver.user.id });
-    const r = await call(usersPost, { method: "POST", cookie: root.cookie, body: { op: "delete", id: leaver.user.id } });
+    // Accounts with history are never hard-deleted; the admin route no longer offers it.
+    const del = await call(usersPost, { method: "POST", cookie: root.cookie, body: { op: "delete", id: leaver.user.id } });
+    expect(del.status).toBe(400);
+    const r = await call(usersPost, { method: "POST", cookie: root.cookie, body: { op: "setStatus", id: leaver.user.id, status: "DISABLED" } });
     expect(r.status).toBe(200);
-    expect(await db.user.findUnique({ where: { id: leaver.user.id } })).toBeNull();
+    expect((await db.user.findUniqueOrThrow({ where: { id: leaver.user.id } })).status).toBe("DISABLED");
     const kept = await db.sarinImportBatch.findUniqueOrThrow({ where: { id: b.id } });
     expect(kept.uploadedByUserId).toBe(leaver.user.id);
   });

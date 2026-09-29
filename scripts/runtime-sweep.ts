@@ -100,12 +100,6 @@ r = await j(admin.cookie, "/api/planning/approvals", { method: "POST", body: "{n
 check("malformed JSON → 400", r.status === 400, `status ${r.status}`);
 r = await j(admin.cookie, "/api/analysis/sales?windowDays=abc");
 check("windowDays=abc → 400", r.status === 400, `status ${r.status}`);
-r = await j(admin.cookie, "/api/traceability/%25");
-check("traceability '%' → controlled 404 (no wildcard match, no 500)", r.status === 404, `status ${r.status}`);
-r = await j(admin.cookie, "/api/traceability/100%25_x");
-check("traceability '100%_x' → controlled 404", r.status === 404, `status ${r.status}`);
-r = await j(admin.cookie, "/api/traceability/%E0");
-check("traceability malformed percent-encoding → 4xx, not 5xx", r.status >= 400 && r.status < 500, `status ${r.status}`);
 r = await j(admin.cookie, "/api/planning/cases?pageSize=999999");
 check("over-limit pageSize → 400", r.status === 400, `status ${r.status}`);
 r = await j(admin.cookie, "/api/planning/cases?pageSize=1");

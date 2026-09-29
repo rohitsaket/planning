@@ -75,7 +75,7 @@ export interface RoleServiceTx {
   };
 }
 
-const ROLE_ASSIGNMENT_STATUS: Record<string, number> = { NO_ROLES: 400, UNKNOWN_ROLE: 400, INACTIVE_ROLE: 400, NOT_DELEGABLE: 403, LAST_SECURITY_ADMIN: 409 };
+const ROLE_ASSIGNMENT_STATUS: Record<string, number> = { NO_ROLES: 400, UNKNOWN_ROLE: 400, INACTIVE_ROLE: 400, NOT_DELEGABLE: 403, LAST_SECURITY_ADMIN: 409, LAST_SUPER_ADMIN: 409, SUPER_ADMIN_SERVER_ONLY: 403 };
 
 /** A refused role assignment, answered with its own status and code rather than a server error. */
 export class RoleAssignmentError extends ApiError {
@@ -209,4 +209,54 @@ export async function assertSecurityAdminFloor(
 /** True when a Prisma error is a unique-constraint violation. */
 export function isUniqueViolation(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
+}
+
+/** The one built-in role. Its permissions are fixed in code and it cannot be edited. */
+export const SUPER_ADMIN_ROLE = "SUPER_ADMIN";
+
+/**
+ * Super Admin is managed on the server only (scripts/create-user.ts): no admin API grants
+ * it, and no admin API changes the roles of an account that holds it. Suspending or
+ * disabling such an account stays possible for a holder of user.super_admin.assign, within
+ * the final-Super-Admin floor.
+ */
+export function assertNotSuperAdminChange(requestedRoleCodes: readonly string[], targetHoldsSuperAdmin = false): void {
+  if (requestedRoleCodes.includes(SUPER_ADMIN_ROLE) || targetHoldsSuperAdmin) {
+    throw new RoleAssignmentError("SUPER_ADMIN_SERVER_ONLY", "The Super Admin role is managed on the server and cannot be granted or changed here.");
+  }
+}
+
+/**
+ * True when the principal holds an active Super Admin assignment. Read from the resolved
+ * role assignments, never from the legacy single-role column.
+ */
+export const isSuperAdmin = (principal: { roleCodes: readonly string[] }): boolean => principal.roleCodes.includes(SUPER_ADMIN_ROLE);
+
+/**
+ * Refuses an operation that would leave no active Super Admin — the final recovery path.
+ * `excludingUserId` is the account about to be suspended, disabled or stripped of the
+ * role; it is left out of the count. Shares the security-administrator lock, so two
+ * concurrent removals cannot both see "there is still another one".
+ */
+export async function assertSuperAdminFloor(tx: Prisma.TransactionClient, options: { excludingUserId: string }): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(${SECURITY_ADMIN_LOCK_KEY}::bigint)`;
+  const remaining = await tx.user.count({
+    where: {
+      status: "ACTIVE",
+      id: { not: options.excludingUserId },
+      roleAssignments: { some: { role: { code: SUPER_ADMIN_ROLE, status: "ACTIVE" } } },
+    },
+  });
+  if (remaining < 1) {
+    throw new RoleAssignmentError("LAST_SUPER_ADMIN", "This would leave no active Super Admin. Make another account a Super Admin first.");
+  }
+}
+
+/** Everything a set of roles grants, for checking that an assigner may hand them out. */
+export async function permissionsGrantedByRoles(tx: Prisma.TransactionClient, roleIds: readonly string[]): Promise<Permission[]> {
+  const roles = await tx.role.findMany({
+    where: { id: { in: [...roleIds] } },
+    select: { code: true, isSystem: true, status: true, permissions: { select: { permissionCode: true } } },
+  });
+  return Array.from(new Set(roles.flatMap((r) => permissionsOfRole(r))));
 }

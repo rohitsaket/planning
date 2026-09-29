@@ -13,30 +13,24 @@ import { AccessRestricted } from "@/components/diamond/shared/access-restricted"
 import { DashboardView } from "@/components/diamond/views/dashboard-view";
 import { ExecutiveAnalysisView } from "@/components/diamond/views/executive-analysis-view";
 import { OverallDataView } from "@/components/diamond/views/overall-data-view";
-import { DataQualityView } from "@/components/diamond/views/data-quality-view";
-import { DemandTraceView } from "@/components/diamond/views/demand-trace-view";
 import { RequirementsMatrixView } from "@/components/diamond/views/requirements-matrix-view";
 import { PriorityQueueView } from "@/components/diamond/views/priority-queue-view";
 import { RoughAvailabilityView } from "@/components/diamond/views/rough-availability-view";
 import { WorkbookImportView } from "@/components/diamond/views/workbook-import-view";
 import { PlanComparisonView } from "@/components/diamond/views/plan-comparison-view";
 import { ApprovalQueueView } from "@/components/diamond/views/approval-queue-view";
-import { TraceabilityView } from "@/components/diamond/views/traceability-view";
 import { ReportsView } from "@/components/diamond/views/reports-view";
 import { AuditLogView } from "@/components/diamond/views/audit-log-view";
 import { FantasySyncView } from "@/components/diamond/views/fantasy-sync-view";
 
 // Consolidated Host Views
 import { FantasyLiveView } from "@/components/diamond/views/consolidated/fantasy-live-view";
-import { DemandOverviewView } from "@/components/diamond/views/consolidated/demand-overview-view";
 import { InventoryPositionView } from "@/components/diamond/views/consolidated/inventory-position-view";
 import { CustomersOrdersView } from "@/components/diamond/views/consolidated/customers-orders-view";
 import { StockStrategyView } from "@/components/diamond/views/consolidated/stock-strategy-view";
 import { OrdersExceptionsView } from "@/components/diamond/views/consolidated/orders-exceptions-view";
 import { ReplenishmentAllocationView } from "@/components/diamond/views/consolidated/replenishment-allocation-view";
 import { PlanningWorkbenchHostView } from "@/components/diamond/views/consolidated/planning-workbench-host-view";
-import { ManufacturingOverviewView } from "@/components/diamond/views/consolidated/manufacturing-overview-view";
-import { EvaluationReconciliationView } from "@/components/diamond/views/consolidated/evaluation-reconciliation-view";
 import { DataScienceForecastingView } from "@/components/diamond/views/consolidated/data-science-forecasting-view";
 import { PredictiveModelsView } from "@/components/diamond/views/consolidated/predictive-models-view";
 import { UsersAccessView } from "@/components/diamond/views/consolidated/users-access-view";
@@ -57,7 +51,6 @@ import { ExcessView } from "@/components/diamond/views/excess-view";
 import { AgingView } from "@/components/diamond/views/aging-view";
 import { AgingDashboardView } from "@/components/diamond/views/aging-dashboard-view";
 import { ReorderSignalsView } from "@/components/diamond/views/reorder-signals-view";
-import { DemandHistoryView } from "@/components/diamond/views/demand-history-view";
 import { TransferAnalyzerView } from "@/components/diamond/views/transfer-analyzer-view";
 import { PlanningCasesView } from "@/components/diamond/views/planning-cases-view";
 import { PlanningWorkbenchView } from "@/components/diamond/views/planning-workbench-view";
@@ -69,15 +62,12 @@ import { FantasyRoughView } from "@/components/diamond/views/fantasy-rough-view"
 import { FantasyPolishedView } from "@/components/diamond/views/fantasy-polished-view";
 import { FantasyDepartmentsView } from "@/components/diamond/views/fantasy-departments-view";
 import { FantasyLocationsView } from "@/components/diamond/views/fantasy-locations-view";
-import { PlanVsActualView } from "@/components/diamond/views/plan-vs-actual-view";
 import { ForecastModelsView } from "@/components/diamond/views/forecast-models-view";
 import { StatusMappingsView } from "@/components/diamond/views/status-mappings-view";
 import { WeightBandsView } from "@/components/diamond/views/weight-bands-view";
 import { LabMappingsView } from "@/components/diamond/views/lab-mappings-view";
 import { ShapeMappingsView } from "@/components/diamond/views/shape-mappings-view";
 import { FeatureFlagsView } from "@/components/diamond/views/feature-flags-view";
-import { UsersView } from "@/components/diamond/views/users-view";
-import { AccessRequestsView } from "@/components/diamond/views/access-requests-view";
 
 const VIEW_REGISTRY: Record<string, React.ComponentType> = {
   // 1. Dashboard
@@ -90,16 +80,12 @@ const VIEW_REGISTRY: Record<string, React.ComponentType> = {
   // 3. Overall Data
   "overall-data": OverallDataView,
 
-  // 4. Data Quality
-  "data-quality-issues": DataQualityView,
-
   // 5. Demand
   //
   // `stock-strategy` is intentionally still registered while being absent from the
   // sidebar and command palette: it belongs to the later planning/replenishment phase,
   // and its route, component, permission and tests are untouched so listing it again is
   // a one-line navigation change.
-  "demand-overview": DemandOverviewView,
   "inventory-position": InventoryPositionView,
   "customers-orders": CustomersOrdersView,
   "stock-strategy": StockStrategyView,
@@ -118,11 +104,8 @@ const VIEW_REGISTRY: Record<string, React.ComponentType> = {
   "planning-approval-queue": ApprovalQueueView,
 
   // 8. Manufacturing
-  "manufacturing-overview": ManufacturingOverviewView,
-  "manufacturing-traceability": TraceabilityView,
 
   // 9. Evaluation and Reconciliation
-  "plan-vs-actual": EvaluationReconciliationView,
 
   // 10. Data Science (Advisory)
   "data-science-forecasting": DataScienceForecastingView,
@@ -160,10 +143,6 @@ const VIEW_REGISTRY: Record<string, React.ComponentType> = {
   "analysis-excess": ExcessView,
   "analysis-aging": AgingView,
   "analysis-reorder-signals": ReorderSignalsView,
-  "demand-history": DemandHistoryView,
-  // The one Demand Result Details mapping. The legacy "demand-trace" id is an alias resolved
-  // by the nav store, so it can never reach the registry as a second, divergent page.
-  "analysis-demand-trace": DemandTraceView,
   "transfer-analyzer": TransferAnalyzerView,
   "aging-dashboard": AgingDashboardView,
   "requirements-orders": OrdersView,
@@ -175,17 +154,11 @@ const VIEW_REGISTRY: Record<string, React.ComponentType> = {
   "planning-cases": PlanningCasesView,
   "planning-planned-pieces": PlannedPiecesView,
   "planning-reservations": ReservationsView,
-  "manufacturing-tracking": FantasySyncView,
-  "manufacturing-departments": FantasyDepartmentsView,
-  "manufacturing-locations": FantasyLocationsView,
-  "manufacturing-wip": WipView,
-  "manufacturing-plan-vs-actual": PlanVsActualView,
   "fantasy-rough": FantasyRoughView,
   "fantasy-polished": FantasyPolishedView,
   "fantasy-departments": FantasyDepartmentsView,
   "fantasy-locations": FantasyLocationsView,
   "fantasy-status-mapping": StatusMappingsView,
-  "fantasy-reconciliation": FantasySyncView,
   "data-quality-unmapped-labs": LabMappingsView,
   "data-quality-unmapped-shapes": ShapeMappingsView,
   "data-science-anomaly-detection": AnomalyDetectionView,
@@ -197,8 +170,6 @@ const VIEW_REGISTRY: Record<string, React.ComponentType> = {
   "admin-lab-mappings": LabMappingsView,
   "admin-shape-mappings": ShapeMappingsView,
   "admin-feature-flags": FeatureFlagsView,
-  "admin-users": UsersView,
-  "admin-access-requests": AccessRequestsView,
 };
 
 export default function Home() {

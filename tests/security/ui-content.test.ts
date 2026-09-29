@@ -32,7 +32,6 @@ import { AdvisoryList, SarinFileResult } from "@/components/diamond/views/sarin/
 import { SarinOutputPreview } from "@/components/diamond/views/sarin/sarin-output-preview";
 import { rightsOf } from "@/components/diamond/views/sarin/sarin-processing";
 import { SarinShapeMappingsView } from "@/components/diamond/views/sarin/sarin-shape-mappings-view";
-import { DemandCalculationOverview } from "@/components/diamond/views/demand-calculation-overview";
 import { RequirementsMatrixView } from "@/components/diamond/views/requirements-matrix-view";
 import { ApprovalQueueView } from "@/components/diamond/views/approval-queue-view";
 import { PlanningCasesView } from "@/components/diamond/views/planning-cases-view";
@@ -229,9 +228,8 @@ describe("ui content: no technical detail reaches a rendered page", () => {
     expect([/rules version|profile|validation run|attempt|Run \d|mapping set|lineage|transform|immutable|record \d/i.test(shown), /Source:/.test(pages[0].text)]).toEqual([false, false]);
   });
 
-  test("demand, requirements, approval and planning pages", async () => {
+  test("requirements, approval and planning pages", async () => {
     const pages = [
-      await render(DemandCalculationOverview, {}, root),
       await render(RequirementsMatrixView, {}, root),
       await render(ApprovalQueueView, {}, planApprover),
       await render(PlanningCasesView, {}, root),
@@ -239,8 +237,8 @@ describe("ui content: no technical detail reaches a rendered page", () => {
       await render(DashboardView, {}, root),
     ];
     expect(pages.map((p) => prohibited(p.text))).toEqual(pages.map(() => []));
-    const [demand, , queue, , comparison] = pages.map((p) => p.text);
-    expect([/How approval works|audit-logged|READY_FOR_REVIEW/.test(queue), /BR-PLAN-SEL-001|OPEN rule/.test(comparison), /Memo stock is NOT|Requires demand\./.test(demand)]).toEqual([false, false, false]);
+    const [, queue, , comparison] = pages.map((p) => p.text);
+    expect([/How approval works|audit-logged|READY_FOR_REVIEW/.test(queue), /BR-PLAN-SEL-001|OPEN rule/.test(comparison)]).toEqual([false, false]);
     expect(comparison).toContain("No recommended option is available. Select a plan using the approved business process.");
     // Structured warnings read as their messages, never as serialized objects.
     expect([queue.includes("Weight band edge case"), queue.includes("Check girdle"), queue.includes("WB_EDGE")]).toEqual([true, true, false]);
@@ -356,7 +354,7 @@ describe("ui content: what users need is still shown", () => {
     const readiness = (await call(salesSummary, { cookie: root.cookie, path: "/api/analysis/sales?page=1&pageSize=25" })).json.readiness;
     const STATUS: Record<string, [string, string | null]> = {
       CURRENT: ["Ready", null], SIMULATED: ["Simulated", null], STALE: ["Stale", "Run the demand calculation to refresh sales."],
-      INCOMPLETE: ["Incomplete", "Review excluded records in Data Quality."], BLOCKED_BY_DATA_QUALITY: ["Needs Review", "Review excluded records in Data Quality."],
+      INCOMPLETE: ["Incomplete", "Some sale records were excluded and need correcting in the source data."], BLOCKED_BY_DATA_QUALITY: ["Needs Review", "Blocking data problems must be corrected in the source data before sales can be shown."],
       NOT_RUN: ["Not Run", "Run the demand calculation to load sales."], UNAVAILABLE: ["Unavailable", null],
     };
     const [label, next] = STATUS[readiness.state];

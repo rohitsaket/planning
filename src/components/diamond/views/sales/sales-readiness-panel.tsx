@@ -16,8 +16,8 @@ const STATUS: Record<SalesReadinessState, { label: string; variant: Variant; nex
   CURRENT: { label: "Ready", variant: "success", next: null },
   SIMULATED: { label: "Simulated", variant: "warning", next: null },
   STALE: { label: "Stale", variant: "warning", next: "Run the demand calculation to refresh sales." },
-  INCOMPLETE: { label: "Incomplete", variant: "warning", next: "Review excluded records in Data Quality." },
-  BLOCKED_BY_DATA_QUALITY: { label: "Needs Review", variant: "critical", next: "Review excluded records in Data Quality." },
+  INCOMPLETE: { label: "Incomplete", variant: "warning", next: "Some sale records were excluded and need correcting in the source data." },
+  BLOCKED_BY_DATA_QUALITY: { label: "Needs Review", variant: "critical", next: "Blocking data problems must be corrected in the source data before sales can be shown." },
   NOT_RUN: { label: "Not Run", variant: "neutral", next: "Run the demand calculation to load sales." },
   UNAVAILABLE: { label: "Unavailable", variant: "neutral", next: null },
 };

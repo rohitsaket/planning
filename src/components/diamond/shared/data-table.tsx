@@ -198,8 +198,8 @@ export function DataTable<T>({
   // authorized them under its own read permission. It is a convenience download, not a
   // server-authorized export: a user who can see the table can obtain the same bytes
   // from the API directly. Sensitive and full-dataset exports must go through a server
-  // endpoint with its own export permission (see /api/demand/export and
-  // /api/fantasy/overall/export) — those are not built on this control.
+  // endpoint with its own export permission (see /api/fantasy/overall/export) — those
+  // are not built on this control.
   const userCanExport =
     Boolean(exportPermission) &&
     Boolean(user?.permissions.includes(exportPermission as Permission));

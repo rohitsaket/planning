@@ -9,11 +9,8 @@ export type ViewId =
   | "fantasy-live"
   | "fantasy-sync"
   | "overall-data"
-  | "data-quality-issues"
-  | "demand-overview"
   | "inventory-position"
   | "customers-orders"
-  | "demand-trace"
   | "stock-strategy"
   | "requirements-matrix"
   | "requirements-priority-queue"
@@ -24,9 +21,6 @@ export type ViewId =
   | "planning-workbench"
   | "planning-comparison"
   | "planning-approval-queue"
-  | "manufacturing-overview"
-  | "manufacturing-traceability"
-  | "plan-vs-actual"
   | "data-science-forecasting"
   | "data-science-predictive-models"
   | "data-science-prediction-monitoring"
@@ -55,8 +49,6 @@ export type ViewId =
   | "analysis-excess"
   | "analysis-aging"
   | "analysis-reorder-signals"
-  | "demand-history"
-  | "analysis-demand-trace"
   | "transfer-analyzer"
   | "aging-dashboard"
   | "requirements-orders"
@@ -68,17 +60,11 @@ export type ViewId =
   | "planning-cases"
   | "planning-planned-pieces"
   | "planning-reservations"
-  | "manufacturing-tracking"
-  | "manufacturing-departments"
-  | "manufacturing-locations"
-  | "manufacturing-wip"
-  | "manufacturing-plan-vs-actual"
   | "fantasy-rough"
   | "fantasy-polished"
   | "fantasy-departments"
   | "fantasy-locations"
   | "fantasy-status-mapping"
-  | "fantasy-reconciliation"
   | "data-quality-unmapped-labs"
   | "data-quality-unmapped-shapes"
   | "data-science-anomaly-detection"
@@ -91,24 +77,23 @@ export type ViewId =
   | "admin-lab-mappings"
   | "admin-shape-mappings"
   | "admin-feature-flags"
+  // Former Users and Access pages, kept only as aliases for old links.
   | "admin-users"
   | "admin-access-requests";
-
-/** The single view id that renders Demand Result Details. */
-export const DEMAND_TRACE_VIEW: ViewId = "analysis-demand-trace";
 
 // Merged modules. A legacy view id resolves to the host view that now owns it plus the tab
 // that holds the old page, so old bookmarks, deep links and setView() callers keep working.
 export const LEGACY_VIEW_ALIASES: Partial<Record<ViewId, { view: ViewId; tab: string | null }>> = {
   // "Sales Analysis" + "Sales Trends" → one sidebar module "Sales Analysis & Trends"
   "analysis-sales-trends": { view: "analysis-sales", tab: "trends" },
-  // Demand Trace used to have a second id in the Demand and Inventory section. One page now
-  // has one id; old hashes and old setView() callers resolve to the canonical Analysis id.
-  "demand-trace": { view: DEMAND_TRACE_VIEW, tab: null },
   // "Business Rules and Mappings" became "Mappings"; Business Rules is no longer a page.
   "admin-rules-mappings": { view: "admin-mappings", tab: null },
   "admin-business-rules": { view: "admin-mappings", tab: null },
   "admin-sarin-shape-mappings": { view: "admin-mappings", tab: "sarin-shape-mapping" },
+  // User Directory, Roles & Policies, Permission Matrix and Access Requests became the two
+  // tabs of Users and Access; the review queue now sits on the Users tab.
+  "admin-users": { view: "admin-users-access", tab: "users" },
+  "admin-access-requests": { view: "admin-users-access", tab: "users" },
 };
 
 export function resolveViewAlias(view: ViewId, tab: string | null = null): { view: ViewId; tab: string | null } {
@@ -207,8 +192,6 @@ interface NavState {
   trace: DemandTraceContext | null;
   setView: (view: ViewId, tab?: string | null) => void;
   setTab: (tab: string | null) => void;
-  /** Drill-down from a Demand Overview row into that exact category. */
-  openDemandTrace: (context: { runId?: string | null; category: string }) => void;
   /**
    * Drill-down into any category-aware page, carrying the exact canonical key.
    *
@@ -271,7 +254,6 @@ export const useNavStore = create<NavState>((set, get) => ({
   },
   // One mechanism, not two: the Demand Trace drill-down is the general one aimed at a
   // fixed page.
-  openDemandTrace: (context) => get().openCategoryView(DEMAND_TRACE_VIEW, context),
   setTraceCategory: (category) => {
     const s = get();
     if (s.trace?.category === category && !s.trace.malformed) return;

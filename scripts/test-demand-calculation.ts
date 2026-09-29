@@ -40,7 +40,6 @@
 import { db } from "../src/lib/db";
 import {
   runDemandCalculation,
-  unlockDemandCalculation,
   getLatestDemandRun,
   computeCurrentMappingFingerprint,
 } from "../src/lib/demand/demand-service";
@@ -1056,22 +1055,18 @@ async function main() {
   assert(lockStillHeld?.isLocked === true, "Lock remains held by newer worker");
 
   // -------------------------------------------------------------------------
-  // TEST 25: Manual unlock requires authorization and mandatory reason
+  // TEST 25: The owning worker releases its lock
   // -------------------------------------------------------------------------
-  console.log("\n--- TEST 25: Manual unlock requires authorization and mandatory reason ---");
-  let unlockFailedNoReason = false;
-  try {
-    await unlockDemandCalculation("Operator", "");
-  } catch (err: any) {
-    unlockFailedNoReason = err.message.includes("reason is mandatory") || err.message.includes("at least 3 characters");
-  }
-  assert(unlockFailedNoReason, "Unlock without valid reason rejected");
-
-  const unlockValid = await unlockDemandCalculation("SuperAdmin", "Operator cleared stale calculation", "USER_ADMIN");
-  assert(unlockValid.success, "Manual authorized unlock succeeded with reason recorded");
-  const lockPostUnlock = await db.demandCalculationLock.findUnique({ where: { id: "DEMAND_CALCULATION" } });
-  assert(lockPostUnlock?.isLocked === false, "Lock released");
-  assert(lockPostUnlock?.unlockReason === "Operator cleared stale calculation", "Unlock reason stored in audit fields");
+  // There is no manual unlock: an abandoned lock expires with the canonical-claim lease
+  // (covered by tests/security/canonical-state-claim.test.ts). Here the newer worker ends.
+  console.log("\n--- TEST 25: The owning worker releases its lock ---");
+  const ownerRelease = await db.demandCalculationLock.updateMany({
+    where: { id: "DEMAND_CALCULATION", lockToken: lockStillHeld?.lockToken ?? "" },
+    data: { isLocked: false, lockToken: null, lockedAt: null, lockedBy: null },
+  });
+  assert(ownerRelease.count === 1, "The owning worker's token releases its own lock");
+  const lockPostRelease = await db.demandCalculationLock.findUnique({ where: { id: "DEMAND_CALCULATION" } });
+  assert(lockPostRelease?.isLocked === false, "Lock released");
 
   // -------------------------------------------------------------------------
   // TEST 26: Mapping fingerprint changes when an active mapping changes
@@ -1154,12 +1149,10 @@ async function main() {
   // -------------------------------------------------------------------------
   console.log("\n--- TEST 32: Permission-matrix checks (role → permission; API boundary covered separately) ---");
   assert(!testHasPermission("VIEWER", "demand.run"), "VIEWER cannot run demand calculation");
-  assert(!testHasPermission("VIEWER", "demand.unlock"), "VIEWER cannot unlock demand calculation");
   assert(!testHasPermission("VIEWER", "demand.trace"), "VIEWER cannot view lot-level trace");
   assert(!testHasPermission("VIEWER", "demand.export"), "VIEWER cannot export demand calculations");
 
   assert(testHasPermission("SUPER_ADMIN", "demand.run"), "SUPER_ADMIN has demand.run");
-  assert(testHasPermission("SUPER_ADMIN", "demand.unlock"), "SUPER_ADMIN has demand.unlock");
   assert(testHasPermission("SUPER_ADMIN", "demand.trace"), "SUPER_ADMIN has demand.trace");
   assert(testHasPermission("SUPER_ADMIN", "demand.export"), "SUPER_ADMIN has demand.export");
 
@@ -1168,7 +1161,6 @@ async function main() {
   // consequence for the data, so administering the system no longer confers them; they
   // stay assignable to an administrator who genuinely holds that duty.
   assert(!testHasPermission("ADMIN", "demand.run"), "ADMIN does NOT automatically have demand.run");
-  assert(!testHasPermission("ADMIN", "demand.unlock"), "ADMIN does NOT automatically have demand.unlock");
   // Reading remains administrative.
   assert(testHasPermission("ADMIN", "demand.trace"), "ADMIN has demand.trace");
   assert(testHasPermission("ADMIN", "demand.export"), "ADMIN has demand.export");
@@ -1177,7 +1169,6 @@ async function main() {
   assert(!testHasPermission("ADMIN", "fantasy.sync.unlock"), "ADMIN does NOT automatically have fantasy.sync.unlock");
 
   assert(testHasPermission("ANALYSIS_MANAGER", "demand.run"), "ANALYSIS_MANAGER has demand.run");
-  assert(!testHasPermission("ANALYSIS_MANAGER", "demand.unlock"), "ANALYSIS_MANAGER does NOT have demand.unlock");
   assert(testHasPermission("ANALYSIS_MANAGER", "demand.trace"), "ANALYSIS_MANAGER has demand.trace");
   assert(testHasPermission("ANALYSIS_MANAGER", "demand.export"), "ANALYSIS_MANAGER has demand.export");
 

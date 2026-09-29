@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, test } from "./harness";
 import { db, resetDb } from "./helpers";
 import {
+  CANONICAL_CLAIM_LEASE_MS,
   CANONICAL_STATE_ID,
   CanonicalStateBusyError,
   claimCanonicalState,
@@ -413,7 +414,7 @@ describe("failure leaves no partial result", () => {
 });
 
 describe("persisted roles cannot re-grant operational access to ADMIN", () => {
-  const OPERATIONAL = ["fantasy.sync.run", "fantasy.sync.retry", "fantasy.sync.unlock", "demand.run", "demand.unlock"] as const;
+  const OPERATIONAL = ["fantasy.sync.run", "fantasy.sync.retry", "fantasy.sync.unlock", "demand.run"] as const;
 
   beforeAll(async () => {
     await resetDb();
@@ -555,5 +556,32 @@ describe("Stockout and Demand Overview read the same bound source", () => {
     expect(res.json.hasRun).toBe(true);
 
     if (syncHolds.acquired) await releaseCanonicalState(syncHolds.claim);
+  });
+});
+
+describe("an abandoned demand lock expires with the canonical-claim lease", () => {
+  beforeAll(async () => {
+    await resetDb();
+    await freeClaim();
+  });
+
+  test("a lock left behind longer than the lease is taken over; a fresh lock still refuses a concurrent run", async () => {
+    await freeClaim();
+    // A committed synchronization must exist; an earlier suite may already have committed
+    // the fixture batch, in which case this one is refused as a repeat and that is fine.
+    await runSynchronization({ actor: "sync-worker" });
+    expect(await db.integrationSyncRun.count({ where: { status: "SUCCESS" } })).toBeGreaterThan(0);
+    const held = { isLocked: true, lockToken: "crashed-worker-token", lockedAt: new Date(), lockedBy: "crashed-worker" };
+    await db.demandCalculationLock.upsert({ where: { id: "DEMAND_CALCULATION" }, update: held, create: { id: "DEMAND_CALCULATION", ...held } });
+
+    // Held just now by another worker: a concurrent run is refused and the lock is untouched.
+    await expect(runDemandCalculation({ actor: "demand-worker", windowDays: 90 })).rejects.toThrow(/in progress/);
+    expect((await db.demandCalculationLock.findUniqueOrThrow({ where: { id: "DEMAND_CALCULATION" } })).lockToken).toBe("crashed-worker-token");
+
+    // The same lock, abandoned for longer than the lease: the next run takes it over, completes and releases it.
+    await db.demandCalculationLock.update({ where: { id: "DEMAND_CALCULATION" }, data: { lockedAt: new Date(Date.now() - CANONICAL_CLAIM_LEASE_MS - 60_000) } });
+    const run = await runDemandCalculation({ actor: "demand-worker", windowDays: 90 });
+    const lock = await db.demandCalculationLock.findUniqueOrThrow({ where: { id: "DEMAND_CALCULATION" } });
+    expect([typeof run.runId, lock.isLocked, lock.lockToken, lock.runId]).toEqual(["string", false, null, run.runId]);
   });
 });

@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AlertTriangle, FlaskConical, Info, PackageX, Search } from "lucide-react";
 import { SimulationBanner } from "@/components/diamond/shared/simulation-banner";
+import { useDemandRefresh } from "@/components/diamond/shared/use-demand-refresh";
 import type { SourceDisclosure } from "@/lib/analysis/source-disclosure";
 
 /**
@@ -100,9 +101,8 @@ const PAGE_SIZE = 25;
 
 export function ReorderSignalsView() {
   const trace = useNavStore((s) => s.trace);
-  const openDemandTrace = useNavStore((s) => s.openDemandTrace);
+  const refresh = useDemandRefresh();
   const openCategoryView = useNavStore((s) => s.openCategoryView);
-  const setView = useNavStore((s) => s.setView);
   const perms = useAuthStore((s) => s.user?.permissions ?? []);
   const globalFilter = useGlobalFilter();
 
@@ -167,23 +167,15 @@ export function ReorderSignalsView() {
       cell: (r) => <Badge variant={r.dataState === "CONFIRMED" ? "success" : "warning"}>{r.dataState.replace(/_/g, " ")}</Badge>,
     },
     {
-      key: "trace", header: "Trace", width: "11rem",
+      key: "stockout", header: "Stockout", width: "7rem",
       cell: (r) => (
-        <div className="flex items-center gap-1">
-          <Button
-            size="sm" variant="outline" className="h-6 px-2 text-[11px]"
-            onClick={() => openDemandTrace({ runId: signals.data?.runId ?? null, category: r.categoryId })}
-          >
-            Trace
-          </Button>
-          <Button
-            size="sm" variant="outline" className="h-6 px-2 text-[11px]"
-            // The exact category, carried into Stockout Risk.
-            onClick={() => openCategoryView("analysis-stockout", { runId: signals.data?.runId ?? null, category: r.categoryId })}
-          >
-            Stockout
-          </Button>
-        </div>
+        <Button
+          size="sm" variant="outline" className="h-6 px-2 text-[11px]"
+          // The exact category, carried into Stockout Risk.
+          onClick={() => openCategoryView("analysis-stockout", { runId: signals.data?.runId ?? null, category: r.categoryId })}
+        >
+          Stockout
+        </Button>
       ),
     },
   ];
@@ -195,7 +187,7 @@ export function ReorderSignalsView() {
         subtitle="Categories below target stock — advisory only"
         actions={
           canRunDemand ? (
-            <Button size="sm" variant="outline" className="h-8" onClick={() => setView("demand-overview")}>
+            <Button size="sm" variant="outline" className="h-8" onClick={() => refresh.mutate()} disabled={refresh.isPending}>
               Refresh demand
             </Button>
           ) : undefined
@@ -234,7 +226,7 @@ export function ReorderSignalsView() {
               <div className="flex flex-wrap items-center gap-2">
                 <span>{s.staleWarning}</span>
                 {canRunDemand && (
-                  <Button size="sm" variant="outline" className="h-6" onClick={() => setView("demand-overview")}>
+                  <Button size="sm" variant="outline" className="h-6" onClick={() => refresh.mutate()} disabled={refresh.isPending}>
                     Refresh demand
                   </Button>
                 )}

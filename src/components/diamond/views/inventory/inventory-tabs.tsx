@@ -255,7 +255,6 @@ const BUCKET_FILTERS = [
 
 export function InventoryLotsTab() {
   const scope = useScope();
-  const setView = useNavStore((s) => s.setView);
   const [page, setPage] = useState(1);
   const [bucket, setBucket] = useState<string>("");
   const [search, setSearch] = useState("");
@@ -269,9 +268,7 @@ export function InventoryLotsTab() {
     {
       key: "lotId", header: "Lot", width: "12rem",
       cell: (r) => (
-        <button type="button" className="text-left font-medium text-primary hover:underline" onClick={() => setView("manufacturing-traceability")}>
-          {r.lotId}
-        </button>
+        <span className="font-medium">{r.lotId}</span>
       ),
     },
     { key: "bucket", header: "Bucket", width: "16rem", cell: (r) => <Badge variant={r.bucket === "PHYSICAL_AVAILABLE_POLISHED" ? "success" : r.bucket === "REVIEW_REQUIRED" ? "warning" : "default"}>{bucketLabel(r.bucket)}</Badge> },
@@ -305,9 +302,7 @@ export function InventoryLotsTab() {
       key: "reviewCodes", header: "Review", width: "10rem",
       cell: (r) =>
         r.reviewCodes.length === 0 ? <span className="text-xs text-muted-foreground">—</span> : (
-          <button type="button" className="text-left text-xs text-primary hover:underline" onClick={() => setView("data-quality-issues")}>
-            Needs review ({r.reviewCodes.length})
-          </button>
+          <span className="text-xs text-amber-700 dark:text-amber-400" title={r.reviewCodes.join(", ")}>Needs review ({r.reviewCodes.length})</span>
         ),
     },
   ];

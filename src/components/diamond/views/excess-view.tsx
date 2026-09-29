@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FlaskConical, Info, Layers, Package, Search, Target } from "lucide-react";
 import { SimulationBanner } from "@/components/diamond/shared/simulation-banner";
+import { useDemandRefresh } from "@/components/diamond/shared/use-demand-refresh";
 import type { SourceDisclosure } from "@/lib/analysis/source-disclosure";
 
 /**
@@ -111,8 +112,7 @@ const PAGE_SIZE = 25;
 
 export function ExcessView() {
   const trace = useNavStore((s) => s.trace);
-  const openDemandTrace = useNavStore((s) => s.openDemandTrace);
-  const setView = useNavStore((s) => s.setView);
+  const refresh = useDemandRefresh();
   const perms = useAuthStore((s) => s.user?.permissions ?? []);
   const globalFilter = useGlobalFilter();
 
@@ -184,18 +184,6 @@ export function ExcessView() {
       key: "dataState", header: "Data state", width: "9rem",
       cell: (r) => <Badge variant={r.dataState === "CONFIRMED" ? "success" : "warning"}>{r.dataState.replace(/_/g, " ")}</Badge>,
     },
-    {
-      key: "trace", header: "Trace", width: "6rem",
-      cell: (r) => (
-        <Button
-          size="sm" variant="outline" className="h-6 px-2 text-[11px]"
-          // The exact run and the exact category, so Demand Trace opens what was clicked.
-          onClick={() => openDemandTrace({ runId: categories.data?.runId ?? null, category: r.categoryId })}
-        >
-          Trace
-        </Button>
-      ),
-    },
   ];
 
   return (
@@ -206,7 +194,7 @@ export function ExcessView() {
         actions={
           <div className="flex items-center gap-2">
             {canRunDemand && (
-              <Button size="sm" variant="outline" className="h-8" onClick={() => setView("demand-overview")}>
+              <Button size="sm" variant="outline" className="h-8" onClick={() => refresh.mutate()} disabled={refresh.isPending}>
                 Refresh demand
               </Button>
             )}
@@ -265,7 +253,7 @@ export function ExcessView() {
                   )}
                 </span>
                 {canRunDemand && (
-                  <Button size="sm" variant="outline" className="h-6" onClick={() => setView("demand-overview")}>
+                  <Button size="sm" variant="outline" className="h-6" onClick={() => refresh.mutate()} disabled={refresh.isPending}>
                     Refresh demand
                   </Button>
                 )}

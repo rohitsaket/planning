@@ -3,318 +3,173 @@ import { db } from "@/lib/db";
 import { ok } from "@/lib/api-utils";
 import { withApi, idSchema } from "@/lib/api/with-api";
 import { badRequest, conflict, forbidden, notFound } from "@/lib/api/errors";
-import {
-  ROLES,
-  PERMISSIONS,
-  permissionsFor,
-  isPermission,
-  type Permission,
-} from "@/lib/auth/permissions";
-import { assertDelegable } from "@/lib/auth/role-service";
+import { ROLES, isPermission } from "@/lib/auth/permissions";
+import { PERMISSION_AREAS, PERMISSION_CAPABILITIES, PERMISSION_CATALOG } from "@/lib/auth/permission-catalog";
+import { isSuperAdmin } from "@/lib/auth/role-service";
+
+/**
+ * Roles and the permissions they carry.
+ *
+ * Super Admin is the one built-in role: fixed in code and managed on the server only, it is
+ * not listed here and cannot be renamed, edited, retired or deleted. Every role listed is a
+ * custom role whose permissions only a Super Admin may choose. Roles are never deleted — they are retired once unused — so
+ * their audit history always refers to something that still exists. Every change carries
+ * the version it read; a stale write is refused, and an identical save changes nothing.
+ */
+
+interface RoleView {
+  id: string;
+  code: string;
+  name: string;
+  description: string | null;
+  status: string;
+  version: number;
+  permissions: string[];
+  userCount: number;
+  createdAt: string;
+}
+
+const ROLE_INCLUDE = { permissions: { select: { permissionCode: true } }, assignments: { select: { userId: true } } } as const;
+
+function toView(r: {
+  id: string; code: string; name: string; description: string | null; isSystem: boolean; status: string; version: number; createdAt: Date;
+  permissions: Array<{ permissionCode: string }>; assignments: Array<{ userId: string }>;
+}): RoleView {
+  return {
+    id: r.id,
+    code: r.code,
+    name: r.name,
+    description: r.description,
+    status: r.status,
+    version: r.version,
+    permissions: r.permissions.map((p) => p.permissionCode).filter(isPermission).sort(),
+    userCount: new Set(r.assignments.map((a) => a.userId)).size,
+    createdAt: r.createdAt.toISOString(),
+  };
+}
 
 export const GET = withApi({ permission: "role.read" }, async (_req, _ctx, api) => {
-  const dbRoles = await db.role.findMany({
-    include: {
-      permissions: { select: { permissionCode: true } },
-      assignments: { select: { userId: true } },
-    },
-    orderBy: { name: "asc" },
-  });
-
-  // Collect unique user counts per role
-  const rolesMap = new Map<string, {
-    id: string;
-    code: string;
-    name: string;
-    description: string | null;
-    isSystem: boolean;
-    status: string;
-    permissions: string[];
-    userCount: number;
-    createdAt: string;
-  }>();
-
-  for (const r of dbRoles) {
-    const userCount = new Set(r.assignments.map((a) => a.userId)).size;
-    const permissions = r.isSystem
-      ? permissionsFor(r.code)
-      : r.permissions.map((p) => p.permissionCode).filter(isPermission);
-
-    rolesMap.set(r.code, {
-      id: r.id,
-      code: r.code,
-      name: r.name,
-      description: r.description,
-      isSystem: r.isSystem,
-      status: r.status,
-      permissions,
-      userCount,
-      createdAt: r.createdAt.toISOString(),
-    });
-  }
-
-  // Ensure all built-in system roles exist in output even if not in DB yet
-  for (const roleCode of ROLES) {
-    if (!rolesMap.has(roleCode)) {
-      const perms = permissionsFor(roleCode);
-      rolesMap.set(roleCode, {
-        id: `sys-${roleCode.toLowerCase()}`,
-        code: roleCode,
-        name: roleCode.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase()),
-        description: `Built-in system role for ${roleCode.toLowerCase().replace(/_/g, " ")}.`,
-        isSystem: true,
-        status: "ACTIVE",
-        permissions: perms,
-        userCount: 0,
-        createdAt: new Date().toISOString(),
-      });
-    }
-  }
-
-  const roleList = Array.from(rolesMap.values()).sort((a, b) => {
-    if (a.isSystem && !b.isSystem) return -1;
-    if (!a.isSystem && b.isSystem) return 1;
-    return a.name.localeCompare(b.name);
-  });
-
+  // Custom roles only. Super Admin is managed on the server and is not shown or offered here.
+  const roles = (await db.role.findMany({ where: { isSystem: false }, include: ROLE_INCLUDE, orderBy: { name: "asc" } })).map(toView);
+  const superAdmin = isSuperAdmin(api.principal);
   return ok({
-    roles: roleList,
-    total: roleList.length,
-    availablePermissions: PERMISSIONS,
+    roles,
+    total: roles.length,
+    // Safe descriptive metadata for the permission editor; codes remain the only vocabulary.
+    catalog: { areas: PERMISSION_AREAS, capabilities: PERMISSION_CAPABILITIES, permissions: PERMISSION_CATALOG },
+    // What the page may offer this caller. The operations below enforce the same rules.
+    canEditPermissions: superAdmin && api.principal.permissions.includes("role.permissions.assign"),
+    canManageRoles: api.principal.permissions.includes("role.manage"),
   });
 });
 
-const permissionSchema = z.string().refine(isPermission, {
-  message: "Invalid permission code",
-});
+const permissionSchema = z.string().refine(isPermission, { message: "Invalid permission code" });
+const permissionsSchema = z.array(permissionSchema).max(500);
 
 const bodySchema = z.discriminatedUnion("op", [
   z.object({
     op: z.literal("createRole"),
-    code: z
-      .string()
-      .trim()
-      .toUpperCase()
-      .min(2)
-      .max(40)
-      .regex(/^[A-Z0-9_]+$/, "Code must contain uppercase letters, numbers, and underscores only"),
+    code: z.string().trim().toUpperCase().min(2).max(40).regex(/^[A-Z0-9_]+$/, "Code must contain uppercase letters, numbers, and underscores only"),
     name: z.string().trim().min(2).max(100),
     description: z.string().trim().max(500).optional(),
-    permissions: z.array(permissionSchema),
+    permissions: permissionsSchema,
   }),
   z.object({
     op: z.literal("updateRole"),
     id: idSchema,
+    /** The version the editor read. A role changed since then is refused, never overwritten. */
+    version: z.number().int().min(0),
     name: z.string().trim().min(2).max(100).optional(),
     description: z.string().trim().max(500).optional(),
-    permissions: z.array(permissionSchema).optional(),
+    permissions: permissionsSchema.optional(),
+    /** INACTIVE retires an unused role; ACTIVE brings a retired role back. */
     status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
-  }),
-  z.object({
-    op: z.literal("deleteRole"),
-    id: idSchema,
-  }),
-  z.object({
-    op: z.literal("setPermissions"),
-    id: idSchema,
-    permissions: z.array(permissionSchema),
   }),
 ]);
 
-const OPERATION_PERMISSION = {
-  createRole: "role.manage",
-  updateRole: "role.manage",
-  deleteRole: "role.manage",
-  setPermissions: "role.permissions.assign",
-} as const satisfies Record<z.infer<typeof bodySchema>["op"], Permission>;
+const sameSet = (a: readonly string[], b: readonly string[]) => a.length === b.length && [...a].sort().every((v, i) => v === [...b].sort()[i]);
 
 export const POST = withApi({ permission: "role.read", body: bodySchema }, async (_req, _ctx, api) => {
   const b = api.body;
-  if (!api.principal.permissions.includes(OPERATION_PERMISSION[b.op])) throw forbidden();
+  if (!api.principal.permissions.includes("role.manage")) throw forbidden();
+  const touchesPermissions = b.op === "createRole" ? b.permissions.length > 0 : b.permissions !== undefined;
+  // Choosing what a role may do is a Super Admin decision, whatever else the caller holds.
+  if (touchesPermissions && !(isSuperAdmin(api.principal) && api.principal.permissions.includes("role.permissions.assign"))) {
+    throw forbidden("Only a Super Admin can choose role permissions.");
+  }
+  const permissions = b.permissions ? Array.from(new Set(b.permissions)).sort() : undefined;
 
   if (b.op === "createRole") {
-    // Check if code conflicts with system role or existing DB role
-    if ((ROLES as readonly string[]).includes(b.code)) {
-      throw conflict("ROLE_CODE_EXISTS", `The code ${b.code} is reserved for a system role.`);
-    }
-
-    const existing = await db.role.findUnique({ where: { code: b.code } });
-    if (existing) {
-      throw conflict("ROLE_CODE_EXISTS", `A role with code ${b.code} already exists.`);
-    }
-
-    // Caller cannot delegate permissions they do not hold unless they are SUPER_ADMIN
-    if (api.principal.role !== "SUPER_ADMIN") {
-      assertDelegable(api.principal.permissions, b.permissions);
-    }
-
+    if ((ROLES as readonly string[]).includes(b.code)) throw conflict("ROLE_CODE_EXISTS", `The code ${b.code} is reserved for a system role.`);
+    if (await db.role.findUnique({ where: { code: b.code }, select: { id: true } })) throw conflict("ROLE_CODE_EXISTS", `A role with code ${b.code} already exists.`);
     const created = await db.$transaction(async (tx) => {
       const role = await tx.role.create({
-        data: {
-          code: b.code,
-          name: b.name,
-          description: b.description || null,
-          isSystem: false,
-          status: "ACTIVE",
-          createdByUserId: api.principal.userId,
-        },
+        data: { code: b.code, name: b.name, description: b.description || null, isSystem: false, status: "ACTIVE", createdByUserId: api.principal.userId },
       });
-
-      if (b.permissions.length > 0) {
+      if (permissions && permissions.length > 0) {
         await tx.rolePermission.createMany({
-          data: b.permissions.map((perm) => ({
-            roleId: role.id,
-            permissionCode: perm,
-            assignedByUserId: api.principal.userId,
-            reason: "Initial permission assignment on role creation",
-          })),
+          data: permissions.map((permissionCode) => ({ roleId: role.id, permissionCode, assignedByUserId: api.principal.userId, reason: "Initial permission assignment on role creation" })),
         });
       }
-
       await api.audit(tx, {
         action: "ROLE_CREATED",
         entity: "Role",
         entityId: role.id,
-        after: { code: role.code, name: role.name, permissions: b.permissions },
+        after: { code: role.code, name: role.name, permissions: permissions ?? [] },
         category: "SECURITY",
       });
-
-      return role;
+      return tx.role.findUniqueOrThrow({ where: { id: role.id }, include: ROLE_INCLUDE });
     });
+    return ok({ role: toView(created), changed: true });
+  }
 
-    return ok({
-      id: created.id,
-      code: created.code,
-      name: created.name,
-      permissions: b.permissions,
-      status: created.status,
+  const target = await db.role.findUnique({ where: { id: b.id }, include: ROLE_INCLUDE });
+  if (!target) throw notFound("Role");
+  if (target.isSystem) throw badRequest("This role is managed on the server and cannot be changed here.");
+
+  const before = toView(target);
+  const next = {
+    name: b.name ?? target.name,
+    description: b.description !== undefined ? b.description || null : target.description,
+    status: b.status ?? target.status,
+    permissions: permissions ?? before.permissions,
+  };
+  if (b.version !== target.version) throw conflict("STALE_ROLE", "This role was changed by someone else since you opened it. Reload it and apply your changes again.");
+  if (next.status === "INACTIVE" && target.status !== "INACTIVE" && before.userCount > 0) {
+    throw conflict("ROLE_IN_USE", `This role is assigned to ${before.userCount} user(s). Reassign them before retiring it.`);
+  }
+  // Saving what is already stored changes nothing: no new version, no audit event.
+  if (next.name === target.name && next.description === target.description && next.status === target.status && sameSet(next.permissions, before.permissions)) {
+    return ok({ role: before, changed: false });
+  }
+
+  const added = next.permissions.filter((p) => !before.permissions.includes(p));
+  const removed = before.permissions.filter((p) => !next.permissions.includes(p));
+  const updated = await db.$transaction(async (tx) => {
+    // Optimistic concurrency, decided by the database: only the version that was read may change.
+    const claimed = await tx.role.updateMany({
+      where: { id: target.id, version: target.version },
+      data: { name: next.name, description: next.description, status: next.status, updatedByUserId: api.principal.userId, version: { increment: 1 } },
     });
-  }
-
-  const targetRole = await db.role.findUnique({
-    where: { id: b.id },
-    include: {
-      permissions: true,
-      assignments: { select: { userId: true } },
-    },
-  });
-
-  if (!targetRole) throw notFound("Role");
-
-  if (b.op === "deleteRole") {
-    if (targetRole.isSystem) {
-      throw badRequest("System roles are built into the platform and cannot be deleted.");
-    }
-
-    if (targetRole.assignments.length > 0) {
-      throw badRequest(
-        `Cannot delete role '${targetRole.name}' because ${targetRole.assignments.length} active user(s) are currently assigned to it. Please reassign those users first.`
-      );
-    }
-
-    await db.$transaction(async (tx) => {
-      await tx.rolePermission.deleteMany({ where: { roleId: targetRole.id } });
-      await tx.role.delete({ where: { id: targetRole.id } });
-
-      await api.audit(tx, {
-        action: "ROLE_DELETED",
-        entity: "Role",
-        entityId: targetRole.id,
-        before: { code: targetRole.code, name: targetRole.name },
-        category: "SECURITY",
-      });
-    });
-
-    return ok({ id: b.id, op: "deleteRole", deleted: true });
-  }
-
-  if (b.op === "updateRole") {
-    if (targetRole.isSystem && (b.name || b.permissions)) {
-      throw badRequest("System roles have immutable definitions and cannot be edited.");
-    }
-
-    if (b.permissions && api.principal.role !== "SUPER_ADMIN") {
-      assertDelegable(api.principal.permissions, b.permissions);
-    }
-
-    await db.$transaction(async (tx) => {
-      await tx.role.update({
-        where: { id: b.id },
-        data: {
-          name: b.name ?? targetRole.name,
-          description: b.description !== undefined ? b.description : targetRole.description,
-          status: b.status ?? targetRole.status,
-          updatedByUserId: api.principal.userId,
-          version: { increment: 1 },
-        },
-      });
-
-      if (b.permissions !== undefined && !targetRole.isSystem) {
-        await tx.rolePermission.deleteMany({ where: { roleId: targetRole.id } });
-        if (b.permissions.length > 0) {
-          await tx.rolePermission.createMany({
-            data: b.permissions.map((perm) => ({
-              roleId: targetRole.id,
-              permissionCode: perm,
-              assignedByUserId: api.principal.userId,
-              reason: "Permissions updated by administrator",
-            })),
-          });
-        }
-      }
-
-      await api.audit(tx, {
-        action: "ROLE_UPDATED",
-        entity: "Role",
-        entityId: targetRole.id,
-        before: {
-          name: targetRole.name,
-          status: targetRole.status,
-          permissions: targetRole.permissions.map((p) => p.permissionCode),
-        },
-        after: {
-          name: b.name ?? targetRole.name,
-          status: b.status ?? targetRole.status,
-          permissions: b.permissions ?? targetRole.permissions.map((p) => p.permissionCode),
-        },
-        category: "SECURITY",
-      });
-    });
-
-    return ok({ id: b.id, op: "updateRole" });
-  }
-
-  // setPermissions
-  if (targetRole.isSystem) {
-    throw badRequest("System role permissions are code-defined and cannot be modified.");
-  }
-
-  if (api.principal.role !== "SUPER_ADMIN") {
-    assertDelegable(api.principal.permissions, b.permissions);
-  }
-
-  await db.$transaction(async (tx) => {
-    await tx.rolePermission.deleteMany({ where: { roleId: targetRole.id } });
-    if (b.permissions.length > 0) {
+    if (claimed.count !== 1) throw conflict("STALE_ROLE", "This role was changed by someone else since you opened it. Reload it and apply your changes again.");
+    if (removed.length > 0) await tx.rolePermission.deleteMany({ where: { roleId: target.id, permissionCode: { in: removed } } });
+    if (added.length > 0) {
       await tx.rolePermission.createMany({
-        data: b.permissions.map((perm) => ({
-          roleId: targetRole.id,
-          permissionCode: perm,
-          assignedByUserId: api.principal.userId,
-          reason: "Role permissions updated",
-        })),
+        data: added.map((permissionCode) => ({ roleId: target.id, permissionCode, assignedByUserId: api.principal.userId, reason: "Role permissions changed" })),
       });
     }
-
     await api.audit(tx, {
-      action: "ROLE_PERMISSIONS_CHANGED",
+      action: added.length > 0 || removed.length > 0 ? "ROLE_PERMISSIONS_CHANGED" : "ROLE_UPDATED",
       entity: "Role",
-      entityId: targetRole.id,
-      before: { permissions: targetRole.permissions.map((p) => p.permissionCode) },
-      after: { permissions: b.permissions },
+      entityId: target.id,
+      before: { name: target.name, description: target.description, status: target.status, permissions: before.permissions, version: target.version },
+      after: { name: next.name, description: next.description, status: next.status, permissions: next.permissions, version: target.version + 1, added, removed, affectedUsers: before.userCount },
       category: "SECURITY",
     });
+    return tx.role.findUniqueOrThrow({ where: { id: target.id }, include: ROLE_INCLUDE });
   });
-
-  return ok({ id: b.id, op: "setPermissions", permissions: b.permissions });
+  // Access is resolved from the database on every request, so assigned users see the new
+  // permissions on their next request; no session needs revoking.
+  return ok({ role: toView(updated), changed: true, added, removed, affectedUsers: before.userCount });
 });
+

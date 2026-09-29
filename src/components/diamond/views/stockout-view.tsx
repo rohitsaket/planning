@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AlertTriangle, FlaskConical, Info, PackageX, Search, Target, X } from "lucide-react";
 import { SimulationBanner } from "@/components/diamond/shared/simulation-banner";
+import { useDemandRefresh } from "@/components/diamond/shared/use-demand-refresh";
 import type { SourceDisclosure } from "@/lib/analysis/source-disclosure";
 
 /**
@@ -136,8 +137,7 @@ const PAGE_SIZE = 25;
 
 export function StockoutView() {
   const trace = useNavStore((s) => s.trace);
-  const openDemandTrace = useNavStore((s) => s.openDemandTrace);
-  const setView = useNavStore((s) => s.setView);
+  const refresh = useDemandRefresh();
   const setTraceCategory = useNavStore((s) => s.setTraceCategory);
   const clearTraceCategory = useNavStore((s) => s.clearTraceCategory);
   const perms = useAuthStore((s) => s.user?.permissions ?? []);
@@ -228,18 +228,6 @@ export function StockoutView() {
         <Badge variant={r.dataState === "CONFIRMED" ? "success" : "warning"}>{r.dataState.replace(/_/g, " ")}</Badge>
       ),
     },
-    {
-      key: "trace", header: "Trace", width: "6rem",
-      cell: (r) => (
-        <Button
-          size="sm" variant="outline" className="h-6 px-2 text-[11px]"
-          // The exact run and the exact category, so Demand Trace opens what was clicked.
-          onClick={() => openDemandTrace({ runId: categories.data?.runId ?? null, category: r.categoryId })}
-        >
-          Trace
-        </Button>
-      ),
-    },
   ];
 
   return (
@@ -250,7 +238,7 @@ export function StockoutView() {
         actions={
           <div className="flex items-center gap-2">
             {canRunDemand && (
-              <Button size="sm" variant="outline" className="h-8" onClick={() => setView("demand-overview")}>
+              <Button size="sm" variant="outline" className="h-8" onClick={() => refresh.mutate()} disabled={refresh.isPending}>
                 Refresh demand
               </Button>
             )}
@@ -309,7 +297,7 @@ export function StockoutView() {
                   )}
                 </span>
                 {canRunDemand && (
-                  <Button size="sm" variant="outline" className="h-6" onClick={() => setView("demand-overview")}>
+                  <Button size="sm" variant="outline" className="h-6" onClick={() => refresh.mutate()} disabled={refresh.isPending}>
                     Refresh demand
                   </Button>
                 )}
@@ -434,7 +422,7 @@ export function StockoutView() {
               icon={<Info className="h-5 w-5" />}
             />
           ) : detail.data?.detail.found === true ? (
-            <CategoryDetail d={detail.data.detail} onTrace={() => openDemandTrace({ runId: detail.data?.runId ?? null, category: selectedCategory })} />
+            <CategoryDetail d={detail.data.detail} />
           ) : null}
         </Section>
       )}
@@ -443,13 +431,7 @@ export function StockoutView() {
 }
 
 /** Business supporting figures only — no formula, no source table, no rule identifier. */
-function CategoryDetail({
-  d,
-  onTrace,
-}: {
-  d: Extract<DetailResponse["detail"], { found: true }>;
-  onTrace: () => void;
-}) {
+function CategoryDetail({ d }: { d: Extract<DetailResponse["detail"], { found: true }> }) {
   const figures: Array<[string, number | string]> = [
     ["Confirmed sales 90D (pcs)", d.sales90d],
     ["Target (pcs)", d.targetQuantity],
@@ -480,11 +462,6 @@ function CategoryDetail({
             <span className="tabular-nums font-medium">{value}</span>
           </div>
         ))}
-      </div>
-      <div className="flex items-center gap-2">
-        <Button size="sm" variant="outline" className="h-7" onClick={onTrace}>
-          Open in Demand Trace
-        </Button>
       </div>
     </div>
   );

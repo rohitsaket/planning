@@ -1,21 +1,23 @@
 "use client";
 
 import { TabbedHostView, HostTabItem } from "@/components/diamond/shared/tabbed-host-view";
-import { UsersView } from "@/components/diamond/views/users-view";
-import { AccessRequestsView } from "@/components/diamond/views/access-requests-view";
-import { Users, UserPlus } from "lucide-react";
+import { UsersTab } from "@/components/diamond/views/users-access/users-tab";
+import { PermissionsTab } from "@/components/diamond/views/users-access/permissions-tab";
+import { KeyRound, Users } from "lucide-react";
 
-const TABS: HostTabItem[] = [
-  { id: "users", label: "Users & Roles", icon: <Users className="h-3.5 w-3.5" />, permission: "user.read", component: UsersView },
-  { id: "requests", label: "Access Requests", icon: <UserPlus className="h-3.5 w-3.5" />, permission: "access_request.review", component: AccessRequestsView },
+// Two tabs only. Users holds accounts and the access-request review queue; Permissions holds
+// roles, what each role may do, and the per-user access inspector.
+export const USERS_ACCESS_TABS: HostTabItem[] = [
+  { id: "users", label: "Users", icon: <Users className="h-3.5 w-3.5" />, permission: ["user.read", "access_request.review"], component: UsersTab },
+  { id: "permissions", label: "Permissions", icon: <KeyRound className="h-3.5 w-3.5" />, permission: "role.read", component: PermissionsTab },
 ];
 
 export function UsersAccessView() {
   return (
     <TabbedHostView
       title="Users and Access"
-      subtitle="Accounts, roles and access requests"
-      tabs={TABS}
+      subtitle="Accounts, roles and permissions"
+      tabs={USERS_ACCESS_TABS}
       defaultTab="users"
     />
   );

@@ -20,8 +20,6 @@
  * Usage: npx tsx scripts/with-sectest-db.ts npx tsx scripts/test-demand-result-details.ts
  */
 
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import { db } from "../src/lib/db";
 import { SECTEST_DB } from "../tests/security/test-db";
 import { call, makeUser } from "../tests/security/helpers";
@@ -513,89 +511,6 @@ async function main() {
   assert(notRun.json.statusLabel === "No demand calculation available", "The not-run state uses business wording");
   assert(notRun.json.categories.length === 0 && notRun.json.supportingRecords === null, "No fabricated results are returned before a calculation exists");
   assert(scanForbidden(notRun.json).length === 0, "The not-run response is also free of implementation detail");
-
-  // =========================================================================
-  section("H. The page renders results and does not recompute them");
-  // =========================================================================
-  const rawViewSource = readFileSync(
-    path.join(process.cwd(), "src", "components", "diamond", "views", "demand-trace-view.tsx"),
-    "utf8",
-  );
-  // Developer comments are not delivered to the browser; the assertions below apply
-  // to the code that actually renders.
-  const viewSource = rawViewSource
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .split(/\r?\n/)
-    .map((line) => line.replace(/(^|\s)\/\/.*$/, "$1"))
-    .join("\n");
-
-  assert(!/\bsteps\b/.test(viewSource), "The page has no calculation-step rendering left");
-  assert(!/formula/i.test(viewSource), "The page contains no formula text or formula field");
-  assert(
-    !/COUNT\(|SUM\(|\bMAX\(0|round_half_up/i.test(viewSource),
-    "The page contains no SQL-like or rounding implementation text",
-  );
-  assert(
-    !/LotHistoryRecord|PolishedStone|DemandMetric|DemandRun|ForecastPrediction|PlanOptionPiece/.test(viewSource),
-    "The page names no database model",
-  );
-  assert(!/BR-[A-Z]+-\d+|DEMAND-V\d|CONFIG-V\d/.test(viewSource), "The page shows no rule identifier or rule version");
-  assert(!/mappingFingerprint|checkpoint|lastBatchId/i.test(viewSource), "The page shows no mapping fingerprint, checkpoint or batch id");
-  assert(!/findVal|\.steps\[|step\.value/.test(viewSource), "The page does not read values out of calculation steps");
-
-  // Authoritative metrics must be rendered, never derived. Any arithmetic operator
-  // applied to two metric fields would be a recomputation.
-  const METRIC_FIELDS = [
-    "sales90d",
-    "roundedTarget",
-    "availableStock",
-    "memoQty",
-    "physicalShortage",
-    "wipCoverage",
-    "pipelineNeed",
-    "approvedPlanCoverage",
-    "remainingUnplanned",
-    "excessStock",
-    "totalShortage",
-    "totalExcess",
-  ];
-  const recomputation = METRIC_FIELDS.flatMap((field) => {
-    const re = new RegExp(`\\.${field}\\s*[-*/]\\s*[A-Za-z0-9_.(]`, "g");
-    const hits = viewSource.match(re) ?? [];
-    return hits.map((h) => `${field}: ${h.trim()}`);
-  });
-  assert(
-    recomputation.length === 0,
-    `No authoritative metric is derived in the browser${recomputation.length ? `: ${recomputation.join(", ")}` : ""}`,
-  );
-
-  // The one addition the page makes is a display grouping of two separate metrics,
-  // not a recalculated business result.
-  assert(
-    (viewSource.match(/reservedQty \+ selected\.blockedQty/g) ?? []).length === 1,
-    "Reserved and blocked are only combined for display in a single KPI",
-  );
-
-  // Export safety: the supporting-record export can only contain the safe columns
-  // rendered on screen, and it requires the demand export permission.
-  const columnKeys = Array.from(viewSource.matchAll(/key:\s*"([a-zA-Z]+)"/g)).map((m) => m[1]);
-  const ALLOWED_EXPORT_KEYS = [
-    "businessId",
-    "inclusionStatus",
-    "docDate",
-    "quantity",
-    "weight",
-    "lab",
-    "shape",
-    "weightBand",
-    "manufacturingStage",
-    "customerName",
-    "reason",
-  ];
-  const unexpected = columnKeys.filter((k) => !ALLOWED_EXPORT_KEYS.includes(k));
-  assert(unexpected.length === 0, `Exported columns are business fields only${unexpected.length ? `: ${unexpected.join(", ")}` : ""}`);
-  assert(/exportPermission="demand\.export"/.test(viewSource), "The supporting-record export requires the demand export permission");
-  assert(/exportScope="current-page"/.test(viewSource), "The export states that it covers the loaded page only");
 
   console.log("\n===============================================================================");
   console.log(`RESULT: ${passed} passed, ${failed} failed`);

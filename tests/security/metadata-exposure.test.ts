@@ -8,7 +8,6 @@ import { GET as forecast } from "@/app/api/forecast/route";
 import { GET as wip } from "@/app/api/analysis/wip/route";
 import { GET as countries } from "@/app/api/analysis/countries/route";
 import { GET as transferCandidates } from "@/app/api/analysis/transfer-candidates/route";
-import { GET as dataQuality } from "@/app/api/data-quality/route";
 import { GET as auditLog } from "@/app/api/admin/audit/route";
 import { GET as overallExport, OVERALL_EXPORT_ROW_LIMIT } from "@/app/api/fantasy/overall/export/route";
 import { GET as overallList } from "@/app/api/fantasy/overall/route";
@@ -229,13 +228,11 @@ describe("forecast methodology is a separate authority", () => {
 });
 
 describe("record types are named for people, and only known keys reach a query", () => {
-  let dqCookie = "";
   let auditCookie = "";
 
   beforeAll(async () => {
     await resetDb();
     resetRateLimits();
-    dqCookie = (await makeUser("label-dq", "DATA_ANALYST")).cookie;
     auditCookie = (await makeUser("label-audit", "AUDITOR")).cookie;
   });
 
@@ -252,13 +249,6 @@ describe("record types are named for people, and only known keys reach a query",
     expect(entityLabel(null)).toBe("Unknown entity");
     // It must not be folded into a neighbouring known type.
     expect(AUDITABLE_ENTITIES.includes("SomeRetiredModel" as never)).toBe(false);
-  });
-
-  test("data quality accepts a known key and refuses anything else", async () => {
-    expect((await call(dataQuality, { path: "/api/data-quality?entity=SalesRecord", cookie: dqCookie })).status).toBe(200);
-    const bad = await call(dataQuality, { path: "/api/data-quality?entity=DROP+TABLE", cookie: dqCookie });
-    expect(bad.status).toBe(400);
-    expect(bad.json.error.code).toBe("BAD_REQUEST");
   });
 
   test("the audit log accepts a known key and refuses anything else", async () => {

@@ -48,9 +48,7 @@ import { GET as ordersGET } from "../src/app/api/analysis/orders/route";
 import { GET as memoGET } from "../src/app/api/analysis/memo/route";
 import { GET as reorderGET } from "../src/app/api/analysis/reorder-signals/route";
 import { GET as historyGET } from "../src/app/api/demand/history/route";
-import { GET as exportGET } from "../src/app/api/demand/export/route";
 import { POST as demandRunPOST } from "../src/app/api/demand/run/route";
-import { POST as demandUnlockPOST } from "../src/app/api/demand/run/unlock/route";
 
 // ---------------------------------------------------------------------------
 // Safety: this suite truncates tables, so it must never see a real database.
@@ -733,8 +731,6 @@ async function main() {
 
   // Unauthenticated
   assert((await call(demandRunPOST, { method: "POST", path: "/api/demand/run", body: {} })).status === 401, "POST /api/demand/run rejects an anonymous caller");
-  assert((await call(demandUnlockPOST, { method: "POST", path: "/api/demand/run/unlock", body: { reason: "test reason" } })).status === 401, "POST /api/demand/run/unlock rejects an anonymous caller");
-  assert((await call(exportGET, { path: "/api/demand/export" })).status === 401, "GET /api/demand/export rejects an anonymous caller");
   assert((await call(traceGET, { path: "/api/analysis/demand-trace" })).status === 401, "GET /api/analysis/demand-trace rejects an anonymous caller");
   assert((await call(wipGET, { path: "/api/analysis/wip" })).status === 401, "GET /api/analysis/wip rejects an anonymous caller");
   assert((await call(customersGET, { path: "/api/analysis/customers" })).status === 401, "GET /api/analysis/customers rejects an anonymous caller");
@@ -744,14 +740,11 @@ async function main() {
   // Authenticated without permission
   assert((await call(demandRunPOST, { method: "POST", path: "/api/demand/run", cookie: viewer.cookie, body: {} })).status === 403, "VIEWER cannot run the demand calculation");
   assert((await call(demandRunPOST, { method: "POST", path: "/api/demand/run", cookie: analyst.cookie, body: {} })).status === 403, "DATA_ANALYST cannot run the demand calculation");
-  assert((await call(demandUnlockPOST, { method: "POST", path: "/api/demand/run/unlock", cookie: analyst.cookie, body: { reason: "not allowed" } })).status === 403, "DATA_ANALYST cannot unlock the demand calculation");
-  assert((await call(exportGET, { path: "/api/demand/export", cookie: viewer.cookie })).status === 403, "VIEWER cannot export demand data");
   assert((await call(customersGET, { path: "/api/analysis/customers", cookie: planner.cookie })).status === 403, "PLANNER cannot read customer data");
   assert((await call(memoGET, { path: "/api/analysis/memo", cookie: planner.cookie })).status === 403, "PLANNER cannot read memo data");
   assert((await call(wipGET, { path: "/api/analysis/wip", cookie: salesMgr.cookie })).status === 200, "SALES_MANAGER may read WIP aggregates (analysis.read)");
 
   // Authenticated with permission
-  assert((await call(exportGET, { path: "/api/demand/export", cookie: analyst.cookie })).status === 200, "DATA_ANALYST may export demand data");
   assert((await call(customersGET, { path: "/api/analysis/customers", cookie: analyst.cookie })).status === 200, "DATA_ANALYST may read customer data");
   resetRateLimits();
   const runRes = await call(demandRunPOST, { method: "POST", path: "/api/demand/run", cookie: superAdmin.cookie, body: {} });
@@ -768,21 +761,6 @@ async function main() {
   await db.user.update({ where: { id: disabled.user.id }, data: { status: "DISABLED" } });
   assert((await call(wipGET, { path: "/api/analysis/wip", cookie: disabled.cookie })).status === 401, "A disabled user's session is rejected");
 
-  // Client-supplied identity must never override the authenticated principal.
-  resetRateLimits();
-  const unlockRes = await call(demandUnlockPOST, {
-    method: "POST",
-    path: "/api/demand/run/unlock",
-    cookie: superAdmin.cookie,
-    body: { reason: "operator unlock for test", actor: "someone-else", role: "SUPER_ADMIN", userId: "forged-id" },
-  });
-  assert(unlockRes.status === 200, "An authorized unlock succeeds");
-  const unlockAudit = await db.auditLog.findFirst({ where: { action: "DEMAND_CALCULATION_UNLOCK" }, orderBy: { timestamp: "desc" } });
-  assert(unlockAudit?.actor === "rbac-super", `Audit actor is the authenticated principal, not the request body (got ${unlockAudit?.actor})`);
-  assert(unlockAudit?.actorUserId === superAdmin.user.id, "Audit actorUserId comes from the session");
-  assert(unlockAudit?.reason?.includes("operator unlock for test") === true, "The unlock justification is recorded");
-  const shortReason = await call(demandUnlockPOST, { method: "POST", path: "/api/demand/run/unlock", cookie: superAdmin.cookie, body: { reason: "no" } });
-  assert(shortReason.status === 400, "Unlock without a sufficient justification is rejected");
 
   // =========================================================================
   section("F. Demand trace lot-level disclosure requires demand.trace");
@@ -987,8 +965,8 @@ async function main() {
 
   const demandExportViews = viewFiles.filter((f) => readFileSync(f, "utf8").includes('exportPermission="demand.export"')).map((f) => path.basename(f));
   assert(
-    demandExportViews.every((f) => ["demand-calculation-overview.tsx", "demand-history-view.tsx", "demand-trace-view.tsx", "wip-view.tsx"].includes(f)),
-    `demand.export is only used by demand views (found: ${demandExportViews.join(", ")})`,
+    demandExportViews.every((f) => f === "wip-view.tsx"),
+    `demand.export is only used by the WIP view (found: ${demandExportViews.join(", ")})`,
   );
 
   // =========================================================================

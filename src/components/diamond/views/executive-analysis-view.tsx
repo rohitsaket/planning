@@ -1,10 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useApi, apiPost } from "@/lib/api-client";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useApi } from "@/lib/api-client";
+import { useDemandRefresh } from "@/components/diamond/shared/use-demand-refresh";
 import { useAuthStore } from "@/stores/auth-store";
-import { toast } from "sonner";
 import { useNavStore } from "@/stores/nav-store";
 import { useGlobalFilter } from "@/stores/global-filter";
 import { Section, PageHeader } from "@/components/diamond/shared/page-header";
@@ -118,7 +117,7 @@ interface ShortageExcessResponse {
 interface AttentionResponse {
   rows: Array<{
     kind: string; subject: string; detail: string; count: number;
-    action: string; category: string | null;
+    action: string | null; category: string | null;
   }>;
   meta: PageMeta;
   activeFilters: ActiveFilter[];
@@ -224,9 +223,9 @@ const TABS: Array<{
 
 export function ExecutiveAnalysisView() {
   const setView = useNavStore((s) => s.setView);
-  const openDemandTrace = useNavStore((s) => s.openDemandTrace);
+  const openCategoryView = useNavStore((s) => s.openCategoryView);
   const globalFilter = useGlobalFilter();
-  const qc = useQueryClient();
+  const refresh = useDemandRefresh();
 
   const [activeTab, setActiveTab] = useState<ExecutiveTab>("sales-demand");
   const [salesPage, setSalesPage] = useState(1);
@@ -356,17 +355,6 @@ export function ExecutiveAnalysisView() {
     { key: "memo", header: "Memo", align: "right", cell: (r) => <Advisory value={r.memo} /> },
     { key: "wip", header: "WIP", align: "right", cell: (r) => <Advisory value={r.wip} /> },
     { key: "status", header: "Data State", align: "center", width: "11rem", cell: (r) => <Badge variant="default">{r.status.label}</Badge> },
-    {
-      key: "trace", header: "Trace", align: "center", width: "7rem",
-      cell: (r) => (
-        <Button
-          size="sm" variant="outline" className="h-7 px-2 text-xs"
-          onClick={() => openDemandTrace({ runId: gaps.data?.runId ?? null, category: r.category })}
-        >
-          Trace
-        </Button>
-      ),
-    },
   ];
 
   const attentionColumns: Column<AttentionResponse["rows"][number]>[] = [
@@ -378,20 +366,16 @@ export function ExecutiveAnalysisView() {
     },
     {
       key: "action", header: "Action", align: "center", width: "12rem",
-      cell: (r) => (
-        <Button
-          size="sm" variant="outline" className="h-7 px-2 text-xs"
-          onClick={() => {
-            if (r.category) openDemandTrace({ runId: readiness.data?.demandRunId ?? null, category: r.category });
-            else if (r.kind === "CATEGORY_BLOCKED_BY_DATA_QUALITY") setView("data-quality-issues");
-            else if (r.kind.startsWith("INVENTORY")) setView("analysis-inventory-position");
-            else if (r.kind === "SOURCE_DATA_STALE") setView("fantasy-sync");
-            else setView("analysis-demand-trace");
-          }}
-        >
-          {r.action}
-        </Button>
-      ),
+      cell: (r) => {
+        const go = attentionTarget(r);
+        return go && r.action ? (
+          <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={go} disabled={r.kind === "DEMAND_NOT_RUN" && refresh.isPending}>
+            {r.action}
+          </Button>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        );
+      },
     },
   ];
 
@@ -401,27 +385,17 @@ export function ExecutiveAnalysisView() {
   // Hiding the button is UX. The server enforces demand.run on every request.
   const canRunDemand = permissions.includes("demand.run");
 
-  const refresh = useMutation({
-    mutationFn: () => apiPost<{ runId: string; salesCount: number }>("/api/analysis/refresh", {}),
-    onSuccess: (r) => {
-      toast.success(
-        `Analysis recalculated — ${r.salesCount} confirmed sales in the 90-day window`,
-      );
-      // Every surface that reads the snapshot, so none keeps showing the previous one.
-      const affected = [
-        "/api/analysis/executive",
-        "/api/analysis/sales",
-        "/api/analysis/demand-trace",
-        "/api/demand/history",
-      ];
-      for (const key of affected) {
-        qc.invalidateQueries({
-          predicate: (q) => typeof q.queryKey[0] === "string" && q.queryKey[0].startsWith(key),
-        });
-      }
-    },
-    onError: (e) => toast.error(`Analysis refresh failed: ${(e as Error).message}`),
-  });
+  /** Where an attention row leads; null when there is nowhere to act on it from. */
+  const attentionTarget = (r: AttentionResponse["rows"][number]): (() => void) | null => {
+    if (r.kind === "DEMAND_NOT_RUN") return canRunDemand ? () => refresh.mutate() : null;
+    if (r.kind === "CATEGORY_PHYSICAL_SHORTAGE" && r.category) {
+      const category = r.category;
+      return () => openCategoryView("analysis-stockout", { runId: readiness.data?.demandRunId ?? null, category });
+    }
+    if (r.kind.startsWith("INVENTORY")) return () => setView("analysis-inventory-position");
+    if (r.kind === "SOURCE_DATA_STALE") return () => setView("fantasy-sync");
+    return null;
+  };
 
   return (
     <div className="space-y-3">

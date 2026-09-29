@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, test } from "./harness";
-import { call, db, makeUser, resetDb } from "./helpers";
+import { call, db, ensureCountryRegistry, ensureLabRegistry, makeUser, resetDb } from "./helpers";
 import { resetRateLimits } from "@/lib/api/rate-limit";
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
@@ -456,6 +456,8 @@ describe("Access scope — exports carry the same restriction", () => {
 });
 
 describe("Access scope — managing it is its own authority", () => {
+  // A scope may only name registered countries and labs.
+  beforeAll(async () => { await ensureCountryRegistry(["ZS", "ZT"]); await ensureLabRegistry(["LAB-ALPHA"]); });
   test("only Super Admin holds scope assignment by default; anyone else needs a custom role that names it", () => {
     // Super Admin is the only built-in role, so no other account receives it implicitly.
     expect([...ROLES]).toEqual(["SUPER_ADMIN"]);

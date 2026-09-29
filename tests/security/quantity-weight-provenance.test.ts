@@ -228,7 +228,7 @@ describe("persisted provenance", () => {
 });
 
 describe("operational actions are assigned, not inherited from administration", () => {
-  const OPERATIONAL = ["fantasy.sync.run", "fantasy.sync.retry", "fantasy.sync.unlock", "demand.run", "demand.unlock"] as const;
+  const OPERATIONAL = ["fantasy.sync.run", "fantasy.sync.retry", "fantasy.sync.unlock", "demand.run"] as const;
 
   test("only Super Admin holds them by default; any other account needs a custom role that names them", () => {
     expect([...ROLES]).toEqual(["SUPER_ADMIN"]);

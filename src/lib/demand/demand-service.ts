@@ -18,6 +18,7 @@ import { db } from "@/lib/db";
 import { Prisma } from "@prisma/client";
 import { recordOperationalFailure, serializePublicFailure } from "@/lib/api/operational-failure";
 import {
+  CANONICAL_CLAIM_LEASE_MS,
   CanonicalStateBusyError,
   CanonicalStateFencedError,
   claimCanonicalState,
@@ -236,59 +237,6 @@ async function ensureLockRecord() {
 }
 
 /**
- * Explicitly releases a stuck demand calculation lock with mandatory audit logging.
- */
-export async function unlockDemandCalculation(
-  actor: string,
-  reason: string,
-  actorUserId?: string
-): Promise<{ success: boolean; message: string }> {
-  if (!reason || !reason.trim()) {
-    throw new Error("A reason is mandatory for manual demand calculation unlock");
-  }
-
-  await ensureLockRecord();
-  const currentLock = await db.demandCalculationLock.findUnique({
-    where: { id: "DEMAND_CALCULATION" },
-  });
-
-  await db.demandCalculationLock.update({
-    where: { id: "DEMAND_CALCULATION" },
-    data: {
-      isLocked: false,
-      lockToken: null,
-      previousOwner: currentLock?.lockedBy ?? "UNKNOWN",
-      previousRunId: currentLock?.runId ?? null,
-      previousLockedAt: currentLock?.lockedAt ?? null,
-      unlockReason: reason.trim(),
-      unlockedBy: actor,
-      unlockedAt: nowUTC(),
-      lockedAt: null,
-      lockedBy: null,
-      lockedByUserId: null,
-      runId: null,
-    },
-  });
-
-  // Audit log entry
-  await db.auditLog.create({
-    data: {
-      actor,
-      actorUserId: actorUserId ?? null,
-      action: "DEMAND_LOCK_UNLOCKED",
-      entity: "DemandCalculationLock",
-      entityId: "DEMAND_CALCULATION",
-      reason: `Manual unlock: ${reason.trim()} (Previous owner: ${currentLock?.lockedBy ?? "none"})`,
-    },
-  });
-
-  return {
-    success: true,
-    message: `Demand calculation lock explicitly released by ${actor}. Reason: ${reason.trim()}`,
-  };
-}
-
-/**
  * Executes a full, deterministic 90-day Demand & Inventory calculation run.
  */
 export async function runDemandCalculation(options: DemandRunOptions = {}): Promise<DemandRunResult> {
@@ -324,11 +272,17 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
   await ensureLockRecord();
 
   // 1. ATOMIC OWNER-SAFE LOCK ACQUISITION
+  //
+  // A lock older than the canonical-claim lease was abandoned (the worker crashed before
+  // releasing it) and may be taken over, so a crash never blocks calculation for good.
+  // Taking it over is safe: the abandoned run's canonical claim has expired with it, so
+  // that run is fenced out before it can write, and its release is owner-checked by token.
   const lockToken = crypto.randomUUID();
+  const staleBefore = new Date(Date.now() - CANONICAL_CLAIM_LEASE_MS);
   const lockAcquired = await db.demandCalculationLock.updateMany({
     where: {
       id: "DEMAND_CALCULATION",
-      isLocked: false,
+      OR: [{ isLocked: false }, { lockedAt: { lt: staleBefore } }],
     },
     data: {
       isLocked: true,

@@ -42,7 +42,7 @@
 
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
-import { forbidden } from "@/lib/api/errors";
+import { badRequest, forbidden } from "@/lib/api/errors";
 
 if (typeof window !== "undefined") {
   throw new Error("auth/access-scope is server-only and must not be imported by client code.");
@@ -129,6 +129,61 @@ function allows(allowed: readonly string[] | null, requested: string | null | un
  * unauthorized caller which countries exist for them is itself a disclosure, and they
  * have their own scope on screen already.
  */
+/**
+ * Refuses granting another account a scope wider than the granter's own. For each
+ * dimension the granter limits, the grant must name values the granter holds — an empty
+ * grant would mean unrestricted, which is wider still.
+ */
+export function assertScopeGrantable(granter: EffectiveScope, grant: { countries: readonly string[]; labs: readonly string[] }): void {
+  const within = (held: readonly string[] | null, given: readonly string[]) => held === null || (given.length > 0 && given.every((v) => held.includes(v)));
+  if (!within(granter.countries, grant.countries) || !within(granter.labs, grant.labs)) {
+    throw forbidden("You cannot grant a country or lab scope wider than your own.");
+  }
+}
+
+/** Upper bound on each vocabulary list; both registries are small reference tables. */
+const SCOPE_VOCABULARY_LIMIT = 500;
+
+/**
+ * The values a scope may name: registered country codes and active canonical labs — the
+ * same values the scoped columns hold. Limited to what `within` allows, so an assigner is
+ * only ever offered what they could grant.
+ */
+export async function scopeVocabulary(within: EffectiveScope = UNRESTRICTED_SCOPE): Promise<{ countries: Array<{ code: string; name: string }>; labs: string[] }> {
+  const [countries, labs] = await Promise.all([
+    db.country.findMany({
+      where: within.countries === null ? {} : { code: { in: [...within.countries] } },
+      select: { code: true, name: true },
+      orderBy: { code: "asc" },
+      take: SCOPE_VOCABULARY_LIMIT,
+    }),
+    db.labMapping.findMany({
+      where: { active: true, ...(within.labs === null ? {} : { normalizedLab: { in: [...within.labs] } }) },
+      distinct: ["normalizedLab"],
+      select: { normalizedLab: true },
+      orderBy: { normalizedLab: "asc" },
+      take: SCOPE_VOCABULARY_LIMIT,
+    }),
+  ]);
+  return { countries, labs: labs.map((l) => l.normalizedLab) };
+}
+
+/**
+ * Refuses a scope naming a country or lab that is not registered. A misspelt value would
+ * otherwise be stored and silently match nothing, leaving the account with less access
+ * than intended and nothing saying why.
+ */
+export async function assertKnownScopeValues(grant: { countries: readonly string[]; labs: readonly string[] }): Promise<void> {
+  const [countries, labs] = await Promise.all([
+    grant.countries.length ? db.country.findMany({ where: { code: { in: [...grant.countries] } }, select: { code: true } }) : [],
+    grant.labs.length ? db.labMapping.findMany({ where: { active: true, normalizedLab: { in: [...grant.labs] } }, distinct: ["normalizedLab"], select: { normalizedLab: true } }) : [],
+  ]);
+  const knownCountries = new Set(countries.map((c) => c.code));
+  const knownLabs = new Set(labs.map((l) => l.normalizedLab));
+  const unknown = [...grant.countries.filter((c) => !knownCountries.has(c)), ...grant.labs.filter((l) => !knownLabs.has(l))];
+  if (unknown.length > 0) throw badRequest(`Not a registered country or lab: ${unknown.slice(0, 5).join(", ")}${unknown.length > 5 ? "…" : ""}.`);
+}
+
 export function assertWithinScope(scope: EffectiveScope, requested: RequestedScope): void {
   if (!allows(scope.countries, requested.country)) {
     throw forbidden("You are not authorized to view data for the requested country.");

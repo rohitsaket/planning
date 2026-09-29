@@ -303,7 +303,7 @@ export function CustomerSalesView() {
           {detail.data && detail.data.exclusionCodes.length > 0 && (
             <InfoBanner variant="info">
               Excluded records for this customer:{" "}
-              {detail.data.exclusionCodes.reduce((sum, e) => sum + e.count, 0).toLocaleString()}. Review them in Data Quality.
+              {detail.data.exclusionCodes.reduce((sum, e) => sum + e.count, 0).toLocaleString()}.
             </InfoBanner>
           )}
         </Section>

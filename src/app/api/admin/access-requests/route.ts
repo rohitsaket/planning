@@ -3,9 +3,9 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { ok } from "@/lib/api-utils";
 import { withApi, paging, paged, idSchema, qEnum, reasonSchema } from "@/lib/api/with-api";
-import { conflict, forbidden, notFound } from "@/lib/api/errors";
+import { conflict, notFound } from "@/lib/api/errors";
 import { hashPassword } from "@/lib/auth/password";
-import { replaceUserRoles, resolveAssignableRoles } from "@/lib/auth/role-service";
+import { assertDelegable, assertNotSuperAdminChange, isSuperAdmin, permissionsGrantedByRoles, replaceUserRoles, resolveAssignableRoles } from "@/lib/auth/role-service";
 
 // Review queue for self-service registration requests. Governed by
 // `access_request.review`, which is separate from the rest of account administration:
@@ -21,11 +21,10 @@ export const GET = withApi({ permission: "access_request.review" }, async (_req,
     take: p.take,
   });
   const pendingCount = await db.accessRequest.count({ where: { status: "PENDING" } });
-  // The roles this reviewer may grant on approval: active roles, and Super Admin only for
-  // a reviewer who holds that separate authority. The approve operation checks it again.
-  const canAssignSuperAdmin = api.principal.permissions.includes("user.super_admin.assign");
+  // The roles a reviewer may grant on approval: active custom roles. Super Admin is managed
+  // on the server only; the approve operation refuses it again.
   const assignableRoles = await db.role.findMany({
-    where: { status: "ACTIVE", ...(canAssignSuperAdmin ? {} : { code: { not: "SUPER_ADMIN" } }) },
+    where: { status: "ACTIVE", isSystem: false },
     select: { code: true, name: true },
     orderBy: [{ isSystem: "desc" }, { name: "asc" }],
     take: 200,
@@ -54,8 +53,8 @@ export const GET = withApi({ permission: "access_request.review" }, async (_req,
 
 const bodySchema = z.discriminatedUnion("op", [
   // The role is chosen here, by a human, at approval time. It is never taken from
-  // the request itself — the applicant has no say in their own permissions. Super Admin or
-  // any active custom role; the code is checked against the Role table when assigned.
+  // the request itself — the applicant has no say in their own permissions. Any active
+  // custom role, never Super Admin; the code is checked against the Role table when assigned.
   z.object({ op: z.literal("approve"), id: idSchema, role: z.string().regex(/^[A-Z0-9_]{1,64}$/), note: z.string().trim().max(500).optional() }),
   z.object({ op: z.literal("reject"), id: idSchema, reason: reasonSchema }),
 ]);
@@ -79,7 +78,7 @@ export const POST = withApi({ permission: "access_request.review", body: bodySch
   }
 
   // Approval mints a real account — the same guard the admin create path uses.
-  if (b.role === "SUPER_ADMIN" && !api.principal.permissions.includes("user.super_admin.assign")) throw forbidden("Assigning the Super Admin role requires a separate authority.");
+  assertNotSuperAdminChange([b.role]);
   if (await db.user.findUnique({ where: { username: reqRow.username }, select: { id: true } })) {
     throw conflict("USERNAME_TAKEN", "An account with that username now exists. Reject this request instead.");
   }
@@ -93,6 +92,10 @@ export const POST = withApi({ permission: "access_request.review", body: bodySch
     const claimed = await tx.accessRequest.updateMany({ where: { id: b.id, status: "PENDING" }, data: { status: "APPROVED" } });
     if (claimed.count !== 1) throw conflict("ALREADY_DECIDED", "That request has already been decided.");
     const roles = await resolveAssignableRoles(tx, [b.role]);
+    // A reviewer cannot hand a new account access the reviewer does not hold.
+    if (!isSuperAdmin(api.principal)) {
+      assertDelegable(api.principal.permissions, await permissionsGrantedByRoles(tx, roles.map((r) => r.id)));
+    }
     const u = await tx.user.create({
       data: {
         username: reqRow.username,
