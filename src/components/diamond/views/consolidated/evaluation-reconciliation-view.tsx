@@ -14,7 +14,7 @@ export function EvaluationReconciliationView() {
   return (
     <TabbedHostView
       title="Plan vs Actual"
-      subtitle="Comprehensive planned yield vs actual output variance, stone recovery rates, and system reconciliation"
+      subtitle="Planned versus actual yield and recovery"
       tabs={TABS}
       defaultTab="plan-vs-actual"
     />

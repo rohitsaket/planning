@@ -233,7 +233,7 @@ function CustomerDetailDialog({
               unit="ct"
               intent="success"
               icon={Gem}
-              hint="Sum of weights"
+              hint="Total weight"
             />
             <KpiCard
               label="Total Value"
@@ -248,21 +248,21 @@ function CustomerDetailDialog({
               value={customer.avgPerCt}
               icon={TrendingUp}
               intent="info"
-              hint="Value / carats"
+              hint="Average price per carat"
             />
             <KpiCard
               label="Open Orders"
               value={customer.openOrders}
               intent={customer.openOrders > 0 ? "warning" : "default"}
               icon={FileText}
-              hint="OPEN + PARTIAL orders"
+              hint="Open and partly filled orders"
             />
             <KpiCard
               label="Memo Exposure"
               value={customer.memoExposure}
               icon={FileWarning}
               intent={customer.memoExposure > 0 ? "critical" : "default"}
-              hint="OPEN memo value"
+              hint="Open memo value"
             />
           </div>
 
@@ -271,7 +271,7 @@ function CustomerDetailDialog({
             <div className="flex items-center justify-between gap-2 mb-2">
               <div>
                 <h3 className="text-xs font-semibold tracking-wide text-foreground">Buying Trends — Last 12 Months</h3>
-                <p className="text-[10px] text-muted-foreground">Pieces (bar) + value (area) · monthly aggregates</p>
+                <p className="text-[10px] text-muted-foreground">Monthly pieces and value</p>
               </div>
               <Badge variant="neutral" className="gap-1">
                 <Sparkles className="h-2.5 w-2.5" />
@@ -373,7 +373,7 @@ function CustomerDetailDialog({
                     </span>
                   </div>
                   <p className="text-[11px] text-amber-800/80 dark:text-amber-200/80 mt-1 leading-relaxed">
-                    Open memo stock assigned to this customer. Memo does NOT reduce shortage — it represents inventory held off-balance-sheet at the customer site, with separate credit & return-risk implications.
+                    Open memo stock held by this customer. Memo does not reduce shortage.
                   </p>
                 </div>
               </div>
@@ -527,7 +527,7 @@ export function CustomersView() {
           label="Total Value"
           value={`$${(totalValue / 1000).toFixed(1)}K`}
           intent="success"
-          hint="Sum of invoice totals · 365D"
+          hint="Invoice value · 365D"
           icon={DollarSign}
           sparkline={totalValueSpark}
         />
@@ -536,7 +536,7 @@ export function CustomersView() {
           value={totalCaratsAll.toFixed(2)}
           unit="ct"
           intent="default"
-          hint="Sum of weights · 365D"
+          hint="Total carats · 365D"
           icon={Gem}
           sparkline={totalCaratsSpark}
         />
@@ -570,7 +570,7 @@ export function CustomersView() {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search code or name (server-side)…"
+              placeholder="Search code or name…"
               className="h-7 w-52 rounded-md border border-border bg-background/90 px-2 text-xs"
             />
           }

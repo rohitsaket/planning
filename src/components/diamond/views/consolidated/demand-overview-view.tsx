@@ -14,7 +14,7 @@ export function DemandOverviewView() {
   return (
     <TabbedHostView
       title="Demand Overview"
-      subtitle="Authoritative 90-day demand calculation, planning categories, physical shortage, WIP coverage, and run history"
+      subtitle="Demand, shortage, coverage and run history"
       tabs={TABS}
       defaultTab="calculation"
     />

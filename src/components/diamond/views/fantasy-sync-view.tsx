@@ -84,8 +84,6 @@ interface SyncRun {
   entity: string;
   status: string;
   batchId?: string;
-  startingCheckpoint?: number;
-  endingCheckpoint?: number;
   recordsReceived?: number;
   recordsCreated: number;
   recordsUpdated: number;
@@ -165,7 +163,7 @@ export function FantasySyncView() {
   const lastSyncStatus = useMemo(() => {
     if (!data?.recentRuns || data.recentRuns.length === 0) return "NOT_RUN";
     const statuses = new Set(summary.map((s) => s.lastStatus));
-    if (statuses.size === 1 && statuses.has("SUCCESS")) return "HEALTHY";
+    if (statuses.size === 1 && statuses.has("SUCCESS")) return "SUCCEEDED";
     if (statuses.has("FAILED")) return "FAILED";
     if (statuses.has("PARTIAL") || statuses.has("RUNNING")) return "PARTIAL";
     if (statuses.has("NOT_RUN")) return "NOT_RUN";
@@ -237,7 +235,7 @@ export function FantasySyncView() {
       cell: (r) => (
         <div className="flex flex-col gap-0.5">
           <span className="font-medium">{r.batchId || r.entity}</span>
-          <span className="text-[10px] text-muted-foreground">{r.source} · Checkpoint {r.startingCheckpoint ?? 0} → {r.endingCheckpoint ?? 0}</span>
+          <span className="text-[10px] text-muted-foreground">{r.source}</span>
         </div>
       ),
     },
@@ -248,7 +246,7 @@ export function FantasySyncView() {
     },
     {
       key: "recordsReceived",
-      header: "Received",
+      header: "Records received",
       align: "right",
       sortable: true,
       sortValue: (r) => r.recordsReceived ?? r.recordsFetched,
@@ -264,7 +262,7 @@ export function FantasySyncView() {
     },
     {
       key: "recordsUpdated",
-      header: "Updated",
+      header: "Records updated",
       align: "right",
       sortable: true,
       sortValue: (r) => r.recordsUpdated,
@@ -280,7 +278,7 @@ export function FantasySyncView() {
     },
     {
       key: "historyVersions",
-      header: "History Versions",
+      header: "History",
       align: "right",
       cell: (r) => <NumberCell value={r.historyVersionsCreated ?? 0} intent="default" />,
     },
@@ -310,7 +308,7 @@ export function FantasySyncView() {
     <div className="flex flex-col gap-3 p-3">
       <PageHeader
         title="Sync Monitor"
-        subtitle="Fantasy ERP authoritative source synchronization · Checkpoint state · Mathematical reconciliation"
+        subtitle="Fantasy ERP synchronization status and history"
         actions={
           <div className="flex items-center gap-2">
             {isLocked && (
@@ -341,7 +339,7 @@ export function FantasySyncView() {
               onClick={handleTriggerSync}
             >
               <RefreshCw className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />
-              {syncing ? "Syncing..." : `Trigger Next Batch (${checkpoint + 1}/5)`}
+              {syncing ? "Syncing..." : `Run Next Batch (${checkpoint + 1}/5)`}
             </Button>
           </div>
         }
@@ -361,7 +359,7 @@ export function FantasySyncView() {
               <span>
                 {sourceState?.statusExplanation ?? "The data source state is not available."}
                 {sourceState?.isSimulated
-                  ? ` Synchronization batch ${checkpoint} of 5 has been applied; each batch performs real transactional updates, history preservation and data-quality validation on simulated records.`
+                  ? ` Batch ${checkpoint} of 5 applied.`
                   : ""}
               </span>
             </div>
@@ -375,52 +373,46 @@ export function FantasySyncView() {
       {/* KPI grid */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         <KpiCard
-          label="Sync Progress"
+          label="Synchronization progress"
           value={`Batch ${checkpoint} / 5`}
           intent="info"
-          hint="Batches are applied in order and never repeated"
         />
         <KpiCard
           label="Last Sync Status"
-          value={lastSyncStatus}
-          intent={lastSyncStatus === "HEALTHY" ? "success" : "warning"}
-          hint="Aggregated across sync runs"
+          value={lastSyncStatus.replace(/_/g, " ")}
+          intent={lastSyncStatus === "SUCCEEDED" ? "success" : "warning"}
         />
         <KpiCard
           label="Data Quality Errors"
           value={errorsCount}
           intent={errorsCount > 0 ? "critical" : "success"}
-          hint="Blocking & error severity issues"
+          hint="Blocking issues"
         />
         <KpiCard
-          label="Total Lots in Archive"
+          label="Total Lots"
           value={reconciliation?.totalOverallLots ?? 0}
           intent="default"
-          hint="Current stock + preserved history"
+          hint="Current and historical lots"
         />
       </div>
 
-      {/* Mathematical Reconciliation Summary */}
-      <Section title="Mathematical Reconciliation" description="Verified balance between incoming feed records and locally updated state">
+      <Section title="Data differences">
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
           <MetricTile icon={<Gem className="h-3.5 w-3.5" />} label="Current Rough" value={reconciliation?.fantasyRoughCount} intent="info" />
           <MetricTile icon={<Boxes className="h-3.5 w-3.5" />} label="Current Polished" value={reconciliation?.fantasyPolishedCount} intent="success" />
           <MetricTile icon={<Database className="h-3.5 w-3.5" />} label="Active Lots" value={reconciliation?.activeOverallLots} intent="success" />
           <MetricTile icon={<Activity className="h-3.5 w-3.5" />} label="Historical Lots" value={reconciliation?.historicalOverallLots} intent="info" />
-          <MetricTile icon={<AlertTriangle className="h-3.5 w-3.5" />} label="DQ Errors" value={reconciliation?.dataQualityErrors} intent={reconciliation && reconciliation.dataQualityErrors > 0 ? "critical" : "default"} />
-          <MetricTile icon={<AlertTriangle className="h-3.5 w-3.5" />} label="DQ Warnings" value={reconciliation?.dataQualityWarnings} intent={reconciliation && reconciliation.dataQualityWarnings > 0 ? "warning" : "default"} />
+          <MetricTile icon={<AlertTriangle className="h-3.5 w-3.5" />} label="Data quality errors" value={reconciliation?.dataQualityErrors} intent={reconciliation && reconciliation.dataQualityErrors > 0 ? "critical" : "default"} />
+          <MetricTile icon={<AlertTriangle className="h-3.5 w-3.5" />} label="Data quality warnings" value={reconciliation?.dataQualityWarnings} intent={reconciliation && reconciliation.dataQualityWarnings > 0 ? "warning" : "default"} />
         </div>
 
         {reconciliation?.latestRunMetrics && (
           <div className="mt-3 rounded-md border border-border bg-muted/30 p-3 text-xs">
-            <div className="flex items-center justify-between mb-2">
-              <span className="font-semibold text-foreground">Latest Batch Mathematical Balance Check:</span>
-              <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">Reconciled 100%</span>
-            </div>
+            <div className="mb-2 font-semibold text-foreground">Latest batch</div>
             <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 text-[11px]">
-              <div><span className="text-muted-foreground">Received:</span> <strong>{reconciliation.latestRunMetrics.recordsReceived}</strong></div>
+              <div><span className="text-muted-foreground">Records received:</span> <strong>{reconciliation.latestRunMetrics.recordsReceived}</strong></div>
               <div><span className="text-muted-foreground">Created:</span> <strong className="text-emerald-600">{reconciliation.latestRunMetrics.recordsCreated}</strong></div>
-              <div><span className="text-muted-foreground">Updated:</span> <strong className="text-sky-600">{reconciliation.latestRunMetrics.recordsUpdated}</strong></div>
+              <div><span className="text-muted-foreground">Records updated:</span> <strong className="text-sky-600">{reconciliation.latestRunMetrics.recordsUpdated}</strong></div>
               <div><span className="text-muted-foreground">Unchanged:</span> <strong>{reconciliation.latestRunMetrics.recordsUnchanged}</strong></div>
               <div><span className="text-muted-foreground">Removed:</span> <strong className="text-amber-600">{reconciliation.latestRunMetrics.recordsRemoved}</strong></div>
               <div><span className="text-muted-foreground">Rejected:</span> <strong className="text-rose-600">{reconciliation.latestRunMetrics.recordsRejected}</strong></div>
@@ -430,18 +422,18 @@ export function FantasySyncView() {
       </Section>
 
       {/* Recent sync runs table */}
-      <Section title="Synchronization Run History" description="Complete audit log of all incremental and baseline synchronization batches">
+      <Section title="History">
         <DataTable
           columns={columns}
           rows={recentRuns}
           loading={isLoading}
-          emptyMessage="No sync runs recorded yet. Click 'Trigger Next Batch' to run baseline synchronization."
+          emptyMessage="No synchronization has run yet."
           maxHeight="480px"
           initialSortKey="startedAt"
           initialSortDir="desc"
           exportable
           exportPermission="fantasy.export"
-          exportFilename="fantasy-sync-audit-log.csv"
+          exportFilename="fantasy-sync-history.csv"
           pagination
           pageSize={25}
         />

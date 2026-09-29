@@ -10,6 +10,7 @@ import { InfoBanner, NumberCell } from "@/components/diamond/shared/empty-state"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useGlobalFilter, COUNTRY_OPTIONS } from "@/stores/global-filter";
 import { Gem, Filter } from "lucide-react";
+import { packetTypeLabel, packetTypeName } from "@/lib/domain/packet-type";
 
 interface RoughRow {
   id: string;
@@ -18,7 +19,7 @@ interface RoughRow {
   packet: string;
   stoneName: string;
   signer: string | null;
-  stoneType: string;
+  packetType: string;
   roughWeight: number;
   country: string;
   branch: string;
@@ -38,7 +39,7 @@ interface Payload {
 }
 
 const PLANNING_STATUS_OPTIONS = ["AVAILABLE", "SOFT_RESERVED", "UNDER_PLANNING", "PLAN_APPROVED", "RESERVED", "RELEASED", "CANCELLED"];
-const STONE_TYPE_OPTIONS = ["WHITE", "BLUE"];
+const PACKET_TYPE_OPTIONS = ["WHITE", "BLUE"];
 
 function fmtDate(iso: string | null): string {
   if (!iso) return "—";
@@ -52,7 +53,7 @@ function fmtDate(iso: string | null): string {
 export function FantasyRoughView() {
   const globalFilter = useGlobalFilter();
   const [planningStatus, setPlanningStatus] = useState<string>("ALL");
-  const [stoneType, setStoneType] = useState<string>("ALL");
+  const [packetType, setPacketType] = useState<string>("ALL");
   const [country, setCountry] = useState<string>("ALL");
 
   const effectiveCountry = country !== "ALL" ? country : (globalFilter.country ?? "ALL");
@@ -61,20 +62,20 @@ export function FantasyRoughView() {
   const queryString = useMemo(() => {
     const params = new URLSearchParams();
     if (planningStatus !== "ALL") params.set("planningStatus", planningStatus);
-    if (stoneType !== "ALL") params.set("stoneType", stoneType);
+    if (packetType !== "ALL") params.set("packetType", packetType);
     if (effectiveCountry !== "ALL") params.set("country", effectiveCountry);
     if (effectiveBranch && effectiveBranch !== "ALL") params.set("branch", effectiveBranch);
     if (globalFilter.windowDays) params.set("windowDays", String(globalFilter.windowDays));
     const s = params.toString();
     return s ? `?${s}` : "";
-  }, [planningStatus, stoneType, effectiveCountry, effectiveBranch, globalFilter.windowDays]);
+  }, [planningStatus, packetType, effectiveCountry, effectiveBranch, globalFilter.windowDays]);
 
   const { data, isLoading } = useApi<Payload>(`/api/fantasy/rough${queryString}`);
 
   const rows = data?.rows ?? [];
   const totalWeight = rows.reduce((acc, r) => acc + (r.roughWeight ?? 0), 0);
   const eligibleCount = rows.filter((r) => r.planningEligible).length;
-  const blueCount = rows.filter((r) => r.stoneType === "BLUE").length;
+  const blueCount = rows.filter((r) => r.packetType === "BLUE").length;
 
   const columns: Column<RoughRow>[] = [
     { key: "fantasyRoughId", header: "Rough ID", sticky: "left", sortable: true, sortValue: (r) => r.fantasyRoughId, cell: (r) => <span className="font-medium">{r.fantasyRoughId}</span> },
@@ -83,8 +84,8 @@ export function FantasyRoughView() {
     { key: "stoneName", header: "Stone Name", align: "center", sortable: true, sortValue: (r) => r.stoneName, cell: (r) => <span className="font-medium font-mono">{r.stoneName}</span> },
     { key: "signer", header: "Signer", align: "center", cell: (r) => <span className="text-muted-foreground font-mono">{r.signer ?? "—"}</span> },
     {
-      key: "stoneType", header: "Stone Type", align: "center",
-      cell: (r) => <Badge variant={r.stoneType === "BLUE" ? "info" : "neutral"}>{r.stoneType}</Badge>,
+      key: "packetType", header: "Packet Type", align: "center",
+      cell: (r) => <Badge variant={r.packetType === "BLUE" ? "info" : "neutral"}>{packetTypeName(r.packetType)}</Badge>,
     },
     {
       key: "roughWeight", header: "Weight (ct)", align: "right", sortable: true, sortValue: (r) => r.roughWeight,
@@ -119,7 +120,7 @@ export function FantasyRoughView() {
         <KpiCard label="Total Rough Stones" value={data?.total ?? 0} unit="stones" intent="info" hint="After filters applied" />
         <KpiCard label="Total Weight" value={totalWeight.toFixed(2)} unit="ct" intent="default" hint="Sum of selected rows" />
         <KpiCard label="Planning Eligible" value={eligibleCount} unit="stones" intent="success" hint="Available for planning" />
-        <KpiCard label="Blue Stones" value={blueCount} unit="stones" intent="info" hint="Fancy blue stone type" />
+        <KpiCard label="Blue Packet Stones" value={blueCount} unit="stones" intent="info" hint="Stones kept in Blue packets" />
       </div>
 
       {/* Filters */}
@@ -141,15 +142,15 @@ export function FantasyRoughView() {
           </Select>
         </div>
         <div className="flex items-center gap-1.5">
-          <label className="text-[11px] font-medium text-muted-foreground">Stone Type:</label>
-          <Select value={stoneType} onValueChange={setStoneType}>
+          <label className="text-[11px] font-medium text-muted-foreground">Packet Type:</label>
+          <Select value={packetType} onValueChange={setPacketType}>
             <SelectTrigger className="h-7.5 text-xs w-[120px] bg-card shadow-xs" size="sm">
               <SelectValue placeholder="All types" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="ALL">All types</SelectItem>
-              {STONE_TYPE_OPTIONS.map((s) => (
-                <SelectItem key={s} value={s}>{s}</SelectItem>
+              {PACKET_TYPE_OPTIONS.map((s) => (
+                <SelectItem key={s} value={s}>{packetTypeLabel(s)}</SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -179,7 +180,6 @@ export function FantasyRoughView() {
 
       <DataTable
         title="Rough Stock"
-        description="Click column headers to sort · Use search to filter live"
         columns={columns}
         rows={rows}
         loading={isLoading}

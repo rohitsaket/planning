@@ -16,7 +16,7 @@ export function PlanningWorkbenchHostView() {
   return (
     <TabbedHostView
       title="Planning Workbench"
-      subtitle="Rough diamond planning cases, multi-option evaluation, yield yield trade-offs, and planned pieces"
+      subtitle="Planning cases, options, yield and planned pieces"
       tabs={TABS}
       defaultTab="cases"
     />

@@ -25,7 +25,7 @@ interface RoughRow {
   packet: string | null;
   stoneName: string | null;
   signer: string | null;
-  stoneType: string | null;
+  packetType: string | null;
   roughWeight: number;
   country: string | null;
   branch: string | null;
@@ -49,7 +49,7 @@ const PLANNING_STATUSES = [
   "RESERVED",
   "RELEASED_TO_MANUFACTURING",
 ];
-const STONE_TYPES = ["WHITE", "BLUE"];
+const PACKET_TYPES = ["WHITE", "BLUE"];
 const COUNTRIES = ["USA", "India", "Belgium", "Israel", "HongKong", "UAE", "Botswana"];
 
 const fmtDate = (iso: string | null): string => {
@@ -62,12 +62,13 @@ const fmtDate = (iso: string | null): string => {
 };
 
 import { useGlobalFilter, COUNTRY_OPTIONS } from "@/stores/global-filter";
+import { packetTypeLabel, packetTypeName } from "@/lib/domain/packet-type";
 
 export function RoughAvailabilityView() {
   const setView = useNavStore((s) => s.setView);
   const globalFilter = useGlobalFilter();
   const [planningStatus, setPlanningStatus] = useState("");
-  const [stoneType, setStoneType] = useState("");
+  const [packetType, setPacketType] = useState("");
   const [country, setCountry] = useState("");
   const [eligibleOnly, setEligibleOnly] = useState(true);
 
@@ -76,12 +77,12 @@ export function RoughAvailabilityView() {
   const qs = useMemo(() => {
     const parts: string[] = [];
     if (planningStatus) parts.push(`planningStatus=${encodeURIComponent(planningStatus)}`);
-    if (stoneType) parts.push(`stoneType=${encodeURIComponent(stoneType)}`);
+    if (packetType) parts.push(`packetType=${encodeURIComponent(packetType)}`);
     if (effectiveCountry) parts.push(`country=${encodeURIComponent(effectiveCountry)}`);
     if (globalFilter.branch) parts.push(`branch=${encodeURIComponent(globalFilter.branch)}`);
     if (eligibleOnly) parts.push(`eligibleOnly=true`);
     return parts.length ? `?${parts.join("&")}` : "";
-  }, [planningStatus, stoneType, effectiveCountry, globalFilter.branch, eligibleOnly]);
+  }, [planningStatus, packetType, effectiveCountry, globalFilter.branch, eligibleOnly]);
 
   const { data, isLoading } = useApi<ApiResponse>(`/api/planning/rough${qs}`);
   const rows = data?.rows ?? [];
@@ -92,11 +93,11 @@ export function RoughAvailabilityView() {
   const totalWeight = rows.reduce((s, r) => s + r.roughWeight, 0);
 
   const activeFilters =
-    (planningStatus ? 1 : 0) + (stoneType ? 1 : 0) + (country ? 1 : 0) + (eligibleOnly ? 1 : 0);
+    (planningStatus ? 1 : 0) + (packetType ? 1 : 0) + (country ? 1 : 0) + (eligibleOnly ? 1 : 0);
 
   const clearFilters = () => {
     setPlanningStatus("");
-    setStoneType("");
+    setPacketType("");
     setCountry("");
     setEligibleOnly(false);
   };
@@ -142,13 +143,13 @@ export function RoughAvailabilityView() {
       cell: (r) => <span className="font-mono text-muted-foreground">{r.signer ?? "—"}</span>,
     },
     {
-      key: "stoneType",
-      header: "Type",
+      key: "packetType",
+      header: "Packet Type",
       width: "80px",
       align: "center",
       cell: (r) => (
-        <Badge variant={r.stoneType === "BLUE" ? "info" : "default"}>
-          {r.stoneType ?? "—"}
+        <Badge variant={r.packetType === "BLUE" ? "info" : "default"}>
+          {r.packetType ? packetTypeName(r.packetType) : "—"}
         </Badge>
       ),
     },
@@ -218,7 +219,7 @@ export function RoughAvailabilityView() {
     <div className="flex flex-col gap-3 p-3">
       <PageHeader
         title="Rough Availability"
-        subtitle="Fantasy-authoritative rough stock filtered to planning-eligible inventory · choose a rough to plan"
+        subtitle="Rough stock available for planning"
         meta={
           <span className="text-[10px] text-muted-foreground">
             {rows.length} rough stones · {totalWeight.toFixed(3)} ct total
@@ -227,15 +228,15 @@ export function RoughAvailabilityView() {
       />
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-        <KpiCard label="Total Rows" value={rows.length} unit="stones" intent="default" onClick={() => setView("planning-rough-availability")} />
-        <KpiCard label="Available" value={available} unit="stones" intent="success" hint="planningStatus = AVAILABLE" onClick={() => setView("planning-workbench")} />
+        <KpiCard label="Total Stones" value={rows.length} unit="stones" intent="default" onClick={() => setView("planning-rough-availability")} />
+        <KpiCard label="Available" value={available} unit="stones" intent="success" hint="Ready to plan" onClick={() => setView("planning-workbench")} />
         <KpiCard label="Under Planning" value={underPlan} unit="stones" intent="info" />
         <KpiCard label="Reserved" value={reserved} unit="stones" intent="warning" onClick={() => setView("planning-reservations")} />
       </div>
 
       <Section
         title="Filters"
-        description="planningStatus · stoneType · country · eligibleOnly toggle"
+        description="Status, type and country"
         bodyClassName="p-2"
         actions={
           activeFilters > 0 ? (
@@ -264,15 +265,15 @@ export function RoughAvailabilityView() {
             </SelectContent>
           </Select>
 
-          <Select value={stoneType || "ALL"} onValueChange={(v) => setStoneType(v === "ALL" ? "" : v)}>
+          <Select value={packetType || "ALL"} onValueChange={(v) => setPacketType(v === "ALL" ? "" : v)}>
             <SelectTrigger size="sm" className="h-8 w-[140px] text-xs">
-              <SelectValue placeholder="All Stone Types" />
+              <SelectValue placeholder="All Packet Types" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="ALL">All Stone Types</SelectItem>
-              {STONE_TYPES.map((t) => (
+              <SelectItem value="ALL">All Packet Types</SelectItem>
+              {PACKET_TYPES.map((t) => (
                 <SelectItem key={t} value={t}>
-                  {t}
+                  {packetTypeLabel(t)}
                 </SelectItem>
               ))}
             </SelectContent>

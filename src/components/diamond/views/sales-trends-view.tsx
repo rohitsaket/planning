@@ -176,7 +176,7 @@ export function SalesTrendsView() {
     <div className="flex flex-col gap-3 p-3">
       <PageHeader
         title="Sales Trends"
-        subtitle="Factual movement of confirmed sales between periods — a description of the past, never a forecast"
+        subtitle="How confirmed sales moved between periods. Not a forecast."
         meta={<SalesFilterBar />}
       />
 
@@ -241,7 +241,7 @@ export function SalesTrendsView() {
       {activeTab === "period" && (
         <Section
           title="Period Trend"
-          description="Confirmed sales per period. The chart plots exactly the rows in the table below; no second series is computed."
+          description="Confirmed sales per period"
           actions={
             <Select value={interval} onValueChange={(v) => setInterval(v as TrendInterval)}>
               <SelectTrigger size="sm" className="h-8 w-[150px] text-xs" aria-label="Trend interval">
@@ -261,8 +261,8 @@ export function SalesTrendsView() {
             <div className="p-3">
               <InfoBanner variant="warning">
                 {trend.data.snapshotId
-                  ? "The 30-day interval needs a snapshot calculated over the approved 90-day window. Choose Day or Week, or run the demand calculation over 90 days."
-                  : "No authoritative sales snapshot has completed, so there is no period trend to show."}
+                  ? "The 30-day view needs a 90-day demand calculation. Choose Day or Week, or run the demand calculation over 90 days."
+                  : "No sales data yet."}
               </InfoBanner>
             </div>
           )}
@@ -283,7 +283,7 @@ export function SalesTrendsView() {
             columns={trendColumns}
             rows={trendRows}
             loading={trend.isLoading}
-            emptyMessage="No confirmed sales in this snapshot for the selected filters."
+            emptyMessage="No confirmed sales for the selected filters."
             maxHeight={DATA_TABLE_VIEWPORT_MAX_HEIGHT}
             enableColumnValueFilter={false}
           />
@@ -293,7 +293,7 @@ export function SalesTrendsView() {
       {activeTab === "movement" && (
         <Section
           title="Shape and Category Movement"
-          description="Change between the three approved 30-day windows. Movement is a factual comparison, not a manufacturing priority."
+          description="Change between the three 30-day windows"
           actions={<SortControls keys={MOVEMENT_SORT_KEYS} labels={MOVEMENT_SORT_LABELS} value={movementSort} onChange={setMovementSort} label="Sort the movement table" />}
           bodyClassName="p-0"
         >
@@ -301,8 +301,7 @@ export function SalesTrendsView() {
           {movement.data && !movement.data.available && (
             <div className="p-3">
               <InfoBanner variant="warning">
-                The three 30-day windows are defined only for a snapshot calculated over the approved 90-day window, so no
-                movement can be reported for the current snapshot.
+                Movement needs a 90-day demand calculation. Run it over 90 days to see this table.
               </InfoBanner>
             </div>
           )}
@@ -329,7 +328,7 @@ export function SalesTrendsView() {
       {activeTab === "contribution" && (
         <Section
           title="Customer and Location Contribution"
-          description="Who and where the confirmed sales came from. Per-customer detail lives on Customers & Orders and is not duplicated here."
+          description="Where confirmed sales came from"
           actions={
             <div className="flex items-center gap-2">
               <Select value={dimension} onValueChange={(v) => setDimension(v as ContributionDimension)}>

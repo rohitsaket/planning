@@ -8,12 +8,12 @@ export const GET = withApi({ permission: "plan.read" }, async (req: Request) => 
   const p = paging(url);
   const status = qStr(url, "status");
   const planner = qStr(url, "planner");
-  const stoneType = qStr(url, "stoneType");
+  const packetType = qStr(url, "packetType");
 
   const where: Record<string, unknown> = {};
   if (status) where.status = status;
   if (planner) where.planner = planner;
-  if (stoneType) where.stoneType = stoneType;
+  if (packetType) where.packetType = packetType;
 
   const cases = await db.planningCase.findMany({ skip: p.skip, take: p.take,
     where,
@@ -41,7 +41,7 @@ export const GET = withApi({ permission: "plan.read" }, async (req: Request) => 
       packet: c.packet,
       signer: c.rough?.signer ?? null,
       originalRoughWeight: num(c.originalRoughWeight),
-      stoneType: c.stoneType,
+      packetType: c.packetType,
       planner: c.planner,
       planningDate: c.planningDate.toISOString(),
       status: c.status,

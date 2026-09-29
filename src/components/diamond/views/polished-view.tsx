@@ -185,7 +185,7 @@ export function PolishedView() {
     <div className="flex flex-col gap-3 p-3">
       <PageHeader
         title="Polished Stock Analysis"
-        subtitle="Physical polished inventory by dimension with aging buckets — Fantasy is the authoritative source"
+        subtitle="Polished inventory by dimension and age"
         actions={
           <Select value={dimension} onValueChange={setDimension}>
             <SelectTrigger size="sm" className="h-8 w-[170px] text-xs">
@@ -217,7 +217,7 @@ export function PolishedView() {
                   : "bg-muted text-muted-foreground border-border"
               }`}
             >
-              Valuation: {valuationAvailable ? `${data?.valuation.modelVersion} (estimate)` : "NOT_CONFIGURED"}
+              Valuation: {valuationAvailable ? "Estimate" : "Not configured"}
             </span>
           </div>
         }
@@ -229,7 +229,7 @@ export function PolishedView() {
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
         <KpiCard label="Total Pieces" value={data?.summary.pieces ?? 0} unit="pcs" intent="info" hint="Polished lots matching the filters" icon={Gem} sparkline={piecesSpark} />
-        <KpiCard label="Total Carats" value={(data?.summary.carats ?? 0).toFixed(2)} unit="ct" intent="default" hint="Σ weight" icon={Diamond} sparkline={caratsSpark} />
+        <KpiCard label="Total Carats" value={(data?.summary.carats ?? 0).toFixed(2)} unit="ct" intent="default" hint="Total weight" icon={Diamond} sparkline={caratsSpark} />
         <KpiCard
           label="Estimated Value"
           value={valuationAvailable && data?.summary.estimatedValue !== null ? (data?.summary.estimatedValue ?? 0) : "UNAVAILABLE"}
@@ -262,7 +262,7 @@ export function PolishedView() {
         </div>
       </Section>
 
-      <Section title={`By ${DIMENSIONS.find((d) => d.value === dimension)?.label}`} description="Sortable breakdown with pieces, carats and — when an approved model exists — estimated value">
+      <Section title={`By ${DIMENSIONS.find((d) => d.value === dimension)?.label}`} description="Pieces, carats and estimated value">
         <DataTable<PolishedRow>
           columns={columns}
           rows={rows}

@@ -19,9 +19,6 @@ import { ShoppingCart } from "lucide-react";
 
 interface OrderAvailabilityResponse {
   available: boolean;
-  state: string;
-  message: string;
-  nextStep: string | null;
 }
 
 export function OrderSourceView() {
@@ -30,13 +27,8 @@ export function OrderSourceView() {
   return (
     <div className="p-4">
       <EmptyState
-        title="Order data unavailable"
-        message={
-          isLoading
-            ? "Checking the order source…"
-            : [data?.message, data?.nextStep].filter(Boolean).join(" ") ||
-              "No authoritative order source is currently configured."
-        }
+        title={isLoading ? "Checking order data…" : data?.available ? "Order data is available." : "Order data is not configured."}
+        message={isLoading || data?.available ? undefined : "Configure an approved order source to use this section."}
         icon={<ShoppingCart className="h-5 w-5" />}
       />
     </div>

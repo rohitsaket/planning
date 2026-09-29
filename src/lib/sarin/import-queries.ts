@@ -1,5 +1,5 @@
 /**
- * Import history reads. Every query applies the caller's country and lab scope inside the
+ * Import history reads. Every query applies the caller's lab scope inside the
  * database WHERE clause, so an out-of-scope batch is simply not found (404) and every
  * count and total is already narrowed. Every read is bounded and paginated; neither the
  * file bytes nor a batch's full row collection is ever embedded in a response.
@@ -10,7 +10,8 @@
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { scopeWhere, type EffectiveScope } from "@/lib/auth/access-scope";
-import type { SarinImportStatus, SarinSourceRowOutcome, SarinStoneType } from "@/lib/sarin/domain";
+import { SARIN_MAPPING_LINEAGE_STATUSES, type SarinImportStatus, type SarinSourceRowOutcome, type SarinPacketType } from "@/lib/sarin/domain";
+import { SARIN_VALIDATION_PROFILE_VERSION } from "@/lib/sarin/plan-structure";
 
 if (typeof window !== "undefined") {
   throw new Error("sarin/import-queries is server-only and must not be imported by client code.");
@@ -32,9 +33,8 @@ export interface SarinImportSummary {
   readonly status: string;
   /** How many validation attempts have started. 0 means validation has not run. */
   readonly validationAttempts: number;
-  readonly stoneType: string;
+  readonly packetType: string;
   readonly planningDate: string;
-  readonly country: string;
   readonly labId: string | null;
   readonly contractVersion: string;
   readonly sourceFile: { readonly fileName: string; readonly byteSize: number; readonly sha256: string; readonly encoding: string };
@@ -42,23 +42,38 @@ export interface SarinImportSummary {
   readonly createdAt: string;
   readonly statusChangedAt: string;
   readonly archivedAt: string | null;
+  /** Who uploaded it, by display name; null when that account no longer exists. */
+  readonly uploadedBy: string | null;
+  /**
+   * Stones found by validation. Null until a validation has run: blocks are derived by
+   * validation, never by the upload, so nothing is claimed before then.
+   */
+  readonly stones: { readonly detected: number; readonly identityResolved: number; readonly identityUnresolved: number } | null;
+  /** Its last completed validation ran older rules, or a mapping version no longer approved: validate again before output. */
+  readonly revalidationRequired: boolean;
+  /** The output version derived from its current validation, if one has been generated. */
+  readonly currentOutputId: string | null;
+  /** Output rows of that version showing a raw, unmapped Sarin shape (design v1.7 §15.10); 0 when none or no output. */
+  readonly currentOutputUnmappedRows: number;
 }
 
-const scopeOf = (scope: EffectiveScope) => scopeWhere(scope, { country: "country", lab: "labScope" }) as Prisma.SarinImportBatchWhereInput;
+const scopeOf = (scope: EffectiveScope) => scopeWhere(scope, { country: null, lab: "labScope" }) as Prisma.SarinImportBatchWhereInput;
 
 const SUMMARY_SELECT = {
   id: true,
   status: true,
   validationAttempt: true,
-  stoneType: true,
+  packetType: true,
   planningDate: true,
-  country: true,
   labScope: true,
   contractVersion: true,
   rowCount: true,
   createdAt: true,
   statusChangedAt: true,
   archivedAt: true,
+  uploadedByUserId: true,
+  blockCount: true,
+  quarantinedBlockCount: true,
   sourceFile: { select: { sanitizedFileName: true, byteSize: true, sha256: true, detectedEncoding: true } },
 } as const satisfies Prisma.SarinImportBatchSelect;
 
@@ -80,14 +95,56 @@ async function countsFor(batchIds: string[]): Promise<Map<string, SarinRowCounts
   return new Map([...out].map(([id, c]) => [id, { records: c.accepted + c.quarantined + c.rejectedStructure, ...c }]));
 }
 
-function toSummary(b: SummaryRow, counts: SarinRowCounts): SarinImportSummary {
+/** Display names of the given accounts, in one query. Actor ids are stored as plain text. */
+export async function displayNamesOf(userIds: string[]): Promise<Map<string, string>> {
+  const unique = [...new Set(userIds)];
+  if (unique.length === 0) return new Map();
+  const users = await db.user.findMany({ where: { id: { in: unique } }, select: { id: true, displayName: true } });
+  return new Map(users.map((u) => [u.id, u.displayName]));
+}
+
+/**
+ * Batches whose last completed validation ran older validation rules, or used a mapping
+ * that was withdrawn: either way they must be processed again for output.
+ */
+async function outdatedValidation(batchIds: string[]): Promise<Set<string>> {
+  if (batchIds.length === 0) return new Set();
+  const latest = await db.sarinValidationAttempt.findMany({
+    where: { batchId: { in: batchIds }, status: "COMPLETED" },
+    orderBy: [{ batchId: "asc" }, { attemptNumber: "desc" }],
+    distinct: ["batchId"],
+    select: { batchId: true, validationProfileVersion: true, shapeMappingSet: { select: { status: true } } },
+  });
+  return new Set(latest.filter((a) => a.validationProfileVersion !== SARIN_VALIDATION_PROFILE_VERSION || !SARIN_MAPPING_LINEAGE_STATUSES.includes(a.shapeMappingSet.status)).map((a) => a.batchId));
+}
+
+/**
+ * The current output version of each batch: its one GENERATED version derived from the
+ * batch's current validation attempt (the same rule the output reads use), in one query.
+ */
+async function currentOutputs(batches: Array<{ id: string; validationAttempt: number }>): Promise<Map<string, { id: string; unmappedRows: number }>> {
+  if (batches.length === 0) return new Map();
+  const attemptOf = new Map(batches.map((b) => [b.id, b.validationAttempt]));
+  const versions = await db.sarinOutputVersion.findMany({
+    where: { batchId: { in: batches.map((b) => b.id) }, status: "GENERATED" },
+    select: { id: true, batchId: true, validationAttempt: { select: { attemptNumber: true } } },
+  });
+  const current = versions.filter((v) => v.validationAttempt.attemptNumber === attemptOf.get(v.batchId));
+  // One grouped count over the partial pass-through index, for every listed batch at once.
+  const unmapped = current.length
+    ? await db.sarinPlanPiece.groupBy({ by: ["outputVersionId"], where: { outputVersionId: { in: current.map((v) => v.id) }, shapeResolution: "RAW_PASSTHROUGH" }, _count: { _all: true } })
+    : [];
+  const rowsOf = new Map(unmapped.map((g) => [g.outputVersionId, (g._count as { _all?: number })?._all ?? 0]));
+  return new Map(current.map((v) => [v.batchId, { id: v.id, unmappedRows: rowsOf.get(v.id) ?? 0 }]));
+}
+
+function toSummary(b: SummaryRow, counts: SarinRowCounts, names: Map<string, string>, outdated: Set<string>, outputs: Map<string, { id: string; unmappedRows: number }>): SarinImportSummary {
   return {
     id: b.id,
     status: b.status,
     validationAttempts: b.validationAttempt,
-    stoneType: b.stoneType,
+    packetType: b.packetType,
     planningDate: b.planningDate.toISOString().slice(0, 10),
-    country: b.country,
     labId: b.labScope,
     contractVersion: b.contractVersion,
     sourceFile: { fileName: b.sourceFile.sanitizedFileName, byteSize: b.sourceFile.byteSize, sha256: b.sourceFile.sha256, encoding: b.sourceFile.detectedEncoding },
@@ -95,6 +152,11 @@ function toSummary(b: SummaryRow, counts: SarinRowCounts): SarinImportSummary {
     createdAt: b.createdAt.toISOString(),
     statusChangedAt: b.statusChangedAt.toISOString(),
     archivedAt: b.archivedAt?.toISOString() ?? null,
+    uploadedBy: names.get(b.uploadedByUserId) ?? null,
+    revalidationRequired: outdated.has(b.id),
+    currentOutputId: outputs.get(b.id)?.id ?? null,
+    currentOutputUnmappedRows: outputs.get(b.id)?.unmappedRows ?? 0,
+    stones: b.blockCount > 0 ? { detected: b.blockCount, identityResolved: b.blockCount - b.quarantinedBlockCount, identityUnresolved: b.quarantinedBlockCount } : null,
   };
 }
 
@@ -102,20 +164,19 @@ function toSummary(b: SummaryRow, counts: SarinRowCounts): SarinImportSummary {
 export async function getSarinImport(scope: EffectiveScope, batchId: string): Promise<SarinImportSummary | null> {
   const b = await db.sarinImportBatch.findFirst({ where: { id: batchId, ...scopeOf(scope) }, select: SUMMARY_SELECT });
   if (!b) return null;
-  return toSummary(b, (await countsFor([b.id])).get(b.id)!);
+  return toSummary(b, (await countsFor([b.id])).get(b.id)!, await displayNamesOf([b.uploadedByUserId]), await outdatedValidation([b.id]), await currentOutputs([b]));
 }
 
 /** A batch by id with no scope applied. Only for reading back what the caller just wrote. */
 export async function getSarinImportById(batchId: string): Promise<SarinImportSummary | null> {
   const b = await db.sarinImportBatch.findUnique({ where: { id: batchId }, select: SUMMARY_SELECT });
   if (!b) return null;
-  return toSummary(b, (await countsFor([b.id])).get(b.id)!);
+  return toSummary(b, (await countsFor([b.id])).get(b.id)!, await displayNamesOf([b.uploadedByUserId]), await outdatedValidation([b.id]), await currentOutputs([b]));
 }
 
 export interface SarinImportFilters {
   readonly status: SarinImportStatus | null;
-  readonly stoneType: SarinStoneType | null;
-  readonly country: string | null;
+  readonly packetType: SarinPacketType | null;
   readonly lab: string | null;
   readonly planningDate: string | null;
 }
@@ -130,9 +191,9 @@ export async function listSarinImports(scope: EffectiveScope, filters: SarinImpo
   const where: Prisma.SarinImportBatchWhereInput = {
     AND: [
       {
-        ...(filters.status ? { status: filters.status } : {}),
-        ...(filters.stoneType ? { stoneType: filters.stoneType } : {}),
-        ...(filters.country ? { country: filters.country } : {}),
+        // A deleted (archived) import leaves the default list; it is listed only when asked for by status.
+        status: filters.status ? filters.status : { not: "ARCHIVED" },
+        ...(filters.packetType ? { packetType: filters.packetType } : {}),
         ...(filters.lab ? { labScope: filters.lab } : {}),
         ...(filters.planningDate ? { planningDate: new Date(`${filters.planningDate}T00:00:00.000Z`) } : {}),
       },
@@ -149,9 +210,10 @@ export async function listSarinImports(scope: EffectiveScope, filters: SarinImpo
       take: page.pageSize,
     }),
   ]);
-  const counts = await countsFor(batches.map((b) => b.id));
+  const ids = batches.map((b) => b.id);
+  const [counts, names, outdated, outputs] = await Promise.all([countsFor(ids), displayNamesOf(batches.map((b) => b.uploadedByUserId)), outdatedValidation(ids), currentOutputs(batches)]);
   return {
-    rows: batches.map((b) => toSummary(b, counts.get(b.id)!)),
+    rows: batches.map((b) => toSummary(b, counts.get(b.id)!, names, outdated, outputs)),
     page: page.page,
     pageSize: page.pageSize,
     total,

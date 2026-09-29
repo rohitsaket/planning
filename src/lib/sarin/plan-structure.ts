@@ -16,10 +16,10 @@ if (typeof window !== "undefined") {
 }
 
 export const SARIN_MAIN_PLAN_LIMITS = { BLUE: 17, WHITE: 32 } as const;
-export type BlueWhiteStoneType = keyof typeof SARIN_MAIN_PLAN_LIMITS;
+export type BlueWhitePacketType = keyof typeof SARIN_MAIN_PLAN_LIMITS;
 
-export function isBlueWhite(stoneType: string): stoneType is BlueWhiteStoneType {
-  return stoneType === "BLUE" || stoneType === "WHITE";
+export function isBlueWhite(packetType: string): packetType is BlueWhitePacketType {
+  return packetType === "BLUE" || packetType === "WHITE";
 }
 
 /** Source values every plan piece carries into the output, with their positional field. */

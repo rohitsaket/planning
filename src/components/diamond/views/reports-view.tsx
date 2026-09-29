@@ -24,10 +24,10 @@ interface ReportTypeMeta {
 
 const REPORT_TYPES: ReportTypeMeta[] = [
   { type: "summary", title: "Executive Summary", description: "Counts across sales, polished, rough, requirements, planning", icon: FileText },
-  { type: "sales-by-category", title: "Sales by Category", description: "Invoice sales aggregated by Lab|Shape|Weight Band", icon: BarChart3 },
-  { type: "critical-requirements", title: "Critical Requirements", description: "Open requirements with CRITICAL priority", icon: AlertTriangle },
-  { type: "yield-variance", title: "Yield Variance", description: "Plan vs actual reconciliation rows", icon: TrendingDown },
-  { type: "weight-bands-config", title: "Weight Bands Config", description: "24 confirmed analytical weight bands", icon: Scale },
+  { type: "sales-by-category", title: "Sales by Category", description: "Invoice sales by lab, shape and weight band", icon: BarChart3 },
+  { type: "critical-requirements", title: "Critical Requirements", description: "Open critical-priority requirements", icon: AlertTriangle },
+  { type: "yield-variance", title: "Yield Variance", description: "Planned vs actual yield", icon: TrendingDown },
+  { type: "weight-bands-config", title: "Weight Bands", description: "Weight band definitions", icon: Scale },
 ];
 
 interface SummaryReport {
@@ -109,7 +109,6 @@ const weightBandColumns: Column<WeightBandRow>[] = [
   { key: "label", header: "Label", cell: (r) => <span className="text-[10px]">{r.label}</span>, sortable: true, sortValue: (r) => r.label },
   { key: "minCt", header: "Min (ct)", cell: (r) => <NumberCell value={r.minCt} />, align: "right", sortable: true, sortValue: (r) => r.minCt },
   { key: "maxCt", header: "Max (ct)", cell: (r) => <NumberCell value={r.maxCt} />, align: "right", sortable: true, sortValue: (r) => r.maxCt },
-  { key: "sortOrder", header: "Sort", cell: (r) => <NumberCell value={r.sortOrder} />, align: "right", sortable: true, sortValue: (r) => r.sortOrder },
   { key: "active", header: "Active", cell: (r) => <Badge variant={r.active ? "success" : "neutral"}>{r.active ? "ACTIVE" : "INACTIVE"}</Badge> },
 ];
 
@@ -148,7 +147,7 @@ export function ReportsView() {
     }
     if (activeType === "yield-variance") {
       const rows = (data as { rows: YieldRow[] }).rows;
-      return <DataTable columns={yieldColumns} rows={rows} emptyMessage="No reconciliation rows" maxHeight="520px" pagination pageSize={25} exportable exportPermission="analysis.export" exportFilename="yield-variance.csv" />;
+      return <DataTable columns={yieldColumns} rows={rows} emptyMessage="No results" maxHeight="520px" pagination pageSize={25} exportable exportPermission="analysis.export" exportFilename="yield-variance.csv" />;
     }
     if (activeType === "weight-bands-config") {
       const rows = (data as { rows: WeightBandRow[] }).rows;
@@ -161,15 +160,14 @@ export function ReportsView() {
     <div className="flex flex-col gap-3 p-3">
       <PageHeader
         title="Reports Library"
-        subtitle="Pre-built analytical report bundles — switch type to view"
-        meta={<span className="text-[10px] text-muted-foreground">Type: {activeType}</span>}
+        subtitle="Choose a report"
       />
 
       <InfoBanner variant="info">
-        Reports aggregate across the full dataset. Filters and parameters are added incrementally per report. Always pair the figures with the underlying source rows when sharing externally.
+        Reports cover all data. Page filters are not applied.
       </InfoBanner>
 
-      <Section title="Available Reports" description="Select a report type to load its data below">
+      <Section title="Available Reports">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2">
           {REPORT_TYPES.map((rt) => {
             const Icon = rt.icon;
@@ -197,7 +195,6 @@ export function ReportsView() {
 
       <Section
         title={`${REPORT_TYPES.find((r) => r.type === activeType)?.title ?? ""} Report`}
-        description="Fetched live from the data layer"
         actions={
           <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => qc.invalidateQueries({ queryKey: [`/api/reports?type=${activeType}`] })}>
             <Eye className="h-3 w-3 mr-1" /> Refresh

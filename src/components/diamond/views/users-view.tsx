@@ -72,29 +72,30 @@ export interface PermissionMeta {
 
 export const PERMISSION_METAS: PermissionMeta[] = [
   // Requirements
-  { code: "requirement.read", name: "View Requirements", category: "Requirements", description: "View requirement rows and engine-computed demand lines." },
+  { code: "requirement.read", name: "View Requirements", category: "Requirements", description: "View requirements and calculated demand." },
   { code: "requirement.create", name: "Create Requirements", category: "Requirements", description: "Create custom customer-driven requirement requests." },
-  { code: "requirement.override", name: "Override Requirements", category: "Requirements", description: "Override engine-derived requirement quantities and parameters." },
+  { code: "requirement.override", name: "Override Requirements", category: "Requirements", description: "Change requirement priority with a reason." },
   { code: "requirement.export", name: "Export Requirements", category: "Requirements", description: "Export requirements matrix datasets to CSV/Excel." },
 
   // Planning
   { code: "plan.read", name: "View Planning Cases", category: "Planning", description: "Read planning cases, versions, and generated cutting options." },
-  { code: "plan.create", name: "Create Planning Case", category: "Planning", description: "Initialize planning cases and trigger yield solver." },
-  { code: "plan.select", name: "Select Plan Option", category: "Planning", description: "Select the optimal commercial or yield plan option." },
+  { code: "plan.create", name: "Create Planning Case", category: "Planning", description: "Create planning cases." },
+  { code: "plan.select", name: "Select Plan Option", category: "Planning", description: "Select a plan option." },
   { code: "plan.approve", name: "Approve Plan Option", category: "Planning", description: "Formally approve plan for manufacturing release." },
   { code: "plan.replan", name: "Trigger Replan", category: "Planning", description: "Trigger replan cycle when manufacturing criteria change." },
   { code: "plan.export", name: "Export Planning Cases", category: "Planning", description: "Export planning cases and piece allocations." },
 
   // Sarin Import
   { code: "sarin.import.read", name: "View Sarin Imports", category: "Sarin Import", description: "View Sarin import history, source previews and validation issues." },
-  { code: "sarin.import.upload", name: "Upload Sarin File", category: "Sarin Import", description: "Upload a Sarin CSV file with its declared stone type and scope." },
+  { code: "sarin.import.upload", name: "Upload Sarin File", category: "Sarin Import", description: "Upload a Sarin CSV file with its declared packet type and lab." },
   { code: "sarin.import.validate", name: "Validate Sarin Import", category: "Sarin Import", description: "Run or re-run validation of an uploaded Sarin import." },
   { code: "sarin.issue.review", name: "Review Sarin Issues", category: "Sarin Import", description: "Triage validation issues raised on a Sarin import." },
   { code: "sarin.issue.override", name: "Override Sarin Issue", category: "Sarin Import", description: "Record a reviewed, reasoned override of a validation finding." },
   { code: "sarin.output.generate", name: "Generate Sarin Output", category: "Sarin Import", description: "Generate the structured planning output of a validated import." },
-  { code: "sarin.output.approve", name: "Approve Sarin Output", category: "Sarin Import", description: "Approve generated Sarin output for planning. Never granted by administrator roles." },
-  { code: "sarin.output.export", name: "Export Sarin Output", category: "Sarin Import", description: "Export a generated Sarin output version to Excel." },
-  { code: "sarin.mapping.manage", name: "Manage Sarin Shape Mappings", category: "Sarin Import", description: "Draft, approve and retire versioned Sarin shape mappings." },
+  { code: "sarin.output.approve", name: "Approve Sarin Output", category: "Sarin Import", description: "Approve generated Sarin output for planning. Not included in administrator roles." },
+  { code: "sarin.output.export", name: "Export Sarin Output", category: "Sarin Import", description: "Export a generated Sarin output version as XLSX or CSV." },
+  { code: "sarin.mapping.read", name: "View Shape Mappings", category: "Sarin Import", description: "See which Fantasy shape each Sarin shape becomes." },
+  { code: "sarin.mapping.manage", name: "Manage Shape Mappings", category: "Sarin Import", description: "Add, edit and remove shape mappings. Saved mappings apply at once." },
 
   // Rough Inventory
   { code: "rough.read", name: "View Rough Stock", category: "Rough Diamond", description: "Read rough diamond stock, parcels, and lot details." },
@@ -109,43 +110,41 @@ export const PERMISSION_METAS: PermissionMeta[] = [
   { code: "orders.export", name: "Export Sales Orders", category: "Commercial & Sales", description: "Export sales orders and shipment logs." },
 
   // Demand & Forecast
-  { code: "demand.run", name: "Execute Demand Run", category: "Demand & Forecast", description: "Execute demand engine calculation across historical windows." },
-  { code: "demand.unlock", name: "Force-Unlock Demand Run", category: "Demand & Forecast", description: "Release stuck concurrency locks on demand calculation engine." },
-  { code: "demand.trace", name: "Inspect Demand Trace", category: "Demand & Forecast", description: "Audit math and step-by-step lineage of requirement calculations." },
-  { code: "demand.export", name: "Export Demand Results", category: "Demand & Forecast", description: "Export demand run matrices and lineage logs." },
-  { code: "forecast.run", name: "Run Forecast Model", category: "Demand & Forecast", description: "Execute statistical baseline and trend forecast algorithms." },
-  { code: "forecast.publish", name: "Publish Forecast", category: "Demand & Forecast", description: "Promote forecast outputs to drive production planning." },
+  { code: "demand.run", name: "Execute Demand Run", category: "Demand & Forecast", description: "Run the demand calculation." },
+  { code: "demand.unlock", name: "Force-Unlock Demand Run", category: "Demand & Forecast", description: "Unlock a demand calculation that did not finish." },
+  { code: "demand.trace", name: "Inspect Demand Trace", category: "Demand & Forecast", description: "See how demand figures were calculated." },
+  { code: "demand.export", name: "Export Demand Results", category: "Demand & Forecast", description: "Export demand results." },
+  { code: "forecast.run", name: "Run Forecast Model", category: "Demand & Forecast", description: "Run the forecast." },
+  { code: "forecast.publish", name: "Publish Forecast", category: "Demand & Forecast", description: "Publish forecast results for planning." },
 
   // Fantasy ERP
   { code: "fantasy.read", name: "View Fantasy ERP Live", category: "Fantasy ERP", description: "View synchronized Fantasy stock, locations, and departments." },
-  { code: "fantasy.sync.run", name: "Trigger Fantasy Sync", category: "Fantasy ERP", description: "Trigger routine synchronization from Fantasy ERP source." },
-  { code: "fantasy.sync.retry", name: "Retry Failed Sync", category: "Fantasy ERP", description: "Retry failed sync batches with monotonic checkpoints." },
-  { code: "fantasy.sync.unlock", name: "Unlock Fantasy Sync", category: "Fantasy ERP", description: "Release stuck distributed mutex lock on Fantasy ingestion." },
-  { code: "fantasy.export", name: "Export Fantasy Raw", category: "Fantasy ERP", description: "Export raw ingested Fantasy ERP snapshots." },
+  { code: "fantasy.sync.run", name: "Trigger Fantasy Sync", category: "Fantasy ERP", description: "Start a Fantasy ERP synchronization." },
+  { code: "fantasy.sync.retry", name: "Retry Failed Sync", category: "Fantasy ERP", description: "Retry a failed synchronization." },
+  { code: "fantasy.sync.unlock", name: "Unlock Fantasy Sync", category: "Fantasy ERP", description: "Unlock a synchronization that did not finish." },
+  { code: "fantasy.export", name: "Export Fantasy Raw", category: "Fantasy ERP", description: "Export Fantasy ERP records." },
   { code: "overall.read", name: "View Overall Data", category: "Fantasy ERP", description: "View consolidated master inventory records across all branches." },
   { code: "overall.export", name: "Export Overall Data", category: "Fantasy ERP", description: "Export complete consolidated master inventory." },
 
   // Data Quality
-  { code: "data_quality.read", name: "View Data Quality", category: "Data Quality", description: "Inspect data quality anomalies, unmapped values, and drift." },
-  { code: "data_quality.manage", name: "Triage Data Issues", category: "Data Quality", description: "Resolve, quarantine, or ignore data quality anomalies." },
-  { code: "data_quality.export", name: "Export Data Issues", category: "Data Quality", description: "Export anomaly logs and reconciliation reports." },
+  { code: "data_quality.read", name: "View Data Quality", category: "Data Quality", description: "View data quality issues and unmapped values." },
+  { code: "data_quality.manage", name: "Triage Data Issues", category: "Data Quality", description: "Resolve or dismiss data quality issues." },
+  { code: "data_quality.export", name: "Export Data Issues", category: "Data Quality", description: "Export data quality issues." },
 
   // System Administration
   { code: "config.read", name: "View System Config", category: "System Administration", description: "Read system configuration, weight bands, and shape mappings." },
   { code: "config.export", name: "Export System Config", category: "System Administration", description: "Export system configurations and master mappings." },
-  { code: "business_rule.read", name: "View Business Rules", category: "System Administration", description: "Read rule parameters and engine tolerances." },
-  { code: "business_rule.manage", name: "Manage Business Rules", category: "System Administration", description: "Update business rule thresholds and engine equations." },
-  { code: "feature_flag.read", name: "View Feature Flags", category: "System Administration", description: "Inspect current runtime feature toggles." },
-  { code: "feature_flag.manage", name: "Manage Feature Flags", category: "System Administration", description: "Toggle experimental features and rollback switches." },
-  { code: "notification.read", name: "Read Notifications", category: "System Administration", description: "Receive real-time system alerts and push notifications." },
-  { code: "notification.manage", name: "Manage Notifications", category: "System Administration", description: "Mark notifications resolved and triage global alerts." },
-  { code: "notification.broadcast", name: "Broadcast Notifications", category: "System Administration", description: "Send system-wide broadcast alerts to all connected users." },
+  { code: "feature_flag.read", name: "View Feature Flags", category: "System Administration", description: "View feature flags." },
+  { code: "feature_flag.manage", name: "Manage Feature Flags", category: "System Administration", description: "Turn feature flags on or off." },
+  { code: "notification.read", name: "Read Notifications", category: "System Administration", description: "Receive notifications." },
+  { code: "notification.manage", name: "Manage Notifications", category: "System Administration", description: "Resolve notifications." },
+  { code: "notification.broadcast", name: "Broadcast Notifications", category: "System Administration", description: "Send a notification to all users." },
 
   // Audit & Security
   { code: "audit.read", name: "Read Audit Logs", category: "Audit & Compliance", description: "Read operational and data-change audit history." },
-  { code: "audit.export", name: "Export Audit Logs", category: "Audit & Compliance", description: "Export complete immutable audit logs for compliance." },
-  { code: "security_audit.read", name: "Read Security Audit", category: "Audit & Compliance", description: "Inspect access control, login, and authorization event logs." },
-  { code: "security_audit.export", name: "Export Security Audit", category: "Audit & Compliance", description: "Export security and privilege modification audits." },
+  { code: "audit.export", name: "Export Audit Logs", category: "Audit & Compliance", description: "Export audit history." },
+  { code: "security_audit.read", name: "Read Security Audit", category: "Audit & Compliance", description: "View sign-in and access events." },
+  { code: "security_audit.export", name: "Export Security Audit", category: "Audit & Compliance", description: "Export sign-in and access events." },
 
   // Access Governance
   { code: "user.read", name: "Read User Directory", category: "Access Governance", description: "View user directory, roles, and access assignments." },
@@ -154,12 +153,12 @@ export const PERMISSION_METAS: PermissionMeta[] = [
   { code: "user.status.manage", name: "Manage User Status", category: "Access Governance", description: "Activate, suspend, disable, or delete user accounts." },
   { code: "user.roles.assign", name: "Assign User Roles", category: "Access Governance", description: "Assign or modify roles and permissions for user accounts." },
   { code: "user.password.reset", name: "Reset User Password", category: "Access Governance", description: "Issue temporary passwords and force reset on next login." },
-  { code: "user.sessions.read", name: "Inspect User Sessions", category: "Access Governance", description: "View active user sessions, IP addresses, and user agents." },
+  { code: "user.sessions.read", name: "Inspect User Sessions", category: "Access Governance", description: "View active sessions and devices." },
   { code: "user.sessions.revoke", name: "Revoke User Sessions", category: "Access Governance", description: "Forcefully terminate active sessions for any user." },
   { code: "user.super_admin.assign", name: "Assign Super Admin", category: "Access Governance", description: "Grant or revoke the protected Super Admin role." },
   { code: "access_request.review", name: "Review Access Requests", category: "Access Governance", description: "Approve or reject self-service registration requests." },
-  { code: "role.read", name: "Read Roles & Policies", category: "Access Governance", description: "View RBAC roles, permission policies, and matrix." },
-  { code: "role.manage", name: "Manage Custom Roles", category: "Access Governance", description: "Create, update, or delete custom RBAC roles." },
+  { code: "role.read", name: "Read Roles & Policies", category: "Access Governance", description: "View roles and their permissions." },
+  { code: "role.manage", name: "Manage Custom Roles", category: "Access Governance", description: "Create, update or delete custom roles." },
   { code: "role.permissions.assign", name: "Edit Role Permissions", category: "Access Governance", description: "Grant or revoke granular permissions on custom roles." },
 ];
 
@@ -399,7 +398,7 @@ export function UsersView() {
         id: user.id,
         status: nextStatus,
       });
-      showToast("success", `User '${user.username}' is now ${nextStatus}.`);
+      showToast("success", `User '${user.username}' is now ${nextStatus.toLowerCase()}.`);
       await refreshData();
     } catch (err: any) {
       showToast("error", err.message || "Failed to update status.");
@@ -503,7 +502,7 @@ export function UsersView() {
    */
   const handleToggleRolePermission = async (role: RoleRecord, permCode: Permission) => {
     if (!canAssignPermissions) {
-      showToast("error", "You do not have authorization to edit role permissions ('role.permissions.assign').");
+      showToast("error", "You don't have permission to edit role permissions.");
       return;
     }
 
@@ -524,7 +523,7 @@ export function UsersView() {
       setIsCreateRoleOpen(true);
       showToast(
         "error",
-        `'${role.name}' is a built-in system role (code-protected). We opened the custom role creator so you can customize and save your copy.`
+        `'${role.name}' is a system role. An editable copy has been opened.`
       );
       return;
     }
@@ -623,7 +622,7 @@ export function UsersView() {
             setPermSearch("");
           }}
           className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10.5px] font-medium bg-muted/60 hover:bg-muted text-foreground border border-border/80 transition-colors"
-          title="Click to inspect all effective permissions"
+          title="View permissions"
         >
           <Key className="h-3 w-3 text-primary" />
           <span>{r.permissionCount} perms</span>
@@ -842,7 +841,7 @@ export function UsersView() {
                 variant="ghost"
                 size="sm"
                 className="h-5 text-[9.5px] px-1.5 text-muted-foreground hover:text-primary opacity-70 hover:opacity-100 shrink-0"
-                title="Clone standard system role into an editable custom role"
+                title="Make an editable copy"
                 onClick={() => {
                   setNewRoleForm({
                     code: `${role.code}_CUSTOM`,
@@ -874,7 +873,7 @@ export function UsersView() {
               <button
                 type="button"
                 onClick={() => handleToggleRolePermission(role, perm.code)}
-                title={`System Role (${role.name}): Standard code template. Click to clone & toggle '${perm.name}' in a custom role.`}
+                title="System role — click to make an editable copy"
                 className="group relative inline-flex items-center justify-center p-1 rounded-md transition-all hover:bg-muted/80 cursor-pointer"
               >
                 {has ? (
@@ -896,7 +895,7 @@ export function UsersView() {
               type="button"
               disabled={isUpdating || !canAssignPermissions}
               onClick={() => handleToggleRolePermission(role, perm.code)}
-              title={`${role.name}: Click to ${has ? "REVOKE" : "GRANT"} '${perm.name}'`}
+              title={`${has ? "Remove" : "Grant"} '${perm.name}'`}
               className={cn(
                 "inline-flex h-6 w-7 items-center justify-center rounded-md transition-all font-medium focus:outline-none focus:ring-1 focus:ring-primary shadow-2xs",
                 has
@@ -1011,7 +1010,7 @@ export function UsersView() {
     <div className="flex flex-col gap-3 p-3 max-w-[1700px] mx-auto w-full">
       <PageHeader
         title="User & Access Governance"
-        subtitle="Complete Role-Based Access Control (RBAC), user lifecycle management, and granular permission authority"
+        subtitle="Users, roles and permissions"
         meta={
           <div className="flex items-center gap-2">
             <Button
@@ -1071,31 +1070,26 @@ export function UsersView() {
           icon={Users}
           intent="default"
           subtitle={`${users.filter((u) => u.status === "ACTIVE").length} Active Accounts`}
-          trendLabel="IdP & Local Directory"
         />
         <KpiCard
           label="Active Security Admins"
           value={activeAdminsCount}
           icon={ShieldCheck}
           intent={activeAdminsCount > 1 ? "success" : "warning"}
-          subtitle="Holding user & role authorities"
-          trendLabel="Protected admin floor ≥ 1"
+          subtitle="Can manage users and roles"
         />
         <KpiCard
-          label="RBAC Roles Defined"
+          label="Roles Defined"
           value={roles.length}
           icon={Layers}
           intent="info"
           subtitle={`${roles.filter((r) => !r.isSystem).length} Custom Roles`}
-          trendLabel="Code-defined & Database"
         />
         <KpiCard
           label="Granular Permissions"
           value={PERMISSION_METAS.length}
           icon={Key}
           intent="default"
-          subtitle="Enforced on server per API"
-          trendLabel="Zero-trust backend gate"
         />
       </div>
 
@@ -1166,7 +1160,7 @@ export function UsersView() {
       {activeTab === "users" && (
         <Section
           title="Active User Directory"
-          description="Manage application users, assign individual or multiple roles, and audit effective authority."
+          description="Manage users and their roles."
           actions={
             canCreateUser && (
               <Button
@@ -1183,7 +1177,7 @@ export function UsersView() {
           {users.length === 0 ? (
             <EmptyState
               title="No Users Registered"
-              message="No users found in database directory. Create a new user to grant platform access."
+              message="No users yet. Create a user to grant access."
               icon={<Users className="h-8 w-8 text-muted-foreground" />}
             />
           ) : (
@@ -1213,9 +1207,9 @@ export function UsersView() {
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="text-sm font-semibold text-foreground">RBAC Role Definitions</h3>
+              <h3 className="text-sm font-semibold text-foreground">Role Definitions</h3>
               <p className="text-xs text-muted-foreground">
-                System roles are built into application code; custom roles can be created and tailored with custom permissions.
+                System roles are fixed. Custom roles can be created with selected permissions.
               </p>
             </div>
             {canManageRoles && (
@@ -1307,11 +1301,11 @@ export function UsersView() {
       {/* --------------------------------------------------------------------- */}
       {activeTab === "matrix" && (
         <Section
-          title={matrixViewMode === "roles" ? "Interactive Role × Permission Matrix" : "User Access Matrix & Audit"}
+          title={matrixViewMode === "roles" ? "Role Permissions" : "User Permissions"}
           description={
             matrixViewMode === "roles"
-              ? "Directly toggle individual page & action permissions for custom roles. Click any cell to grant or revoke."
-              : "Cross-reference all registered user accounts against effective system permissions."
+              ? "Click a cell to grant or remove a permission."
+              : "Permissions each user has through their roles."
           }
           actions={
             <div className="flex flex-wrap items-center gap-2">
@@ -1375,13 +1369,11 @@ export function UsersView() {
               <span className="text-muted-foreground">
                 {matrixViewMode === "roles" ? (
                   <>
-                    <strong className="text-foreground">Interactive Toggles:</strong> Click any cell on a{" "}
-                    <span className="text-amber-500 font-semibold">Custom Role</span> to toggle that permission ON or OFF instantly.{" "}
-                    <span className="text-muted-foreground">(System roles are code-defined; click to clone & customize).</span>
+                    Click a cell on a custom role to change it. System roles can be copied, not edited.
                   </>
                 ) : (
                   <>
-                    <strong className="text-foreground">User Effective Authority:</strong> Shows all active permissions resolved from each user's assigned roles. Click <strong>Edit Roles</strong> on any user to adjust access.
+                    Permissions come from each user's roles. Use <strong>Edit Roles</strong> to change access.
                   </>
                 )}
               </span>
@@ -1404,7 +1396,7 @@ export function UsersView() {
                 <span className="inline-flex h-4 w-4 items-center justify-center rounded bg-primary/10 text-primary border border-primary/20">
                   <Lock className="h-2.5 w-2.5" />
                 </span>
-                <span className="text-muted-foreground">System Template</span>
+                <span className="text-muted-foreground">System role (read-only)</span>
               </div>
             </div>
           </div>
@@ -1418,7 +1410,7 @@ export function UsersView() {
                 maxHeight="580px"
                 exportable
                 exportPermission="role.read"
-                exportFilename="rbac-role-permission-matrix.csv"
+                exportFilename="role-permission-matrix.csv"
               />
             ) : (
               <DataTable
@@ -1428,7 +1420,7 @@ export function UsersView() {
                 maxHeight="580px"
                 exportable
                 exportPermission="user.read"
-                exportFilename="rbac-user-permission-matrix.csv"
+                exportFilename="user-permission-matrix.csv"
               />
             )}
           </div>
@@ -1440,8 +1432,8 @@ export function UsersView() {
       {/* --------------------------------------------------------------------- */}
       {activeTab === "catalog" && (
         <Section
-          title="Granular Permission Dictionary"
-          description="Complete reference of all permission codes enforced across API routes, mutations, and views."
+          title="Permission Catalog"
+          description="Every permission that can be assigned to a role."
         >
           <div className="space-y-4">
             {CATEGORIES.map((cat) => {
@@ -1489,7 +1481,7 @@ export function UsersView() {
         <DialogContent className="max-w-lg sm:max-w-lg">
           <DialogHeader>
             <DialogTitle className="text-sm font-bold flex items-center gap-1.5">
-              <Plus className="h-4 w-4 text-primary" /> Provision New User Account
+              <Plus className="h-4 w-4 text-primary" /> Add User
             </DialogTitle>
             <DialogDescription className="text-xs">
               Create a new user with initial role assignments and credentials.
@@ -1661,9 +1653,7 @@ export function UsersView() {
               <Globe className="h-4 w-4 text-primary" /> Data Access Scope: {scopingUser?.name}
             </DialogTitle>
             <DialogDescription className="text-xs">
-              Which countries and labs this account may read across Analysis. Leave a field empty to
-              grant unrestricted access to that dimension. A value removed here is revoked, and the
-              change takes effect on the account&apos;s next request.
+              Choose which countries and labs this user can see. Leave empty for all.
             </DialogDescription>
           </DialogHeader>
 
@@ -1690,7 +1680,7 @@ export function UsersView() {
                 className="h-8 text-xs"
               />
               <p className="text-[10px] text-muted-foreground">
-                Comma separated, matched exactly against the country stored on each record.
+                Separate with commas.
               </p>
             </div>
 
@@ -1713,14 +1703,12 @@ export function UsersView() {
                 className="h-8 text-xs"
               />
               <p className="text-[10px] text-muted-foreground">
-                Recorded in the security audit trail with the previous and new scope.
+                Saved to the audit log.
               </p>
             </div>
 
             <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-2 text-[10px] text-muted-foreground">
-              Some figures cannot be narrowed by country: the demand result is calculated once per
-              planning category for the whole business and carries no location. Pages built on it say
-              so on screen rather than implying a country-level number.
+              Demand figures are company-wide and are not limited by country.
             </div>
           </div>
 
@@ -1747,7 +1735,7 @@ export function UsersView() {
               <UserCog className="h-4 w-4 text-primary" /> Assign Roles & Access: {assigningRolesUser?.name}
             </DialogTitle>
             <DialogDescription className="text-xs">
-              Toggle roles below. The user automatically receives the combined authority of all active roles.
+              The user gets the permissions of all selected roles.
             </DialogDescription>
           </DialogHeader>
 
@@ -2038,10 +2026,10 @@ export function UsersView() {
         <DialogContent className="max-w-4xl sm:max-w-4xl max-h-[88vh] flex flex-col">
           <DialogHeader>
             <DialogTitle className="text-sm font-bold flex items-center gap-1.5">
-              <Plus className="h-4 w-4 text-primary" /> Create Custom RBAC Role
+              <Plus className="h-4 w-4 text-primary" /> Create Custom Role
             </DialogTitle>
             <DialogDescription className="text-xs">
-              Define a new custom role and grant specific granular permissions across system categories.
+              Name the role and choose its permissions.
             </DialogDescription>
           </DialogHeader>
 

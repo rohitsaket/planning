@@ -84,6 +84,7 @@ interface DetailResponse {
  * cutoff — plus a warning when, and only when, something is wrong.
  */
 const PAGE_SIZE = 25;
+const DATA_STATE_LABEL: Record<string, string> = { CONFIRMED: "Confirmed", IDENTITY_MISSING: "Customer ID missing", INSUFFICIENT_HISTORY: "Limited history" };
 
 export function CustomerSalesView() {
   const setView = useNavStore((s) => s.setView);
@@ -150,7 +151,7 @@ export function CustomerSalesView() {
       key: "dataState", header: "Data state", width: "11rem",
       cell: (r) => (
         <Badge variant={r.dataState === "CONFIRMED" ? "success" : r.dataState === "IDENTITY_MISSING" ? "warning" : "default"}>
-          {r.dataState.replace(/_/g, " ")}
+          {DATA_STATE_LABEL[r.dataState] ?? r.dataState.replace(/_/g, " ").toLowerCase()}
         </Badge>
       ),
     },
@@ -193,7 +194,7 @@ export function CustomerSalesView() {
         title="Customers"
         description={
           customers.data?.available
-            ? `Confirmed sales for the 90-day window ending ${customers.data.businessDateIst} (IST). Quantity, weight and record count are separate measures.`
+            ? `Confirmed sales for the 90 days ending ${customers.data.businessDateIst} (IST)`
             : "Customer activity comes from a completed 90-day sales snapshot."
         }
         actions={
@@ -215,7 +216,7 @@ export function CustomerSalesView() {
         {customers.data && !customers.data.available ? (
           <EmptyState
             title="NOT RUN"
-            message="No completed 90-day sales snapshot exists, so customer activity is unavailable. This is not a zero."
+            message="No sales snapshot yet. Customer activity is unavailable."
             icon={<Info className="h-5 w-5" />}
           />
         ) : (
@@ -301,8 +302,8 @@ export function CustomerSalesView() {
 
           {detail.data && detail.data.exclusionCodes.length > 0 && (
             <InfoBanner variant="info">
-              Records excluded from this snapshot that name this customer&apos;s lots:{" "}
-              {detail.data.exclusionCodes.map((e) => `${e.code} (${e.count})`).join(", ")}
+              Excluded records for this customer:{" "}
+              {detail.data.exclusionCodes.reduce((sum, e) => sum + e.count, 0).toLocaleString()}. Review them in Data Quality.
             </InfoBanner>
           )}
         </Section>

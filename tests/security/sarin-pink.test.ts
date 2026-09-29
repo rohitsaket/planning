@@ -4,12 +4,13 @@
 //
 // Uploads, validations, generation and reads go through the real route handlers against
 // the isolated planning_sectest database. The generation service is called directly only
-// to vary its batch size. Mapping sets here are explicit, test-only approved sets; no
-// production mapping is seeded. Failures are injected by database triggers, so the service
+// to vary its batch size. The shape mappings here are explicit, test-only rules saved through
+// the Mappings routes; no production EMERALD 4STEP mapping is seeded. Failures are injected by database triggers, so the service
 // has no test-only branch. All data is synthetic.
 
 import { beforeAll, beforeEach, describe, expect, test } from "./harness";
-import { call, db, ensureCountryRegistry, makeUser, resetDb } from "./helpers";
+import { call, db, ensureLabRegistry, makeUser, resetDb } from "./helpers";
+import { applyCatalog, type CatalogRule } from "./sarin-catalog";
 import { randomUUID } from "node:crypto";
 import { resetRateLimits } from "@/lib/api/rate-limit";
 import { POST as uploadImport } from "@/app/api/planning/sarin/imports/route";
@@ -21,9 +22,6 @@ import { GET as getOutput } from "@/app/api/planning/sarin/imports/[batchId]/out
 import { GET as listStones } from "@/app/api/planning/sarin/imports/[batchId]/outputs/[versionId]/stones/route";
 import { GET as listOptions } from "@/app/api/planning/sarin/imports/[batchId]/outputs/[versionId]/options/route";
 import { GET as listPieces } from "@/app/api/planning/sarin/imports/[batchId]/outputs/[versionId]/pieces/route";
-import { POST as createSet } from "@/app/api/planning/sarin/mapping-sets/route";
-import { POST as addRule } from "@/app/api/planning/sarin/mapping-sets/[setId]/rules/route";
-import { POST as approveSet } from "@/app/api/planning/sarin/mapping-sets/[setId]/approve/route";
 import { POST as rolesPost } from "@/app/api/admin/roles/route";
 import { POST as usersPost } from "@/app/api/admin/users/route";
 import { generateSarinOutput } from "@/lib/sarin/output-service";
@@ -36,9 +34,8 @@ import { Prisma } from "@prisma/client";
 
 const URL_ = "http://localhost:3000/api/planning/sarin/imports";
 type User = Awaited<ReturnType<typeof makeUser>>;
-let planner: User, viewer: User, planningViewer: User, admin: User, root: User, mapperA: User, mapperB: User;
+let planner: User, viewer: User, planningViewer: User, admin: User, root: User, mapper: User;
 let pinkSetId = "";
-let noEmeraldSetId = "";
 
 // ---- synthetic Pink records ---------------------------------------------------------------
 interface Rec {
@@ -97,7 +94,7 @@ async function uploadBatch(content: string, fields: Record<string, string> = {})
   resetRateLimits();
   const fd = new FormData();
   fd.append("file", new File([new TextEncoder().encode(content) as BlobPart], "pink.csv", { type: "text/csv" }));
-  for (const [k, v] of Object.entries({ stoneType: "PINK", country: "IN", planningDate: "2026-09-26", ...fields })) fd.append(k, v);
+  for (const [k, v] of Object.entries({ packetType: "PINK", planningDate: "2026-09-26", ...fields })) fd.append(k, v);
   const encoded = new Response(fd);
   const body = new Uint8Array(await encoded.arrayBuffer());
   const res = await uploadImport(
@@ -108,9 +105,10 @@ async function uploadBatch(content: string, fields: Record<string, string> = {})
   if (res.status !== 201) throw new Error(`upload failed: ${res.status} ${JSON.stringify(json)}`);
   return json.batch.id;
 }
-const validate = (batchId: string, mappingSetId = pinkSetId, cookie = planner.cookie) => {
+/** Checks a file against the shape mappings in effect. */
+const validate = (batchId: string, cookie = planner.cookie) => {
   resetRateLimits();
-  return call(validateImport, { method: "POST", cookie, body: { mappingSetId }, params: { batchId } });
+  return call(validateImport, { method: "POST", cookie, body: {}, params: { batchId } });
 };
 async function validatedBatch(recs: Rec[], fields: Record<string, string> = {}) {
   const batchId = await uploadBatch(file(recs), fields);
@@ -126,10 +124,6 @@ const read = (handler: any, params: Record<string, string>, query = "", cookie =
   resetRateLimits();
   return call(handler, { cookie, path: `/api/x${query}`, params });
 };
-const post = (handler: any, cookie: string, body: unknown, params: Record<string, string> = {}) => {
-  resetRateLimits();
-  return call(handler, { method: "POST", cookie, body, params });
-};
 const findings = async (batchId: string, query = "") => (await read(listIssues, { batchId }, `?pageSize=500${query}`)).json.rows as any[];
 const pinkFindings = async (batchId: string) =>
   (await findings(batchId)).filter((i) => i.code.startsWith("PINK_")).map((i) => [i.code, i.sourceRowNumber, i.details]);
@@ -140,19 +134,7 @@ const outputRows = async (batchId: string) => ({
   pieces: await db.sarinPlanPiece.count({ where: { batchId } }),
 });
 
-async function approvedSetViaApi(rules: Array<{ rawShape: string; normalizedShape: string; conditionKind?: "NONE" | "RATIO_RANGE"; ratioMin?: string | null; ratioMax?: string | null }>) {
-  const created = await post(createSet, mapperA.cookie, { description: "test-only Pink mapping" });
-  if (created.status !== 201) throw new Error(`create failed ${created.status}`);
-  const setId = created.json.set.id;
-  for (const r of rules) {
-    const a = await post(addRule, mapperA.cookie, { conditionKind: "NONE", ...r }, { setId });
-    if (a.status !== 201) throw new Error(`rule failed ${a.status} ${JSON.stringify(a.json)}`);
-  }
-  const ok = await post(approveSet, mapperB.cookie, {}, { setId });
-  if (ok.status !== 200) throw new Error(`approve failed ${ok.status}`);
-  return setId;
-}
-const PLAIN_RULES = [
+const PLAIN_RULES: CatalogRule[] = [
   { rawShape: "ROUND", normalizedShape: "Round" },
   { rawShape: "PEAR", normalizedShape: "Pear" },
   { rawShape: "OVAL", normalizedShape: "Oval" },
@@ -162,7 +144,7 @@ const PLAIN_RULES = [
   { rawShape: "HEART", normalizedShape: "Heart" },
 ];
 // Test-only thresholds. They are not the production EMERALD 4STEP rule, which is unconfirmed.
-const TEST_ONLY_EMERALD_4STEP = [
+const TEST_ONLY_EMERALD_4STEP: CatalogRule[] = [
   { rawShape: "EMERALD 4STEP", normalizedShape: "Asscher", conditionKind: "RATIO_RANGE" as const, ratioMin: "1.000", ratioMax: "1.030" },
   { rawShape: "EMERALD 4STEP", normalizedShape: "Emerald", conditionKind: "RATIO_RANGE" as const, ratioMin: "1.400", ratioMax: null },
 ];
@@ -182,27 +164,29 @@ beforeAll(async () => {
   await resetDb();
   await db.$executeRawUnsafe(`TRUNCATE ${SARIN_DATA.map((t) => `"${t}"`).join(", ")}`);
   await db.userAccessScope.deleteMany({});
-  await ensureCountryRegistry(["IN", "BE"]);
+  await ensureLabRegistry(["GIA", "IGI"]);
   planner = await makeUser("pink.planner", "PLANNER");
   viewer = await makeUser("pink.viewer", "VIEWER");
   planningViewer = await makeUser("pink.pviewer", "PLANNING_VIEWER");
   admin = await makeUser("pink.admin", "ADMIN");
   root = await makeUser("pink.root", "SUPER_ADMIN");
-  mapperA = await makeUser("pink.mapper.a", "PLANNER");
-  mapperB = await makeUser("pink.mapper.b", "PLANNER");
+  mapper = await makeUser("pink.mapper", "PLANNER");
   const code = `SARIN_MAPPER_${Date.now().toString(36).toUpperCase()}`;
   resetRateLimits();
-  const role = await call(rolesPost, { method: "POST", cookie: root.cookie, body: { op: "createRole", code, name: "Sarin Mapping Manager", permissions: ["sarin.mapping.manage"] } });
+  const role = await call(rolesPost, { method: "POST", cookie: root.cookie, body: { op: "createRole", code, name: "Sarin Mapping Manager", permissions: ["sarin.mapping.read", "sarin.mapping.manage"] } });
   if (role.status !== 200) throw new Error(`role create failed ${role.status}`);
-  for (const u of [mapperA, mapperB]) {
+  for (const u of [mapper]) {
     resetRateLimits();
     const r = await call(usersPost, { method: "POST", cookie: root.cookie, body: { op: "setRoles", id: u.user.id, roles: ["PLANNER", code] } });
     if (r.status !== 200) throw new Error(`role assign failed ${r.status}`);
   }
-  pinkSetId = await approvedSetViaApi([...PLAIN_RULES, ...TEST_ONLY_EMERALD_4STEP]);
-  noEmeraldSetId = await approvedSetViaApi(PLAIN_RULES);
 });
-beforeEach(() => resetRateLimits());
+// Every test starts from a catalog carrying the test-only EMERALD 4STEP rules; a test that
+// needs the production position (no confirmed rule) removes them through the API.
+beforeEach(async () => {
+  resetRateLimits();
+  pinkSetId = await applyCatalog(mapper.cookie, [...PLAIN_RULES, ...TEST_ONLY_EMERALD_4STEP]);
+});
 
 const EXPECTED_CODES = [...Array.from({ length: 9 }, () => ["MK", "SL"]).flat(), "BP", "BP", "BP", ...Array(6).fill("BT")];
 const EXPECTED_POSITIONS = [
@@ -256,12 +240,12 @@ describe("sarin pink: valid stones become 27 options of 45 pieces", () => {
     // Best Twin differences are advisories: visible, non-blocking, never labelled invalid.
     const advisories = await findings(batchId);
     expect(advisories.map((i) => [i.code, i.severity, i.blocking, i.block.sequence, i.sourceRowNumber, i.details])).toEqual([
-      ["BT_WEIGHT_VARIANCE_UNCONFIRMED", "WARNING", false, 1, 37, { firstPosition: 36, secondPosition: 37, difference: "0.001" }],
-      ["BT_WEIGHT_VARIANCE_UNCONFIRMED", "WARNING", false, 1, 39, { firstPosition: 38, secondPosition: 39, difference: "0.004" }],
-      ["BT_WEIGHT_VARIANCE_UNCONFIRMED", "WARNING", false, 1, 45, { firstPosition: 44, secondPosition: 45, difference: "0.002" }],
-      ["BT_WEIGHT_VARIANCE_UNCONFIRMED", "WARNING", false, 2, 82, { firstPosition: 36, secondPosition: 37, difference: "0.001" }],
-      ["BT_WEIGHT_VARIANCE_UNCONFIRMED", "WARNING", false, 2, 84, { firstPosition: 38, secondPosition: 39, difference: "0.004" }],
-      ["BT_WEIGHT_VARIANCE_UNCONFIRMED", "WARNING", false, 2, 90, { firstPosition: 44, secondPosition: 45, difference: "0.002" }],
+      ["BT_WEIGHT_VARIANCE_UNCONFIRMED", "WARNING", false, 1, 37, { firstPosition: 36, secondPosition: 37, firstWeight: "0.550", secondWeight: "0.551", difference: "0.001" }],
+      ["BT_WEIGHT_VARIANCE_UNCONFIRMED", "WARNING", false, 1, 39, { firstPosition: 38, secondPosition: 39, firstWeight: "0.500", secondWeight: "0.504", difference: "0.004" }],
+      ["BT_WEIGHT_VARIANCE_UNCONFIRMED", "WARNING", false, 1, 45, { firstPosition: 44, secondPosition: 45, firstWeight: "0.350", secondWeight: "0.352", difference: "0.002" }],
+      ["BT_WEIGHT_VARIANCE_UNCONFIRMED", "WARNING", false, 2, 82, { firstPosition: 36, secondPosition: 37, firstWeight: "0.550", secondWeight: "0.551", difference: "0.001" }],
+      ["BT_WEIGHT_VARIANCE_UNCONFIRMED", "WARNING", false, 2, 84, { firstPosition: 38, secondPosition: 39, firstWeight: "0.500", secondWeight: "0.504", difference: "0.004" }],
+      ["BT_WEIGHT_VARIANCE_UNCONFIRMED", "WARNING", false, 2, 90, { firstPosition: 44, secondPosition: 45, firstWeight: "0.350", secondWeight: "0.352", difference: "0.002" }],
     ]);
     expect(/tolerance (is|was) (approved|confirmed)/i.test(JSON.stringify(advisories))).toBe(false);
     const completed = await db.auditLog.findFirstOrThrow({ where: { action: "SARIN_VALIDATION_COMPLETED", entityId: batchId } });
@@ -273,7 +257,7 @@ describe("sarin pink: valid stones become 27 options of 45 pieces", () => {
     const g = await generate(batchId);
     expect([g.status, g.json.reused]).toEqual([201, false]);
     const version = g.json.output.version;
-    expect([version.stoneType, version.counts, version.validationProfile, version.transformProfile, version.mappingSet.id]).toEqual([
+    expect([version.packetType, version.counts, version.validationProfile, version.transformProfile, version.mappingSet.id]).toEqual([
       "PINK",
       { stones: 2, options: 54, pieces: 90 },
       SARIN_VALIDATION_PROFILE_VERSION,
@@ -283,7 +267,7 @@ describe("sarin pink: valid stones become 27 options of 45 pieces", () => {
     expect(SARIN_PINK_TRANSFORM_PROFILE.version).toBe("SARIN_PINK_TRANSFORM_V1");
     expect(g.json.output.content).toEqual({ mk: { options: 18, pieces: 18 }, sl: { options: 18, pieces: 36 }, bp: { options: 6, pieces: 12 }, bt: { options: 12, pieces: 24 } });
     const generated = await db.auditLog.findFirstOrThrow({ where: { action: "SARIN_OUTPUT_GENERATED", entityId: batchId } });
-    expect([JSON.parse(generated.after!).stoneType, JSON.parse(generated.after!).advisories]).toEqual(["PINK", 6]);
+    expect([JSON.parse(generated.after!).packetType, JSON.parse(generated.after!).advisories]).toEqual(["PINK", 6]);
 
     const stones = (await read(listStones, { batchId, versionId: version.id })).json.rows;
     expect(stones.map((s: any) => [s.sequence, s.stoneName, s.kapan, s.packet, s.signer, s.roughWeight, s.optionsByKind, s.options, s.pieces])).toEqual([
@@ -427,21 +411,24 @@ describe("sarin pink: blocking structure findings", () => {
 });
 
 // =========================================================================================
-describe("sarin pink: EMERALD 4STEP needs an approved rule", () => {
+describe("sarin pink: EMERALD 4STEP needs a client-confirmed rule", () => {
   test("without a rule, Asscher and Emerald positions stay unresolved and output is refused", async () => {
     const batchId = await uploadBatch(file(pinkStone(`${kapan()}-111_M`)));
-    expect((await validate(batchId, noEmeraldSetId)).json.batch.status).toBe("NEEDS_REVIEW");
+    await applyCatalog(mapper.cookie, PLAIN_RULES);
+    expect((await validate(batchId)).json.batch.status).toBe("NEEDS_REVIEW");
     const interp = (await read(listInterpretations, { batchId }, "?pageSize=500")).json.rows;
     const emerald4 = interp.filter((r: any) => r.rawShape === "EMERALD 4STEP");
     expect(emerald4.map((r: any) => r.sourceRowNumber)).toEqual([10, 11, 13, 14, 28, 32, 38, 39]);
     expect(emerald4.every((r: any) => r.mappingResult === "UNMAPPED" && r.normalizedShape === null)).toBe(true); // never defaulted
     const codes = (await findings(batchId)).filter((i) => i.sourceRowNumber === 10).map((i) => i.code);
-    expect(codes).toEqual(["SHAPE_UNMAPPED", "NORMALIZED_SHAPE_MISSING"]);
+    // One finding per record: Pink's positional contract needs a confirmed shape, so the
+    // unmapped shape blocks; the plan-level consequence is not recorded a second time.
+    expect(codes).toEqual(["SHAPE_UNMAPPED"]);
     const refused = await generate(batchId);
     expect([refused.status, refused.json.error.code]).toEqual([422, "BLOCKING_FINDINGS_OPEN"]);
   });
 
-  test("a Ratio the approved rules cannot place is blocking, not guessed", async () => {
+  test("a Ratio the mapped rules cannot place is blocking, not guessed", async () => {
     const recs = withAt(withAt(pinkStone(`${kapan()}-111_M`), 13, { ratio: "1.200" }), 14, { ratio: "1.200" });
     const batchId = await uploadBatch(file(recs));
     expect((await validate(batchId)).json.batch.status).toBe("NEEDS_REVIEW");
@@ -515,7 +502,7 @@ describe("sarin pink: database integrity", () => {
     const block = await db.sarinStoneBlock.findFirstOrThrow({ where: { batchId } });
     const version = (optionCount: number) => ({
       batchId, validationAttemptId: attempt.id, shapeMappingSetId: pinkSetId, validationProfileVersion: attempt.validationProfileVersion, transformProfileVersion: "SARIN_PINK_TRANSFORM_V1",
-      transformProfileHash: "a".repeat(64), inputsHash: randomUUID().replace(/-/g, "").padEnd(64, "0"), versionNumber: 1, stoneType: "PINK", generatedByUserId: "u", stoneCount: 1, optionCount, pieceCount: 45,
+      transformProfileHash: "a".repeat(64), inputsHash: randomUUID().replace(/-/g, "").padEnd(64, "0"), versionNumber: 1, packetType: "PINK", generatedByUserId: "u", stoneCount: 1, optionCount, pieceCount: 45,
     });
     const option = (outputVersionId: string, o: Partial<Prisma.SarinPlanOptionUncheckedCreateInput>) => ({
       outputVersionId, batchId, stoneBlockId: block.id, optionSequence: 22, optionKind: "BT", pieceCount: 2, totalEstimatedWeight: "1.101", yieldNumerator: "1.101", yieldDenominator: "4.000",
@@ -527,7 +514,7 @@ describe("sarin pink: database integrity", () => {
         const v = await tx.sarinOutputVersion.create({ data: version(27) });
         await tx.sarinPlanOption.create({ data: option(v.id, { optionKind: "MAIN", mainOrdinal: 1, pieceCount: 1, lastOutputRow: 1, pairWeightDifference: null, totalEstimatedWeight: "0.550", yieldNumerator: "0.550", yieldPercent: "13.75" }) });
       }),
-    ).rejects.toThrow(/stone type/);
+    ).rejects.toThrow(/packet type/);
     // Twins at positions 36 and 37 weigh 0.550 and 0.551: a recorded 0.000 is refused.
     const rows = await db.sarinSourceRow.findMany({ where: { batchId, sourceRowNumber: { in: [36, 37] } }, orderBy: { sourceRowNumber: "asc" } });
     const interp = await db.sarinRowInterpretation.findMany({ where: { attemptId: attempt.id, sourceRowNumber: { in: [36, 37] } }, orderBy: { sourceRowNumber: "asc" } });
@@ -554,8 +541,8 @@ describe("sarin pink: database integrity", () => {
 describe("sarin pink: authorization, scope and safe responses", () => {
   test("validation and generation need their own permissions; previews need sarin.import.read", async () => {
     const batchId = await uploadBatch(file(pinkStone(`${kapan()}-111_M`)));
-    expect((await call(validateImport, { method: "POST", body: { mappingSetId: pinkSetId }, params: { batchId } })).status).toBe(401);
-    for (const u of [viewer, planningViewer, admin]) expect([u.user.username, (await validate(batchId, pinkSetId, u.cookie)).status]).toEqual([u.user.username, 403]);
+    expect((await call(validateImport, { method: "POST", body: {}, params: { batchId } })).status).toBe(401);
+    for (const u of [viewer, planningViewer, admin]) expect([u.user.username, (await validate(batchId, u.cookie)).status]).toEqual([u.user.username, 403]);
     expect((await validate(batchId)).json.batch.status).toBe("VALIDATED");
     expect((await call(generateOutput, { method: "POST", body: {}, params: { batchId } })).status).toBe(401);
     for (const u of [viewer, planningViewer, admin]) expect([u.user.username, (await generate(batchId, u.cookie)).status]).toEqual([u.user.username, 403]);
@@ -571,12 +558,12 @@ describe("sarin pink: authorization, scope and safe responses", () => {
   });
 
   test("an out-of-scope Pink import is a 404 everywhere", async () => {
-    const be = await validatedBatch(pinkStone(`${kapan()}-111_M`), { country: "BE" });
+    const be = await validatedBatch(pinkStone(`${kapan()}-111_M`), { labId: "IGI" });
     const versionId = (await generate(be)).json.output.version.id;
-    const scoped = await makeUser("pink.scoped.in", "PLANNER");
+    const scoped = await makeUser("pink.scoped.gia", "PLANNER");
     await db.userAccessScope.deleteMany({ where: { userId: scoped.user.id } });
-    await db.userAccessScope.create({ data: { userId: scoped.user.id, dimension: "COUNTRY", value: "IN" } });
-    expect((await validate(be, pinkSetId, scoped.cookie)).status).toBe(404);
+    await db.userAccessScope.create({ data: { userId: scoped.user.id, dimension: "LAB", value: "GIA" } });
+    expect((await validate(be, scoped.cookie)).status).toBe(404);
     expect((await generate(be, scoped.cookie)).status).toBe(404);
     for (const [h, params] of [[listOutputs, { batchId: be }], [getOutput, { batchId: be, versionId }], [listStones, { batchId: be, versionId }], [listOptions, { batchId: be, versionId }], [listPieces, { batchId: be, versionId }]] as const) {
       expect((await read(h, params, "", scoped.cookie)).status).toBe(404);

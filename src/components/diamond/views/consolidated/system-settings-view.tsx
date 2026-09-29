@@ -14,7 +14,7 @@ export function SystemSettingsView() {
   return (
     <TabbedHostView
       title="System Settings"
-      subtitle="Enterprise system runtime flags, environment feature toggles, and external integration connection settings"
+      subtitle="Feature flags and integration settings"
       tabs={TABS}
       defaultTab="feature-flags"
     />

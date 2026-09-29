@@ -39,8 +39,10 @@ const EXACT: Record<string, string | readonly string[]> = {
   "orders-exceptions": "orders.read",
   "replenishment-allocation": "requirement.read",
   "planning-rough-availability": "rough.read",
-  // Executing an import is a create: the route enforces plan.create.
-  "planning-workbook-import": "plan.create",
+  // Sarin file processing. Every action (upload, validate, generate, export) keeps its own
+  // permission, enforced per control and per route. Sarin shape mappings are a tab of
+  // admin-mappings.
+  "planning-workbook-import": "sarin.import.read",
   "planning-workbench": "plan.read",
   "planning-comparison": "plan.read",
   // Reading the queue needs plan.read; approving/rejecting needs plan.approve and is
@@ -55,7 +57,10 @@ const EXACT: Record<string, string | readonly string[]> = {
   "data-science-prediction-monitoring": "analysis.read",
   "reports": "analysis.read",
   "admin-users-access": "user.read",
-  "admin-rules-mappings": "business_rule.read",
+  // Mappings: master-data tabs need config.read, the Sarin Shape Mapping tab needs
+  // sarin.mapping.read; either admits the page and each tab enforces its own. Changing Sarin
+  // mappings needs sarin.mapping.manage, per control and per route.
+  "admin-mappings": ["config.read", "sarin.mapping.read"],
   "admin-system-settings": "feature_flag.read",
   "admin-audit-log": "audit.read",
 
@@ -86,10 +91,9 @@ const EXACT: Record<string, string | readonly string[]> = {
   // Legacy Views & Direct Subpages
   "requirements-orders": "orders.read",
   "planning-reservations": "rough.read",
-  "fantasy-status-mapping": "business_rule.read",
+  "fantasy-status-mapping": "config.read",
   "data-quality-unmapped-labs": "config.read",
   "data-quality-unmapped-shapes": "config.read",
-  "admin-business-rules": "business_rule.read",
   "admin-feature-flags": "feature_flag.read",
   "admin-users": "user.read",
   "admin-access-requests": "access_request.review",
@@ -192,7 +196,7 @@ export const PERMISSION_LABELS: Record<string, string> = {
   "requirement.create": "Requirement Creation",
   "requirement.override": "Priority Override Authority",
   "plan.read": "Rough & Production Planning Access",
-  "plan.create": "Plan Creation & Workbook Import",
+  "plan.create": "Plan Creation",
   "plan.select": "Plan Option Selection",
   "plan.approve": "Planning Approval Authority",
   "plan.replan": "Replanning Authority",
@@ -208,8 +212,6 @@ export const PERMISSION_LABELS: Record<string, string> = {
   "data_quality.manage": "Data Quality Resolution Management",
   "data_quality.export": "Data Quality Issues Export",
   "config.read": "Master Configuration Access",
-  "business_rule.read": "Business Rules & Mappings Access",
-  "business_rule.manage": "Business Rules Administration",
   "feature_flag.read": "System Settings & Flags Access",
   "feature_flag.manage": "Feature Flags Management",
   "audit.read": "Audit Trail & System Logs Access",
@@ -240,5 +242,6 @@ export const PERMISSION_LABELS: Record<string, string> = {
   "sarin.output.generate": "Sarin Output Generation",
   "sarin.output.approve": "Sarin Output Planning Approval Authority",
   "sarin.output.export": "Sarin Output Export",
-  "sarin.mapping.manage": "Sarin Shape Mapping Administration",
+  "sarin.mapping.read": "View Shape Mappings",
+  "sarin.mapping.manage": "Edit Shape Mappings",
 };

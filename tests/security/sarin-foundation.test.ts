@@ -12,6 +12,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { beforeAll, describe, expect, test } from "./harness";
 import { call, db, makeUser, resetDb } from "./helpers";
+import { makeEffectiveSnapshot } from "./sarin-catalog";
 import { GET as me } from "@/app/api/auth/me/route";
 import { POST as rolesPost } from "@/app/api/admin/roles/route";
 import { POST as usersPost } from "@/app/api/admin/users/route";
@@ -31,7 +32,7 @@ import {
   SARIN_SHAPE_MAPPING_SET_STATUSES,
   SARIN_SOURCE_ROW_OUTCOMES,
   SARIN_STONE_BLOCK_PARSE_STATUSES,
-  SARIN_STONE_TYPES,
+  SARIN_PACKET_TYPES,
   SARIN_VALIDATION_ISSUE_STATUSES,
   SARIN_VALIDATION_SEVERITIES,
 } from "@/lib/sarin/domain";
@@ -74,13 +75,12 @@ async function makeSourceFile(o: { text?: string; name?: string } = {}) {
   });
 }
 
-async function makeBatch(o: { sourceFileId?: string; stoneType?: string; country?: string; labScope?: string | null; uploader?: string } = {}) {
+async function makeBatch(o: { sourceFileId?: string; packetType?: string; labScope?: string | null; uploader?: string } = {}) {
   const sourceFileId = o.sourceFileId ?? (await makeSourceFile()).id;
   return db.sarinImportBatch.create({
     data: {
       sourceFileId,
-      stoneType: o.stoneType ?? "BLUE",
-      country: o.country ?? "IN",
+      packetType: o.packetType ?? "BLUE",
       labScope: o.labScope ?? null,
       contractVersion: "SARIN_RAW_CSV_V1",
       planningDate: PLANNING_DATE,
@@ -165,9 +165,9 @@ function addRule(mappingSetId: string, r: { key: string; shape: string; kind?: s
   });
 }
 
-async function approvedSet(rules: Parameters<typeof makeSet>[0] = [{ key: "ROUND", shape: "Round" }]) {
-  const set = await makeSet(rules);
-  return db.sarinShapeMappingSet.update({ where: { id: set.id }, data: { status: "APPROVED", approvedByUserId: "approver-synthetic" } });
+/** A new snapshot made EFFECTIVE, replacing the current one — the lifecycle the catalog service writes. */
+function effectiveSet(rules: Parameters<typeof makeSet>[0] = [{ key: "ROUND", shape: "Round" }]) {
+  return makeEffectiveSnapshot(rules, "mapper-synthetic");
 }
 
 // A worker claims the batch and starts the next validation attempt.
@@ -277,7 +277,7 @@ describe("sarin foundation: migration", () => {
 
   test("each CHECK constraint lists exactly the shared vocabulary, no more and no less", async () => {
     const parity: Array<[string, readonly string[]]> = [
-      ["SarinImportBatch_stoneType_check", SARIN_STONE_TYPES],
+      ["SarinImportBatch_packetType_check", SARIN_PACKET_TYPES],
       ["SarinImportBatch_status_check", SARIN_IMPORT_STATUSES],
       ["SarinSourceRow_outcome_check", SARIN_SOURCE_ROW_OUTCOMES],
       ["SarinStoneBlock_parseStatus_check", SARIN_STONE_BLOCK_PARSE_STATUSES],
@@ -294,9 +294,11 @@ describe("sarin foundation: migration", () => {
     }
   });
 
-  test("the confirmed shape master is seeded as an unapproved DRAFT with no unconfirmed values", async () => {
+  test("the confirmed shape master became the initial effective catalog, never approved, with no unconfirmed values", async () => {
     const set = await db.sarinShapeMappingSet.findUniqueOrThrow({ where: { sourceSystem_version: { sourceSystem: "SARIN", version: 1 } }, include: { rules: true } });
-    expect([set.status, set.origin, set.approvedAt, set.contentHash]).toEqual(["DRAFT", "MIGRATION_BASELINE", null, null]);
+    // Effective at migration (or already replaced by a later saved snapshot); nobody is recorded as its approver.
+    expect([["EFFECTIVE", "SUPERSEDED"].includes(set.status), set.origin, set.approvedAt, set.approvedByUserId, set.effectiveAt !== null]).toEqual([true, "MIGRATION_BASELINE", null, null, true]);
+    expect(set.contentHash).toMatch(/^[0-9a-f]{64}$/);
     expect(set.rules).toHaveLength(32);
     const keys = set.rules.map((r) => r.rawShapeKey);
     for (const unconfirmed of ["EMERALD 4STEP", "RAD MODIFIED", "NP-1235-6-KITE", "HEGAZGON", "TREGAL-3", "CU-MO-GCAL-RT-1.42"]) {
@@ -311,10 +313,12 @@ describe("sarin foundation: migration", () => {
     ]);
   });
 
-  test("a batch cannot be validated against the unapproved baseline set", async () => {
-    const baseline = await db.sarinShapeMappingSet.findUniqueOrThrow({ where: { sourceSystem_version: { sourceSystem: "SARIN", version: 1 } } });
-    const batch = await makeBatch();
-    await expect(startValidation(batch.id, baseline.id)).rejects.toThrow(/APPROVED mapping set/);
+  test("a batch is validated only against the effective catalog: never a draft or a replaced snapshot", async () => {
+    const draft = await makeSet([{ key: "ROUND", shape: "Round" }]);
+    await expect(startValidation((await makeBatch()).id, draft.id)).rejects.toThrow(/EFFECTIVE mapping catalog/);
+    const first = await effectiveSet();
+    await effectiveSet([{ key: "OVAL", shape: "Oval" }]);
+    await expect(startValidation((await makeBatch()).id, first.id)).rejects.toThrow(/EFFECTIVE mapping catalog/);
   });
 });
 
@@ -373,57 +377,52 @@ describe("sarin foundation: immutable source files", () => {
 
 // ---------------------------------------------------------------------------------------
 describe("sarin foundation: import batches", () => {
-  test("stone type and country have no default and are validated", async () => {
+  test("the packet type has no default and only BLUE, WHITE and PINK are accepted; imports carry no country", async () => {
     const f = await makeSourceFile();
-    // Each insert omits exactly one column, so the NOT NULL violation can only be that column.
+    // The insert omits only the packet type, so the NOT NULL violation can only be that column.
     await expect(db.$executeRaw`
-      INSERT INTO "SarinImportBatch" ("id", "sourceFileId", "country", "contractVersion", "planningDate", "uploadedByUserId", "updatedAt")
-      VALUES (${randomUUID()}, ${f.id}, 'IN', 'SARIN_RAW_CSV_V1', DATE '2026-09-26', 'u', now())`).rejects.toThrow(/23502/); // not_null_violation: stoneType
-    await expect(db.$executeRaw`
-      INSERT INTO "SarinImportBatch" ("id", "sourceFileId", "stoneType", "contractVersion", "planningDate", "uploadedByUserId", "updatedAt")
-      VALUES (${randomUUID()}, ${f.id}, 'BLUE', 'SARIN_RAW_CSV_V1', DATE '2026-09-26', 'u', now())`).rejects.toThrow(/23502/); // not_null_violation: country
-    for (const bad of ["UNKNOWN", "white", ""]) {
-      await expect(makeBatch({ sourceFileId: f.id, stoneType: bad })).rejects.toThrow(/stoneType_check/);
-    }
-    for (const bad of [" IN", "", "IN "]) {
-      await expect(makeBatch({ sourceFileId: f.id, country: bad })).rejects.toThrow(/country_check/);
+      INSERT INTO "SarinImportBatch" ("id", "sourceFileId", "contractVersion", "planningDate", "uploadedByUserId", "updatedAt")
+      VALUES (${randomUUID()}, ${f.id}, 'SARIN_RAW_CSV_V1', DATE '2026-09-26', 'u', now())`).rejects.toThrow(/23502/); // not_null_violation: packetType
+    for (const bad of ["UNKNOWN", "white", "", "GREEN"]) {
+      await expect(makeBatch({ sourceFileId: f.id, packetType: bad })).rejects.toThrow(/packetType_check/);
     }
     await expect(makeBatch({ sourceFileId: f.id, labScope: "" })).rejects.toThrow(/labScope_check/);
+    const columns = await db.$queryRaw<{ column_name: string }[]>`SELECT column_name FROM information_schema.columns WHERE table_name = 'SarinImportBatch' AND column_name IN ('country', 'stoneType', 'packetType')`;
+    expect(columns.map((c) => c.column_name)).toEqual(["packetType"]);
   });
 
-  test("every declared stone type in the shared vocabulary is accepted", async () => {
+  test("every declared packet type in the shared vocabulary is accepted", async () => {
     const f = await makeSourceFile();
-    for (const stoneType of SARIN_STONE_TYPES) {
-      const b = await makeBatch({ sourceFileId: f.id, stoneType });
-      expect(b.stoneType).toBe(stoneType);
+    for (const packetType of SARIN_PACKET_TYPES) {
+      const b = await makeBatch({ sourceFileId: f.id, packetType });
+      expect(b.packetType).toBe(packetType);
     }
   });
 
   test("a batch is born UPLOADED and cannot be inserted in any other state", async () => {
     const f = await makeSourceFile();
     const attempt = db.sarinImportBatch.create({
-      data: { sourceFileId: f.id, stoneType: "PINK", country: "IN", contractVersion: "SARIN_RAW_CSV_V1", planningDate: PLANNING_DATE, uploadedByUserId: "u", status: "VALIDATED" },
+      data: { sourceFileId: f.id, packetType: "PINK", contractVersion: "SARIN_RAW_CSV_V1", planningDate: PLANNING_DATE, uploadedByUserId: "u", status: "VALIDATED" },
     });
     await expect(attempt).rejects.toThrow(/created in status UPLOADED/);
-    const ok = await makeBatch({ sourceFileId: f.id, stoneType: "PINK" });
+    const ok = await makeBatch({ sourceFileId: f.id, packetType: "PINK" });
     expect([ok.status, ok.validationAttempt, ok.fencingVersion]).toEqual(["UPLOADED", 0, 0]);
   });
 
-  test("duplicate identity includes file, type, contract, country, a NULL lab and the planning date", async () => {
+  test("duplicate identity includes file, packet type, contract, a NULL lab and the planning date", async () => {
     const f = await makeSourceFile();
-    await makeBatch({ sourceFileId: f.id, stoneType: "WHITE" });
-    await expect(makeBatch({ sourceFileId: f.id, stoneType: "WHITE" })).rejects.toThrow(/Unique constraint|duplicate_identity/);
+    await makeBatch({ sourceFileId: f.id, packetType: "WHITE" });
+    await expect(makeBatch({ sourceFileId: f.id, packetType: "WHITE" })).rejects.toThrow(/Unique constraint|duplicate_identity/);
     // Each identity component distinguishes a batch.
-    await makeBatch({ sourceFileId: f.id, stoneType: "WHITE", labScope: "GIA" });
-    await expect(makeBatch({ sourceFileId: f.id, stoneType: "WHITE", labScope: "GIA" })).rejects.toThrow(/Unique constraint|duplicate_identity/);
-    await makeBatch({ sourceFileId: f.id, stoneType: "WHITE", country: "BE" });
-    await makeBatch({ sourceFileId: f.id, stoneType: "BLUE" });
-    await db.sarinImportBatch.create({ data: { sourceFileId: f.id, stoneType: "WHITE", country: "IN", contractVersion: "SARIN_RAW_CSV_V1", planningDate: new Date("2026-09-27T00:00:00.000Z"), uploadedByUserId: "u" } });
-    expect(await db.sarinImportBatch.count({ where: { sourceFileId: f.id } })).toBe(5);
+    await makeBatch({ sourceFileId: f.id, packetType: "WHITE", labScope: "GIA" });
+    await expect(makeBatch({ sourceFileId: f.id, packetType: "WHITE", labScope: "GIA" })).rejects.toThrow(/Unique constraint|duplicate_identity/);
+    await makeBatch({ sourceFileId: f.id, packetType: "BLUE" });
+    await db.sarinImportBatch.create({ data: { sourceFileId: f.id, packetType: "WHITE", contractVersion: "SARIN_RAW_CSV_V1", planningDate: new Date("2026-09-27T00:00:00.000Z"), uploadedByUserId: "u" } });
+    expect(await db.sarinImportBatch.count({ where: { sourceFileId: f.id } })).toBe(4);
   });
 
   test("the lifecycle moves only along permitted transitions, stamped by the database", async () => {
-    const set = await approvedSet();
+    const set = await effectiveSet();
     const b = await makeBatch();
     await expect(db.sarinImportBatch.update({ where: { id: b.id }, data: { status: "VALIDATED" } })).rejects.toThrow(/cannot move from UPLOADED to VALIDATED/);
 
@@ -457,15 +456,15 @@ describe("sarin foundation: import batches", () => {
   });
 
   test("the mapping set is fixed within an attempt; identity and scope never change", async () => {
-    const [s1, s2] = [await approvedSet(), await approvedSet()];
+    const s1 = await effectiveSet();
     const b = await makeBatch();
     await startValidation(b.id, s1.id);
     await finishValidation(b.id, "NEEDS_REVIEW");
+    const s2 = await effectiveSet([{ key: "ROUND", shape: "Round" }, { key: "OVAL", shape: "Oval" }]);
     await expect(db.sarinImportBatch.update({ where: { id: b.id }, data: { shapeMappingSetId: s2.id } })).rejects.toThrow(/change only on entry into VALIDATING/);
     const next = await startValidation(b.id, s2.id);
     expect(next.shapeMappingSetId).toBe(s2.id);
-    await expect(db.sarinImportBatch.update({ where: { id: b.id }, data: { country: "BE" } })).rejects.toThrow(/identity and scope/);
-    await expect(db.sarinImportBatch.update({ where: { id: b.id }, data: { stoneType: "PINK" } })).rejects.toThrow(/identity and scope/);
+    await expect(db.sarinImportBatch.update({ where: { id: b.id }, data: { packetType: "PINK" } })).rejects.toThrow(/identity and scope/);
     await expect(db.sarinImportBatch.update({ where: { id: b.id }, data: { labScope: "GIA" } })).rejects.toThrow(/identity and scope/);
     await expect(db.sarinImportBatch.update({ where: { id: b.id }, data: { planningDate: new Date("2026-01-01T00:00:00.000Z") } })).rejects.toThrow(/identity and scope/);
   });
@@ -555,7 +554,7 @@ describe("sarin foundation: immutable source rows", () => {
 // ---------------------------------------------------------------------------------------
 describe("sarin foundation: stone blocks", () => {
   test("packet is text with leading zeros kept; parsing happens once and then freezes", async () => {
-    const b = await makeBatch({ stoneType: "WHITE" });
+    const b = await makeBatch({ packetType: "WHITE" });
     await makeRows(b.id, 3);
     const block = await makeBlock(b.id, { blockSequence: 1, first: 1, last: 3, stoneNameRaw: "2599-001 ZZ" });
     expect([block.parseStatus, block.parsedAt, block.kapan]).toEqual(["PENDING", null, null]);
@@ -591,7 +590,7 @@ describe("sarin foundation: stone blocks", () => {
 // ---------------------------------------------------------------------------------------
 describe("sarin foundation: validation issues", () => {
   test("an issue records the attempt and mapping set that raised it", async () => {
-    const set = await approvedSet();
+    const set = await effectiveSet();
     const b = await makeBatch();
     await startValidation(b.id, set.id);
     await expect(makeIssue(b.id, { attempt: 0 })).rejects.toThrow(/current attempt and mapping set/);
@@ -706,11 +705,11 @@ describe("sarin foundation: append-only reviewed overrides", () => {
 
 // ---------------------------------------------------------------------------------------
 describe("sarin foundation: versioned shape mappings", () => {
-  test("a version exists once per source system and a set is born an unapproved DRAFT", async () => {
+  test("a version exists once per source system and a set is born a DRAFT", async () => {
     const v = nextVersion();
     await db.sarinShapeMappingSet.create({ data: { sourceSystem: "SARIN", version: v, origin: "USER", createdByUserId: "m" } });
     await expect(db.sarinShapeMappingSet.create({ data: { sourceSystem: "SARIN", version: v, origin: "USER", createdByUserId: "m" } })).rejects.toThrow(/Unique constraint/);
-    await expect(db.sarinShapeMappingSet.create({ data: { sourceSystem: "SARIN", version: nextVersion(), origin: "USER", createdByUserId: "m", status: "APPROVED" } })).rejects.toThrow(/unapproved DRAFT/);
+    await expect(db.sarinShapeMappingSet.create({ data: { sourceSystem: "SARIN", version: nextVersion(), origin: "USER", createdByUserId: "m", status: "EFFECTIVE" } })).rejects.toThrow(/created as a DRAFT/);
     await expect(db.sarinShapeMappingSet.create({ data: { sourceSystem: "FANTASY", version: nextVersion(), origin: "USER", createdByUserId: "m" } })).rejects.toThrow(/sourceSystem_check/);
     await expect(db.sarinShapeMappingSet.create({ data: { sourceSystem: "SARIN", version: nextVersion(), origin: "USER" } })).rejects.toThrow(/user_origin_has_creator_check/);
   });
@@ -752,38 +751,49 @@ describe("sarin foundation: versioned shape mappings", () => {
     expect(await db.sarinShapeMappingRule.count({ where: { mappingSetId: set.id } })).toBe(1);
   });
 
-  test("approval computes a deterministic content hash and freezes the set and its rules", async () => {
-    await expect(approvedSet([])).rejects.toThrow(/empty Sarin shape mapping set cannot be approved/);
+  test("becoming effective computes a deterministic content hash and freezes the snapshot and its rules", async () => {
     const rules = [
       { key: "ROUND", shape: "Round" },
       { key: "EMERALD 5STEP", shape: "Asscher", kind: "RATIO_RANGE", min: "1.000", max: "1.030" },
       { key: "EMERALD 5STEP", shape: "Emerald", kind: "RATIO_RANGE", min: "1.400", max: null },
     ];
-    const a = await approvedSet(rules);
-    const b = await approvedSet([...rules].reverse());
+    const a = await effectiveSet(rules);
+    const b = await effectiveSet([...rules].reverse());
     expect(a.contentHash).toMatch(/^[0-9a-f]{64}$/);
     expect(b.contentHash).toBe(a.contentHash);
-    expect(a.approvedAt !== null).toBe(true);
-    const different = await approvedSet([{ key: "ROUND", shape: "Round Brilliant" }]);
+    // Effective, not approved: no approver or approval time is ever recorded.
+    expect([a.effectiveAt !== null, a.approvedAt, a.approvedByUserId]).toEqual([true, null, null]);
+    const different = await effectiveSet([{ key: "ROUND", shape: "Round Brilliant" }]);
     expect(different.contentHash === a.contentHash).toBe(false);
+    // An empty catalog is a legitimate state: every shape then needs mapping.
+    const empty = await effectiveSet([]);
+    expect(empty.contentHash).toMatch(/^[0-9a-f]{64}$/);
 
+    const replaced = await db.sarinShapeMappingSet.findUniqueOrThrow({ where: { id: a.id } });
+    expect([replaced.status, replaced.supersededBySetId, replaced.supersededAt !== null, replaced.contentHash]).toEqual(["SUPERSEDED", b.id, true, a.contentHash]);
     const rule = await db.sarinShapeMappingRule.findFirstOrThrow({ where: { mappingSetId: a.id } });
-    await expect(addRule(a.id, { key: "OVAL", shape: "Oval" })).rejects.toThrow(/Rules of a APPROVED/);
-    await expect(db.sarinShapeMappingRule.update({ where: { id: rule.id }, data: { normalizedShape: "Changed" } })).rejects.toThrow(/Rules of a APPROVED/);
-    await expect(db.sarinShapeMappingRule.delete({ where: { id: rule.id } })).rejects.toThrow(/Rules of a APPROVED/);
-    await expect(db.sarinShapeMappingSet.update({ where: { id: a.id }, data: { description: "edited" } })).rejects.toThrow(/approved or retired Sarin shape mapping set is immutable/);
-    await expect(db.sarinShapeMappingSet.update({ where: { id: a.id }, data: { status: "DRAFT" } })).rejects.toThrow(/cannot move from APPROVED to DRAFT/);
-    await expect(db.sarinShapeMappingSet.update({ where: { id: a.id }, data: { status: "RETIRED" } })).rejects.toThrow(/requires the actor/);
-    const retired = await db.sarinShapeMappingSet.update({ where: { id: a.id }, data: { status: "RETIRED", retiredByUserId: "mapper-synthetic" } });
-    expect([retired.status, retired.contentHash, retired.retiredAt !== null]).toEqual(["RETIRED", a.contentHash, true]);
+    for (const setId of [a.id, empty.id]) await expect(addRule(setId, { key: "OVAL", shape: "Oval" })).rejects.toThrow(/Rules of a (SUPERSEDED|EFFECTIVE)/);
+    await expect(db.sarinShapeMappingRule.update({ where: { id: rule.id }, data: { normalizedShape: "Changed" } })).rejects.toThrow(/Rules of a SUPERSEDED/);
+    await expect(db.sarinShapeMappingRule.delete({ where: { id: rule.id } })).rejects.toThrow(/Rules of a SUPERSEDED/);
+    await expect(db.sarinShapeMappingSet.update({ where: { id: a.id }, data: { description: "edited" } })).rejects.toThrow(/Only a DRAFT/);
+    await expect(db.sarinShapeMappingSet.update({ where: { id: a.id }, data: { status: "EFFECTIVE" } })).rejects.toThrow(/cannot move from SUPERSEDED to EFFECTIVE/);
+    await expect(db.sarinShapeMappingSet.update({ where: { id: empty.id }, data: { status: "DRAFT" } })).rejects.toThrow(/cannot move from EFFECTIVE to DRAFT/);
     await expect(db.sarinShapeMappingSet.delete({ where: { id: a.id } })).rejects.toThrow(/permanent history/);
   });
 
-  test("a retired set cannot be used for a new validation attempt", async () => {
-    const set = await approvedSet();
-    await db.sarinShapeMappingSet.update({ where: { id: set.id }, data: { status: "RETIRED", retiredByUserId: "mapper-synthetic" } });
-    const batch = await makeBatch();
-    await expect(startValidation(batch.id, set.id)).rejects.toThrow(/APPROVED mapping set/);
+  test("approval is no longer a transition, one catalog is effective, and a snapshot is replaced only by its successor", async () => {
+    const draft = await makeSet([{ key: "ROUND", shape: "Round" }]);
+    await expect(db.sarinShapeMappingSet.update({ where: { id: draft.id }, data: { status: "APPROVED", approvedByUserId: "approver-synthetic" } })).rejects.toThrow(/(cannot move from DRAFT to APPROVED|immutable)/);
+    await expect(db.sarinShapeMappingSet.update({ where: { id: draft.id }, data: { status: "RETIRED", retiredByUserId: "x" } })).rejects.toThrow(/(cannot move from DRAFT to RETIRED|immutable)/);
+    // A second EFFECTIVE snapshot is refused while one is effective.
+    await effectiveSet();
+    await expect(db.sarinShapeMappingSet.update({ where: { id: draft.id }, data: { status: "EFFECTIVE" } })).rejects.toThrow(/one_effective_per_source|Unique constraint/);
+    // Replacement names the newer snapshot saved from this one, and nothing else.
+    const current = await db.sarinShapeMappingSet.findFirstOrThrow({ where: { status: "EFFECTIVE" } });
+    await expect(db.sarinShapeMappingSet.update({ where: { id: current.id }, data: { status: "SUPERSEDED", supersededBySetId: draft.id } })).rejects.toThrow(/replaced only by a newer snapshot saved from it/);
+    // A draft nothing uses can be archived.
+    const archived = await db.sarinShapeMappingSet.update({ where: { id: draft.id }, data: { status: "ARCHIVED" } });
+    expect([archived.status, archived.archivedAt !== null]).toEqual(["ARCHIVED", true]);
   });
 });
 
@@ -793,6 +803,7 @@ const PLANNING_WORKFLOW: Permission[] = ["sarin.import.read", "sarin.import.uplo
 
 // The approved default policy. Any role not listed holds no Sarin permission.
 const EXPECTED_SARIN: Partial<Record<Role, Permission[]>> = {
+  // Output approval is an explicit grant: administering the system does not confer it.
   SUPER_ADMIN: SARIN_PERMISSIONS.filter((p) => p !== "sarin.output.approve"),
   ADMIN: ["sarin.import.read"],
   PLANNING_MANAGER: [...PLANNING_WORKFLOW, "sarin.issue.override", "sarin.output.approve"],
@@ -804,9 +815,9 @@ const EXPECTED_SARIN: Partial<Record<Role, Permission[]>> = {
 const sarinOf = (perms: readonly string[]) => perms.filter((p) => p.startsWith("sarin.")).sort();
 
 describe("sarin foundation: permission defaults", () => {
-  test("all nine Sarin permissions are in the one canonical catalogue, export included", () => {
+  test("all ten Sarin permissions are in the one canonical catalogue, export included; mapping approval is withdrawn", () => {
     expect(SARIN_PERMISSIONS.slice().sort()).toEqual(
-      ["sarin.import.read", "sarin.import.upload", "sarin.import.validate", "sarin.issue.review", "sarin.issue.override", "sarin.output.generate", "sarin.output.approve", "sarin.output.export", "sarin.mapping.manage"].sort(),
+      ["sarin.import.read", "sarin.import.upload", "sarin.import.validate", "sarin.issue.review", "sarin.issue.override", "sarin.output.generate", "sarin.output.approve", "sarin.output.export", "sarin.mapping.read", "sarin.mapping.manage"].sort(),
     );
     expect((EXPORT_PERMISSIONS as readonly string[]).includes("sarin.output.export")).toBe(true);
   });

@@ -25,7 +25,7 @@ export function FantasyLiveView() {
   return (
     <TabbedHostView
       title="Fantasy Current Data"
-      subtitle="Current rough stock, polished stock, department and location masters, as last synchronized from the configured data source"
+      subtitle="Rough and polished stock, departments and locations from the last synchronization"
       tabs={TABS}
       defaultTab="rough"
       meta={

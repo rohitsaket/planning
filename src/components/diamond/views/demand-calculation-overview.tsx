@@ -227,7 +227,7 @@ export function DemandCalculationOverview() {
       align: "right",
       width: "90px",
       cell: (r) => (
-        <span className="text-muted-foreground text-xs" title="Memo stock is NOT deducted from shortage">
+        <span className="text-muted-foreground text-xs">
           {r.memoQty}
         </span>
       ),
@@ -350,9 +350,7 @@ export function DemandCalculationOverview() {
             Trace <ChevronRight className="h-3 w-3" />
           </Button>
         ) : (
-          <span className="text-[10px] text-muted-foreground italic" title="Requires demand.trace">
-            Locked
-          </span>
+          <span className="text-[10px] text-muted-foreground">—</span>
         )
       ),
     },
@@ -363,7 +361,7 @@ export function DemandCalculationOverview() {
       <div className="flex flex-col gap-3 p-3">
         <PageHeader
           title="Demand & Inventory Calculation"
-          subtitle="Canonical 90-day IST demand engine, stock posture, shortage, WIP coverage, and pipeline requirements"
+          subtitle="Demand, stock, shortage and coverage by category"
         />
         <KpiGridSkeleton count={8} />
       </div>
@@ -394,7 +392,7 @@ export function DemandCalculationOverview() {
       {/* Page Header with Run Action Bar */}
       <PageHeader
         title="Demand & Inventory Calculation"
-        subtitle="Transparent, reproducible demand, physical shortage, WIP coverage, plan coverage, and pipeline requirements"
+        subtitle="Demand, stock, shortage and coverage by category"
         meta={
           <div className="flex items-center gap-2 flex-wrap">
             {data?.calculatedAtIst && (
@@ -408,10 +406,10 @@ export function DemandCalculationOverview() {
               className="h-7 text-[11px] gap-1.5"
               onClick={() => setUnlockModalOpen(true)}
               disabled={unlocking || !canUnlockDemand}
-              title={canUnlockDemand ? "Unlock demand calculation lock" : "Requires demand.unlock permission"}
+              title={canUnlockDemand ? "Unlock demand calculation" : undefined}
             >
               {unlocking ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Unlock className="h-3 w-3" />}
-              Unlock Engine
+              Unlock
             </Button>
             <Button
               size="sm"
@@ -419,10 +417,9 @@ export function DemandCalculationOverview() {
               className="h-7 text-[11px] gap-1.5 bg-primary text-primary-foreground font-semibold"
               onClick={() => runMutation.mutate()}
               disabled={runningDemand || !canRunDemand}
-              title={canRunDemand ? undefined : "Your role cannot run the demand calculation"}
             >
               {runningDemand ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Zap className="h-3 w-3" />}
-              {runningDemand ? "Calculating 90D Demand..." : "Run Demand Calc"}
+              {runningDemand ? "Calculating…" : "Run Demand Calc"}
             </Button>
           </div>
         }
@@ -435,7 +432,7 @@ export function DemandCalculationOverview() {
       {!hasEverRun ? (
         <EmptyState
           title="Demand Calculation Not Run Yet"
-          message="No operational demand calculation has been executed. Click 'Run Demand Calc' above to process sales history, finished inventory, and manufacturing WIP."
+          message={canRunDemand ? "Select Run Demand Calc to calculate demand." : "No demand calculation has run yet."}
           icon={<Calculator className="h-8 w-8 text-primary" />}
         />
       ) : (
@@ -448,7 +445,7 @@ export function DemandCalculationOverview() {
               unit="pcs"
               intent="info"
               icon={Calculator}
-              hint="Σ 2-month target stock"
+              hint="Target quantity"
             />
             <KpiCard
               label="Physical Stock"
@@ -456,7 +453,7 @@ export function DemandCalculationOverview() {
               unit="pcs"
               intent="default"
               icon={Package}
-              hint="Available finished stock"
+              hint="Available stock"
             />
             <KpiCard
               label="Physical Shortage"
@@ -464,7 +461,7 @@ export function DemandCalculationOverview() {
               unit="pcs"
               intent="critical"
               icon={AlertTriangle}
-              hint="Shortfall against target stock"
+              hint="Quantity still needed"
             />
             <KpiCard
               label="Eligible WIP"
@@ -472,7 +469,7 @@ export function DemandCalculationOverview() {
               unit={wipApplied ? "pcs" : undefined}
               intent={wipApplied ? "info" : "warning"}
               icon={Boxes}
-              hint={wipApplied ? "Mapped manufacturing WIP applied by this run" : "No confirmed WIP coverage rule — nothing deducted"}
+              hint={wipApplied ? "Work in progress applied" : "Work in progress not applied"}
             />
             <KpiCard
               label="Pipeline Req"
@@ -480,7 +477,7 @@ export function DemandCalculationOverview() {
               unit="pcs"
               intent="warning"
               icon={TrendingDown}
-              hint={wipApplied ? "Shortfall remaining after eligible WIP" : "Equals physical shortage while WIP coverage is unavailable"}
+              hint="Still needed after work in progress"
             />
             <KpiCard
               label="Plan Coverage"
@@ -488,7 +485,7 @@ export function DemandCalculationOverview() {
               unit="pcs"
               intent="success"
               icon={ShieldCheck}
-              hint="Approved rough plan pieces"
+              hint="Coverage from approved plans"
             />
             <KpiCard
               label="Remaining Req"
@@ -496,7 +493,7 @@ export function DemandCalculationOverview() {
               unit="pcs"
               intent="critical"
               icon={AlertTriangle}
-              hint="Pipeline − Plan Coverage"
+              hint="Still needed after approved plans"
             />
             <KpiCard
               label="Total Excess"
@@ -504,7 +501,7 @@ export function DemandCalculationOverview() {
               unit="pcs"
               intent="warning"
               icon={Package}
-              hint="Stock − Target (advisory)"
+              hint="Stock above target"
             />
             <KpiCard
               label="Memo Stock"
@@ -512,14 +509,13 @@ export function DemandCalculationOverview() {
               unit="pcs"
               intent="default"
               icon={Info}
-              hint="Memo does NOT reduce shortage"
+              hint="Not deducted from shortage"
             />
           </div>
 
           {/* Planning Categories Table */}
           <Section
             title="Planning Categories"
-            description="Normalized Lab + Shape + Weight Band breakdown. Server-authoritative calculations with full traceability."
             actions={
               <div className="flex items-center gap-2">
                 <Badge variant="neutral" className="gap-1">
@@ -567,26 +563,26 @@ export function DemandCalculationOverview() {
             <DialogHeader>
               <DialogTitle className="text-sm font-semibold flex items-center gap-2">
                 <Unlock className="h-4 w-4 text-amber-500" />
-                Unlock Demand Calculation Engine
+                Unlock Demand Calculation
               </DialogTitle>
               <DialogDescription className="text-xs text-muted-foreground">
-                Releasing an active engine lock requires an explicit justification for audit logging and operational safety.
+                A reason is required to unlock the calculation.
               </DialogDescription>
             </DialogHeader>
 
             <div className="py-3">
               <label className="text-[11px] font-medium text-foreground block mb-1">
-                Justification Reason <span className="text-rose-500">*</span>
+                Reason <span className="text-rose-500">*</span>
               </label>
               <Input
                 value={unlockReason}
                 onChange={(e) => setUnlockReason(e.target.value)}
-                placeholder="e.g. Stale lock cleanup after worker process timeout"
+                placeholder="e.g. Previous calculation did not finish"
                 className="h-8 text-xs"
                 autoFocus
               />
               <span className="text-[10px] text-muted-foreground mt-1 block">
-                Minimum 3 characters. Stored immutably in system audit logs.
+                At least 3 characters.
               </span>
             </div>
 

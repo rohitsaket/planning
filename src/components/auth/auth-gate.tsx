@@ -10,6 +10,8 @@ import { BrandingPanel } from "@/components/auth/login/branding-panel";
 import { DailyMotivation, type DailyMotivationProps } from "@/components/auth/login/daily-motivation";
 import { LoginForm } from "@/components/auth/login/login-form";
 import { AccessRequestForm } from "@/components/auth/login/access-request-form";
+import { DiamondMark } from "@/components/brand/diamond-mark";
+import { ThemeToggle } from "@/components/layout/app-shell";
 
 interface LoginContext {
   branding: ErpBrand;
@@ -74,14 +76,19 @@ export function AuthGate({ children }: { children: ReactNode }) {
   if (status === "signed-in") return <>{children}</>;
   if (status === "loading") {
     return (
-      <div className="flex h-full w-full items-center justify-center bg-[#F3F7FC] text-sm text-slate-500 dark:bg-slate-950 dark:text-slate-400">
+      <div className="flex h-full w-full items-center justify-center bg-background text-sm text-muted-foreground">
         Loading…
       </div>
     );
   }
 
   return (
-    <main className="h-full w-full overflow-y-auto bg-white lg:grid lg:grid-cols-[52%_48%] dark:bg-slate-950">
+    <main className="relative h-full w-full overflow-y-auto bg-background lg:grid lg:grid-cols-[50%_50%] xl:grid-cols-[52%_48%]">
+      {/* Theme toggle in top-right corner of screen */}
+      <div className="absolute top-4 right-4 z-20">
+        <ThemeToggle />
+      </div>
+
       {/* Branding: a full column on desktop, hidden on small screens where the
           compact motivation strip below the form carries it instead. */}
       <div className="hidden lg:block h-full">
@@ -90,15 +97,23 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
       <div className="flex min-h-full flex-col justify-center px-5 py-10 sm:px-10 lg:px-14 overflow-y-auto">
         {/* Mobile/tablet brand lockup — the desktop panel is hidden there. */}
-        <header className="mb-8 lg:hidden">
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-50">
+        <header className="mb-6 lg:hidden max-w-[460px] mx-auto w-full">
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[#FFE2D0]/95 dark:bg-[#25201D] border border-[#F5CEB5] dark:border-[#3D322C] shadow-2xs mb-3 w-fit">
+            <div className="h-6 w-6 rounded-lg bg-[#18181B] text-white flex items-center justify-center flex-shrink-0 shadow-xs">
+              <DiamondMark className="h-3.5 w-3.5" />
+            </div>
+            <span className="text-[11px] font-black tracking-tight text-[#18181B] dark:text-[#FFEDD5]">
+              Planning ERP Platform
+            </span>
+          </div>
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground">
             {ctx.branding.name.split(" ").slice(0, -1).join(" ")}{" "}
-            <span className="text-blue-600 dark:text-blue-400">{ctx.branding.name.split(" ").slice(-1)}</span>
+            <span className="text-[#F9733E]">{ctx.branding.name.split(" ").slice(-1)}</span>
           </h1>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{ctx.branding.tagline}</p>
+          <p className="mt-1 text-xs sm:text-sm text-muted-foreground">{ctx.branding.tagline}</p>
         </header>
 
-        <div className="flex justify-center lg:justify-start">
+        <div className="flex justify-center">
           {mode === "signin" ? (
             <LoginForm onAuthenticated={setUser} onRequestAccess={() => setMode("request")} />
           ) : (
@@ -108,9 +123,9 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
         {/* Motivation follows the form on small screens so the primary action
             stays above the fold. */}
-        <div className="mx-auto mt-10 w-full max-w-[520px] lg:hidden">
+        <div className="mx-auto mt-8 w-full max-w-[460px] lg:hidden">
           <DailyMotivation {...motivation} />
-          <p className="mt-6 text-center text-xs text-slate-400 dark:text-slate-500">
+          <p className="mt-6 text-center text-xs text-muted-foreground">
             © {new Date().getFullYear()} {ctx.branding.name}
             {ctx.version && <span className="tabular-nums"> · v{ctx.version}</span>}
           </p>
@@ -136,7 +151,7 @@ export function UserMenu() {
 
   return (
     <div className="flex items-center gap-2 pl-1 sm:pl-2">
-      <div className="flex items-center gap-2 px-2 py-1 rounded-full bg-[#F1F5F9] dark:bg-slate-800 border border-[#DCE3EC] dark:border-slate-700">
+      <div className="flex items-center gap-2 px-2 py-1 rounded-full bg-muted/60 dark:bg-[#1E2330] border border-border">
         <div className="h-6 w-6 rounded-full bg-[#FFEAD8] dark:bg-amber-950/60 text-[#F9733E] dark:text-amber-400 font-bold text-[10px] flex items-center justify-center shrink-0 border border-[#F0DFD0] dark:border-amber-900/50">
           {initials}
         </div>

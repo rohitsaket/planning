@@ -18,7 +18,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Diamond Manufacturing ERP — Analysis · Requirement · Planning · Traceability",
+  title: "Diamond Planning Utility — Analysis · Requirement · Planning · Traceability",
   description: "Enterprise diamond manufacturing analysis, sales intelligence, demand & requirement engine, rough planning, manufacturing traceability, plan-vs-actual and data science platform.",
   keywords: ["diamond", "manufacturing", "ERP", "planning", "traceability", "requirement", "yield"],
   authors: [{ name: "Fantasy Diamond Holdings" }],

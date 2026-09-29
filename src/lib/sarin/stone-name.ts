@@ -1,5 +1,5 @@
 /**
- * Sarin Stone Name identity, by the batch's declared stone type (never inferred):
+ * Sarin Stone Name identity, by the batch's declared packet type (never inferred):
  *
  *   BLUE, WHITE   Kapan-Packet Signer    e.g. 691C-117 DC, 2501-001 HA
  *   PINK          Kapan-Packet_Signer    e.g. 678-111_M
@@ -12,7 +12,7 @@
  * Server-only.
  */
 
-import type { SarinStoneType } from "@/lib/sarin/domain";
+import type { SarinPacketType } from "@/lib/sarin/domain";
 
 if (typeof window !== "undefined") {
   throw new Error("sarin/stone-name is server-only and must not be imported by client code.");
@@ -35,12 +35,12 @@ const PATTERN = {
   UNDERSCORE: /^([A-Za-z0-9]+)-([A-Za-z0-9]+)_([A-Za-z0-9]+)$/,
 } as const;
 
-const SEPARATOR: Record<SarinStoneType, "SPACE" | "UNDERSCORE"> = { BLUE: "SPACE", WHITE: "SPACE", PINK: "UNDERSCORE" };
+const SEPARATOR: Record<SarinPacketType, "SPACE" | "UNDERSCORE"> = { BLUE: "SPACE", WHITE: "SPACE", PINK: "UNDERSCORE" };
 
-export function parseSarinStoneName(name: string, stoneType: SarinStoneType): StoneNameParse {
+export function parseSarinStoneName(name: string, packetType: SarinPacketType): StoneNameParse {
   if (name !== name.trim()) return { ok: false, code: "STONE_NAME_SURROUNDING_WHITESPACE" };
 
-  const own = SEPARATOR[stoneType];
+  const own = SEPARATOR[packetType];
   const m = PATTERN[own].exec(name);
   if (m) return { ok: true, kapan: m[1], packet: m[2], signer: m[3] };
 

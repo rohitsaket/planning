@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, test } from "./harness";
 import { readFileSync, readdirSync, writeFileSync, mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { call, makeUser, resetDb } from "./helpers";
@@ -112,7 +113,10 @@ describe("runtime 401/403 sweep over every handler", () => {
       }
       rows.push(`| ${e.method} ${e.route} | ${e.guard} | ${anon} | ${cells.join(" | ")} |`);
     }
-    const out = path.join(ROOT, "security-audit/remediation");
+    // The tracked matrix is documentation: it is rewritten only on request
+    // (ROUTE_SWEEP_MATRIX=update). An ordinary run writes its matrix to the system temp
+    // directory, so verification leaves no documentation change behind.
+    const out = process.env.ROUTE_SWEEP_MATRIX === "update" ? path.join(ROOT, "security-audit/remediation") : path.join(tmpdir(), "planning-route-sweep");
     mkdirSync(out, { recursive: true });
     writeFileSync(
       path.join(out, "route-sweep-matrix.md"),

@@ -8,7 +8,7 @@
 
 import { createHash } from "node:crypto";
 import { beforeAll, beforeEach, describe, expect, test } from "./harness";
-import { call, db, ensureCountryRegistry, ensureLabRegistry, makeUser, resetDb } from "./helpers";
+import { call, db, ensureLabRegistry, makeUser, resetDb } from "./helpers";
 import { resetRateLimits } from "@/lib/api/rate-limit";
 import { validateNumericEnv } from "@/lib/config/numeric-env";
 import { GET as listImports, POST as uploadImport } from "@/app/api/planning/sarin/imports/route";
@@ -51,7 +51,7 @@ async function upload(o: UploadOptions = {}) {
   resetRateLimits(); // the limiter is defence in depth, not what these tests exercise
   const fd = new FormData();
   for (const f of o.files ?? []) fd.append("file", new File([(typeof f.bytes === "string" ? new TextEncoder().encode(f.bytes) : f.bytes) as BlobPart], f.name ?? "sarin.csv", { type: f.type ?? "text/csv" }));
-  const fields = { stoneType: "BLUE", country: "IN", planningDate: "2026-09-26", ...(o.fields ?? {}) };
+  const fields = { packetType: "BLUE", planningDate: "2026-09-26", ...(o.fields ?? {}) };
   for (const [k, v] of Object.entries(fields)) {
     if (v === undefined) continue;
     for (const one of Array.isArray(v) ? v : [v]) fd.append(k, one);
@@ -102,8 +102,7 @@ beforeAll(async () => {
   await db.$executeRawUnsafe(`TRUNCATE ${SARIN_TABLES.map((t) => `"${t}"`).join(", ")}`);
   await db.userAccessScope.deleteMany({});
   // Uploads are checked against the canonical registries since validation hardening.
-  await ensureCountryRegistry(["IN", "BE"]);
-  await ensureLabRegistry(["GIA"]);
+  await ensureLabRegistry(["GIA", "IGI"]);
   planner = await makeUser("ingest.planner", "PLANNER");
   viewer = await makeUser("ingest.viewer", "VIEWER");
   planningViewer = await makeUser("ingest.pviewer", "PLANNING_VIEWER");
@@ -129,11 +128,11 @@ describe("sarin ingestion: authorization and scope", () => {
 
   test("a planner's upload is stored as UPLOADED and says so honestly", async () => {
     const content = csv(3);
-    const r = await uploadCsv(planner.cookie, content, { stoneType: "WHITE", planningDate: "2026-09-01" });
+    const r = await uploadCsv(planner.cookie, content, { packetType: "WHITE", planningDate: "2026-09-01" });
     expect(r.status).toBe(201);
     expect([r.json.created, r.json.duplicate]).toEqual([true, false]);
     const b = r.json.batch;
-    expect([b.status, b.validationAttempts, b.stoneType, b.planningDate, b.country, b.labId]).toEqual(["UPLOADED", 0, "WHITE", "2026-09-01", "IN", null]);
+    expect([b.status, b.validationAttempts, b.packetType, b.planningDate, b.labId, "country" in b]).toEqual(["UPLOADED", 0, "WHITE", "2026-09-01", null, false]);
     expect(b.counts).toEqual({ records: 3, accepted: 3, quarantined: 0, rejectedStructure: 0 });
     expect([b.sourceFile.fileName, b.sourceFile.byteSize, b.sourceFile.sha256]).toEqual(["sarin.csv", Buffer.byteLength(content), sha256(content)]);
     // Stored, not validated: the response makes no claim beyond that.
@@ -144,46 +143,51 @@ describe("sarin ingestion: authorization and scope", () => {
     expect(audits.map((a) => [a.actorUserId, a.outcome])).toEqual([[planner.user.id, "SUCCESS"]]);
   });
 
-  test("an upload outside the actor's country or lab is refused with 403 and audited as denied", async () => {
+  test("an upload outside the actor's lab is refused with 403 and audited as denied; a country scope does not restrict Sarin uploads", async () => {
+    // Sarin imports carry no country: a country-scoped actor uploads, and a country field is not part of the contract.
     const scoped = await makeUser("ingest.scoped.in", "PLANNER");
     await grantScope(scoped.user.id, ["IN"], []);
-    const before = await counts();
-    expect((await uploadCsv(scoped.cookie, csv(1), { country: "BE" })).status).toBe(403);
-    expect(await counts()).toEqual(before);
-    const denied = await db.auditLog.findFirstOrThrow({ where: { action: "SARIN_IMPORT_UPLOAD_REJECTED", actorUserId: scoped.user.id } });
-    expect([denied.outcome, JSON.parse(denied.after!).reasonCode]).toEqual(["DENIED", "FORBIDDEN"]);
-    expect((await uploadCsv(scoped.cookie, csv(1), { country: "IN" })).status).toBe(201);
+    expect((await uploadCsv(scoped.cookie, csv(1))).status).toBe(201);
+    const withCountry = await uploadCsv(scoped.cookie, csv(2), { country: "IN" });
+    expect([withCountry.status, withCountry.json.error.code]).toEqual([400, "UNKNOWN_FIELD"]);
 
     const labbed = await makeUser("ingest.scoped.lab", "PLANNER");
     await grantScope(labbed.user.id, [], ["GIA"]);
+    const before = await counts();
     expect((await uploadCsv(labbed.cookie, csv(1), { labId: "HRD" })).status).toBe(403);
+    expect(await counts()).toEqual(before);
+    const denied = await db.auditLog.findFirstOrThrow({ where: { action: "SARIN_IMPORT_UPLOAD_REJECTED", actorUserId: labbed.user.id } });
+    expect([denied.outcome, JSON.parse(denied.after!).reasonCode, "country" in JSON.parse(denied.after!)]).toEqual(["DENIED", "FORBIDDEN", false]);
     // A lab-limited actor must declare a lab, or the batch would sit outside their own scope.
     expect((await uploadCsv(labbed.cookie, csv(1))).status).toBe(403);
     const ok = await uploadCsv(labbed.cookie, csv(1), { labId: "GIA" });
     expect([ok.status, ok.json.batch.labId]).toEqual([201, "GIA"]);
   });
 
-  test("reads are scoped in the query: other countries are absent from lists, totals and lookups", async () => {
-    const be = (await uploadCsv(planner.cookie, csv(2), { country: "BE" })).json.batch;
-    const inn = (await uploadCsv(planner.cookie, csv(2), { country: "IN" })).json.batch;
-    const reader = await makeUser("ingest.reader.in", "PLANNING_VIEWER");
-    await grantScope(reader.user.id, ["IN"], []);
+  test("reads are scoped in the query: other labs are absent from lists, totals and lookups; country scope does not narrow them", async () => {
+    const igi = (await uploadCsv(planner.cookie, csv(2), { labId: "IGI" })).json.batch;
+    const gia = (await uploadCsv(planner.cookie, csv(2), { labId: "GIA" })).json.batch;
+    const noLab = (await uploadCsv(planner.cookie, csv(3))).json.batch;
+    const reader = await makeUser("ingest.reader.gia", "PLANNING_VIEWER");
+    await grantScope(reader.user.id, [], ["GIA"]);
 
     const l = await list(reader.cookie, "?pageSize=100");
     expect(l.status).toBe(200);
-    expect(l.json.rows.every((r: any) => r.country === "IN")).toBe(true);
-    expect(l.json.total).toBe(await db.sarinImportBatch.count({ where: { country: "IN" } }));
-    expect(l.json.rows.some((r: any) => r.id === inn.id)).toBe(true);
-    expect((await list(reader.cookie, "?country=BE")).status).toBe(403);
+    expect(l.json.rows.every((r: any) => r.labId === "GIA")).toBe(true);
+    expect(l.json.total).toBe(await db.sarinImportBatch.count({ where: { labScope: "GIA", status: { not: "ARCHIVED" } } }));
+    expect(l.json.rows.some((r: any) => r.id === gia.id)).toBe(true);
+    expect((await list(reader.cookie, "?lab=IGI")).status).toBe(403);
 
-    expect((await detail(reader.cookie, be.id)).status).toBe(404);
-    expect((await rows(reader.cookie, be.id)).status).toBe(404);
-    expect((await detail(reader.cookie, inn.id)).status).toBe(200);
-
+    expect((await detail(reader.cookie, igi.id)).status).toBe(404);
+    expect((await rows(reader.cookie, igi.id)).status).toBe(404);
     // A lab-limited reader cannot see a batch that declares no lab.
-    const labReader = await makeUser("ingest.reader.lab", "PLANNING_VIEWER");
-    await grantScope(labReader.user.id, [], ["GIA"]);
-    expect((await detail(labReader.cookie, inn.id)).status).toBe(404);
+    expect((await detail(reader.cookie, noLab.id)).status).toBe(404);
+    expect((await detail(reader.cookie, gia.id)).status).toBe(200);
+
+    // A country-limited reader sees every lab-free and lab import: Sarin imports carry no country.
+    const countryReader = await makeUser("ingest.reader.country", "PLANNING_VIEWER");
+    await grantScope(countryReader.user.id, ["IN"], []);
+    expect([(await detail(countryReader.cookie, igi.id)).status, (await detail(countryReader.cookie, noLab.id)).status]).toEqual([200, 200]);
   });
 
   test("read permission governs history: the auditor reads, the viewer is refused", async () => {
@@ -302,20 +306,21 @@ describe("sarin ingestion: file safety", () => {
     expect((await upload({ cookie: planner.cookie, files: [{ bytes: csv(1), name: "SARIN.CSV", type: "application/octet-stream" }] })).status).toBe(201);
   });
 
-  test("the multipart contract is exact: one file, the five fields, nothing else, nothing defaulted", async () => {
+  test("the multipart contract is exact: one file, the declared fields, nothing else", async () => {
     const before = await counts();
     const cases: Array<[string, UploadOptions, string]> = [
       ["two files", { files: [{ bytes: csv(1) }, { bytes: csv(1) }] }, "MULTIPLE_FILES"],
       ["no file", { files: [] }, "FILE_MISSING"],
       ["unknown field", { files: [{ bytes: csv(1) }], fields: { uploadedByUserId: "someone-else" } }, "UNKNOWN_FIELD"],
-      ["repeated field", { files: [{ bytes: csv(1) }], fields: { stoneType: ["BLUE", "PINK"] } }, "REPEATED_FIELD"],
+      ["repeated field", { files: [{ bytes: csv(1) }], fields: { packetType: ["BLUE", "PINK"] } }, "REPEATED_FIELD"],
       ["no planning date", { files: [{ bytes: csv(1) }], fields: { planningDate: undefined } }, "INVALID_PLANNING_DATE"],
       ["impossible date", { files: [{ bytes: csv(1) }], fields: { planningDate: "2026-02-30" } }, "INVALID_PLANNING_DATE"],
       ["timestamp, not a date", { files: [{ bytes: csv(1) }], fields: { planningDate: "2026-09-26T00:00:00Z" } }, "INVALID_PLANNING_DATE"],
-      ["no stone type", { files: [{ bytes: csv(1) }], fields: { stoneType: undefined } }, "INVALID_STONE_TYPE"],
-      ["lower-case stone type", { files: [{ bytes: csv(1) }], fields: { stoneType: "blue" } }, "INVALID_STONE_TYPE"],
-      ["no country", { files: [{ bytes: csv(1) }], fields: { country: undefined } }, "INVALID_COUNTRY"],
-      ["country name", { files: [{ bytes: csv(1) }], fields: { country: "India" } }, "INVALID_COUNTRY"],
+      ["no packet type", { files: [{ bytes: csv(1) }], fields: { packetType: undefined } }, "INVALID_PACKET_TYPE"],
+      ["lower-case packet type", { files: [{ bytes: csv(1) }], fields: { packetType: "blue" } }, "INVALID_PACKET_TYPE"],
+      ["a country field", { files: [{ bytes: csv(1) }], fields: { country: "IN" } }, "UNKNOWN_FIELD"],
+      ["the retired stone type field", { files: [{ bytes: csv(1) }], fields: { stoneType: "BLUE" } }, "UNKNOWN_FIELD"],
+      ["an unknown packet type", { files: [{ bytes: csv(1) }], fields: { packetType: "GREEN" } }, "INVALID_PACKET_TYPE"],
       ["bad lab", { files: [{ bytes: csv(1) }], fields: { labId: "../GIA" } }, "INVALID_LAB"],
     ];
     for (const [label, o, code] of cases) {
@@ -447,18 +452,24 @@ describe("sarin ingestion: idempotency and concurrency", () => {
     expect(await db.auditLog.count({ where: { action: "SARIN_IMPORT_DUPLICATE_REUSED", entityId: first.json.batch.id } })).toBe(1);
   });
 
-  test("an archived matching import is still the historical record", async () => {
+  test("an archived matching import stays history: the same upload becomes a new import beside it", async () => {
     const content = csv(2);
     const first = (await uploadCsv(planner.cookie, content)).json.batch;
     await db.sarinImportBatch.update({ where: { id: first.id }, data: { status: "ARCHIVED", archivedAt: new Date() } });
+    const archived = await db.sarinImportBatch.findUniqueOrThrow({ where: { id: first.id } });
     const again = await uploadCsv(planner.cookie, content);
-    expect([again.status, again.json.duplicate, again.json.batch.id, again.json.batch.status]).toEqual([200, true, first.id, "ARCHIVED"]);
+    expect([again.status, again.json.duplicate, again.json.batch.id === first.id, again.json.batch.status]).toEqual([201, false, false, "UPLOADED"]);
+    // A further identical upload now returns that new active import, never the archived one.
+    const third = await uploadCsv(planner.cookie, content);
+    expect([third.status, third.json.duplicate, third.json.batch.id]).toEqual([200, true, again.json.batch.id]);
+    expect(await db.sarinImportBatch.findUniqueOrThrow({ where: { id: first.id } })).toEqual(archived);
+    expect(await db.sarinSourceFile.count({ where: { sha256: sha256(content) } })).toBe(1);
   });
 
   test("the same bytes as a different type or planning date are distinct imports sharing one source file", async () => {
     const content = csv(2);
     const blue = (await uploadCsv(planner.cookie, content)).json.batch;
-    const pink = await uploadCsv(planner.cookie, content, { stoneType: "PINK" });
+    const pink = await uploadCsv(planner.cookie, content, { packetType: "PINK" });
     const later = await uploadCsv(planner.cookie, content, { planningDate: "2026-09-27" });
     expect([pink.status, later.status]).toEqual([201, 201]);
     expect(new Set([blue.id, pink.json.batch.id, later.json.batch.id]).size).toBe(3);
@@ -473,8 +484,7 @@ describe("sarin ingestion: idempotency and concurrency", () => {
       Array.from({ length: 5 }, async () => {
         const fd = new FormData();
         fd.append("file", new File([content], "sarin.csv", { type: "text/csv" }));
-        fd.append("stoneType", "BLUE");
-        fd.append("country", "IN");
+        fd.append("packetType", "BLUE");
         fd.append("planningDate", "2026-09-26");
         const encoded = new Response(fd);
         return { body: new Uint8Array(await encoded.arrayBuffer()), type: encoded.headers.get("content-type")! };
@@ -515,7 +525,7 @@ describe("sarin ingestion: idempotency and concurrency", () => {
     };
     const stored: string[][] = [];
     for (const [size, date] of [[1, "2026-10-01"], [7, "2026-10-02"], [1000, "2026-10-03"]] as const) {
-      const request = { bytes, originalFileName: "sarin.csv", sanitizedFileName: "sarin.csv", stoneType: "BLUE" as const, country: "IN", labId: null, planningDate: date };
+      const request = { bytes, originalFileName: "sarin.csv", sanitizedFileName: "sarin.csv", packetType: "BLUE" as const, labId: null, planningDate: date };
       const result = await ingestSarinSource(actor, request, { lines: decoded.lines, records, encoding: decoded.encoding }, { rowInsertBatchSize: size, transactionTimeoutMs: 60_000 });
       expect(result.created).toBe(true);
       const r = await db.sarinSourceRow.findMany({ where: { batchId: result.batch.id }, orderBy: { sourceRowNumber: "asc" } });
@@ -598,8 +608,8 @@ describe("sarin ingestion: bounded history and row pages", () => {
     expect([a.status, a.json.rows.length, a.json.hasMore]).toEqual([200, 2, true]);
     const ordered = [...a.json.rows, ...b.json.rows].map((r: any) => r.createdAt);
     expect(ordered).toEqual([...ordered].sort().reverse());
-    const pink = await list(planner.cookie, "?stoneType=PINK&pageSize=100");
-    expect(pink.json.rows.every((r: any) => r.stoneType === "PINK")).toBe(true);
-    expect(pink.json.total).toBe(await db.sarinImportBatch.count({ where: { stoneType: "PINK" } }));
+    const pink = await list(planner.cookie, "?packetType=PINK&pageSize=100");
+    expect(pink.json.rows.every((r: any) => r.packetType === "PINK")).toBe(true);
+    expect(pink.json.total).toBe(await db.sarinImportBatch.count({ where: { packetType: "PINK" } }));
   });
 });

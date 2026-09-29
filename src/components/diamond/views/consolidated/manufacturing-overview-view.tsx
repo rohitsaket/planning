@@ -18,7 +18,7 @@ export function ManufacturingOverviewView() {
   return (
     <TabbedHostView
       title="Manufacturing Overview"
-      subtitle="Factory-floor stone progress, manufacturing department throughput, factory locations, and live WIP stages"
+      subtitle="Stone progress, departments, locations and work in progress"
       tabs={TABS}
       defaultTab="tracking"
     />

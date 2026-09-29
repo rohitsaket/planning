@@ -16,7 +16,7 @@ export function PredictiveModelsView() {
   return (
     <TabbedHostView
       title="Predictive Models"
-      subtitle="Experimental yield predictions, rough stone anomaly detection, and training registry"
+      subtitle="Experimental yield predictions and anomaly checks"
       tabs={TABS}
       defaultTab="anomaly"
       advisory={true}

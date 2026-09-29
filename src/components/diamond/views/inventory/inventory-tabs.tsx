@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Database, Info, Search } from "lucide-react";
 import { SimulationBanner } from "@/components/diamond/shared/simulation-banner";
 import type { SourceDisclosure } from "@/lib/analysis/source-disclosure";
+import { bucketLabel } from "@/lib/analysis/bucket-vocabulary";
 
 /**
  * ANALYSIS INVENTORY — current canonical stock.
@@ -95,6 +96,14 @@ function url(scope: string, extra: Record<string, string | number>): string {
 // ---------------------------------------------------------------------------
 
 const GROUPINGS = ["bucket", "country", "branch", "lab", "shape", "weightBand"] as const;
+const GROUPING_LABEL: Record<(typeof GROUPINGS)[number], string> = {
+  bucket: "Bucket",
+  country: "Country",
+  branch: "Branch",
+  lab: "Lab",
+  shape: "Shape",
+  weightBand: "Weight band",
+};
 
 export function InventoryPositionTab() {
   const scope = useScope();
@@ -103,11 +112,11 @@ export function InventoryPositionTab() {
 
   const columns: Column<PositionResponse["rows"][number]>[] = [
     {
-      key: "groupKey", header: grouping === "bucket" ? "Inventory bucket" : grouping, width: "22rem",
+      key: "groupKey", header: grouping === "bucket" ? "Inventory bucket" : GROUPING_LABEL[grouping], width: "22rem",
       cell: (r) => (
         <span className="font-medium">
-          {r.groupKey.replace(/_/g, " ")}
-          {r.shortageEligible && <Badge variant="success" className="ml-2">may reduce shortage</Badge>}
+          {grouping === "bucket" ? bucketLabel(r.groupKey) : r.groupKey}
+          {r.shortageEligible && <Badge variant="success" className="ml-2">Counts as available</Badge>}
         </span>
       ),
     },
@@ -126,12 +135,12 @@ export function InventoryPositionTab() {
       <SimulationBanner disclosure={data?.sourceDisclosure} />
       <Section
         title="Inventory position"
-        description="Every current canonical record appears in exactly one bucket. Only physical available polished stock may reduce finished-stock shortage."
+        description="Current stock by bucket"
         actions={
           <div className="flex flex-wrap items-center gap-1">
             {GROUPINGS.map((g) => (
               <Button key={g} size="sm" variant={grouping === g ? "default" : "outline"} className="h-7 px-2 text-xs" onClick={() => setGrouping(g)}>
-                {g}
+                {GROUPING_LABEL[g]}
               </Button>
             ))}
           </div>
@@ -141,7 +150,7 @@ export function InventoryPositionTab() {
           columns={columns}
           rows={data?.rows ?? []}
           loading={isLoading}
-          emptyMessage="No current canonical inventory matches the active filters."
+          emptyMessage="No current inventory matches the active filters."
           pagination={false}
           exportScope="current-page"
         />
@@ -211,13 +220,13 @@ export function InventoryCategoriesTab() {
       <SimulationBanner disclosure={data?.sourceDisclosure} />
       <Section
         title="Category inventory"
-        description="Current stock by canonical category. This page reports no target, shortage, excess, reorder or priority — those belong to Demand Overview, Stockout Risk and Excess Stock."
+        description="Current stock by category"
       >
         <DataTable
           columns={columns}
           rows={data?.rows ?? []}
           loading={isLoading}
-          emptyMessage="No category holds current canonical inventory under the active filters."
+          emptyMessage="No category has current stock under the active filters."
           pagination={false}
           exportScope="current-page"
         />
@@ -265,7 +274,7 @@ export function InventoryLotsTab() {
         </button>
       ),
     },
-    { key: "bucket", header: "Bucket", width: "16rem", cell: (r) => <Badge variant={r.bucket === "PHYSICAL_AVAILABLE_POLISHED" ? "success" : r.bucket === "REVIEW_REQUIRED" ? "warning" : "default"}>{r.bucket.replace(/_/g, " ")}</Badge> },
+    { key: "bucket", header: "Bucket", width: "16rem", cell: (r) => <Badge variant={r.bucket === "PHYSICAL_AVAILABLE_POLISHED" ? "success" : r.bucket === "REVIEW_REQUIRED" ? "warning" : "default"}>{bucketLabel(r.bucket)}</Badge> },
     { key: "stockType", header: "Type", width: "7rem", cell: (r) => <span className="text-xs">{r.stockType}</span> },
     { key: "lifecycle", header: "Lifecycle", width: "11rem", cell: (r) => <span className="text-xs text-muted-foreground">{r.lifecycle ?? "—"}</span> },
     { key: "holdState", header: "Hold", width: "8rem", cell: (r) => <span className="text-xs">{r.holdState ?? "—"}</span> },
@@ -293,11 +302,11 @@ export function InventoryLotsTab() {
     { key: "location", header: "Location", width: "11rem", cell: (r) => <span className="text-xs text-muted-foreground">{r.location ?? "—"}</span> },
     { key: "lastSeenIst", header: "Last seen", width: "13rem", cell: (r) => <span className="text-xs text-muted-foreground">{r.lastSeenIst ?? "—"}</span> },
     {
-      key: "reviewCodes", header: "Review codes", width: "16rem",
+      key: "reviewCodes", header: "Review", width: "10rem",
       cell: (r) =>
         r.reviewCodes.length === 0 ? <span className="text-xs text-muted-foreground">—</span> : (
           <button type="button" className="text-left text-xs text-primary hover:underline" onClick={() => setView("data-quality-issues")}>
-            {r.reviewCodes.join(", ")}
+            Needs review ({r.reviewCodes.length})
           </button>
         ),
     },
@@ -309,7 +318,7 @@ export function InventoryLotsTab() {
       <SimulationBanner disclosure={data?.sourceDisclosure} />
       <Section
         title="Lot-level inventory"
-        description="Current canonical records only. Sold, transferred and superseded versions are history and never appear here."
+        description="Current lots only"
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <select
@@ -318,7 +327,7 @@ export function InventoryLotsTab() {
               onChange={(e) => { setBucket(e.target.value); setPage(1); }}
             >
               {BUCKET_FILTERS.map((b) => (
-                <option key={b} value={b}>{b === "" ? "All buckets" : b.replace(/_/g, " ")}</option>
+                <option key={b} value={b}>{b === "" ? "All buckets" : bucketLabel(b)}</option>
               ))}
             </select>
             <div className="relative">
@@ -341,7 +350,7 @@ export function InventoryLotsTab() {
           columns={columns}
           rows={data?.rows ?? []}
           loading={isLoading}
-          emptyMessage="No current canonical lot matches the active filters."
+          emptyMessage="No current lot matches the active filters."
           pagination={false}
           exportScope="current-page"
         />
@@ -371,15 +380,15 @@ export function InventoryReconciliationTab() {
 
   const rows: ReconRow[] = data
     ? [
-        { label: "Synchronized canonical inventory (current)", value: data.canonicalCurrent, note: "The authoritative source for every figure on this page.", intent: "success" },
-        { label: "Operational polished mirror rows", value: data.polishedMirrorRows, note: "Mirror table. May corroborate or restrict; never promotes stock.", intent: "default" },
-        { label: "Operational rough mirror rows", value: data.roughMirrorRows, note: "Mirror table.", intent: "default" },
-        { label: "Memo mirror rows", value: data.memoMirrorRows, note: "Mirror table.", intent: "default" },
-        { label: "Present in both canonical and mirror", value: data.presentInBoth, note: "Lots the mirror and canonical storage agree exist.", intent: "default" },
-        { label: "Canonical only", value: data.canonicalOnly, note: "Synchronized records with no operational mirror row.", intent: "default" },
-        { label: "Mirror only — legacy seeded demo rows", value: data.mirrorOnlyLegacySeed, note: "Seeded demonstration records. Not synchronized, not authoritative, and excluded from every total above.", intent: "warning" },
-        { label: "Classification disagreements", value: data.classificationDisagreements, note: "Lots where the mirror's planning class and the canonical classification differ.", intent: data.classificationDisagreements > 0 ? "critical" : "success" },
-        { label: "Shadow projection candidates included", value: data.shadowProjectionCandidates === 0 ? 0 : data.shadowProjectionCandidates, note: "Shadow projection output is never authoritative and never appears in inventory.", intent: "success" },
+        { label: "Current inventory", value: data.canonicalCurrent, note: "Synchronized current lots.", intent: "default" },
+        { label: "Polished records (operational)", value: data.polishedMirrorRows, note: "Operational polished records.", intent: "default" },
+        { label: "Rough records (operational)", value: data.roughMirrorRows, note: "Operational rough records.", intent: "default" },
+        { label: "Memo records", value: data.memoMirrorRows, note: "Operational memo records.", intent: "default" },
+        { label: "Matched records", value: data.presentInBoth, note: "Lots found in both.", intent: "default" },
+        { label: "Inventory only", value: data.canonicalOnly, note: "Not in operational records.", intent: "default" },
+        { label: "Demo records (excluded)", value: data.mirrorOnlyLegacySeed, note: "Demo data, not counted.", intent: data.mirrorOnlyLegacySeed > 0 ? "warning" : "default" },
+        { label: "Classification disagreements", value: data.classificationDisagreements, note: "Lots with conflicting classification.", intent: data.classificationDisagreements > 0 ? "critical" : "default" },
+        { label: "Projection records included", value: data.shadowProjectionCandidates, note: "Projections are never counted as inventory.", intent: data.shadowProjectionCandidates > 0 ? "critical" : "default" },
       ]
     : [];
 
@@ -396,12 +405,11 @@ export function InventoryReconciliationTab() {
       <InfoBanner variant="info">
         <span className="flex items-center gap-2">
           <Info className="h-4 w-4" />
-          Legacy seeded mirror rows are demonstration data. They are listed here for comparison and are
-          never merged into, or promoted onto, authoritative inventory.
+          Demo records are shown for comparison only and are not counted in inventory.
         </span>
       </InfoBanner>
 
-      <Section title="Canonical versus mirror reconciliation" description="How authoritative inventory compares with the operational mirrors and the legacy seed.">
+      <Section title="Inventory reconciliation" description="Inventory compared with operational records">
         {!isLoading && !data ? (
           <EmptyState title="UNAVAILABLE" message="Reconciliation could not be computed." icon={<Database className="h-5 w-5" />} />
         ) : (

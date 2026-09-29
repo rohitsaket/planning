@@ -94,7 +94,7 @@ export const GET = withApi({ permission: "plan.read" }, async (_req: Request, { 
     stoneName: c.stoneName,
     kapan: c.kapan,
     packet: c.packet,
-    stoneType: c.stoneType,
+    packetType: c.packetType,
     roughWeight: num(c.originalRoughWeight),
     planner: c.planner,
     planningDate: c.planningDate.toISOString(),

@@ -229,7 +229,7 @@ export function PlannedPiecesView() {
     <div className="flex flex-col gap-3 p-3">
       <PageHeader
         title="Planned Pieces"
-        subtitle="All planned pieces across cases & options · expected vs actual · fulfilled flag"
+        subtitle="Planned pieces, expected vs actual"
         meta={
           <span className="text-[10px] text-muted-foreground">
             {totalPieces} pieces · {totalFulfilled} fulfilled · {totalExpectedWeight.toFixed(3)} ct expected
@@ -246,13 +246,12 @@ export function PlannedPiecesView() {
           value={totalActualWeight.toFixed(3)}
           unit="ct"
           intent={totalActualWeight > 0 ? "success" : "default"}
-          hint="Sum of fulfilled actual weights"
+          hint="Fulfilled pieces only"
         />
       </div>
 
       <Section
         title="Filters"
-        description="fulfilled toggle · expected shape"
         bodyClassName="p-2"
         actions={
           activeFilters > 0 ? (
@@ -336,7 +335,7 @@ export function PlannedPiecesView() {
 
       <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
         <Package className="h-3 w-3" />
-        Pieces highlighted green are fulfilled — linked to an actual polished lot. Use the search box to find a piece by code, case, or lot.
+        Green rows are fulfilled.
       </div>
     </div>
   );

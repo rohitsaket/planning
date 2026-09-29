@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useApi, apiPost } from "@/lib/api-client";
+import { useAuthStore } from "@/stores/auth-store";
 import { PageHeader, Section } from "@/components/diamond/shared/page-header";
 import { DataTable, type Column } from "@/components/diamond/shared/data-table";
 import { StatusBadge, Badge } from "@/components/diamond/shared/badges";
@@ -109,7 +110,6 @@ interface RequirementDetail {
   orderPriority: string | null;
   requirementPriority: string | null;
   priorityReason: string | null;
-  sourceRecords: unknown;
   allocations: Array<{
     id: string;
     allocatedQty: number;
@@ -192,6 +192,7 @@ export function RequirementsMatrixView() {
 
   // Requirement Priority Override form state
   const [showOverrideForm, setShowOverrideForm] = useState(false);
+  const canOverride = useAuthStore((s) => !!s.user?.permissions.includes("requirement.override"));
   const [newPriority, setNewPriority] = useState<string>("NORMAL");
   const [overrideReason, setOverrideReason] = useState<string>("");
 
@@ -561,7 +562,7 @@ export function RequirementsMatrixView() {
     <div className="flex flex-col gap-3 p-3">
       <PageHeader
         title="Requirements Matrix"
-        subtitle="High-density enterprise requirement grid · Physical Shortage → Pipeline-Adjusted → Plan Coverage → Remaining Unplanned · Filter, search and drill down to four-number evidence"
+        subtitle="Requirements by status, priority and coverage"
         meta={
           <div className="flex items-center gap-2 flex-wrap">
             {globalFilter.hasActiveFilters() && (
@@ -588,7 +589,7 @@ export function RequirementsMatrixView() {
           value={totalRemaining}
           unit="pcs"
           intent="critical"
-          hint="Sum of remainingUnplanned on current page"
+          hint="Quantity still needed on this page"
         />
         <KpiCard label="Overdue Rows" value={totalOverdue} unit="reqs" intent="warning" />
         <KpiCard label="Critical Rows" value={totalCritical} unit="reqs" intent="critical" />
@@ -689,7 +690,7 @@ export function RequirementsMatrixView() {
 
       {/* Saved Views bar — persisted to localStorage */}
       {savedViews.length > 0 && (
-        <Section title="Saved Views" description="Click to apply · persisted in browser localStorage" bodyClassName="p-2">
+        <Section title="Saved Views" description="Click to apply" bodyClassName="p-2">
           <div className="flex items-center gap-1.5 flex-wrap">
             <Bookmark className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
             {savedViews.map((sv) => {
@@ -834,7 +835,7 @@ export function RequirementsMatrixView() {
               {detail && <Badge variant="info">{detail.type.replace(/_/g, " ")}</Badge>}
             </DialogTitle>
             <DialogDescription className="text-[11px]">
-              Four confirmed requirement numbers + source records + allocations. Each number drills down to its evidence.
+              Requirement quantities, priority and allocations.
             </DialogDescription>
           </DialogHeader>
 
@@ -854,28 +855,28 @@ export function RequirementsMatrixView() {
                   value={detail.fourNumbers.physicalShortage}
                   unit="pcs"
                   intent="critical"
-                  hint="Requirement not covered by planning-available stock"
+                  hint="Quantity still needed"
                 />
                 <KpiCard
                   label="2 · Pipeline-Adjusted"
                   value={detail.fourNumbers.pipelineAdjusted}
                   unit="pcs"
                   intent="warning"
-                  hint="Shortfall remaining after eligible WIP"
+                  hint="Still needed after work in progress"
                 />
                 <KpiCard
                   label="3 · Planning-Adjusted"
                   value={detail.fourNumbers.planningAdjusted}
                   unit="pcs"
                   intent="info"
-                  hint="Still unplanned after approved plan coverage"
+                  hint="Still needed after approved plans"
                 />
                 <KpiCard
                   label="4 · Forecast Signal"
                   value={detail.fourNumbers.forecastRequirement}
                   unit="pcs"
                   intent="default"
-                  hint="Advisory — NOT confirmed demand"
+                  hint="Advisory. Not confirmed demand"
                 />
               </div>
 
@@ -900,7 +901,7 @@ export function RequirementsMatrixView() {
                       </span>
                     )}
                   </div>
-                  {!showOverrideForm && (
+                  {canOverride && !showOverrideForm && (
                     <Button
                       size="sm"
                       variant="outline"
@@ -912,12 +913,10 @@ export function RequirementsMatrixView() {
                   )}
                 </div>
 
-                {showOverrideForm && (
+                {canOverride && showOverrideForm && (
                   <div className="flex flex-col gap-2 mt-1 pt-2 border-t border-border/60">
                     <InfoBanner variant="warning">
-                      Manual override is audit-logged. OPEN rule BR-CUST-PRI-001 — customer
-                      priority scoring formula is OPEN; this manual classification is
-                      business-owned.
+                      A reason is required when changing priority.
                     </InfoBanner>
 
                     <div className="grid grid-cols-1 md:grid-cols-[200px_1fr] gap-2">
@@ -947,8 +946,7 @@ export function RequirementsMatrixView() {
                           className="text-[10px] uppercase tracking-wide text-muted-foreground"
                         >
                           Reason{" "}
-                          <span className="text-rose-600 dark:text-rose-400">*</span>{" "}
-                          (min 5 chars, required for audit)
+                          <span className="text-rose-600 dark:text-rose-400">*</span>
                         </Label>
                         <Textarea
                           id="override-reason"
@@ -960,12 +958,9 @@ export function RequirementsMatrixView() {
                             overrideReason.length > 0 && overrideReason.trim().length < 5
                           }
                         />
-                        <span className="text-[10px] text-muted-foreground">
-                          {overrideReason.trim().length} / 5+ chars
-                          {overrideReason.length > 0 &&
-                            overrideReason.trim().length < 5 &&
-                            " — reason too short"}
-                        </span>
+                        {overrideReason.length > 0 && overrideReason.trim().length < 5 && (
+                          <span className="text-[10px] text-muted-foreground">Enter at least 5 characters.</span>
+                        )}
                       </div>
                     </div>
 
@@ -1069,19 +1064,6 @@ export function RequirementsMatrixView() {
                 )}
               </div>
 
-              {/* Source records */}
-              <div className="rounded-md border border-border overflow-hidden">
-                <div className="px-2 py-1.5 border-b border-border bg-muted/40 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  Source Records (JSON)
-                </div>
-                <pre className="text-[10px] leading-relaxed p-2 overflow-x-auto max-h-48 bg-muted/20">
-                  {JSON.stringify(detail.sourceRecords, null, 2)}
-                </pre>
-              </div>
-
-              <InfoBanner variant="info">
-                Four numbers are computed via deterministic formulas with decimal-safe round-half-up. Each step is auditable.
-              </InfoBanner>
             </div>
           )}
         </DialogContent>

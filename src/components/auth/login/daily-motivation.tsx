@@ -14,29 +14,29 @@ export function DailyMotivation({ title, quote, subtitle, author, attribution }:
   return (
     <section
       aria-labelledby="daily-motivation-title"
-      className="rounded-xl border border-white/70 bg-white/70 p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] backdrop-blur-[2px] dark:border-slate-700/60 dark:bg-slate-900/40"
+      className="rounded-2xl border border-[#F5CEB5]/80 bg-white/85 p-5 shadow-2xs backdrop-blur-xs dark:border-[#3D322C] dark:bg-[#151922]/85"
     >
       <div className="flex gap-4">
-        <Sun aria-hidden className="mt-0.5 h-8 w-8 flex-shrink-0 text-blue-600 dark:text-blue-400" strokeWidth={1.5} />
-        <div className="min-w-0 border-l border-slate-200 pl-4 dark:border-slate-700">
-          <h2 id="daily-motivation-title" className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
+        <Sun aria-hidden className="mt-0.5 h-7 w-7 flex-shrink-0 text-[#F9733E]" strokeWidth={1.75} />
+        <div className="min-w-0 border-l border-[#F5CEB5] pl-4 dark:border-[#3D322C]">
+          <h2 id="daily-motivation-title" className="text-[11px] font-bold uppercase tracking-[0.12em] text-[#786960] dark:text-[#A8988E]">
             {title}
           </h2>
           <blockquote className="mt-2">
-            <p className="text-lg font-semibold leading-snug text-slate-900 transition-opacity motion-reduce:transition-none dark:text-slate-100">
+            <p className="text-base sm:text-lg font-semibold leading-snug text-[#18181B] transition-opacity motion-reduce:transition-none dark:text-[#F4F4F5]">
               &ldquo;{quote}&rdquo;
             </p>
-            <div className="mt-3 h-0.5 w-8 rounded-full bg-blue-600 dark:bg-blue-400" />
-            {subtitle && <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">{subtitle}</p>}
-            {author && <footer className="mt-3 text-sm text-slate-500 dark:text-slate-400">— {author}</footer>}
+            <div className="mt-3 h-0.5 w-8 rounded-full bg-[#F9733E]" />
+            {subtitle && <p className="mt-3 text-sm text-[#786960] dark:text-[#A8988E]">{subtitle}</p>}
+            {author && <footer className="mt-3 text-sm text-[#786960] dark:text-[#A8988E]">— {author}</footer>}
           </blockquote>
           {attribution && (
-            <p className="mt-4 text-[11px] text-slate-400 dark:text-slate-500">
+            <p className="mt-4 text-[11px] text-[#A8988E] dark:text-[#786960]">
               <a
                 href={attribution.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="rounded underline decoration-slate-300 underline-offset-2 hover:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 dark:decoration-slate-600 dark:hover:text-slate-300"
+                className="rounded underline decoration-[#F5CEB5] underline-offset-2 hover:text-[#F9733E] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F9733E] dark:decoration-[#3D322C] dark:hover:text-[#F9733E]"
               >
                 {attribution.text}
               </a>

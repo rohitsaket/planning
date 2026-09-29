@@ -601,7 +601,15 @@ async function main() {
 
   // --- UI/API permission agreement (RBAC-A) ---
   assert(viewPermission("fantasy-rough") === "rough.read", "Rough stock page uses the permission its API enforces (rough.read)");
-  assert(viewPermission("planning-workbook-import") === "plan.create", "Workbook import page requires plan.create, as its route does");
+  assert(JSON.stringify(viewPermissions("planning-workbook-import")) === JSON.stringify(["sarin.import.read"]), "Workbook import page admits Sarin import readers, as its read route does");
+  assert(!isViewAuthorized(["sarin.mapping.read"], "planning-workbook-import"), "Shape mapping administration is no longer part of Workbook Import");
+  assert(JSON.stringify(viewPermissions("admin-mappings")) === JSON.stringify(["config.read", "sarin.mapping.read"]), "Mappings opens with config.read or sarin.mapping.read; each tab enforces its own");
+  assert(isViewAuthorized(["sarin.mapping.read"], "admin-mappings") && isViewAuthorized(["config.read"], "admin-mappings") && !isViewAuthorized(["sarin.mapping.manage"], "admin-mappings"), "Mapping readers open Mappings; managing alone does not");
+  assert(viewPermissions("admin-business-rules").length === 0 && viewPermissions("admin-rules-mappings").length === 0 && viewPermissions("admin-sarin-shape-mappings").length === 0, "Business Rules and the old mapping pages are no longer pages");
+  assert(!(PERMISSIONS as readonly string[]).includes("sarin.mapping.approve"), "Mapping approval is withdrawn");
+  assert(!(PERMISSIONS as readonly string[]).some((p) => p.startsWith("business_rule.")), "Business-rule permissions are withdrawn with the Business Rules page and API");
+  assert(isViewAuthorized(permissionsFor("PLANNING_VIEWER"), "planning-workbook-import"), "A Sarin reader without plan.create can open Workbook Import");
+  assert(!isViewAuthorized(permissionsFor("VIEWER"), "planning-workbook-import"), "A role without sarin.import.read cannot open Workbook Import");
   assert(viewPermission("planning-approval-queue") === "plan.read", "Approval queue is readable with plan.read; approving needs plan.approve");
   assert(viewPermission("manufacturing-traceability") === "plan.read", "Traceability uses the same permission at page and API");
   assert(permissionsFor("PLANNING_MANAGER").includes("plan.approve"), "Approval authority is still explicitly assigned");

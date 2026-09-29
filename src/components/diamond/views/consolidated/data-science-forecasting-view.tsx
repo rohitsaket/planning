@@ -15,7 +15,7 @@ export function DataScienceForecastingView() {
   return (
     <TabbedHostView
       title="Forecasting"
-      subtitle="Data science demand forecast modeling, trend extrapolation, and backtest accuracy tracking"
+      subtitle="Advisory demand forecasts and their accuracy"
       tabs={TABS}
       defaultTab="forecast"
       advisory={true}

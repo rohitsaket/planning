@@ -31,6 +31,7 @@ import { SortControls } from "@/components/diamond/views/sales/sort-controls";
 import { salesUrl, useSalesQuery } from "@/components/diamond/views/sales/use-sales-query";
 import { useServerPage } from "@/components/diamond/views/sales/use-server-page";
 import { SimulationBanner } from "@/components/diamond/shared/simulation-banner";
+import { SalesReadinessPanel } from "@/components/diamond/views/sales/sales-readiness-panel";
 import type { SourceDisclosure } from "@/lib/analysis/source-disclosure";
 
 interface SummaryResponse {
@@ -191,7 +192,7 @@ export function SalesAnalysisView() {
       <SimulationBanner disclosure={data?.sourceDisclosure} />
       <PageHeader
         title="Sales Analysis"
-        subtitle="Confirmed historical sales by Lab + Shape + Weight Band — quantity, carat weight and record count kept separate"
+        subtitle="Confirmed sales by lab, shape and weight band"
         actions={
           canExport && (
             <Button
@@ -208,15 +209,17 @@ export function SalesAnalysisView() {
         meta={<SalesFilterBar />}
       />
 
-      {error && (
+      {error ? (
         <InfoBanner variant="critical">Sales history could not be loaded. {error.message}</InfoBanner>
+      ) : (
+        <SalesReadinessPanel readiness={readiness} loading={isLoading} />
       )}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-        <KpiCard label="Confirmed Quantity" value={totals.confirmedQuantity} unit="pcs" intent="success" hint={`Σ confirmed sale quantity in the ${windowLabel} snapshot`} icon={Package} />
-        <KpiCard label="Confirmed Weight" value={totals.confirmedWeight.toFixed(2)} unit="ct" intent="default" hint="Σ measured carat weight — not a piece count" icon={Gem} />
-        <KpiCard label="Sale Records" value={totals.recordCount} intent="info" hint="Contributing records — not a piece quantity" icon={Rows3} />
-        <KpiCard label="Categories" value={totals.categories} intent="default" hint="Matching Lab + Shape + Weight Band categories" icon={Layers} />
+        <KpiCard label="Confirmed Quantity" value={totals.confirmedQuantity} unit="pcs" intent="success" hint={`Pieces sold in the ${windowLabel} window`} icon={Package} />
+        <KpiCard label="Confirmed Weight" value={totals.confirmedWeight.toFixed(2)} unit="ct" intent="default" hint="Carat weight sold" icon={Gem} />
+        <KpiCard label="Sale Records" value={totals.recordCount} intent="info" hint="Number of sale records" icon={Rows3} />
+        <KpiCard label="Categories" value={totals.categories} intent="default" hint="Categories with sales" icon={Layers} />
       </div>
 
       {/* Navigation Tabs */}
@@ -267,7 +270,6 @@ export function SalesAnalysisView() {
       {activeTab === "summary" && (
         <Section
           title="Category Sales Summary"
-          description="Grouped by Lab + Shape + Weight Band. Filtering, sorting and paging all happen on the server."
           actions={<SortControls keys={CATEGORY_SORT_KEYS} labels={CATEGORY_SORT_LABELS} value={sort} onChange={setSort} label="Sort the category summary" />}
           bodyClassName="p-0"
         >
@@ -277,7 +279,7 @@ export function SalesAnalysisView() {
             loading={isLoading}
             emptyMessage={
               readiness?.state === "NOT_RUN"
-                ? "No authoritative sales snapshot has completed, so there is no confirmed sales history to show."
+                ? "No sales data yet."
                 : "No confirmed sales match these filters."
             }
             maxHeight={DATA_TABLE_VIEWPORT_MAX_HEIGHT}
@@ -300,8 +302,8 @@ export function SalesAnalysisView() {
           title="Supporting Records"
           description={
             selectedCategory
-              ? `The exact confirmed sale records behind ${selectedCategory}.`
-              : "The exact confirmed sale records behind the figures above. Choose Records on a category in the Summary tab to narrow this list."
+              ? `Sale records for ${selectedCategory}`
+              : "Select Records on a category to narrow this list."
           }
           actions={<SortControls keys={RECORD_SORT_KEYS} labels={RECORD_SORT_LABELS} value={recordSort} onChange={setRecordSort} label="Sort the supporting records" />}
           bodyClassName="p-0"

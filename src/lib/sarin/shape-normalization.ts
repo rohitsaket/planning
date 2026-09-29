@@ -1,5 +1,5 @@
 /**
- * Resolves a raw Sarin shape against one APPROVED mapping set.
+ * Resolves a raw Sarin shape against one captured shape-mapping snapshot.
  *
  * The lookup key is the raw shape trimmed and upper-cased — the confirmed policy
  * ("compares trimmed Shape text without case sensitivity", design v1.7 §15.10). Nothing

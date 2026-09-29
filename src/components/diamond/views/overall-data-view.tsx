@@ -3,6 +3,7 @@
 import { useState, useMemo } from "react";
 import { useApi, apiFetch } from "@/lib/api-client";
 import { useGlobalFilter } from "@/stores/global-filter";
+import { useAuthStore } from "@/stores/auth-store";
 import { PageHeader, Section } from "@/components/diamond/shared/page-header";
 import { KpiCard } from "@/components/diamond/shared/kpi-card";
 import { DataTable, type Column } from "@/components/diamond/shared/data-table";
@@ -124,8 +125,16 @@ interface LotTimelineResponse {
   }>;
 }
 
+/** Business labels for why a lot left current stock; an unknown code reads "Removed". */
+const REMOVAL_LABEL: Record<string, string> = {
+  EXPLICIT_SALE: "Sold",
+  SOURCE_DISAPPEARANCE_UNKNOWN: "Removed (no sale)",
+};
+const removalLabel = (code: string | null) => (code ? REMOVAL_LABEL[code] ?? "Removed" : "Removed");
+
 export function OverallDataView() {
   const globalFilter = useGlobalFilter();
+  const canExport = useAuthStore((s) => !!s.user?.permissions.includes("overall.export"));
   const [filterMode, setFilterMode] = useState<"all" | "current" | "historical">("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedLotId, setSelectedLotId] = useState<string | null>(null);
@@ -156,7 +165,7 @@ export function OverallDataView() {
       if (globalFilter.branch) params.set("branch", globalFilter.branch);
       if (globalFilter.lab) params.set("lab", globalFilter.lab);
       window.open(`/api/fantasy/overall/export?${params.toString()}`, "_blank");
-      toast.success("Export initiated", { description: "Overall Data CSV export download started." });
+      toast.success("Export opened in a new tab");
     } catch {
       toast.error("Export failed", { description: "Failed to download Overall Data export." });
     }
@@ -190,7 +199,7 @@ export function OverallDataView() {
           <StatusBadge status={r.currentStatus} />
           {r.isCurrent ? (
             <span className="text-[9px] px-1 py-0.2 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-medium">
-              Live
+              Current
             </span>
           ) : (
             <span className="text-[9px] px-1 py-0.2 rounded bg-muted text-muted-foreground font-medium">
@@ -256,20 +265,20 @@ export function OverallDataView() {
         if (r.removalReason === "SOURCE_DISAPPEARANCE_UNKNOWN") {
           return (
             <Pill className="bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 text-[10px]">
-              <AlertTriangle className="h-3 w-3 mr-1" /> Disappeared (Unknown)
+              <AlertTriangle className="h-3 w-3 mr-1" /> Removed (no sale)
             </Pill>
           );
         }
         if (r.removalReason === "EXPLICIT_SALE") {
           return (
             <Pill className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 text-[10px]">
-              <CheckCircle2 className="h-3 w-3 mr-1" /> Explicit Sale
+              <CheckCircle2 className="h-3 w-3 mr-1" /> Sold
             </Pill>
           );
         }
         return (
-          <span className="text-xs text-muted-foreground font-mono">
-            {r.removalReason || "REMOVED"}
+          <span className="text-xs text-muted-foreground">
+            {removalLabel(r.removalReason)}
           </span>
         );
       },
@@ -305,29 +314,27 @@ export function OverallDataView() {
     <div className="flex flex-col gap-3 p-3">
       <PageHeader
         title="Overall Data"
-        subtitle="Authoritative permanent current and historical Lot records retained across all Fantasy sync batches"
+        subtitle="Current and past lot records from Fantasy"
         actions={
-          <div className="flex items-center gap-2">
+          canExport ? (
             <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5" onClick={handleExport}>
-              <Download className="h-3.5 w-3.5" /> Export Historical Archive (CSV)
+              <Download className="h-3.5 w-3.5" /> Export CSV
             </Button>
-          </div>
+          ) : undefined
         }
       />
 
-      {/* Prominent Simulation Banner */}
+      {data?.isSimulated && (
       <InfoBanner variant="warning">
         <div className="flex items-center gap-2">
           <FlaskConical className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
           <div>
             <strong className="font-semibold text-amber-700 dark:text-amber-300">SIMULATION MODE:</strong>{" "}
-            <span>
-              Overall Data is currently populated via deterministic Fantasy fixture synchronization batches. Historical states,
-              explicit sales, and unknown feed disappearances are preserved permanently with mathematical audit lineage.
-            </span>
+            <span>Simulated data from Fantasy test fixtures, not live.</span>
           </div>
         </div>
       </InfoBanner>
+      )}
 
       {/* KPI Summary Grid */}
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
@@ -335,7 +342,7 @@ export function OverallDataView() {
           label="Total Lots Retained"
           value={summary?.total ?? 0}
           intent="default"
-          hint="All lots ever synchronized"
+          hint="All lots on record"
         />
         <KpiCard
           label="Active Current Stock"
@@ -350,13 +357,13 @@ export function OverallDataView() {
           hint="Sold, transferred, or completed"
         />
         <KpiCard
-          label="Explicit Invoiced Sales"
+          label="Invoiced Sales"
           value={summary?.sold ?? 0}
           intent="success"
           hint="Confirmed invoice sale events"
         />
         <KpiCard
-          label="Unknown Feed Disappearances"
+          label="Removed Without Sale"
           value={summary?.removedUnknown ?? 0}
           intent={summary && summary.removedUnknown > 0 ? "warning" : "default"}
           hint="Disappeared without sale invoice"
@@ -364,7 +371,7 @@ export function OverallDataView() {
       </div>
 
       {/* Table & Filtering Section */}
-      <Section title="Master Lot Repository" description="Permanent searchable record index with complete immutable version histories">
+      <Section title="Master Lot Repository" description="Search lots and view their history">
         <div className="flex flex-col sm:flex-row items-center justify-between gap-2 mb-3">
           <div className="flex items-center gap-1.5 bg-muted/40 p-1 rounded-md border border-border">
             <button
@@ -383,7 +390,7 @@ export function OverallDataView() {
                 filterMode === "current" ? "bg-background text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
               }`}
             >
-              Live Current ({summary?.active ?? 0})
+              Current ({summary?.active ?? 0})
             </button>
             <button
               type="button"
@@ -426,10 +433,10 @@ export function OverallDataView() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-base">
               <History className="h-5 w-5 text-primary" />
-              <span>Lot History & State Timeline: {selectedLotId}</span>
+              <span>Lot History: {selectedLotId}</span>
             </DialogTitle>
             <DialogDescription className="text-xs">
-              Complete chronological audit trail of state changes, location transfers, and synchronization checkpoints.
+              Status and location changes over time.
             </DialogDescription>
           </DialogHeader>
 
@@ -451,9 +458,6 @@ export function OverallDataView() {
                       <Badge variant="neutral">Historical Record</Badge>
                     )}
                   </div>
-                  <span className="text-[10px] text-muted-foreground font-mono">
-                    Batch: {detailData.lot.lastSyncBatchId}
-                  </span>
                 </div>
 
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-border/50 text-[11px]">
@@ -475,7 +479,7 @@ export function OverallDataView() {
                   </div>
                   {detailData.lot.sourceRecordId && (
                     <div>
-                      <span className="text-muted-foreground">Source Rec ID:</span>{" "}
+                      <span className="text-muted-foreground">Source ID:</span>{" "}
                       <strong className="font-mono">{detailData.lot.sourceRecordId}</strong>
                     </div>
                   )}
@@ -485,7 +489,7 @@ export function OverallDataView() {
               {/* Version Timeline */}
               <div className="space-y-3">
                 <h4 className="text-xs font-semibold text-foreground uppercase tracking-wider">
-                  State Mutation History ({detailData.timeline.length} versions)
+                  History ({detailData.timeline.length} versions)
                 </h4>
 
                 <div className="relative pl-6 space-y-4 before:absolute before:left-2.5 before:top-2 before:bottom-2 before:w-0.5 before:bg-border">
@@ -497,7 +501,7 @@ export function OverallDataView() {
                           <div className="flex items-center gap-2">
                             <strong className="font-semibold text-foreground">Version {item.version}</strong>
                             <StatusBadge status={item.status} />
-                            <span className="text-[10px] text-muted-foreground">({item.changeReason || "SYNC_UPDATE"})</span>
+                            <span className="text-[10px] text-muted-foreground">({item.changeReason ? item.changeReason.replace(/_/g, " ").toLowerCase() : "updated"})</span>
                           </div>
                           <span className="text-[10px] text-muted-foreground">{item.recordedAtIST}</span>
                         </div>
@@ -524,7 +528,7 @@ export function OverallDataView() {
                           )}
                           {item.removalReason && (
                             <div>
-                              <span>Removal Reason:</span> <strong className="text-amber-600 dark:text-amber-400">{item.removalReason}</strong>
+                              <span>Removal Reason:</span> <strong className="text-amber-600 dark:text-amber-400">{removalLabel(item.removalReason)}</strong>
                             </div>
                           )}
                         </div>

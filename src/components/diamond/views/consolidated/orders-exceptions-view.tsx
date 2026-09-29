@@ -15,7 +15,7 @@ export function OrdersExceptionsView() {
   return (
     <TabbedHostView
       title="Orders and Exceptions"
-      subtitle="Committed sales orders, customer backorders, special production requests, and priority order tracking"
+      subtitle="Sales orders, backorders and special requests"
       tabs={TABS}
       defaultTab="orders"
     />

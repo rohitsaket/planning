@@ -70,7 +70,7 @@ export const GET = withApi(
   return ok({
     // The policy's availability, its explanation and whether it applies coverage are
     // what a planner acts on. Its internal identifier and version identify a rule record
-    // in the configuration store and belong to the Business Rules page.
+    // in the configuration store and are not shown.
     policy: {
       status: classified.policy.status,
       reason: classified.policy.reason,

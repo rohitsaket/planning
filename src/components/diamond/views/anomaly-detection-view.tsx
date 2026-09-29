@@ -277,7 +277,7 @@ export function AnomalyDetectionView() {
     <div className="flex flex-col gap-3 p-3">
       <PageHeader
         title="Anomaly Detection"
-        subtitle="Categories trading outside their established range — advisory, not confirmed demand"
+        subtitle="Categories selling outside their usual range"
         meta={
           data ? (
             <span className="text-[10px] text-muted-foreground">
@@ -291,7 +291,7 @@ export function AnomalyDetectionView() {
         <div className="flex items-start gap-2">
           <AlertOctagon className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
           <div>
-            <strong>Advisory only.</strong> Anomaly detection flags statistical outliers for investigation. Never auto-trigger production orders based on anomalies.
+            <strong>Advisory only.</strong> Investigate before acting — do not raise production orders from these flags.
           </div>
         </div>
       </InfoBanner>
@@ -346,7 +346,7 @@ export function AnomalyDetectionView() {
       {/* Scatter plot: expected (x) vs observed (y) */}
       <Section
         title="Expected vs Observed Sales Velocity"
-        description="Each point is one flagged planning category. Points above the diagonal sold more than usual; below, less than usual. Colour shows how far outside the category's established range the month sits."
+        description="Above the line: sold more than usual. Below: less."
         actions={
           <Badge variant="info" className="gap-1">
             <Activity className="h-2.5 w-2.5" /> {scatterData.length} points
@@ -407,7 +407,7 @@ export function AnomalyDetectionView() {
                   stroke="#94a3b8"
                   strokeDasharray="4 4"
                   ifOverflow="extendDomain"
-                  label={{ value: "y = x (expected)", position: "top", fontSize: 9, fill: "#94a3b8" }}
+                  label={{ value: "Expected", position: "top", fontSize: 9, fill: "#94a3b8" }}
                 />
                 <Scatter name="Anomalies" data={scatterData}>
                   {scatterData.map((p, i) => (
@@ -435,7 +435,7 @@ export function AnomalyDetectionView() {
             <span className="h-2 w-2 rounded-full" style={{ background: SEVERITY_COLORS.LOW }} /> LOW
           </span>
           <span className="inline-flex items-center gap-1">
-            <span className="h-0 w-4 border-t-2 border-dashed border-slate-400" /> Reference y = x
+            <span className="h-0 w-4 border-t-2 border-dashed border-slate-400" /> Expected level
           </span>
         </div>
       </Section>
@@ -443,7 +443,7 @@ export function AnomalyDetectionView() {
       {/* Anomalies table */}
       <Section
         title="Detected Anomalies"
-        description="Sortable list of all flagged categories — severity-colored rows. Investigate before acting."
+        description="Flagged categories, most significant first"
         actions={
           summary ? (
             <div className="flex items-center gap-1.5">
@@ -490,40 +490,6 @@ export function AnomalyDetectionView() {
         />
       </Section>
 
-      {/* What this page reports */}
-      <Section title="How to read this page" description="What a flagged category means">
-        <div className="text-[11px] text-muted-foreground space-y-1.5 leading-relaxed">
-          <p>
-            <strong className="text-foreground">Baseline:</strong> Each planning category
-            (lab | shape | weight band) is compared against its own recent trading history
-            — the eleven calendar months of invoiced sales before the latest month. A
-            category is only ever compared with itself, never with another category.
-          </p>
-          <p>
-            <strong className="text-foreground">Flagging:</strong> The latest month is
-            flagged when it falls well outside the range that category normally trades in.
-            Steady categories are therefore flagged by a smaller change than volatile ones.
-          </p>
-          <p>
-            <strong className="text-foreground">Movement:</strong> Unusually high means the
-            category sold more than its established range; unusually low, less. Severity
-            says how far outside that range the month sits —
-            <span className="text-rose-600 dark:text-rose-400"> HIGH</span>,
-            <span className="text-amber-600 dark:text-amber-400"> MEDIUM</span> or
-            <span className="text-sky-600 dark:text-sky-400"> LOW</span> — and sets the
-            order of the list.
-          </p>
-          <p>
-            <strong className="text-foreground">Change %</strong> is the difference between
-            the latest month and the category’s usual level, as a percentage of that
-            usual level.
-          </p>
-          <p>
-            Flagged categories are <strong className="text-foreground">advisory</strong>. A
-            flag is a prompt to investigate, not a conclusion about demand.
-          </p>
-        </div>
-      </Section>
         </>
       )}
     </div>

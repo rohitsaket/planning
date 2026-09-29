@@ -70,7 +70,8 @@ interface SignalsResponse {
   advisory: boolean;
   stale: boolean;
   rows: SignalRow[];
-  paging: { page: number; pageSize: number; total: number; hasMore: boolean };
+  // Absent when the run is unavailable: the response is then a state, not a page.
+  paging?: { page: number; pageSize: number; total: number; hasMore: boolean };
   totals: {
     categoriesNeedingAttention: number;
     uncoveredQuantity: number;
@@ -150,8 +151,8 @@ export function ReorderSignalsView() {
       key: "uncoveredQuantity", header: "Uncovered (pcs)", align: "right",
       cell: (r) => <NumberCell value={r.uncoveredQuantity} intent="critical" zeroAsDash />,
     },
-    { key: "memoQuantity", header: "Memo — advisory (pcs)", align: "right", cell: (r) => <NumberCell value={r.memoQuantity} zeroAsDash /> },
-    { key: "wipQuantity", header: "WIP — separate (pcs)", align: "right", cell: (r) => <NumberCell value={r.wipQuantity} zeroAsDash /> },
+    { key: "memoQuantity", header: "Memo (pcs)", align: "right", cell: (r) => <NumberCell value={r.memoQuantity} zeroAsDash /> },
+    { key: "wipQuantity", header: "WIP (pcs)", align: "right", cell: (r) => <NumberCell value={r.wipQuantity} zeroAsDash /> },
     {
       key: "signal", header: "Current signal", width: "11rem",
       cell: (r) => <Badge variant={SIGNAL_VARIANT[r.signal]}>{SIGNAL_LABELS[r.signal]}</Badge>,
@@ -191,7 +192,7 @@ export function ReorderSignalsView() {
     <div className="space-y-4 p-3">
       <PageHeader
         title="Reorder Signals"
-        subtitle="Categories whose finished stock does not cover the stored demand target — advisory only"
+        subtitle="Categories below target stock — advisory only"
         actions={
           canRunDemand ? (
             <Button size="sm" variant="outline" className="h-8" onClick={() => setView("demand-overview")}>
@@ -242,7 +243,7 @@ export function ReorderSignalsView() {
           )}
           {scopeIgnored && (
             <InfoBanner variant="info">
-              The country and branch filters do not apply to this page. {s.countryScopeNotice}
+              The country and branch filters do not apply to this page.
             </InfoBanner>
           )}
         </div>
@@ -250,7 +251,7 @@ export function ReorderSignalsView() {
 
       <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
         <KpiCard label="Needing attention" value={hasRun ? (totals?.categoriesNeedingAttention ?? 0) : "NOT RUN"} intent="warning" icon={AlertTriangle} hint="Target not covered by available finished stock" />
-        <KpiCard label="Uncovered quantity" value={hasRun ? (totals?.uncoveredQuantity ?? 0) : "NOT RUN"} unit="pcs" intent="critical" hint="As calculated by the demand run" />
+        <KpiCard label="Uncovered quantity" value={hasRun ? (totals?.uncoveredQuantity ?? 0) : "NOT RUN"} unit="pcs" intent="critical" hint="Quantity still needed" />
         <KpiCard label="Out of stock" value={hasRun ? (totals?.categoriesOutOfStock ?? 0) : "NOT RUN"} intent="critical" icon={PackageX} hint="Target exists and nothing is available" />
         <KpiCard label="Needing review" value={hasRun ? (totals?.categoriesRequiringReview ?? 0) : "NOT RUN"} intent="default" hint="Excluded from the totals shown here" />
       </div>
@@ -259,7 +260,7 @@ export function ReorderSignalsView() {
         title="Signals"
         description={
           hasRun
-            ? "Memo is advisory and WIP is shown separately; neither reduces the uncovered quantity."
+            ? "Memo and WIP are shown separately."
             : "Signals come from a completed 90-day demand calculation."
         }
         actions={
@@ -297,10 +298,10 @@ export function ReorderSignalsView() {
               exportScope="current-page"
             />
             <ServerPagination
-              page={signals.data?.paging.page ?? 1}
-              pageSize={signals.data?.paging.pageSize ?? PAGE_SIZE}
-              total={signals.data?.paging.total ?? 0}
-              hasMore={signals.data?.paging.hasMore ?? false}
+              page={signals.data?.paging?.page ?? 1}
+              pageSize={signals.data?.paging?.pageSize ?? PAGE_SIZE}
+              total={signals.data?.paging?.total ?? 0}
+              hasMore={signals.data?.paging?.hasMore ?? false}
               onPageChange={setPage}
               loading={signals.isLoading}
               label="signals"

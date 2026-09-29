@@ -25,7 +25,7 @@ export function SalesAnalysisTrendsView() {
   return (
     <TabbedHostView
       title="Sales Analysis & Trends"
-      subtitle="Confirmed historical sales from the authoritative sales snapshot — quantity, carat weight and record count kept separate"
+      subtitle="Confirmed sales by category and period"
       tabs={SALES_ANALYSIS_TABS}
       defaultTab={SALES_ANALYSIS_DEFAULT_TAB}
     />

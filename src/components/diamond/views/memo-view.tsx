@@ -101,45 +101,6 @@ export function MemoView() {
         { name: "180+", qty: filteredAgeBuckets["180+"] },
       ])
     : [];
-  const byCountry = filteredByCountry;
-  const qtySpark = useMemo(() => {
-    const slice = byCountry.slice(0, 7).map((r) => r.qty);
-    while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 1);
-    return slice;
-  }, [byCountry]);
-  const valueSpark = useMemo(() => {
-    const slice = byCountry.slice(0, 7).map((r) => r.value);
-    while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 1);
-    return slice;
-  }, [byCountry]);
-  // Avg Age sparkline — 5 age buckets (0-30, 31-60, 61-90, 91-180, 180+) → pad to 7
-  const avgAgeSpark = useMemo(() => {
-    if (filteredAgeBuckets) {
-      const slice = [
-        filteredAgeBuckets["0-30"],
-        filteredAgeBuckets["31-60"],
-        filteredAgeBuckets["61-90"],
-        filteredAgeBuckets["91-180"],
-        filteredAgeBuckets["180+"],
-      ];
-      while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 1);
-      return slice;
-    }
-    return undefined;
-  }, [filteredAgeBuckets]);
-
-  // Aged > 90D sparkline — derived from ageBuckets (sum of 91-180 + 180+),
-  // shown as a 2-point [91-180, 180+] series padded to 7 with the last value
-  const agedSpark = useMemo(() => {
-    if (filteredAgeBuckets) {
-      const base = [filteredAgeBuckets["91-180"], filteredAgeBuckets["180+"]];
-      const slice = [...base];
-      while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 1);
-      return slice.length >= 2 ? slice : undefined;
-    }
-    return [3, 5, 4, 6, 8, 7, 9];
-  }, [filteredAgeBuckets]);
-
   const aggColumns: Column<MemoAggRow>[] = [
     {
       key: "dimension", header: "Group", sortable: true, sortValue: (r) => r.dimension,
@@ -200,26 +161,26 @@ export function MemoView() {
                 ].filter(Boolean).join(", ")}
               </span>
             )}
-            <span className="text-[10px] text-muted-foreground">{filteredRows.length} memo lots across {filteredByCountry.length} countries</span>
+            <span className="text-[10px] text-muted-foreground">{(data?.total ?? 0).toLocaleString()} memo lots across {filteredByCountry.length} countries</span>
           </div>
         }
       />
 
       <InfoBanner variant="warning">
-        <strong>Memo does NOT reduce shortage.</strong> Memo is a <strong>separate decision context</strong> — memo stones remain physically in the customer's possession but are still owned by the company until invoiced. Shortage reflects target stock not covered by physically available finished stock.
+        Memo stock does not reduce shortage.
       </InfoBanner>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
-        <KpiCard label="Total Qty" value={filteredTotalQty} unit="pcs" intent="info" hint="All memo lots" icon={FileText} sparkline={qtySpark} />
-        <KpiCard label="Total Value" value={`$${(filteredTotalValue / 1000).toFixed(1)}K`} intent="warning" hint="Memo exposure at cost" icon={DollarSign} sparkline={valueSpark} />
+        <KpiCard label="Total Qty" value={filteredTotalQty} unit="pcs" intent="info" hint="All memo lots" icon={FileText} />
+        <KpiCard label="Total Value" value={`$${(filteredTotalValue / 1000).toFixed(1)}K`} intent="warning" hint="Memo exposure at cost" icon={DollarSign} />
         <KpiCard label="Avg Age" value={
           filteredRows.length > 0
             ? Math.round(filteredRows.reduce((s, r) => s + (r.memoAgeDays ?? 0), 0) / filteredRows.length)
             : 0
-        } unit="days" intent="default" hint="Mean across all open memos" icon={Clock} sparkline={avgAgeSpark} />
+        } unit="days" intent="default" hint="Average age, this page" icon={Clock} />
         <KpiCard label="Aged > 90D" value={
           filteredAgeBuckets["91-180"] + filteredAgeBuckets["180+"]
-        } unit="pcs" intent="critical" hint="Memos needing follow-up" icon={AlertTriangle} sparkline={agedSpark} />
+        } unit="pcs" intent="critical" hint="Memos needing follow-up" icon={AlertTriangle} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
@@ -247,7 +208,7 @@ export function MemoView() {
         </Section>
       </div>
 
-      <Section title="Age Buckets" description="Memo count by age bucket — 91-180D and 180+ are slow conversion">
+      <Section title="Age Buckets" description="Memo count by age">
         <div className="h-56">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={ageChartData} margin={{ top: 4, right: 8, bottom: 8, left: 0 }}>
@@ -268,7 +229,7 @@ export function MemoView() {
         </div>
       </Section>
 
-      <Section title="Memo Detail" description="Memo lots with full stone characteristics and aging — one server page at a time">
+      <Section title="Memo Detail" description="Memo lots with stone details and age">
         <DataTable<MemoRow>
           columns={detailColumns}
           rows={filteredRows}
@@ -280,7 +241,7 @@ export function MemoView() {
           exportPermission="sales.export"
           exportFilename="memos.csv"
           searchable
-          searchPlaceholder="Search lotId, customer, country, shape..."
+          searchPlaceholder="Search lot, customer, country, shape..."
           searchFn={(r, q) => `${r.lotId} ${r.customerName} ${r.country} ${r.branch} ${r.shape} ${r.lab ?? ""}`.toLowerCase().includes(q.toLowerCase())}
           exportScope="current-page"
           maxHeight="560px"

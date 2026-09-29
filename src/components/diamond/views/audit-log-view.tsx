@@ -69,12 +69,12 @@ export function AuditLogView() {
     <div className="flex flex-col gap-3 p-3">
       <PageHeader
         title="Audit Log"
-        subtitle="Append-only record of all system mutations"
+        subtitle="Record of all changes made in the system"
         meta={<span className="text-[10px] text-muted-foreground">{data?.rows.length ?? 0} entries</span>}
       />
 
       <InfoBanner variant="info">
-        <strong className="font-semibold">Append-only audit trail.</strong> Store: Actor, Action, Entity, Entity ID, Before, After, Reason, Timestamp, Correlation ID, Session/IP.
+        Audit entries cannot be edited or deleted.
       </InfoBanner>
 
       <Section
@@ -110,7 +110,7 @@ export function AuditLogView() {
                 <SelectItem value="REJECT">REJECT</SelectItem>
               </SelectContent>
             </Select>
-            <Input value={actor} onChange={(e) => setActor(e.target.value)} placeholder="Actor (exact)" className="h-8 w-[160px] text-xs" />
+            <Input value={actor} onChange={(e) => setActor(e.target.value)} placeholder="Actor username" className="h-8 w-[160px] text-xs" />
             <div className="relative flex-1 min-w-[180px] max-w-xs">
               <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
               <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search entries..." className="h-8 pl-7 text-xs" />

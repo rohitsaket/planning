@@ -32,6 +32,7 @@ import {
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 import { KpiGridSkeleton, ChartSkeleton, TableSkeleton } from "@/components/diamond/shared/skeleton";
+import { packetTypeName } from "@/lib/domain/packet-type";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -42,7 +43,7 @@ interface PredictionRow {
   caseId: string;
   caseCode: string;
   stoneName: string;
-  stoneType: string;
+  packetType: string;
   roughWeight: number;
   plannedYieldPct: number;
   predictedActualYield: number;
@@ -223,18 +224,18 @@ export function YieldPredictionView() {
       ),
     },
     {
-      key: "stoneType",
-      header: "Stone Type",
+      key: "packetType",
+      header: "Packet Type",
       align: "center",
       sortable: true,
-      sortValue: (r) => r.stoneType,
+      sortValue: (r) => r.packetType,
       cell: (r) => (
         <Badge
           variant={
-            r.stoneType === "BLUE" ? "info" : "neutral"
+            r.packetType === "BLUE" ? "info" : "neutral"
           }
         >
-          {r.stoneType}
+          {packetTypeName(r.packetType)}
         </Badge>
       ),
     },
@@ -443,10 +444,7 @@ export function YieldPredictionView() {
         <div className="flex items-start gap-2">
           <AlertOctagon className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
           <div>
-            <strong>PREDICTION — </strong>
-            Yield prediction is advisory. Never auto-approve or auto-reject a
-            plan based on predicted yield alone.{" "}
-            <strong>OPEN rule:</strong> model selection logic is unconfirmed.
+            <strong>Advisory only.</strong> Do not approve or reject a plan on predicted yield alone.
           </div>
         </div>
       </InfoBanner>
@@ -476,11 +474,11 @@ export function YieldPredictionView() {
           unit="%"
           intent="info"
           icon={TrendingUp}
-          hint="Last 5 reconciliations — PRIMARY baseline"
+          hint="Average of the last 5 results"
           sparkline={maSpark}
         />
         <KpiCard
-          label="Naive Last Period"
+          label="Last Actual Yield"
           value={summary ? summary.naiveLastPeriodYield.toFixed(2) : "—"}
           unit="%"
           intent="default"
@@ -489,7 +487,7 @@ export function YieldPredictionView() {
           sparkline={naiveSpark}
         />
         <KpiCard
-          label="Exp. Smoothed"
+          label="Weighted Recent Yield"
           value={summary ? summary.exponentialSmoothedYield.toFixed(2) : "—"}
           unit="%"
           intent="info"
@@ -507,79 +505,21 @@ export function YieldPredictionView() {
           sparkline={stdSpark}
         />
         <KpiCard
-          label="MAE"
+          label="Average Error"
           value={summary ? summary.mae.toFixed(2) : "—"}
           unit="pp"
           intent="warning"
           icon={AlertTriangle}
-          hint="Mean abs error of plan→actual"
+          hint="Average gap between plan and actual"
           sparkline={maeSpark}
         />
       </div>
 
-      {/* Methodology */}
-      <Section
-        title="Methodology — Baseline Forecasting"
-        description="Naive Last Period · Moving Average · Exponential Smoothing (spec §61)"
-      >
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 overflow-x-auto">
-          <div className="rounded-md border border-border bg-muted/30 p-3">
-            <div className="flex items-center gap-1.5 mb-1">
-              <Activity className="h-3.5 w-3.5 text-muted-foreground" />
-              <span className="text-[11px] font-semibold text-foreground">
-                Naive Last Period
-              </span>
-            </div>
-            <p className="text-[10px] text-muted-foreground leading-relaxed">
-              <span className="font-mono text-foreground">
-                ŷ<sub>t+1</sub> = y<sub>t</sub>
-              </span>{" "}
-              — the most recent actual yield. Fastest, but sensitive to noise.
-            </p>
-            <p className="mt-1.5 text-[10px] tabular-nums text-foreground font-medium">
-              {summary ? summary.naiveLastPeriodYield.toFixed(2) : "—"}%
-            </p>
-          </div>
-          <div className="rounded-md border border-sky-200/60 bg-sky-50/60 dark:border-sky-900/60 dark:bg-sky-950/20 p-3">
-            <div className="flex items-center gap-1.5 mb-1">
-              <TrendingUp className="h-3.5 w-3.5 text-sky-600 dark:text-sky-400" />
-              <span className="text-[11px] font-semibold text-foreground">
-                Moving Average (5) — PRIMARY
-              </span>
-            </div>
-            <p className="text-[10px] text-muted-foreground leading-relaxed">
-              <span className="font-mono text-foreground">
-                ŷ<sub>t+1</sub> = (1/5) · Σ<sub>i=t-4..t</sub> y<sub>i</sub>
-              </span>{" "}
-              — mean of the last 5 actual yields. Smoother than naive.
-            </p>
-            <p className="mt-1.5 text-[10px] tabular-nums text-sky-700 dark:text-sky-300 font-medium">
-              {summary ? summary.movingAverageYield.toFixed(2) : "—"}%
-            </p>
-          </div>
-          <div className="rounded-md border border-border bg-muted/30 p-3">
-            <div className="flex items-center gap-1.5 mb-1">
-              <TrendingUp className="h-3.5 w-3.5 text-muted-foreground" />
-              <span className="text-[11px] font-semibold text-foreground">
-                Exponential Smoothing (α=0.3)
-              </span>
-            </div>
-            <p className="text-[10px] text-muted-foreground leading-relaxed">
-              <span className="font-mono text-foreground">
-                S<sub>t</sub> = α·y<sub>t</sub> + (1−α)·S<sub>t-1</sub>
-              </span>{" "}
-              — recursive; recent observations weighted higher.
-            </p>
-            <p className="mt-1.5 text-[10px] tabular-nums text-foreground font-medium">
-              {summary ? summary.exponentialSmoothedYield.toFixed(2) : "—"}%
-            </p>
-          </div>
-        </div>
-
-        <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-2 text-[10px] overflow-x-auto">
+      <Section title="Prediction Summary">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[10px] overflow-x-auto">
           <div className="rounded-md border border-border bg-muted/30 px-2 py-1.5">
             <p className="text-muted-foreground uppercase tracking-wide">
-              Bias (signed mean residual)
+              Bias
             </p>
             <p
               className={cn(
@@ -596,7 +536,7 @@ export function YieldPredictionView() {
           </div>
           <div className="rounded-md border border-border bg-muted/30 px-2 py-1.5">
             <p className="text-muted-foreground uppercase tracking-wide">
-              MAE (model accuracy)
+              Average Error
             </p>
             <p className="tabular-nums font-semibold text-amber-600 dark:text-amber-400">
               {summary ? summary.mae.toFixed(2) : "—"}
@@ -614,7 +554,7 @@ export function YieldPredictionView() {
           </div>
           <div className="rounded-md border border-border bg-muted/30 px-2 py-1.5">
             <p className="text-muted-foreground uppercase tracking-wide">
-              Confidence (1 − CV)
+              Confidence
             </p>
             <p className="tabular-nums font-semibold text-sky-600 dark:text-sky-400">
               {summary ? `${Math.round(summary.confidence * 100)}%` : "—"}
@@ -623,28 +563,17 @@ export function YieldPredictionView() {
         </div>
 
         <div className="mt-3 text-[10px] text-muted-foreground leading-relaxed">
-          <strong className="text-foreground">Risk classification:</strong> how far the
-          predicted yield sits from what past results for this category would lead you to
-          expect —{" "}
-          <span style={{ color: RISK_COLORS.HIGH }}>HIGH</span>{" "}·{" "}
-          <span style={{ color: RISK_COLORS.MEDIUM }}>MEDIUM</span>{" "}·{" "}
-          <span style={{ color: RISK_COLORS.LOW }}>LOW</span>. Variance is the predicted
-          actual yield minus the planned yield, signed.
-        </div>
-
-        <div className="mt-2 text-[10px] text-muted-foreground/80 italic leading-relaxed">
-          {data?.basis}
-        </div>
-
-        <div className="mt-2 rounded-md border border-amber-200/60 bg-amber-50/40 dark:border-amber-900/40 dark:bg-amber-950/10 px-2 py-1.5 text-[10px] text-amber-900 dark:text-amber-200 leading-relaxed">
-          <strong>Advisory:</strong> {data?.advisoryNotice}
+          Risk shows how far the prediction is from past results:{" "}
+          <span style={{ color: RISK_COLORS.HIGH }}>High</span>{" "}·{" "}
+          <span style={{ color: RISK_COLORS.MEDIUM }}>Medium</span>{" "}·{" "}
+          <span style={{ color: RISK_COLORS.LOW }}>Low</span>. Variance is predicted yield minus planned yield.
         </div>
       </Section>
 
       {/* Historical Accuracy chart */}
       <Section
         title="Historical Plan vs Actual Yield"
-        description="Each reconciliation: planned yield (slate) vs actual yield (emerald), with variance line (signed)."
+        description="Planned vs actual yield for each reconciliation"
         actions={
           historical.length > 0 ? (
             <Badge variant="info" className="gap-1">
@@ -743,7 +672,7 @@ export function YieldPredictionView() {
 
       {/* Prediction Interval chart */}
       <Section
-        title="Prediction Interval — Un-reconciled Cases"
+        title="Expected Yield Range — Open Cases"
         description="Predicted actual yield with its expected range, coloured by risk level. The dashed line is the planned yield."
         actions={
           predictions.length > 0 ? (
@@ -829,7 +758,7 @@ export function YieldPredictionView() {
                       | { name?: string; risk?: RiskLevel; variance?: number; fullLower?: number; fullUpper?: number }
                       | undefined;
                     return p
-                      ? `${p.name ?? ""} · risk=${p.risk ?? ""} · variance=${p.variance?.toFixed(2) ?? ""} · interval=[${p.fullLower?.toFixed(2) ?? ""}, ${p.fullUpper?.toFixed(2) ?? ""}]`
+                      ? `${p.name ?? ""} · Risk: ${p.risk ?? ""} · Variance: ${p.variance?.toFixed(2) ?? ""} · Range: ${p.fullLower?.toFixed(2) ?? ""}–${p.fullUpper?.toFixed(2) ?? ""}`
                       : "";
                   }}
                 />
@@ -887,7 +816,7 @@ export function YieldPredictionView() {
       {/* Predictions table */}
       <Section
         title="Yield Predictions — Active Cases"
-        description="Approved / released planning cases awaiting reconciliation. Predicted from baseline moving average."
+        description="Approved cases awaiting reconciliation"
       >
         <DataTable<PredictionRow>
           columns={predColumns}
@@ -903,7 +832,7 @@ export function YieldPredictionView() {
             return (
               r.caseCode.toLowerCase().includes(lq) ||
               r.stoneName.toLowerCase().includes(lq) ||
-              r.stoneType.toLowerCase().includes(lq) ||
+              r.packetType.toLowerCase().includes(lq) ||
               r.riskLevel.toLowerCase().includes(lq) ||
               r.selectedOptionCode.toLowerCase().includes(lq)
             );
@@ -927,13 +856,13 @@ export function YieldPredictionView() {
       {/* Historical reconciliations table */}
       <Section
         title="Historical Reconciliations"
-        description="Plan-actual reconciliation records — the baseline training data for predictions."
+        description="Past plan vs actual results"
       >
         <DataTable<HistoricalRow>
           columns={histColumns}
           rows={historical}
           loading={isLoading}
-          emptyMessage="No reconciliation records found — baseline cannot be computed yet."
+          emptyMessage="No reconciliation records yet."
           initialSortKey="planOptionCode"
           initialSortDir="asc"
           searchable

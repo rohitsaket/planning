@@ -14,7 +14,7 @@ export function UsersAccessView() {
   return (
     <TabbedHostView
       title="Users and Access"
-      subtitle="Accounts, roles and the self-service registration approval queue, each governed by its own permission"
+      subtitle="Accounts, roles and access requests"
       tabs={TABS}
       defaultTab="users"
     />

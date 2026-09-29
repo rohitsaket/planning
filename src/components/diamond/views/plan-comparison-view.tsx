@@ -49,6 +49,8 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TableSkeleton, ChartSkeleton } from "@/components/diamond/shared/skeleton";
+import { parseValidationWarnings } from "@/lib/domain/validation-warnings";
+import { packetTypeLabel } from "@/lib/domain/packet-type";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -57,7 +59,7 @@ interface CaseListItem {
   id: string;
   caseCode: string;
   stoneName: string | null;
-  stoneType: string;
+  packetType: string;
   status: string;
   currentVersion: number;
   optionCount: number;
@@ -125,7 +127,7 @@ interface CompareResponse {
   stoneName: string | null;
   kapan: string | null;
   packet: string | null;
-  stoneType: string;
+  packetType: string;
   roughWeight: number;
   planner: string;
   planningDate: string;
@@ -167,23 +169,11 @@ function coverageIntent(c: number): "default" | "warning" | "success" | "info" |
   return "critical";
 }
 
-function parseWarnings(raw: string | null): string[] {
-  if (!raw) return [];
-  try {
-    const j = JSON.parse(raw);
-    if (Array.isArray(j)) return j.map((s) => String(s));
-    if (typeof j === "string") return [j];
-    return [JSON.stringify(j)];
-  } catch {
-    return [raw];
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Warnings cell (shared between table and cards)
 // ---------------------------------------------------------------------------
 function WarningsCell({ value }: { value: string | null }) {
-  const parsed = parseWarnings(value);
+  const parsed = parseValidationWarnings(value);
   if (parsed.length === 0) return <span className="text-muted-foreground/50">—</span>;
   return (
     <div className="flex flex-wrap gap-1">
@@ -658,7 +648,7 @@ export function PlanComparisonView() {
     <div className="flex flex-col gap-3 p-3">
       <PageHeader
         title="Plan Comparison"
-        subtitle="Compare all plan options side-by-side — yield vs requirement coverage trade-off"
+        subtitle="Compare plan options by yield and requirement coverage"
         meta={
           data ? (
             <span className="text-[10px] text-muted-foreground">
@@ -671,7 +661,7 @@ export function PlanComparisonView() {
       {/* Case selector */}
       <Section
         title="Select Planning Case"
-        description="Pick a planning case to compare its options side-by-side"
+        description="Select a planning case"
         bodyClassName="p-3"
       >
         <div className="flex items-end gap-2 flex-wrap">
@@ -712,7 +702,7 @@ export function PlanComparisonView() {
           </div>
           {data && (
             <div className="flex flex-wrap items-center gap-2 text-[10px]">
-              <Pill><Boxes className="h-2.5 w-2.5" /> {data.stoneType}</Pill>
+              <Pill><Boxes className="h-2.5 w-2.5" /> {packetTypeLabel(data.packetType)}</Pill>
               <Pill>Rough {data.roughWeight.toFixed(3)} ct</Pill>
               {data.kapan && <Pill>Kapan {data.kapan}</Pill>}
               {data.packet && <Pill>Packet {data.packet}</Pill>}
@@ -722,20 +712,17 @@ export function PlanComparisonView() {
         </div>
       </Section>
 
-      {/* Info banner — OPEN rule */}
       <InfoBanner variant="info">
         <div className="flex items-start gap-2">
           <AlertTriangle className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
-          <div>
-            <strong>OPEN rule BR-PLAN-SEL-001</strong> — Plan selection logic is OPEN. High Yield ≠ automatically best commercial plan. Yield vs requirement coverage trade-off is a business decision.
-          </div>
+          <div>No recommended option is available. Select a plan using the approved business process.</div>
         </div>
       </InfoBanner>
 
       {!data && !isLoading && (
         <EmptyState
           title="No case selected"
-          message="Select a planning case above to compare its options side-by-side."
+          message="Select a planning case to compare its options."
           icon={<Scale className="h-8 w-8" />}
         />
       )}
@@ -782,7 +769,7 @@ export function PlanComparisonView() {
               unit="pcs"
               intent="default"
               icon={Boxes}
-              hint="Σ across all options"
+              hint="Across all options"
             />
             <KpiCard
               label="Excess Pieces"
@@ -798,7 +785,6 @@ export function PlanComparisonView() {
           {/* Comparison table */}
           <Section
             title="All Options Comparison"
-            description="One row per option across all versions — sortable. Selected option highlighted."
           >
             <DataTable<OptionRow>
               columns={columns}
@@ -834,7 +820,7 @@ export function PlanComparisonView() {
           {/* Top-3 detail cards */}
           <Section
             title="Top 3 Options by Yield"
-            description="Detailed side-by-side comparison of the three highest-yield options, with yield vs coverage bar chart"
+            description="Three highest-yield options"
           >
             {top3ByYield.length === 0 ? (
               <EmptyState title="No options to display" message="This case has no options yet." />
@@ -855,7 +841,6 @@ export function PlanComparisonView() {
           {/* Yield vs Coverage scatter plot */}
           <Section
             title="Yield vs Coverage Trade-off"
-            description="Each point = one option (label = option code). Top-right = high yield AND high coverage (ideal). Top-left = high coverage, low yield. Bottom-right = high yield, low coverage."
             actions={
               <Badge variant="info" className="gap-1">
                 <GitBranch className="h-2.5 w-2.5" /> {scatterData.length} points
@@ -941,7 +926,7 @@ export function PlanComparisonView() {
           {/* Pieces breakdown — collapsible per option */}
           <Section
             title="Planned Pieces Breakdown"
-            description="Expand an option to see its planned pieces — shape, weight, color, clarity, category, fulfillment"
+            description="Expand an option to see its pieces"
             actions={
               <Badge variant="neutral" className="gap-1">
                 <ShieldCheck className="h-2.5 w-2.5" /> {options.reduce((s, o) => s + o.pieces.length, 0)} pieces total

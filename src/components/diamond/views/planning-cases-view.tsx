@@ -37,6 +37,8 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { useNavStore } from "@/stores/nav-store";
 import { Filter, X, FileText, Layers, GitBranch, RefreshCw } from "lucide-react";
+import { parseValidationWarnings } from "@/lib/domain/validation-warnings";
+import { packetTypeLabel, packetTypeName } from "@/lib/domain/packet-type";
 
 interface CaseRow {
   id: string;
@@ -48,7 +50,7 @@ interface CaseRow {
   packet: string | null;
   signer: string | null;
   originalRoughWeight: number;
-  stoneType: string;
+  packetType: string;
   planner: string;
   planningDate: string;
   status: string;
@@ -73,7 +75,7 @@ interface CaseDetail {
     packet: string | null;
     stoneName: string | null;
     signer: string | null;
-    stoneType: string;
+    packetType: string;
     roughWeight: number;
     country: string | null;
     branch: string | null;
@@ -85,7 +87,7 @@ interface CaseDetail {
   kapan: string | null;
   packet: string | null;
   originalRoughWeight: number;
-  stoneType: string;
+  packetType: string;
   planner: string;
   planningDate: string;
   status: string;
@@ -161,7 +163,7 @@ const STATUSES = [
   "REPLAN_REQUIRED",
   "RELEASED_TO_MANUFACTURING",
 ];
-const STONE_TYPES = ["WHITE", "BLUE"];
+const PACKET_TYPES = ["WHITE", "BLUE"];
 const PLANNERS = [
   "planner.alice",
   "planner.bob",
@@ -171,8 +173,6 @@ const PLANNERS = [
   "planner.frank",
   "system.import",
 ];
-// Display only — the server records the authenticated user as the actor.
-const REPLAN_ACTOR = () => useAuthStore.getState().user?.username ?? "signed-in user";
 const REPLAN_REASON_MIN = 5;
 
 const fmtDate = (iso: string | null): string => {
@@ -186,15 +186,7 @@ const fmtDate = (iso: string | null): string => {
 
 function WarningsCell({ value }: { value: string | null }) {
   if (!value) return <span className="text-muted-foreground">—</span>;
-  let parsed: string[] = [];
-  try {
-    const j = JSON.parse(value);
-    if (Array.isArray(j)) parsed = j.map((s) => String(s));
-    else if (typeof j === "string") parsed = [j];
-    else parsed = [JSON.stringify(j)];
-  } catch {
-    parsed = [value];
-  }
+  const parsed = parseValidationWarnings(value);
   if (parsed.length === 0) return <span className="text-muted-foreground">—</span>;
   return (
     <div className="flex flex-wrap gap-1">
@@ -213,7 +205,7 @@ export function PlanningCasesView() {
   const qc = useQueryClient();
   const [status, setStatus] = useState("");
   const [planner, setPlanner] = useState("");
-  const [stoneType, setStoneType] = useState("");
+  const [packetType, setPacketType] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [replanOpen, setReplanOpen] = useState(false);
   const [replanReason, setReplanReason] = useState("");
@@ -222,9 +214,9 @@ export function PlanningCasesView() {
     const parts: string[] = [];
     if (status) parts.push(`status=${encodeURIComponent(status)}`);
     if (planner) parts.push(`planner=${encodeURIComponent(planner)}`);
-    if (stoneType) parts.push(`stoneType=${encodeURIComponent(stoneType)}`);
+    if (packetType) parts.push(`packetType=${encodeURIComponent(packetType)}`);
     return parts.length ? `?${parts.join("&")}` : "";
-  }, [status, planner, stoneType]);
+  }, [status, planner, packetType]);
 
   const { data, isLoading } = useApi<{ rows: CaseRow[] }>(`/api/planning/cases${qs}`);
   const rows = data?.rows ?? [];
@@ -245,7 +237,7 @@ export function PlanningCasesView() {
         reason: vars.reason,
       }),
     onSuccess: (data) => {
-      toast.success("Marked for replan — new version created, audit logged");
+      toast.success("Replanning requested. A new version was created.");
       qc.invalidateQueries({ queryKey: ["/api/planning/cases"] });
       qc.invalidateQueries({ queryKey: ["/api/planning/approvals"] });
       qc.invalidateQueries({ queryKey: [`/api/planning/cases/${data.id}`] });
@@ -256,6 +248,8 @@ export function PlanningCasesView() {
       toast.error(`Replan failed: ${(e as Error).message}`);
     },
   });
+
+  const canReplan = useAuthStore((s) => !!s.user?.permissions.includes("plan.replan"));
 
   const openReplan = () => {
     if (!detail) return;
@@ -285,11 +279,11 @@ export function PlanningCasesView() {
   ).length;
   const draft = rows.filter((r) => r.status === "DRAFT").length;
 
-  const activeFilters = (status ? 1 : 0) + (planner ? 1 : 0) + (stoneType ? 1 : 0);
+  const activeFilters = (status ? 1 : 0) + (planner ? 1 : 0) + (packetType ? 1 : 0);
   const clearFilters = () => {
     setStatus("");
     setPlanner("");
-    setStoneType("");
+    setPacketType("");
   };
 
   const columns: Column<CaseRow>[] = [
@@ -331,13 +325,13 @@ export function PlanningCasesView() {
       cell: (r) => r.signer ?? "—",
     },
     {
-      key: "stoneType",
-      header: "Type",
+      key: "packetType",
+      header: "Packet Type",
       align: "center",
       width: "70px",
       cell: (r) => (
-        <Badge variant={r.stoneType === "BLUE" ? "info" : "default"}>
-          {r.stoneType}
+        <Badge variant={r.packetType === "BLUE" ? "info" : "default"}>
+          {packetTypeName(r.packetType)}
         </Badge>
       ),
     },
@@ -438,7 +432,7 @@ export function PlanningCasesView() {
     <div className="flex flex-col gap-3 p-3">
       <PageHeader
         title="Planning Cases"
-        subtitle="All planning cases across statuses · drill into versions, options and pieces"
+        subtitle="Planning cases, versions, options and pieces"
         meta={
           <span className="text-[10px] text-muted-foreground">
             {totalCases} cases · {approved} approved · {pending} pending review · {draft} draft
@@ -448,14 +442,13 @@ export function PlanningCasesView() {
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
         <KpiCard label="Total Cases" value={totalCases} unit="cases" intent="default" onClick={() => setView("planning-cases")} />
-        <KpiCard label="Pending Review" value={pending} unit="cases" intent="warning" hint="READY_FOR_REVIEW + SELECTED + APPROVAL_PENDING" onClick={() => setView("planning-approval-queue")} />
+        <KpiCard label="Pending Review" value={pending} unit="cases" intent="warning" hint="Ready for review or awaiting approval" onClick={() => setView("planning-approval-queue")} />
         <KpiCard label="Approved" value={approved} unit="cases" intent="success" onClick={() => setView("planning-cases")} />
         <KpiCard label="Draft" value={draft} unit="cases" intent="info" onClick={() => setView("planning-workbench")} />
       </div>
 
       <Section
         title="Filters"
-        description="status · planner · stoneType"
         bodyClassName="p-2"
         actions={
           activeFilters > 0 ? (
@@ -495,15 +488,15 @@ export function PlanningCasesView() {
             </SelectContent>
           </Select>
 
-          <Select value={stoneType || "ALL"} onValueChange={(v) => setStoneType(v === "ALL" ? "" : v)}>
+          <Select value={packetType || "ALL"} onValueChange={(v) => setPacketType(v === "ALL" ? "" : v)}>
             <SelectTrigger size="sm" className="h-8 w-[140px] text-xs">
-              <SelectValue placeholder="All Stone Types" />
+              <SelectValue placeholder="All Packet Types" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="ALL">All Stone Types</SelectItem>
-              {STONE_TYPES.map((t) => (
+              <SelectItem value="ALL">All Packet Types</SelectItem>
+              {PACKET_TYPES.map((t) => (
                 <SelectItem key={t} value={t}>
-                  {t}
+                  {packetTypeLabel(t)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -550,7 +543,7 @@ export function PlanningCasesView() {
               <FileText className="h-4 w-4" />
               {detail?.caseCode ?? "Loading…"}
               {detail && <StatusBadge status={detail.status} />}
-              {detail && <Badge variant="info">{detail.stoneType}</Badge>}
+              {detail && <Badge variant="info">{packetTypeLabel(detail.packetType)}</Badge>}
             </SheetTitle>
             <SheetDescription className="text-[11px]">
               Versions, options, pieces, reservations and validation warnings.
@@ -574,29 +567,27 @@ export function PlanningCasesView() {
                     <span className="font-medium text-amber-800 dark:text-amber-200">
                       Plan versioning
                     </span>
-                    <span className="text-muted-foreground">
-                      current v{detail.currentVersion} · status {detail.status}
-                    </span>
+                    <span className="text-muted-foreground">Version {detail.currentVersion}</span>
+                    <StatusBadge status={detail.status} />
                   </div>
+                  {canReplan && (
                   <Button
                     size="sm"
                     variant="outline"
                     className="h-7 text-xs text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-900 hover:bg-amber-50 dark:hover:bg-amber-950/40"
                     disabled={replanMutation.isPending}
                     onClick={openReplan}
-                    title="Mark this case for replan — creates a new DRAFT plan version"
+                    title="Request replanning"
                   >
                     {replanMutation.isPending ? (
                       <div className="h-3 w-3 border-2 border-amber-600 border-t-transparent rounded-full animate-spin mr-1.5" />
                     ) : (
                       <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
                     )}
-                    Mark for Replan
+                    Request replanning
                   </Button>
+                  )}
                 </div>
-                <InfoBanner variant="warning">
-                  Replanning preserves historical planning evidence. A new plan version is created in <span className="font-medium">DRAFT</span> status; the previous version is superseded. The case moves to <span className="font-medium">REPLAN_REQUIRED</span> and the action is audit-logged.
-                </InfoBanner>
               </div>
 
               {/* Rough info */}
@@ -665,7 +656,6 @@ export function PlanningCasesView() {
               {/* Versions */}
               <Section
                 title={`Versions (${detail.versions.length})`}
-                description="Each version contains planning options; each option lists pieces"
                 bodyClassName="p-2"
               >
                 <div className="flex flex-col gap-3">
@@ -757,26 +747,25 @@ export function PlanningCasesView() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-sm">
               <RefreshCw className="h-4 w-4 text-amber-600 dark:text-amber-400" />
-              Mark case for replan
+              Request replanning
             </DialogTitle>
             <DialogDescription className="text-[11px]">
               {detail && (
                 <span>
                   Case <span className="font-medium text-foreground">{detail.caseCode}</span>
-                  {" · "}{detail.stoneType}
+                  {" · "}{packetTypeLabel(detail.packetType)}
                   {" · "}v{detail.currentVersion}
                   {" · "}<StatusBadge status={detail.status} />
                   <br />
                 </span>
               )}
-              A new plan version will be created in <span className="font-medium">DRAFT</span> status; the current version is superseded. The action is audit-logged.
+              Replanning creates a new version and preserves the previous one.
             </DialogDescription>
           </DialogHeader>
 
           <div className="flex flex-col gap-2">
             <Label htmlFor="replan-reason" className="text-xs">
               Reason <span className="text-rose-600">*</span>
-              <span className="ml-1 text-[10px] text-muted-foreground">(min {REPLAN_REASON_MIN} chars)</span>
             </Label>
             <Textarea
               id="replan-reason"
@@ -787,20 +776,9 @@ export function PlanningCasesView() {
               className="text-xs resize-none"
               autoFocus
             />
-            <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-              <span>
-                actor: <code className="font-mono">{REPLAN_ACTOR()}</code>
-              </span>
-              <span
-                className={
-                  replanReason.trim().length >= REPLAN_REASON_MIN
-                    ? "text-emerald-600 dark:text-emerald-400"
-                    : "text-amber-600 dark:text-amber-400"
-                }
-              >
-                {replanReason.trim().length}/{REPLAN_REASON_MIN}+ chars
-              </span>
-            </div>
+            {replanReason.length > 0 && replanReason.trim().length < REPLAN_REASON_MIN && (
+              <span className="text-[10px] text-amber-600 dark:text-amber-400">Enter at least {REPLAN_REASON_MIN} characters.</span>
+            )}
           </div>
 
           <DialogFooter className="gap-2">

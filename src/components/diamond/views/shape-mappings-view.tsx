@@ -42,7 +42,7 @@ const columns: Column<ShapeMappingRow>[] = [
       </span>
     ),
   },
-  { key: "active", header: "Active", align: "center", cell: (r) => <Badge variant={r.active ? "success" : "neutral"}>{r.active ? "ACTIVE" : "INACTIVE"}</Badge> },
+  { key: "active", header: "Active", align: "center", cell: (r) => <Badge variant={r.active ? "success" : "neutral"}>{r.active ? "Active" : "Inactive"}</Badge> },
 ];
 
 export function ShapeMappingsView() {
@@ -51,16 +51,16 @@ export function ShapeMappingsView() {
   return (
     <div className="flex flex-col gap-3 p-3">
       <PageHeader
-        title="Shape Mappings (Admin)"
-        subtitle="Master mapping table for raw Shape → normalized Shape with category"
+        title="Shape Mapping"
+        subtitle="How shape names are standardized"
         meta={<span className="text-[10px] text-muted-foreground">{data?.rows.length ?? 0} mappings</span>}
       />
 
       <InfoBanner variant="info">
-        <strong className="font-semibold">Confirmed Rule:</strong> Compare trimmed raw shape case-insensitively. Unknown shape: preserve original, create validation warning.
+        Unknown shape names are kept as entered and flagged for review.
       </InfoBanner>
 
-      <Section title="Shape Mapping Table" description="Each row maps a raw shape string to a normalized shape and shape category">
+      <Section title="Shape Mapping Table" description="Shape name as received, its standard name and category">
         <DataTable
           columns={columns}
           rows={data?.rows ?? []}

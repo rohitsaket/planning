@@ -11,11 +11,11 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import {
   LayoutDashboard, BarChart3, TrendingUp, Users, ShoppingCart, Globe, Gem,
-  FileText, Package, Boxes, Factory, GitBranch, ShieldCheck, AlertTriangle,
+  FileText, Package, Boxes, Factory, GitBranch, AlertTriangle,
   FlaskConical, FileBarChart, Settings, Search, Diamond, Activity, Scale, Layers,
   Map, FileWarning, Workflow, ClipboardCheck, CalendarClock, Hash, RefreshCw,
   BookCheck, ClipboardList, Star, CornerDownLeft, UserPlus, Lock, HardDrive,
-  Calculator, ArrowLeftRight, History
+  Calculator, ArrowLeftRight, History, Shapes
 } from "lucide-react";
 import { ReactNode } from "react";
 
@@ -28,6 +28,8 @@ interface PaletteItem {
   icon: ReactNode;
   keywords: string[];
   advisory?: boolean;
+  /** Left out, rather than shown locked, for users who cannot open it. */
+  hideWhenUnauthorized?: boolean;
 }
 
 const ITEMS: PaletteItem[] = [
@@ -70,7 +72,7 @@ const ITEMS: PaletteItem[] = [
 
   // 7. Planning
   { id: "planning-rough-availability", label: "Rough Availability", group: "Planning", icon: <Gem className="h-4 w-4" />, keywords: ["rough inventory", "rough reservations", "available stones", "kapan"] },
-  { id: "planning-workbook-import", label: "Workbook Import", group: "Planning", icon: <FileText className="h-4 w-4" />, keywords: ["workbook", "import", "xlsx", "excel", "upload"] },
+  { id: "planning-workbook-import", label: "Workbook Import", group: "Planning", icon: <FileText className="h-4 w-4" />, keywords: ["workbook", "import", "sarin", "csv", "process", "output", "export"] },
   { id: "planning-workbench", label: "Planning Workbench", group: "Planning", icon: <LayoutDashboard className="h-4 w-4" />, keywords: ["planning cases", "planned pieces", "workbench", "planner"] },
   { id: "planning-comparison", label: "Plan Comparison", group: "Planning", icon: <Scale className="h-4 w-4" />, keywords: ["plan comparison", "evaluate", "versions", "side by side"] },
   { id: "planning-approval-queue", label: "Approval Queue", group: "Planning", icon: <BookCheck className="h-4 w-4" />, keywords: ["approval", "queue", "signoff", "manager approval"] },
@@ -92,7 +94,8 @@ const ITEMS: PaletteItem[] = [
 
   // 12. Administration
   { id: "admin-users-access", label: "Users and Access", group: "Administration", icon: <Users className="h-4 w-4" />, keywords: ["users and roles", "access requests", "rbac", "permissions"] },
-  { id: "admin-rules-mappings", label: "Business Rules and Mappings", group: "Administration", icon: <ShieldCheck className="h-4 w-4" />, keywords: ["business rules", "weight bands", "lab mapping", "shape mapping", "status mapping"] },
+  { id: "admin-mappings", label: "Mappings", group: "Administration", icon: <Shapes className="h-4 w-4" />, keywords: ["mappings", "weight bands", "lab mapping", "shape mapping", "status mapping"], hideWhenUnauthorized: true },
+  { id: "admin-mappings", tab: "sarin-shape-mapping", label: "Sarin Shape Mapping", group: "Administration", icon: <Shapes className="h-4 w-4" />, keywords: ["sarin shape", "fantasy shape", "ratio", "needs mapping"], hideWhenUnauthorized: true },
   { id: "admin-system-settings", label: "System Settings", group: "Administration", icon: <Settings className="h-4 w-4" />, keywords: ["feature flags", "system settings", "integrations", "config"] },
   { id: "admin-audit-log", label: "Audit Log", group: "Administration", icon: <ClipboardList className="h-4 w-4" />, keywords: ["audit log", "security", "activity trail", "events"] },
 ];
@@ -125,8 +128,9 @@ export function CommandPalette() {
     setOpen(next);
   };
 
+  const visible = ITEMS.filter((item) => !item.hideWhenUnauthorized || isViewAuthorized(perms, item.id));
   const filtered = query.trim()
-    ? ITEMS.filter((item) => {
+    ? visible.filter((item) => {
         const q = query.toLowerCase();
         return (
           item.label.toLowerCase().includes(q) ||
@@ -134,7 +138,7 @@ export function CommandPalette() {
           item.keywords.some((k) => k.includes(q))
         );
       })
-    : ITEMS;
+    : visible;
 
   // Group by category
   const grouped = filtered.reduce<Record<string, PaletteItem[]>>((acc, item) => {
@@ -165,7 +169,7 @@ export function CommandPalette() {
               else if (e.key === "ArrowUp") { e.preventDefault(); setActiveIdx((i) => Math.max(0, i - 1)); }
               else if (e.key === "Enter" && flatFiltered[activeIdx]) { e.preventDefault(); selectItem(flatFiltered[activeIdx]); }
             }}
-            placeholder="Type to search views... (Cmd+K to toggle, ↑↓ to navigate, Enter to select)"
+            placeholder="Search pages..."
             className="border-0 focus-visible:ring-0 h-11 text-sm"
           />
           <kbd className="text-[9px] font-mono text-muted-foreground border border-border rounded px-1.5 py-0.5">ESC</kbd>

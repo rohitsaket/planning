@@ -12,7 +12,7 @@ import {
   Bell, User, Database, Activity, Scale, Layers, Map, FileWarning,
   Workflow, ClipboardCheck, CalendarClock, Hash, RefreshCw, BookCheck, ClipboardList, Diamond,
   Moon, Sun, Monitor, Command as CommandIcon, History, Calculator, ArrowLeftRight, UserPlus,
-  Lock, HardDrive, X, Star
+  Lock, HardDrive, X, Star, Shapes
 } from "lucide-react";
 import { ReactNode, useState, useEffect, useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button";
@@ -30,6 +30,8 @@ export interface NavItem {
   label: string;
   icon: ReactNode;
   advisory?: boolean;
+  /** Left out of the sidebar, rather than shown locked, for users who cannot open it. */
+  hideWhenUnauthorized?: boolean;
 }
 
 export interface NavGroup {
@@ -186,7 +188,7 @@ export const NAV: NavGroup[] = [
     icon: <Settings className="h-4 w-4" />,
     items: [
       { id: "admin-users-access", label: "Users and Access", icon: <Users className="h-3.5 w-3.5" /> },
-      { id: "admin-rules-mappings", label: "Business Rules and Mappings", icon: <ShieldCheck className="h-3.5 w-3.5" /> },
+      { id: "admin-mappings", label: "Mappings", icon: <Shapes className="h-3.5 w-3.5" />, hideWhenUnauthorized: true },
       { id: "admin-system-settings", label: "System Settings", icon: <Settings className="h-3.5 w-3.5" /> },
       { id: "admin-audit-log", label: "Audit Log", icon: <ClipboardList className="h-3.5 w-3.5" /> },
     ],
@@ -253,12 +255,13 @@ function NavGroupItem({ group }: { group: NavGroup }) {
           {group.items.map((item) => {
             const active = view === item.id;
             const authorized = isViewAuthorized(perms, item.id);
+            if (!authorized && item.hideWhenUnauthorized) return null;
             return (
               <li key={item.id}>
                 <button
                   type="button"
                   onClick={() => handleItemClick(item.id)}
-                  title={!authorized ? "Access Restricted — Click to view requirements" : item.label}
+                  title={!authorized ? "Restricted" : item.label}
                   className={cn(
                     "w-[calc(100%-12px)] mx-1.5 flex items-center gap-2 px-2.5 py-1.5 text-left text-[12px] rounded-lg transition-all relative",
                     active
@@ -502,7 +505,7 @@ function GlobalSearch() {
 
 const emptySubscribe = () => () => {};
 
-function ThemeToggle() {
+export function ThemeToggle() {
   const { theme, setTheme } = useTheme();
   const mounted = useSyncExternalStore(
     emptySubscribe,
@@ -836,13 +839,9 @@ export function AppShell({ children }: { children: ReactNode }) {
             <span className="flex items-center gap-1 flex-shrink-0">
               <ShieldCheck className="h-3 w-3" /> Fantasy
             </span>
-            <span className="hidden sm:inline">·</span>
-            <span className="hidden sm:inline">90D rule CONFIRMED</span>
-            <span className="hidden md:inline">·</span>
-            <span className="hidden md:inline">Memo excluded</span>
           </div>
           <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
-            <span className="truncate">View: <span className="text-foreground font-medium">{view}</span></span>
+            <span className="truncate text-foreground font-medium">{NAV.flatMap((g) => g.items).find((i) => i.id === view)?.label ?? ""}</span>
           </div>
         </footer>
       </div>

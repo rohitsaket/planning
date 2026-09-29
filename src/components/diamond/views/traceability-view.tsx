@@ -85,8 +85,8 @@ export function TraceabilityView() {
   return (
     <div className="flex flex-col gap-3 p-3">
       <PageHeader
-        title="Traceability — Bidirectional Genealogy"
-        subtitle="Search any token (Rough ID · Kapan · Packet · Stone Name · Plan · Piece · Certificate · Order · Customer) and trace the full genealogy tree"
+        title="Traceability"
+        subtitle="Search by rough ID, kapan, packet, stone, plan, piece, certificate, order or customer"
         actions={
           submitted ? (
             <Button size="sm" variant="outline" className="h-8 text-xs" onClick={reset}>
@@ -100,14 +100,13 @@ export function TraceabilityView() {
         <div className="flex items-start gap-2">
           <GitBranch className="h-3.5 w-3.5 mt-0.5" />
           <div>
-            <p className="font-medium">Bidirectional genealogy: Fantasy Rough → Planning Case → Selected Plan → Planned Pieces → Fantasy Children → Final Fantasy Polished Lots AND reverse.</p>
-            <p className="text-muted-foreground mt-0.5">Every node links forward to its descendants and backward to its ancestors — no orphan records, no silent breaks.</p>
+            <p>Trace from rough to polished lots and back.</p>
           </div>
         </div>
       </InfoBanner>
 
       {/* Search */}
-      <Section title="Search" description="Enter any traceable identifier and press Enter to traverse the genealogy tree">
+      <Section title="Search" description="Enter an ID and press Enter">
         <form onSubmit={handleSearch} className="flex items-center gap-2">
           <div className="relative flex-1 max-w-xl">
             <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
@@ -139,20 +138,20 @@ export function TraceabilityView() {
 
       {/* Result */}
       <Section
-        title="Genealogy Tree"
+        title="Trace Result"
         description={submitted ? `Query: "${submitted}"` : "Submit a search to display the tree"}
         actions={data?.tree ? <Pill><Layers className="h-3 w-3" /> {data.tree.kind}</Pill> : undefined}
       >
         {!submitted && (
           <EmptyState
             title="No search submitted"
-            message="Enter a traceable identifier above to traverse the bidirectional genealogy tree."
+            message="Enter an ID above to trace it."
             icon={<Search className="h-6 w-6" />}
           />
         )}
         {submitted && isLoading && (
           <div className="flex items-center justify-center py-8 text-xs text-muted-foreground">
-            <RefreshCw className="h-3.5 w-3.5 mr-2 animate-spin" /> Tracing genealogy...
+            <RefreshCw className="h-3.5 w-3.5 mr-2 animate-spin" /> Tracing...
           </div>
         )}
         {submitted && isError && (

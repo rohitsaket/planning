@@ -127,7 +127,7 @@ export function StrategyClassificationsView() {
 
       if (c.status === "BLOCKED_BY_DATA_QUALITY" || c.blockedQty > 0) {
         classification = "UNMAPPED_BLOCKED";
-        reason = "Mapping or data quality issue flags this record";
+        reason = "Needs data fix";
       } else if (c.sales90d > 0 && c.availableStock === 0) {
         classification = "DEMAND_NO_SUPPLY";
         reason = `Sales of ${c.sales90d} pcs in 90D with 0 available stock`;
@@ -178,7 +178,7 @@ export function StrategyClassificationsView() {
   const columns: Column<ClassifiedCategory>[] = [
     {
       key: "classification",
-      header: "Strategic Posture",
+      header: "Position",
       align: "center",
       sortable: true,
       sortValue: (r) => r.classification,
@@ -258,7 +258,7 @@ export function StrategyClassificationsView() {
     },
     {
       key: "reason",
-      header: "Deterministic Rationale",
+      header: "Reason",
       width: "240px",
       cell: (r) => <span className="text-[11px] text-muted-foreground">{r.reason}</span>,
     },
@@ -269,7 +269,7 @@ export function StrategyClassificationsView() {
       <div className="flex flex-col gap-3 p-3">
         <PageHeader
           title="Stock Strategy Classifications"
-          subtitle="Deterministic categorization of finished diamond inventory across shortage, balance, and excess postures"
+          subtitle="Stock position by category: shortage, balanced, excess"
         />
         <KpiGridSkeleton count={6} />
       </div>
@@ -280,14 +280,14 @@ export function StrategyClassificationsView() {
     <div className="flex flex-col gap-3 p-3">
       <PageHeader
         title="Stock Strategy Classifications"
-        subtitle="Deterministic inventory posture categorization — strictly analytical and advisory"
+        subtitle="Stock position by category (advisory)"
       />
 
       <InfoBanner variant="info">
         <div className="flex items-center gap-2">
           <Info className="h-4 w-4 shrink-0 text-sky-600 dark:text-sky-400" />
           <span>
-            <strong>Advisory Notice:</strong> Classifications are deterministic views computed from confirmed sales history and current inventory. No automated transfers, reservations, or approvals occur from this phase.
+            Advisory only — based on recent sales and current stock. Nothing is changed automatically.
           </span>
         </div>
       </InfoBanner>

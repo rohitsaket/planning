@@ -78,7 +78,8 @@ interface CategoriesResponse {
   runId: string | null;
   unavailableMessage: string | null;
   rows: StockoutRow[];
-  paging: PagingMeta;
+  // Absent when the run is unavailable: the response is then a state, not a page.
+  paging?: PagingMeta;
   totals: {
     categoriesWithShortage: number;
     categoriesOutOfStock: number;
@@ -245,7 +246,7 @@ export function StockoutView() {
     <div className="space-y-4 p-3">
       <PageHeader
         title="Stockout Risk"
-        subtitle="Categories whose confirmed demand is not covered by physically available finished polished stock"
+        subtitle="Categories short of target stock"
         actions={
           <div className="flex items-center gap-2">
             {canRunDemand && (
@@ -317,7 +318,7 @@ export function StockoutView() {
           )}
           {scopeIgnored && (
             <InfoBanner variant="info">
-              The country and branch filters do not apply to this page. {s.countryScopeNotice}
+              The country and branch filters do not apply to this page.
             </InfoBanner>
           )}
         </div>
@@ -329,7 +330,7 @@ export function StockoutView() {
         <KpiCard label="Out of stock" value={hasRun ? (totals?.categoriesOutOfStock ?? 0) : "NOT RUN"} intent="critical" icon={PackageX} hint="Target exists and nothing is available" />
         <KpiCard label="Target quantity" value={hasRun ? (totals?.totalTargetQuantity ?? 0) : "NOT RUN"} unit="pcs" intent="info" icon={Target} hint="Across matching categories" />
         <KpiCard label="Physical available" value={hasRun ? (totals?.totalPhysicalAvailable ?? 0) : "NOT RUN"} unit="pcs" intent="success" hint="Finished polished stock only" />
-        <KpiCard label="Physical shortage" value={hasRun ? (totals?.totalPhysicalShortage ?? 0) : "NOT RUN"} unit="pcs" intent="critical" hint="As calculated by the demand run" />
+        <KpiCard label="Physical shortage" value={hasRun ? (totals?.totalPhysicalShortage ?? 0) : "NOT RUN"} unit="pcs" intent="critical" hint="Quantity still needed" />
         <KpiCard label="Needing review" value={hasRun ? (totals?.categoriesRequiringReview ?? 0) : "NOT RUN"} intent="default" hint="Excluded from the totals shown here" />
       </div>
 
@@ -337,7 +338,7 @@ export function StockoutView() {
         title="Categories"
         description={
           hasRun
-            ? "Shortage as calculated by the selected demand run. Memo is advisory and WIP is shown separately; neither reduces the shortage."
+            ? "Memo and WIP are shown separately and do not reduce the shortage."
             : "Stockout risk comes from a completed 90-day demand calculation."
         }
         actions={
@@ -402,10 +403,10 @@ export function StockoutView() {
               exportScope="current-page"
             />
             <ServerPagination
-              page={categories.data?.paging.page ?? 1}
-              pageSize={categories.data?.paging.pageSize ?? PAGE_SIZE}
-              total={categories.data?.paging.total ?? 0}
-              hasMore={categories.data?.paging.hasMore ?? false}
+              page={categories.data?.paging?.page ?? 1}
+              pageSize={categories.data?.paging?.pageSize ?? PAGE_SIZE}
+              total={categories.data?.paging?.total ?? 0}
+              hasMore={categories.data?.paging?.hasMore ?? false}
               onPageChange={setPage}
               loading={categories.isLoading}
               label="categories"
@@ -470,7 +471,7 @@ function CategoryDetail({
         {d.segments.map((seg) => (
           <Badge key={seg.key} variant="info">{seg.label}: {seg.quantity} pcs</Badge>
         ))}
-        <Badge variant="default">Trend: {d.trend.replace(/_/g, " ")}</Badge>
+        <Badge variant="default">Trend: {d.trend.replace(/_/g, " ").toLowerCase()}</Badge>
       </div>
       <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs md:grid-cols-3 lg:grid-cols-4">
         {figures.map(([label, value]) => (
@@ -484,9 +485,6 @@ function CategoryDetail({
         <Button size="sm" variant="outline" className="h-7" onClick={onTrace}>
           Open in Demand Trace
         </Button>
-        <span className="text-[11px] text-muted-foreground">
-          Record-level evidence lives in Demand Trace, subject to its own permissions.
-        </span>
       </div>
     </div>
   );

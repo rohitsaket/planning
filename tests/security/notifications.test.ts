@@ -1,25 +1,39 @@
 import { afterAll, beforeAll, describe, expect, test } from "./harness";
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { createServer } from "node:net";
 import path from "node:path";
 import { call, makeUser, resetDb, db } from "./helpers";
 import { POST as broadcast } from "@/app/api/notifications/broadcast/route";
 
 const ROOT = process.cwd();
-// Random per run: a fixed port lets a service left over from an earlier run answer the
-// health check with a stale token, which shows up as a confusing 401.
-const PORT = 3900 + Math.floor(Math.random() * 90);
+// The port is chosen by the operating system (a free ephemeral port), never picked from a
+// fixed range: a service left over from an earlier run, or anything else listening, must
+// never be the one that answers with a stale token.
+function freePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const probe = createServer();
+    probe.unref();
+    probe.on("error", reject);
+    probe.listen(0, "127.0.0.1", () => {
+      const address = probe.address();
+      probe.close(() => (typeof address === "object" && address ? resolve(address.port) : reject(new Error("no port assigned"))));
+    });
+  });
+}
 const TOKEN = "t".repeat(16) + Math.random().toString(36).slice(2).padEnd(24, "x");
-const URL_ = `http://127.0.0.1:${PORT}`;
+let URL_ = "";
 let svc: ChildProcess;
 let svcStartError: string | null = null;
 
 beforeAll(async () => {
   await resetDb();
+  const port = await freePort();
+  URL_ = `http://127.0.0.1:${port}`;
   // The service declares `tsx index.ts` as its start command; spawning `bun` here was a
   // leftover from the Bun test runner and simply fails on a Node install.
   svc = spawn("npx", ["tsx", "index.ts"], {
     cwd: path.join(ROOT, "mini-services/notifications-service"),
-    env: { ...process.env, NOTIFY_PORT: String(PORT), NOTIFY_SERVICE_TOKEN: TOKEN, ALLOWED_ORIGINS: "https://planning.example.com" },
+    env: { ...process.env, NOTIFY_PORT: String(port), NOTIFY_SERVICE_TOKEN: TOKEN, ALLOWED_ORIGINS: "https://planning.example.com" },
     stdio: "ignore",
     shell: process.platform === "win32",
   });
@@ -40,13 +54,11 @@ beforeAll(async () => {
 afterAll(() => {
   if (!svc?.pid) return;
   // On Windows the shell wrapper is the direct child; killing only it orphans the
-  // service and leaves the port held.
+  // service and leaves the port held. The kill is synchronous: the runner can exit as soon
+  // as the suites finish, and an asynchronous taskkill left services running after it.
   if (process.platform === "win32") {
-    try {
-      spawn("taskkill", ["/pid", String(svc.pid), "/T", "/F"], { stdio: "ignore" });
-    } catch {
-      svc.kill();
-    }
+    const r = spawnSync("taskkill", ["/pid", String(svc.pid), "/T", "/F"], { stdio: "ignore" });
+    if (r.status !== 0) svc.kill();
   } else {
     svc.kill();
   }

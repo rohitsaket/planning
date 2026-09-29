@@ -6,9 +6,10 @@
  * Three short steps, each its own transaction:
  *
  *   1. Claim   — atomically moves the batch to VALIDATING with a new owner token, a higher
- *                fencing version and the next attempt number, bound to one APPROVED
- *                mapping set, and records the attempt RUNNING. A live claim cannot be
- *                taken; an expired one is first recorded as ABANDONED.
+ *                fencing version and the next attempt number, bound to the EFFECTIVE
+ *                mapping snapshot it captures, and records the attempt RUNNING. The whole
+ *                attempt runs against that snapshot even if the catalog changes meanwhile.
+ *                A live claim cannot be taken; an expired one is first recorded as ABANDONED.
  *   2. Run     — computes and writes the attempt's blocks, row interpretations and
  *                findings, supersedes the previous attempt's open findings, and finalizes
  *                the batch and attempt. All of it is one transaction whose final writes
@@ -30,9 +31,10 @@ import { ApiError, conflict, notFound } from "@/lib/api/errors";
 import { log } from "@/lib/api/log";
 import type { ApiContext } from "@/lib/api/with-api";
 import { scopeWhere, type EffectiveScope } from "@/lib/auth/access-scope";
-import type { SarinStoneType } from "@/lib/sarin/domain";
+import type { SarinPacketType } from "@/lib/sarin/domain";
 import { REJECTION_FIELD_POSITION, SARIN_ISSUE_CATALOG, type SarinIssueCode } from "@/lib/sarin/issue-catalog";
-import { isCountryRegistered, isLabRegistered } from "@/lib/sarin/registry";
+import { isLabRegistered } from "@/lib/sarin/registry";
+import { captureEffectiveSnapshot, MAPPING_MESSAGES } from "@/lib/sarin/mapping-service";
 import { indexRules, resolveShape, type MappingRule } from "@/lib/sarin/shape-normalization";
 import { parseSarinStoneName } from "@/lib/sarin/stone-name";
 import { MAX_RULES_PER_SET, SARIN_VALIDATION_CONFIG, SOURCE_READ_PAGE, type SarinValidationConfig } from "@/lib/sarin/validation-config";
@@ -48,6 +50,7 @@ export const SARIN_VALIDATION_AUDIT = {
   completed: "SARIN_VALIDATION_COMPLETED",
   failed: "SARIN_VALIDATION_FAILED",
   abandoned: "SARIN_VALIDATION_ABANDONED",
+  revalidation: "SARIN_VALIDATION_PROFILE_REVALIDATION",
 } as const;
 
 const ENTITY = "SarinImportBatch";
@@ -66,8 +69,7 @@ export interface SarinValidationClaim {
   readonly claimToken: string;
   readonly fencingVersion: number;
   readonly shapeMappingSetId: string;
-  readonly stoneType: SarinStoneType;
-  readonly country: string;
+  readonly packetType: SarinPacketType;
   readonly labScope: string | null;
 }
 
@@ -79,7 +81,7 @@ export class StaleClaimError extends Error {
   }
 }
 
-const scopeOf = (scope: EffectiveScope) => scopeWhere(scope, { country: "country", lab: "labScope" }) as Prisma.SarinImportBatchWhereInput;
+const scopeOf = (scope: EffectiveScope) => scopeWhere(scope, { country: null, lab: "labScope" }) as Prisma.SarinImportBatchWhereInput;
 
 // ---------------------------------------------------------------------------------------
 // 1. Claim
@@ -89,19 +91,19 @@ export type ClaimOutcome =
   | { readonly kind: "CLAIMED"; readonly claim: SarinValidationClaim }
   | { readonly kind: "REUSED"; readonly attemptId: string };
 
-export async function claimSarinValidation(actor: SarinValidationActor, batchId: string, mappingSetId: string, config: SarinValidationConfig = SARIN_VALIDATION_CONFIG): Promise<ClaimOutcome> {
+export async function claimSarinValidation(actor: SarinValidationActor, batchId: string, config: SarinValidationConfig = SARIN_VALIDATION_CONFIG): Promise<ClaimOutcome> {
   return db.$transaction(async (tx) => {
     const batch = await tx.sarinImportBatch.findFirst({
       where: { id: batchId, ...scopeOf(actor.scope) },
-      select: { id: true, status: true, stoneType: true, country: true, labScope: true, validationAttempt: true, fencingVersion: true, claimToken: true, leaseExpiresAt: true, shapeMappingSetId: true },
+      select: { id: true, status: true, packetType: true, labScope: true, validationAttempt: true, fencingVersion: true, claimToken: true, leaseExpiresAt: true, shapeMappingSetId: true },
     });
     if (!batch) throw notFound("Sarin import");
-    const set = await tx.sarinShapeMappingSet.findUnique({ where: { id: mappingSetId }, select: { id: true, status: true, version: true } });
-    if (!set) throw new ApiError(400, "UNKNOWN_MAPPING_SET", "The mapping set does not exist.");
-    if (set.status !== "APPROVED") throw conflict("MAPPING_SET_NOT_APPROVED", "Only an approved mapping set can be used for validation.");
     if (batch.status === "ARCHIVED") throw conflict("IMPORT_ARCHIVED", "An archived import cannot be validated.");
+    // The mapping this attempt uses is the catalog in effect now; nobody chooses a version.
+    const set = await captureEffectiveSnapshot(tx);
+    if (!set) throw conflict("MAPPINGS_NOT_CONFIGURED", MAPPING_MESSAGES.notConfigured);
 
-    // Same source, same approved set, same validation contract, already completed: the
+    // Same source, same mapping snapshot, same validation contract, already completed: the
     // existing result is the answer. An attempt made under an older profile does not prove
     // that the current checks ran, so it is never reused.
     if ((batch.status === "VALIDATED" || batch.status === "NEEDS_REVIEW") && batch.shapeMappingSetId === set.id) {
@@ -158,9 +160,22 @@ export async function claimSarinValidation(actor: SarinValidationActor, batchId:
       select: { id: true },
     });
     await actor.audit(tx, { action: SARIN_VALIDATION_AUDIT.started, entity: ENTITY, entityId: batchId, after: { attempt: attemptNumber, mappingSetId: set.id, mappingSetVersion: set.version, validationProfile: SARIN_VALIDATION_PROFILE_VERSION }, reason: "Sarin validation started" });
+    // A batch whose last completed validation ran older rules is being revalidated: that
+    // is recorded explicitly, and the earlier attempt stays as history.
+    const previous = await tx.sarinValidationAttempt.findFirst({ where: { batchId, status: "COMPLETED" }, orderBy: { attemptNumber: "desc" }, select: { attemptNumber: true, validationProfileVersion: true } });
+    if (previous && previous.validationProfileVersion !== SARIN_VALIDATION_PROFILE_VERSION) {
+      await actor.audit(tx, {
+        action: SARIN_VALIDATION_AUDIT.revalidation,
+        entity: ENTITY,
+        entityId: batchId,
+        before: { attempt: previous.attemptNumber, validationProfile: previous.validationProfileVersion },
+        after: { attempt: attemptNumber, validationProfile: SARIN_VALIDATION_PROFILE_VERSION },
+        reason: "Sarin import revalidated under updated validation rules",
+      });
+    }
     return {
       kind: "CLAIMED",
-      claim: { batchId, attemptId: attempt.id, attemptNumber, claimToken, fencingVersion, shapeMappingSetId: set.id, stoneType: batch.stoneType as SarinStoneType, country: batch.country, labScope: batch.labScope },
+      claim: { batchId, attemptId: attempt.id, attemptNumber, claimToken, fencingVersion, shapeMappingSetId: set.id, packetType: batch.packetType as SarinPacketType, labScope: batch.labScope },
     };
   });
 }
@@ -272,8 +287,7 @@ export async function runSarinValidationAttempt(actor: SarinValidationActor, cla
         }
       };
 
-      // The batch's declared scope must still be in the registries.
-      if (!(await isCountryRegistered(claim.country, tx))) issue({ code: "COUNTRY_NOT_IN_REGISTRY", stoneBlockId: null, sourceRowId: null, fieldPosition: null, fieldName: null, parameters: null });
+      // The batch's declared lab must still be in the lab registry.
       if (claim.labScope !== null && !(await isLabRegistered(claim.labScope, tx))) issue({ code: "LAB_NOT_IN_REGISTRY", stoneBlockId: null, sourceRowId: null, fieldPosition: null, fieldName: null, parameters: null });
 
       const quarantineIssues = (row: RowLite, stoneBlockId: string | null) => {
@@ -338,7 +352,7 @@ export async function runSarinValidationAttempt(actor: SarinValidationActor, cla
             if (slot.code === "BT" && a !== null && b !== null) {
               const difference = a.minus(b).abs();
               const finding = bestTwinWeightFinding(difference);
-              if (finding) raise(finding, at(second.position).row, { firstPosition: first.position, secondPosition: second.position, difference: difference.toFixed(3) }, { position: 4, name: "estimatedWeight" });
+              if (finding) raise(finding, at(second.position).row, { firstPosition: first.position, secondPosition: second.position, firstWeight: a.toFixed(3), secondWeight: b.toFixed(3), difference: difference.toFixed(3) }, { position: 4, name: "estimatedWeight" });
             }
           }
         }
@@ -359,7 +373,7 @@ export async function runSarinValidationAttempt(actor: SarinValidationActor, cla
         }
         const blockId = prior?.id ?? randomUUID();
 
-        const parsed = parseSarinStoneName(name, claim.stoneType);
+        const parsed = parseSarinStoneName(name, claim.packetType);
         // Rough Weight: every record must carry a valid value and all values must be equal.
         const valid = rows.filter((r) => r.roughWeight !== null);
         const distinct = new Set(valid.map((r) => r.roughWeight!.toFixed(3)));
@@ -390,11 +404,11 @@ export async function runSarinValidationAttempt(actor: SarinValidationActor, cla
 
         // Blue/White plan structure: the stone must reach its main-plan limit, and every row
         // must be able to become a plan piece. Rows are positional: nothing is sorted.
-        const mainLimit = isBlueWhite(claim.stoneType) ? SARIN_MAIN_PLAN_LIMITS[claim.stoneType] : null;
+        const mainLimit = isBlueWhite(claim.packetType) ? SARIN_MAIN_PLAN_LIMITS[claim.packetType] : null;
         if (mainLimit !== null && rows.length < mainLimit) {
           issue({ code: "STONE_BLOCK_SHORTER_THAN_MAIN_LIMIT", stoneBlockId: blockId, sourceRowId: null, fieldPosition: null, fieldName: null, parameters: { rows: rows.length, requiredRows: mainLimit } });
         }
-        const isPink = claim.stoneType === "PINK";
+        const isPink = claim.packetType === "PINK";
         if (isPink && rows.length !== SARIN_PINK_BLOCK_ROWS) {
           issue({ code: "PINK_BLOCK_ROW_COUNT_INVALID", stoneBlockId: blockId, sourceRowId: null, fieldPosition: null, fieldName: null, parameters: { rows: rows.length, requiredRows: SARIN_PINK_BLOCK_ROWS } });
         }
@@ -407,12 +421,17 @@ export async function runSarinValidationAttempt(actor: SarinValidationActor, cla
           }
           const resolved = resolveShape(index, row.shapeRaw, row.ratio);
           const codes = row.rejectionCodes ?? "";
+          // A present shape the mapping set has no rule for at all (design v1.7 §15.10): the
+          // output keeps the raw Sarin shape and the row carries a warning. Pink's positional
+          // contract needs confirmed shapes, so there it still blocks. Either way it is one
+          // finding: the plan-level "no confirmed shape" consequence is not recorded again.
+          const unmapped = "issue" in resolved && resolved.issue === "SHAPE_UNMAPPED";
           if ("issue" in resolved) {
             // A missing shape or unreadable Ratio is already reported from the source row.
             const alreadyReported = resolved.issue === "SHAPE_MISSING" || (resolved.issue === "MAPPING_RATIO_MISSING" && /(^|,)RATIO_/.test(codes));
             if (!alreadyReported) {
               issue({
-                code: resolved.issue,
+                code: unmapped && !isPink ? "SHAPE_NOT_MAPPED" : resolved.issue,
                 stoneBlockId: blockId,
                 sourceRowId: row.id,
                 fieldPosition: 3,
@@ -436,9 +455,9 @@ export async function runSarinValidationAttempt(actor: SarinValidationActor, cla
           shapes.push("issue" in resolved ? null : resolved.rule.normalizedShape);
           if (mainLimit !== null) {
             const isMain = i + 1 <= mainLimit;
-            planStructureIssues(row, blockId, isMain ? "MAIN_PLAN_ROW_UNUSABLE" : "ADDITIONAL_PLAN_ROW_UNUSABLE", isMain ? "ESTIMATED_WEIGHT_MISSING" : "GROUPING_INPUT_INVALID", !("issue" in resolved));
+            planStructureIssues(row, blockId, isMain ? "MAIN_PLAN_ROW_UNUSABLE" : "ADDITIONAL_PLAN_ROW_UNUSABLE", isMain ? "ESTIMATED_WEIGHT_MISSING" : "GROUPING_INPUT_INVALID", !("issue" in resolved) || unmapped);
           } else if (isPink) {
-            planStructureIssues(row, blockId, "PINK_PLAN_ROW_UNUSABLE", "ESTIMATED_WEIGHT_MISSING", !("issue" in resolved));
+            planStructureIssues(row, blockId, "PINK_PLAN_ROW_UNUSABLE", "ESTIMATED_WEIGHT_MISSING", !("issue" in resolved) || unmapped);
           }
         }
         if (isPink && rows.length === SARIN_PINK_BLOCK_ROWS) pinkPositionIssues(rows, shapes, blockId);
@@ -535,8 +554,8 @@ export async function failSarinValidationAttempt(actor: SarinValidationActor, cl
 // Orchestration for POST /api/planning/sarin/imports/[batchId]/validate
 // ---------------------------------------------------------------------------------------
 
-export async function validateSarinImport(actor: SarinValidationActor, batchId: string, mappingSetId: string, config: SarinValidationConfig = SARIN_VALIDATION_CONFIG) {
-  const claimed = await claimSarinValidation(actor, batchId, mappingSetId, config);
+export async function validateSarinImport(actor: SarinValidationActor, batchId: string, config: SarinValidationConfig = SARIN_VALIDATION_CONFIG) {
+  const claimed = await claimSarinValidation(actor, batchId, config);
   if (claimed.kind === "REUSED") return { reused: true, attemptId: claimed.attemptId };
   try {
     await runSarinValidationAttempt(actor, claimed.claim, config);

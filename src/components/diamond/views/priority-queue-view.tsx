@@ -249,7 +249,7 @@ export function PriorityQueueView() {
     <div className="flex flex-col gap-3 p-3">
       <PageHeader
         title="Priority Queue"
-        subtitle="Open requirements (remainingUnplanned > 0) grouped by priority class · CRITICAL → HIGH → NORMAL · plan from the top"
+        subtitle="Open requirements by priority — plan from the top"
         meta={
           <span className="text-[10px] text-muted-foreground">
             {totalAll.toLocaleString()} pcs total unplanned across {critical.length + high.length + normal.length} requirement rows
@@ -295,14 +295,14 @@ export function PriorityQueueView() {
           value={totalAll}
           unit="pcs"
           intent="critical"
-          hint="Pipeline-Adjusted minus Approved Plan Coverage"
+          hint="Still needed after approved plans"
           onClick={openMatrix}
         />
         <KpiCard
           label="Plan Now"
           value="Open Workbench"
           intent="success"
-          hint="Three-panel planning workbench"
+          hint="Open the planning workbench"
           onClick={() => setView("planning-workbench")}
         />
       </div>

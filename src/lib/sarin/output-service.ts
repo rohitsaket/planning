@@ -1,6 +1,6 @@
 /**
  * Sarin structured output: turns one cleanly validated Sarin import into an immutable
- * output version of plan options and plan pieces, using its declared stone type's
+ * output version of plan options and plan pieces, using its declared packet type's
  * transformation (Blue/White plan groups, or the Pink 45-record layout).
  *
  * One transaction does everything, after locking the batch row (FOR UPDATE) so that
@@ -8,7 +8,8 @@
  *
  *   1. Re-reads the batch and its current validation attempt under the lock and refuses
  *      anything that is not VALIDATED by a COMPLETED attempt under the current validation
- *      profile with no blocking finding, against a mapping set that is still APPROVED.
+ *      profile with no blocking finding, against the mapping snapshot it captured (still
+ *      valid lineage; see SARIN_MAPPING_LINEAGE_STATUSES).
  *      Advisories (non-blocking findings) do not stop generation; they are counted.
  *   2. Hashes the exact inputs. A version with the same inputs is the answer (reused).
  *   3. Plans every stone once to count, supersedes the current version, records the new
@@ -33,9 +34,9 @@ import { log } from "@/lib/api/log";
 import type { ApiContext } from "@/lib/api/with-api";
 import { scopeWhere, type EffectiveScope } from "@/lib/auth/access-scope";
 import { SARIN_OUTPUT_CONFIG, type SarinOutputConfig } from "@/lib/sarin/output-config";
-import type { SarinStoneType } from "@/lib/sarin/domain";
+import { SARIN_MAPPING_LINEAGE_STATUSES, type SarinPacketType } from "@/lib/sarin/domain";
 import { SARIN_VALIDATION_PROFILE_VERSION } from "@/lib/sarin/plan-structure";
-import { transformFor } from "@/lib/sarin/transform";
+import { packetProfileFor } from "@/lib/sarin/transform";
 import { planYield } from "@/lib/sarin/yield";
 
 if (typeof window !== "undefined") {
@@ -70,7 +71,7 @@ export interface SarinOutputOutcome {
   readonly versionId: string;
 }
 
-const scopeOf = (scope: EffectiveScope) => scopeWhere(scope, { country: "country", lab: "labScope" }) as Prisma.SarinImportBatchWhereInput;
+const scopeOf = (scope: EffectiveScope) => scopeWhere(scope, { country: null, lab: "labScope" }) as Prisma.SarinImportBatchWhereInput;
 
 const inputsIncomplete = () =>
   new ApiError(422, "OUTPUT_INPUTS_INCOMPLETE", "The validated import does not have every value its structured output needs. Validate it again and review the findings.");
@@ -83,8 +84,10 @@ interface PieceSource {
   readonly sourceRowId: string;
   readonly sourceRowNumber: number;
   readonly rawShape: string;
-  readonly normalizedShape: string;
-  readonly mappingRuleId: string;
+  /** MAPPED: the rule's canonical shape. RAW_PASSTHROUGH: no rule exists; the output shows rawShape. */
+  readonly shapeResolution: "MAPPED" | "RAW_PASSTHROUGH";
+  readonly normalizedShape: string | null;
+  readonly mappingRuleId: string | null;
   readonly estimatedWeight: Prisma.Decimal;
   readonly clarity: string;
   readonly color: string;
@@ -126,7 +129,7 @@ async function* validatedStones(tx: Prisma.TransactionClient, batchId: string, a
       }),
       tx.sarinRowInterpretation.findMany({
         where: { batchId, validationAttempt: attemptNumber, sourceRowNumber: range },
-        select: { sourceRowNumber: true, stoneBlockId: true, normalizedShape: true, mappingRuleId: true, mappingResult: true },
+        select: { sourceRowNumber: true, stoneBlockId: true, rawShapeKey: true, normalizedShape: true, mappingRuleId: true, mappingResult: true },
       }),
     ]);
     const interpretationOf = new Map(interpretations.map((i) => [i.sourceRowNumber, i]));
@@ -140,12 +143,16 @@ async function* validatedStones(tx: Prisma.TransactionClient, batchId: string, a
         const it = interpretationOf.get(r.sourceRowNumber);
         // A row between blocks, or any gap in what validation proved, stops generation.
         if (r.sourceRowNumber < block.firstRowNumber || r.outcome !== "ACCEPTED" || !it || it.stoneBlockId !== block.id) throw inputsIncomplete();
-        if ((it.mappingResult !== "MAPPED" && it.mappingResult !== "CONDITIONALLY_MAPPED") || it.normalizedShape === null || it.mappingRuleId === null) throw inputsIncomplete();
+        const mapped = (it.mappingResult === "MAPPED" || it.mappingResult === "CONDITIONALLY_MAPPED") && it.normalizedShape !== null && it.mappingRuleId !== null;
+        // UNMAPPED with a shape key is validation's pass-through (a clean validation never has
+        // another kind of UNMAPPED row); the database guard proves the set has no rule for it.
+        const passThrough = it.mappingResult === "UNMAPPED" && it.rawShapeKey !== null && it.normalizedShape === null && it.mappingRuleId === null;
+        if (!mapped && !passThrough) throw inputsIncomplete();
         if (r.shapeRaw === null || r.estimatedWeight === null || r.clarity === null || r.color === null || r.depthPct === null || r.ratio === null || r.length === null || r.width === null || r.depthMm === null) {
           throw inputsIncomplete();
         }
         pieces.push({
-          sourceRowId: r.id, sourceRowNumber: r.sourceRowNumber, rawShape: r.shapeRaw, normalizedShape: it.normalizedShape, mappingRuleId: it.mappingRuleId,
+          sourceRowId: r.id, sourceRowNumber: r.sourceRowNumber, rawShape: r.shapeRaw, shapeResolution: mapped ? "MAPPED" : "RAW_PASSTHROUGH", normalizedShape: mapped ? it.normalizedShape : null, mappingRuleId: mapped ? it.mappingRuleId : null,
           estimatedWeight: r.estimatedWeight, clarity: r.clarity, color: r.color, depthPct: r.depthPct, ratio: r.ratio, length: r.length, width: r.width, depthMm: r.depthMm,
         });
       }
@@ -183,10 +190,10 @@ export async function generateSarinOutput(actor: SarinOutputActor, batchId: stri
 
         const batch = await tx.sarinImportBatch.findUniqueOrThrow({
           where: { id: batchId },
-          select: { status: true, stoneType: true, validationAttempt: true, contractVersion: true, sourceFile: { select: { sha256: true } } },
+          select: { status: true, packetType: true, validationAttempt: true, contractVersion: true, sourceFile: { select: { sha256: true } } },
         });
-        const stoneType = batch.stoneType as SarinStoneType;
-        const transform = transformFor(stoneType);
+        const packetType = batch.packetType as SarinPacketType;
+        const transform = packetProfileFor(packetType);
         if (batch.status === "NEEDS_REVIEW") {
           const blockingFindings = await tx.sarinValidationIssue.count({ where: { batchId, validationAttempt: batch.validationAttempt, blocking: true, status: { in: ["OPEN", "OVERRIDDEN"] } } });
           throw new ApiError(422, "BLOCKING_FINDINGS_OPEN", "This import has validation findings that block structured output. Review them first.", { blockingFindings });
@@ -207,15 +214,17 @@ export async function generateSarinOutput(actor: SarinOutputActor, batchId: stri
         const blockingFindings = await tx.sarinValidationIssue.count({ where: { batchId, validationAttempt: attempt.attemptNumber, blocking: true, status: { in: ["OPEN", "OVERRIDDEN"] } } });
         if (blockingFindings > 0) throw new ApiError(422, "BLOCKING_FINDINGS_OPEN", "This import has validation findings that block structured output. Review them first.", { blockingFindings });
         const set = await tx.sarinShapeMappingSet.findUnique({ where: { id: attempt.shapeMappingSetId }, select: { id: true, status: true, contentHash: true } });
-        if (!set || set.status !== "APPROVED" || set.contentHash === null) {
-          throw conflict("MAPPING_SET_NOT_APPROVED", "The mapping set this import was validated with is no longer approved. Validate it again with an approved set.");
+        if (!set || !SARIN_MAPPING_LINEAGE_STATUSES.includes(set.status) || set.contentHash === null) {
+          throw conflict("MAPPING_WITHDRAWN", "The shape mapping this file was checked with was withdrawn. Process the file again.");
         }
 
-        // Key order is fixed here, so equal inputs always hash equally.
+        // Key order is fixed here, so equal inputs always hash equally. The packet type keeps
+        // its original hash key "stoneType": stored versions are recognised as unchanged
+        // inputs by this hash, so renaming the key would regenerate every existing output.
         const inputsHash = inputsHashOf({
           sourceFileSha256: batch.sourceFile.sha256,
           contractVersion: batch.contractVersion,
-          stoneType,
+          stoneType: packetType,
           validationAttemptId: attempt.id,
           validationAttemptNumber: attempt.attemptNumber,
           validationProfileVersion: attempt.validationProfileVersion,
@@ -259,7 +268,7 @@ export async function generateSarinOutput(actor: SarinOutputActor, batchId: stri
             transformProfileHash: transform.hash,
             versionNumber,
             inputsHash,
-            stoneType,
+            packetType,
             generatedByUserId: actor.userId,
             supersedesVersionId: current?.id ?? null,
             stoneCount,
@@ -318,7 +327,7 @@ export async function generateSarinOutput(actor: SarinOutputActor, batchId: stri
           action: SARIN_OUTPUT_AUDIT.generated,
           entity: ENTITY,
           entityId: batchId,
-          after: { outputVersionId: version.id, versionNumber, validationAttempt: attempt.attemptNumber, mappingSetId: set.id, stoneType, transformProfile: transform.version, supersedes: current?.id ?? null, stoneCount, optionCount, pieceCount, advisories },
+          after: { outputVersionId: version.id, versionNumber, validationAttempt: attempt.attemptNumber, mappingSetId: set.id, packetType, transformProfile: transform.version, supersedes: current?.id ?? null, stoneCount, optionCount, pieceCount, advisories },
           reason: "Sarin structured output generated",
         });
         return { reused: false, versionId: version.id };

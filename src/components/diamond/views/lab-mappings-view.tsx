@@ -30,7 +30,7 @@ const columns: Column<LabMappingRow>[] = [
       </span>
     ),
   },
-  { key: "active", header: "Active", align: "center", cell: (r) => <Badge variant={r.active ? "success" : "neutral"}>{r.active ? "ACTIVE" : "INACTIVE"}</Badge> },
+  { key: "active", header: "Active", align: "center", cell: (r) => <Badge variant={r.active ? "success" : "neutral"}>{r.active ? "Active" : "Inactive"}</Badge> },
 ];
 
 export function LabMappingsView() {
@@ -39,16 +39,16 @@ export function LabMappingsView() {
   return (
     <div className="flex flex-col gap-3 p-3">
       <PageHeader
-        title="Lab Mappings (Admin)"
-        subtitle="Master mapping table for raw Lab → normalized Lab"
+        title="Lab Mapping"
+        subtitle="How lab names are standardized"
         meta={<span className="text-[10px] text-muted-foreground">{data?.rows.length ?? 0} mappings</span>}
       />
 
       <InfoBanner variant="info">
-        <strong className="font-semibold">Confirmed Rule:</strong> GIA → GIA, GIA-Premium → GIA, GIA-Standard → GIA, Blank/NULL → Non-Cert. Unknown Labs: retain raw value, flag validation warning/error, allow admin mapping through controlled master data. <strong className="font-semibold">Do NOT silently normalize unknown Lab values.</strong>
+        Unknown lab names are kept as entered and flagged for review.
       </InfoBanner>
 
-      <Section title="Lab Mapping Table" description="Each row maps a raw lab string to a normalized lab classification">
+      <Section title="Lab Mapping Table" description="Lab name as received and its standard name">
         <DataTable
           columns={columns}
           rows={data?.rows ?? []}

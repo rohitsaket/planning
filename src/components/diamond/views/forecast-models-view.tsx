@@ -3,7 +3,7 @@
 import { useApi } from "@/lib/api-client";
 import { Section, PageHeader } from "@/components/diamond/shared/page-header";
 import { DataTable, type Column } from "@/components/diamond/shared/data-table";
-import { StatusBadge, Badge } from "@/components/diamond/shared/badges";
+import { StatusBadge } from "@/components/diamond/shared/badges";
 import { InfoBanner, NumberCell } from "@/components/diamond/shared/empty-state";
 
 interface Metrics {
@@ -113,17 +113,7 @@ export function ForecastModelsView() {
 
       {data?.advisoryNotice && (
         <InfoBanner variant="warning">
-          {canSeeMethodology && (
-            <strong className="font-semibold">Use time-aware validation. Never random-split time series. </strong>
-          )}
           {data.advisoryNotice}
-        </InfoBanner>
-      )}
-
-      {data && !canSeeMethodology && (
-        <InfoBanner variant="info">
-          Model methodology and validation metrics are restricted to model governance. The
-          published models and their run history are shown here.
         </InfoBanner>
       )}
 
@@ -157,40 +147,6 @@ export function ForecastModelsView() {
         />
       </Section>
 
-      <Section title="Metrics Formulas" description="Definitions for forecast accuracy metrics">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-          <div className="rounded-md border border-border bg-muted/20 p-3">
-            <Badge variant="info">MAE</Badge>
-            <p className="mt-2 text-[10px] text-muted-foreground">Mean Absolute Error</p>
-            <p className="mt-1 text-[11px] font-mono">MAE = (1/n) · Σ |yᵢ − ŷᵢ|</p>
-            <p className="mt-1 text-[10px] text-muted-foreground">Average magnitude of forecast errors, in same units as the prediction.</p>
-          </div>
-          <div className="rounded-md border border-border bg-muted/20 p-3">
-            <Badge variant="info">WAPE</Badge>
-            <p className="mt-2 text-[10px] text-muted-foreground">Weighted Absolute Percentage Error</p>
-            <p className="mt-1 text-[11px] font-mono">WAPE = Σ|yᵢ − ŷᵢ| / Σ|yᵢ|</p>
-            <p className="mt-1 text-[10px] text-muted-foreground">Error normalized by total volume — robust to low-volume categories.</p>
-          </div>
-          <div className="rounded-md border border-border bg-muted/20 p-3">
-            <Badge variant="info">RMSE</Badge>
-            <p className="mt-2 text-[10px] text-muted-foreground">Root Mean Squared Error</p>
-            <p className="mt-1 text-[11px] font-mono">RMSE = √[ (1/n) · Σ(yᵢ − ŷᵢ)² ]</p>
-            <p className="mt-1 text-[10px] text-muted-foreground">Penalises large errors more heavily than MAE.</p>
-          </div>
-          <div className="rounded-md border border-border bg-muted/20 p-3">
-            <Badge variant="info">Bias</Badge>
-            <p className="mt-2 text-[10px] text-muted-foreground">Forecast Bias</p>
-            <p className="mt-1 text-[11px] font-mono">Bias = (1/n) · Σ(yᵢ − ŷᵢ)</p>
-            <p className="mt-1 text-[10px] text-muted-foreground">Positive = under-forecast, negative = over-forecast.</p>
-          </div>
-          <div className="rounded-md border border-border bg-muted/20 p-3">
-            <Badge variant="info">Prediction Coverage</Badge>
-            <p className="mt-2 text-[10px] text-muted-foreground">Catalog coverage ratio</p>
-            <p className="mt-1 text-[11px] font-mono">Coverage = #categories predicted / #active categories</p>
-            <p className="mt-1 text-[10px] text-muted-foreground">Fraction of the active catalog the model produced predictions for.</p>
-          </div>
-        </div>
-      </Section>
     </div>
   );
 }

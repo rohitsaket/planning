@@ -763,7 +763,7 @@ export function DataTable<T>({
                   </div>
 
                   <div className="text-[9.5px] text-muted-foreground border-t border-border/80 pt-1.5 leading-tight">
-                    💡 Drag column headers to rearrange. Click the filter icon on any column to filter values.
+                    Drag headers to reorder. Use the filter icon to filter.
                   </div>
                 </PopoverContent>
               </Popover>

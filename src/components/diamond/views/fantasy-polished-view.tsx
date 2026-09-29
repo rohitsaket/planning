@@ -91,13 +91,13 @@ export function FantasyPolishedView() {
       key: "fantasyStatus", header: "Fantasy Status", align: "center",
       cell: (r) => <StatusBadge status={r.fantasyStatus} />,
     },
-    { key: "labRaw", header: "Lab (raw)", align: "center", cell: (r) => <span className="text-muted-foreground">{r.labRaw ?? "—"}</span> },
+    { key: "labRaw", header: "Lab (source)", align: "center", cell: (r) => <span className="text-muted-foreground">{r.labRaw ?? "—"}</span> },
     {
-      key: "labNormalized", header: "Lab (norm)", align: "center",
+      key: "labNormalized", header: "Lab", align: "center",
       cell: (r) => <Badge variant={r.labNormalized === "GIA" ? "info" : "neutral"}>{r.labNormalized ?? "Non-Cert"}</Badge>,
     },
     { key: "shape", header: "Shape", align: "center", cell: (r) => <span>{r.shape}</span> },
-    { key: "shapeNormalized", header: "Shape (norm)", align: "center", cell: (r) => <span className="text-muted-foreground">{r.shapeNormalized ?? "—"}</span> },
+    { key: "shapeNormalized", header: "Shape (standard)", align: "center", cell: (r) => <span className="text-muted-foreground">{r.shapeNormalized ?? "—"}</span> },
     {
       key: "weight", header: "Weight (ct)", align: "right", sortable: true, sortValue: (r) => r.weight,
       cell: (r) => <NumberCell value={r.weight} intent="info" />,
@@ -121,8 +121,8 @@ export function FantasyPolishedView() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2 flex-shrink-0">
         <KpiCard label="Total Polished Lots" value={data?.total ?? 0} unit="lots" intent="success" hint="After filters applied" />
         <KpiCard label="Total Weight" value={totalWeight.toFixed(2)} unit="ct" intent="default" hint="Sum of selected rows" />
-        <KpiCard label="GIA Certified" value={giaCount} unit="lots" intent="info" hint="labNormalized = GIA" />
-        <KpiCard label="With Certificate #" value={certCount} unit="lots" intent="default" hint="Lots with certificate number populated" />
+        <KpiCard label="GIA Certified" value={giaCount} unit="lots" intent="info" hint="GIA certified lots" />
+        <KpiCard label="With Certificate #" value={certCount} unit="lots" intent="default" hint="Lots with a certificate number" />
       </div>
 
       {/* Filters */}
@@ -157,7 +157,6 @@ export function FantasyPolishedView() {
 
       <DataTable
         title="Polished Lots"
-        description="Click column headers to sort · Use search to filter live"
         columns={columns}
         rows={rows}
         loading={isLoading}

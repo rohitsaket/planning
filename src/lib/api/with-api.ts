@@ -116,6 +116,14 @@ async function readJson(req: Request): Promise<unknown> {
   }
 }
 
+/** Missing table (P2021, SQLSTATE 42P01) or column (P2022, 42703): the schema is behind the code. */
+function isSchemaBehindCode(e: unknown): boolean {
+  if (!(e instanceof Prisma.PrismaClientKnownRequestError)) return false;
+  if (e.code === "P2021" || e.code === "P2022") return true;
+  const sqlState = (e.meta as { code?: unknown } | undefined)?.code;
+  return e.code === "P2010" && (sqlState === "42P01" || sqlState === "42703");
+}
+
 function errorResponse(e: unknown, requestId: string, route: string, userId: string | null): Response {
   let status = 500;
   let code = "INTERNAL_ERROR";
@@ -136,6 +144,12 @@ function errorResponse(e: unknown, requestId: string, route: string, userId: str
     status = 409;
     code = "CONFLICT";
     message = "The record changed or already exists. Reload and try again.";
+  } else if (isSchemaBehindCode(e)) {
+    // The database is missing a table or column this build uses: its migrations have not
+    // been applied. Retrying cannot help, and the table name is not the caller's business.
+    status = 503;
+    code = "DATABASE_NOT_READY";
+    message = "This feature is not available until its database update is applied. Ask an administrator to apply the pending database migrations.";
   }
   if (status >= 500) {
     log("error", "api.unhandled", { requestId, route, userId, error: e instanceof Error ? e.stack : String(e) });

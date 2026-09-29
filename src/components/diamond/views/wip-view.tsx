@@ -81,7 +81,7 @@ interface WipData {
 const OUTCOME_LABEL: Record<string, string> = {
   ELIGIBLE: "Eligible WIP",
   INELIGIBLE_STAGE: "Ineligible stage",
-  AMBIGUOUS: "Ambiguous (quarantined)",
+  AMBIGUOUS: "Needs review",
   COMPLETED: "Completed",
   ALREADY_POLISHED: "Already polished output",
   POLICY_NOT_CONFIGURED: "Blocked — policy not configured",
@@ -168,7 +168,7 @@ export function WipView() {
     <div className="flex flex-col gap-3 p-3">
       <PageHeader
         title="WIP Inventory"
-        subtitle="Manufacturing work in progress, classified by the same engine the demand calculation uses"
+        subtitle="Manufacturing work in progress"
         meta={
           <span
             className={`text-[10px] font-mono px-2 py-0.5 rounded border ${
@@ -206,7 +206,7 @@ export function WipView() {
               value={data?.summary.totalPieces ?? 0}
               unit="pcs"
               intent="default"
-              hint="Current canonical manufacturing WIP records"
+              hint="Current WIP pieces"
               icon={Boxes}
             />
             <KpiCard
@@ -222,21 +222,21 @@ export function WipView() {
               value={data?.summary.unallocatedPieces ?? 0}
               unit="pcs"
               intent="warning"
-              hint="Real WIP that does not reduce shortage"
+              hint="Not counted toward shortage"
               icon={Package}
             />
             <KpiCard
-              label="Ambiguous / Quarantined"
+              label="Needs Review"
               value={data?.summary.ambiguousPieces ?? 0}
               unit="pcs"
               intent={(data?.summary.ambiguousPieces ?? 0) > 0 ? "critical" : "default"}
-              hint="Unmapped lab, shape or weight band — never assigned to a category"
+              hint="Missing lab, shape or weight band"
               icon={AlertTriangle}
             />
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-            <Section title="Classification Breakdown" description="How every current WIP record was classified">
+            <Section title="Classification Breakdown">
               <DataTable
                 columns={outcomeColumns}
                 rows={data?.byOutcome ?? []}
@@ -249,14 +249,14 @@ export function WipView() {
                 rowClassName={(r) => (outcome === r.dimension ? "bg-sky-500/10" : "")}
               />
               <div className="px-3 py-1.5 text-[10px] text-muted-foreground border-t border-border">
-                Completed and already-polished pieces are excluded from both coverage and unallocated WIP so no piece is counted twice.
+                Completed pieces are not counted.
                 {outcome && " Click the highlighted row again to clear the detail filter."}
               </div>
             </Section>
-            <Section title="WIP by Stage" description="Normalized manufacturing stage">
+            <Section title="WIP by Stage">
               <DataTable columns={dimensionColumns} rows={data?.byStage ?? []} loading={isLoading} emptyMessage="No stage data" maxHeight="320px" />
             </Section>
-            <Section title="WIP by Planning Category" description="Lab + Shape + Weight Band, with unmapped records quarantined">
+            <Section title="WIP by Planning Category" description="By lab, shape and weight band">
               <DataTable columns={dimensionColumns} rows={data?.byCategory ?? []} loading={isLoading} emptyMessage="No category data" maxHeight="320px" />
             </Section>
             <Section title="WIP by Country / Branch" description="Where the work in progress physically sits">
@@ -268,14 +268,14 @@ export function WipView() {
             title="WIP Records"
             description={
               canSeeLots
-                ? "Lot-level classification with the exact inclusion or exclusion reason"
-                : "Lot-level WIP records are demand trace data"
+                ? "Lot details with reason"
+                : "Lot details require access"
             }
           >
             {data?.detailAccessRestricted ? (
               <div className="flex items-center gap-2 px-3 py-6 text-[11px] text-muted-foreground">
                 <Lock className="h-3.5 w-3.5" />
-                Lot-level WIP records require the <span className="font-mono">demand.trace</span> permission. Aggregate figures above remain available.
+                You don't have access to lot details. Totals above are still available.
               </div>
             ) : (
               <>

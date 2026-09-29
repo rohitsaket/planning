@@ -32,7 +32,10 @@ export type ViewId =
   | "data-science-prediction-monitoring"
   | "reports"
   | "admin-users-access"
+  | "admin-mappings"
+  // Former ids, kept only as aliases of admin-mappings for old links.
   | "admin-rules-mappings"
+  | "admin-sarin-shape-mappings"
   | "admin-system-settings"
   | "admin-audit-log"
   // Legacy / Embedded View IDs for Backward Compatibility & Direct Links
@@ -102,6 +105,10 @@ export const LEGACY_VIEW_ALIASES: Partial<Record<ViewId, { view: ViewId; tab: st
   // Demand Trace used to have a second id in the Demand and Inventory section. One page now
   // has one id; old hashes and old setView() callers resolve to the canonical Analysis id.
   "demand-trace": { view: DEMAND_TRACE_VIEW, tab: null },
+  // "Business Rules and Mappings" became "Mappings"; Business Rules is no longer a page.
+  "admin-rules-mappings": { view: "admin-mappings", tab: null },
+  "admin-business-rules": { view: "admin-mappings", tab: null },
+  "admin-sarin-shape-mappings": { view: "admin-mappings", tab: "sarin-shape-mapping" },
 };
 
 export function resolveViewAlias(view: ViewId, tab: string | null = null): { view: ViewId; tab: string | null } {

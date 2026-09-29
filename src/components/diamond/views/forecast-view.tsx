@@ -45,7 +45,8 @@ const trendVariant: Record<string, "success" | "info" | "warning" | "critical" |
 };
 
 function trendLabel(t: string): string {
-  return t.replace(/_/g, " ");
+  const words = t.replace(/_/g, " ").toLowerCase();
+  return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
 const forecastColumns: Column<ForecastRow>[] = [
@@ -99,24 +100,23 @@ export function ForecastView() {
     <div className="flex flex-col gap-3 p-3">
       <PageHeader
         title="Forecast Analysis"
-        subtitle="Predicted future demand by category — horizon 30 / 60 / 90 days"
-        meta={<span className="text-[10px] text-muted-foreground">Model: {data?.modelVersion ?? "—"}</span>}
+        subtitle="Predicted demand by category for the next 30, 60 and 90 days"
       />
 
       {data?.advisoryNotice && (
         <InfoBanner variant="warning">
-          <strong className="font-semibold">FORECAST IS A PREDICTION, NOT CONFIRMED DEMAND.</strong> Forecast must remain separate from confirmed current manufacturing requirement.
+          <strong className="font-semibold">Forecast is a prediction, not confirmed demand.</strong>
         </InfoBanner>
       )}
 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
         <KpiCard label="Model Version" value={data?.modelVersion ?? "—"} intent="info" hint="Active forecast model" icon={Layers} />
-        <KpiCard label="Horizon 30D Total" value={data?.horizon30d ?? 0} unit="pcs" intent="default" hint="Σ 30-day predictions" icon={TrendingUp} sparkline={h30Spark} />
-        <KpiCard label="Horizon 60D Total" value={data?.horizon60d ?? 0} unit="pcs" intent="default" hint="Σ 60-day predictions" icon={TrendingUp} sparkline={h60Spark} />
-        <KpiCard label="Horizon 90D Total" value={data?.horizon90d ?? 0} unit="pcs" intent="info" hint="Σ 90-day predictions" icon={TrendingUp} sparkline={h90Spark} />
+        <KpiCard label="Horizon 30D Total" value={data?.horizon30d ?? 0} unit="pcs" intent="default" hint="Total predicted, next 30 days" icon={TrendingUp} sparkline={h30Spark} />
+        <KpiCard label="Horizon 60D Total" value={data?.horizon60d ?? 0} unit="pcs" intent="default" hint="Total predicted, next 60 days" icon={TrendingUp} sparkline={h60Spark} />
+        <KpiCard label="Horizon 90D Total" value={data?.horizon90d ?? 0} unit="pcs" intent="info" hint="Total predicted, next 90 days" icon={TrendingUp} sparkline={h90Spark} />
       </div>
 
-      <Section title="Predictions by Category" description="Each row is a predicted demand figure, not a confirmed order requirement">
+      <Section title="Predictions by Category" description="Predicted demand per category">
         <DataTable
           columns={forecastColumns}
           rows={data?.rows ?? []}

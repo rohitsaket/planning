@@ -128,8 +128,8 @@ export function AgingView() {
         title="Stock Aging"
         subtitle={
           bucketFromNav
-            ? `Current canonical stock — ${BUCKET_LABELS[bucketFromNav]}`
-            : "Current canonical stock by bucket, category and location"
+            ? `Current stock — ${BUCKET_LABELS[bucketFromNav]}`
+            : "Current stock by bucket, category and location"
         }
       />
       {/* Persistent and unmistakable while fixture data is on screen. */}
@@ -139,14 +139,14 @@ export function AgingView() {
 
       <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
         {/* All three cover the complete filtered result, not the page on screen. */}
-        <KpiCard label="Current lots" value={data?.totals.currentLots ?? 0} intent="info" icon={Boxes} hint="Records currently in stock, across all pages" />
-        <KpiCard label="Confirmed quantity" value={data?.totals.confirmedQuantity ?? 0} unit="pcs" intent="success" hint="Pieces the source established, across all pages" />
-        <KpiCard label="Needing review" value={data?.totals.lotsNeedingReview ?? 0} intent="warning" hint="Quantity or classification not confirmed, across all pages" />
+        <KpiCard label="Current lots" value={data?.totals.currentLots ?? 0} intent="info" icon={Boxes} hint="Lots in stock" />
+        <KpiCard label="Confirmed quantity" value={data?.totals.confirmedQuantity ?? 0} unit="pcs" intent="success" hint="Confirmed pieces in stock" />
+        <KpiCard label="Needing review" value={data?.totals.lotsNeedingReview ?? 0} intent="warning" hint="Quantity or classification not confirmed" />
       </div>
 
       <Section
         title="Current stock"
-        description="Sold and non-current records are history and are excluded. Age is not shown because the aging date is not yet confirmed."
+        description="Current stock only. Age is not shown until the aging date is confirmed."
         actions={
           <div className="flex items-center gap-2">
             <div className="relative">

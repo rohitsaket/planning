@@ -5,14 +5,12 @@ import { POST as reserve } from "@/app/api/planning/reservations/route";
 import { POST as replan } from "@/app/api/planning/cases/[id]/replan/route";
 import { POST as priority } from "@/app/api/requirements/[id]/priority/route";
 import { POST as flags } from "@/app/api/admin/feature-flags/route";
-import { POST as rules } from "@/app/api/admin/business-rules/route";
 
-let planner: Awaited<ReturnType<typeof makeUser>>, approver: typeof planner, viewer: typeof planner, root: typeof planner;
+let planner: Awaited<ReturnType<typeof makeUser>>, approver: typeof planner, root: typeof planner;
 beforeAll(async () => {
   await resetDb();
   planner = await makeUser("planner1", "PLANNER", "Planner One");
   approver = await makeUser("approver1", "PLANNING_MANAGER", "Approver One");
-  viewer = await makeUser("viewer1", "VIEWER");
   root = await makeUser("root1", "SUPER_ADMIN");
 });
 const lastAudit = (action: string) => db.auditLog.findFirst({ where: { action }, orderBy: { timestamp: "desc" } });
@@ -55,17 +53,11 @@ describe("identity integrity (SEC-002): body identity fields never become the ac
     const fa = await lastAudit("FEATURE_FLAG_TOGGLE");
     expect(fa?.actor).toBe("root1");
     expect(fa?.before).toContain("false");
-
-    const rule = await db.businessRule.create({ data: { ruleId: `BR-${Date.now()}`, domain: "d", name: "n", version: "1", effectiveDate: new Date() } });
-    expect((await call(rules, { method: "POST", cookie: root.cookie, body: { id: rule.id, status: "CONFIRMED", approver: "ceo" } })).status).toBe(200);
-    expect((await db.businessRule.findUnique({ where: { id: rule.id } }))?.approvedBy).toBe("root1");
   });
-  test("privileged admin changes: ADMIN (no manage permission) and viewer → 403, invalid enum → 400", async () => {
+  test("privileged admin changes: ADMIN (no manage permission) → 403", async () => {
     const admin = await makeUser("admin1", "ADMIN");
     const flag = await db.featureFlag.create({ data: { code: `F2_${Date.now()}`, name: "f" } });
     expect((await call(flags, { method: "POST", cookie: admin.cookie, body: { id: flag.id, enabled: true } })).status).toBe(403);
-    expect((await call(rules, { method: "POST", cookie: viewer.cookie, body: { id: "x", status: "CONFIRMED" } })).status).toBe(403);
-    expect((await call(rules, { method: "POST", cookie: root.cookie, body: { id: "x", status: "ANYTHING" } })).status).toBe(400);
   });
 });
 

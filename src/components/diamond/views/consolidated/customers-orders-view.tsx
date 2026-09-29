@@ -28,7 +28,7 @@ export function CustomersOrdersView() {
   return (
     <TabbedHostView
       title="Customers and Orders"
-      subtitle="Confirmed customer sales from the authoritative 90-day snapshot, and the current order-source state"
+      subtitle="Confirmed customer sales and order status"
       tabs={TABS}
       defaultTab="customers"
     />

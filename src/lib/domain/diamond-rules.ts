@@ -126,29 +126,6 @@ export function normalizeShape(rawShape: string | null | undefined): { normalize
 }
 
 // ---------------------------------------------------------------------------
-// EMERALD 5STEP
-// ---------------------------------------------------------------------------
-export function resolveEmerald5Step(ratio: number | null | undefined): {
-  shape: string;
-  valid: boolean;
-  issue?: string;
-} {
-  if (ratio === null || ratio === undefined || !Number.isFinite(ratio)) {
-    return { shape: "EMERALD 5STEP", valid: false, issue: "Ratio missing or non-numeric" };
-  }
-  if (ratio < 1.0) {
-    return { shape: "EMERALD 5STEP", valid: false, issue: "Ratio below 1.00" };
-  }
-  if (ratio >= 1.0 && ratio <= 1.03) return { shape: "Asscher", valid: true };
-  if (ratio >= 1.4) return { shape: "Emerald", valid: true };
-  return {
-    shape: "EMERALD 5STEP",
-    valid: false,
-    issue: "Ratio between 1.04 and 1.39 is ambiguous",
-  };
-}
-
-// ---------------------------------------------------------------------------
 // DEMAND CALCULATION — confirmed 90-day rule, decimal-safe rounding
 // ---------------------------------------------------------------------------
 
@@ -231,57 +208,6 @@ export function calculateFourRequirements(params: {
     eligibleWipCoverage,
     approvedPlanCoverage,
   };
-}
-
-// ---------------------------------------------------------------------------
-// PLAN YIELD
-// ---------------------------------------------------------------------------
-export function calculatePlanYield(estWeight: number, roughWeight: number): number {
-  if (!roughWeight || roughWeight <= 0) return 0;
-  return (estWeight / roughWeight) * 100;
-}
-
-export function formatYield(pct: number): string {
-  return pct.toFixed(2) + "%";
-}
-
-export function formatEstWeight(w: number): string {
-  return w.toFixed(3);
-}
-
-// ---------------------------------------------------------------------------
-// STONE NAME PARSING (Blue / White)
-// ---------------------------------------------------------------------------
-export interface ParsedStoneName {
-  kapan: string;
-  packet: string;
-  signer: string;
-  unresolved: string;
-  stoneType: "BLUE" | "WHITE" | "UNKNOWN";
-}
-
-export function parseStoneName(rawName: string): ParsedStoneName {
-  const name = rawName.trim();
-  if (name.includes("_") && name.includes("+")) {
-    // BLUE pattern: 670D-764_E+pv
-    const kapan = name.split("-")[0] || "";
-    const rest = name.slice(kapan.length + 1);
-    const [packetPart, signerPart] = rest.split("+");
-    const packet = (packetPart || "").split("_")[0] || "";
-    const signer = signerPart || "";
-    return { kapan, packet, signer, unresolved: "_E", stoneType: "BLUE" };
-  }
-  if (name.includes("-")) {
-    // WHITE pattern: 2501-001 HA
-    const [kapanPart, afterHyphen] = name.split("-");
-    const kapan = kapanPart || "";
-    const afterHyphenTrim = (afterHyphen || "").trim();
-    const spaceIdx = afterHyphenTrim.indexOf(" ");
-    const packet = spaceIdx >= 0 ? afterHyphenTrim.slice(0, spaceIdx) : afterHyphenTrim;
-    const signer = spaceIdx >= 0 ? afterHyphenTrim.slice(spaceIdx + 1).trim() : "";
-    return { kapan, packet, signer, unresolved: "", stoneType: "WHITE" };
-  }
-  return { kapan: name, packet: "", signer: "", unresolved: "", stoneType: "UNKNOWN" };
 }
 
 // ---------------------------------------------------------------------------

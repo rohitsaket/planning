@@ -12,7 +12,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { SARIN_MAIN_PLAN_LIMITS, type BlueWhiteStoneType } from "@/lib/sarin/plan-structure";
+import { SARIN_MAIN_PLAN_LIMITS, type BlueWhitePacketType } from "@/lib/sarin/plan-structure";
 import type { TransformRow } from "@/lib/sarin/transform";
 
 if (typeof window !== "undefined") {
@@ -35,8 +35,8 @@ export type PlannedOption<R> =
   | { readonly kind: "MAIN"; readonly mainOrdinal: number; readonly rows: readonly R[] }
   | { readonly kind: "ADDITIONAL"; readonly groupOrdinal: number; readonly rows: readonly R[] };
 
-export function planBlueWhiteStone<R extends TransformRow>(stoneType: BlueWhiteStoneType, rows: readonly R[]): PlannedOption<R>[] {
-  const limit = SARIN_MAIN_PLAN_LIMITS[stoneType];
+export function planBlueWhiteStone<R extends TransformRow>(packetType: BlueWhitePacketType, rows: readonly R[]): PlannedOption<R>[] {
+  const limit = SARIN_MAIN_PLAN_LIMITS[packetType];
   if (rows.length < limit) throw new Error("A Blue/White stone shorter than its main-plan limit cannot be transformed.");
 
   const options: PlannedOption<R>[] = rows.slice(0, limit).map((row, i) => ({ kind: "MAIN", mainOrdinal: i + 1, rows: [row] }));

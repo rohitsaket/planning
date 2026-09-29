@@ -40,7 +40,7 @@ import { EvaluationReconciliationView } from "@/components/diamond/views/consoli
 import { DataScienceForecastingView } from "@/components/diamond/views/consolidated/data-science-forecasting-view";
 import { PredictiveModelsView } from "@/components/diamond/views/consolidated/predictive-models-view";
 import { UsersAccessView } from "@/components/diamond/views/consolidated/users-access-view";
-import { BusinessRulesMappingsView } from "@/components/diamond/views/consolidated/business-rules-mappings-view";
+import { MappingsView } from "@/components/diamond/views/consolidated/mappings-view";
 import { SystemSettingsView } from "@/components/diamond/views/consolidated/system-settings-view";
 
 // Legacy Views (for direct view rendering / backward compatibility)
@@ -71,7 +71,7 @@ import { FantasyDepartmentsView } from "@/components/diamond/views/fantasy-depar
 import { FantasyLocationsView } from "@/components/diamond/views/fantasy-locations-view";
 import { PlanVsActualView } from "@/components/diamond/views/plan-vs-actual-view";
 import { ForecastModelsView } from "@/components/diamond/views/forecast-models-view";
-import { BusinessRulesView } from "@/components/diamond/views/business-rules-view";
+import { StatusMappingsView } from "@/components/diamond/views/status-mappings-view";
 import { WeightBandsView } from "@/components/diamond/views/weight-bands-view";
 import { LabMappingsView } from "@/components/diamond/views/lab-mappings-view";
 import { ShapeMappingsView } from "@/components/diamond/views/shape-mappings-view";
@@ -134,7 +134,7 @@ const VIEW_REGISTRY: Record<string, React.ComponentType> = {
 
   // 12. Administration
   "admin-users-access": UsersAccessView,
-  "admin-rules-mappings": BusinessRulesMappingsView,
+  "admin-mappings": MappingsView,
   "admin-system-settings": SystemSettingsView,
   "admin-audit-log": AuditLogView,
 
@@ -184,7 +184,7 @@ const VIEW_REGISTRY: Record<string, React.ComponentType> = {
   "fantasy-polished": FantasyPolishedView,
   "fantasy-departments": FantasyDepartmentsView,
   "fantasy-locations": FantasyLocationsView,
-  "fantasy-status-mapping": BusinessRulesView,
+  "fantasy-status-mapping": StatusMappingsView,
   "fantasy-reconciliation": FantasySyncView,
   "data-quality-unmapped-labs": LabMappingsView,
   "data-quality-unmapped-shapes": ShapeMappingsView,
@@ -193,7 +193,6 @@ const VIEW_REGISTRY: Record<string, React.ComponentType> = {
   "data-science-forecast": ForecastView,
   "data-science-models": ForecastModelsView,
   "data-science-forecast-accuracy": ForecastModelsView,
-  "admin-business-rules": BusinessRulesView,
   "admin-weight-bands": WeightBandsView,
   "admin-lab-mappings": LabMappingsView,
   "admin-shape-mappings": ShapeMappingsView,

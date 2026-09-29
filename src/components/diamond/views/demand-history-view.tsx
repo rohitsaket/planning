@@ -192,7 +192,7 @@ export function DemandHistoryView() {
     <div className="flex flex-col gap-3 p-3">
       <PageHeader
         title="Demand Run History"
-        subtitle="Audit trail of past demand calculation runs — rule version, shortage, excess & actor"
+        subtitle="Past demand runs — shortage, excess and who ran them"
         meta={lastRunMeta}
       />
 
@@ -258,7 +258,7 @@ export function DemandHistoryView() {
       >
         {chartData.length === 0 ? (
           <div className="text-center text-xs text-muted-foreground py-8">
-            No demand run history available yet. Trigger a demand calc from the dashboard to populate.
+            No demand runs yet. Run demand from the dashboard.
           </div>
         ) : (
           <div className="h-64">
@@ -315,14 +315,14 @@ export function DemandHistoryView() {
           columns={columns}
           rows={rows}
           loading={isLoading}
-          emptyMessage="No demand runs recorded yet. Trigger a demand calc from the Executive Dashboard."
+          emptyMessage="No demand runs yet. Run demand from the Executive Dashboard."
           initialSortKey="runDate"
           initialSortDir="desc"
           exportable
           exportPermission="demand.export"
           exportFilename="demand-history.csv"
           searchable
-          searchPlaceholder="Search actor, rule version, status..."
+          searchPlaceholder="Search user or status..."
           searchFn={(r, q) =>
             `${r.actor} ${r.status} ${r.id}`.toLowerCase().includes(q.toLowerCase())
           }

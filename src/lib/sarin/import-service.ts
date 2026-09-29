@@ -3,8 +3,10 @@
  * import batch with every physical record, in a single transaction.
  *
  * Correctness under retries and concurrency comes from the database, not from this
- * process. The source file is unique by SHA-256 and the batch by its duplicate identity
- * (bytes, stone type, contract, country, lab, planning date). Both are inserted with ON
+ * process. The source file is unique by SHA-256 and each active (not archived) batch by
+ * its duplicate identity (bytes, packet type, contract, lab, planning date). An
+ * archived import is history: a new upload of the same file and details becomes a new
+ * import beside it, never the archived one. Both are inserted with ON
  * CONFLICT DO NOTHING, so a concurrent identical upload waits on the first one's
  * uncommitted row, then finds it committed and reuses it; if the first one rolls back,
  * the waiter creates the batch instead. The in-memory rate limit in front of the route is
@@ -28,7 +30,7 @@ import { interpretSarinRecord, SARIN_RAW_CONTRACT_VERSION, type SarinRecordInter
 import { decodeSarinSource, SarinUploadRejection } from "@/lib/sarin/source-decoding";
 import { readSarinUploadRequest, type SarinUploadRequest } from "@/lib/sarin/upload-request";
 import { getSarinImportById, type SarinImportSummary } from "@/lib/sarin/import-queries";
-import { isCountryRegistered, isLabRegistered } from "@/lib/sarin/registry";
+import { isLabRegistered } from "@/lib/sarin/registry";
 
 if (typeof window !== "undefined") {
   throw new Error("sarin/import-service is server-only and must not be imported by client code.");
@@ -39,6 +41,7 @@ export const SARIN_AUDIT_ACTIONS = {
   duplicateReused: "SARIN_IMPORT_DUPLICATE_REUSED",
   uploadRejected: "SARIN_IMPORT_UPLOAD_REJECTED",
   uploadFailed: "SARIN_IMPORT_UPLOAD_FAILED",
+  archived: "SARIN_IMPORT_ARCHIVED",
 } as const;
 
 const AUDIT_ENTITY = "SarinImportBatch";
@@ -60,24 +63,35 @@ export interface SarinUploadResult {
 
 const sha256Hex = (data: Uint8Array | string) => createHash("sha256").update(data).digest("hex");
 
+/** Bound on the upload lab choices; the lab registry is far smaller in practice. */
+const UPLOAD_CHOICES_MAX = 300;
+
+/** The labs this actor may declare: active normalized labs in the lab registry inside their scope. */
+export async function uploadLabs(scope: EffectiveScope): Promise<string[]> {
+  const rows = await db.labMapping.findMany({
+    where: { active: true, ...(scope.labs === null ? {} : { normalizedLab: { in: [...scope.labs] } }) },
+    distinct: ["normalizedLab"],
+    select: { normalizedLab: true },
+    orderBy: { normalizedLab: "asc" },
+    take: UPLOAD_CHOICES_MAX,
+  });
+  return rows.map((r) => r.normalizedLab);
+}
+
 /**
- * The declared country must be inside the actor's scope, and so must a declared lab. An
+ * Sarin imports carry no country; a declared lab must be inside the actor's lab scope. An
  * actor limited to particular labs must declare one: a batch without a lab would sit
  * outside their own scope, where they could never see it again.
  */
-export function assertUploadScope(scope: EffectiveScope, country: string, labId: string | null): void {
-  assertWithinScope(scope, { country, lab: labId });
+export function assertUploadScope(scope: EffectiveScope, labId: string | null): void {
+  assertWithinScope(scope, { lab: labId });
   if (scope.labs !== null && labId === null) {
     throw forbidden("Your access is limited to specific labs. Declare the lab for this import.");
   }
 }
 
-/**
- * The declared country must exist in the country registry and a declared lab in the lab
- * registry. Checked after scope, so an out-of-scope request is still refused with 403.
- */
-async function assertRegistered(country: string, labId: string | null): Promise<void> {
-  if (!(await isCountryRegistered(country))) throw new SarinUploadRejection(400, "UNKNOWN_COUNTRY", "The declared country is not in the country registry.");
+/** A declared lab must be active in the lab registry. Checked after scope, so an out-of-scope request is still refused with 403. */
+async function assertRegistered(labId: string | null): Promise<void> {
   if (labId !== null && !(await isLabRegistered(labId))) throw new SarinUploadRejection(400, "UNKNOWN_LAB", "The declared lab is not an active lab in the lab registry.");
 }
 
@@ -99,7 +113,7 @@ async function auditRejection(actor: SarinUploadActor, error: ApiError, request:
       after: {
         reasonCode: error.code,
         status: error.status,
-        ...(request ? { stoneType: request.stoneType, country: request.country, labId: request.labId, planningDate: request.planningDate, byteSize: request.bytes.length } : {}),
+        ...(request ? { packetType: request.packetType, labId: request.labId, planningDate: request.planningDate, byteSize: request.bytes.length } : {}),
       },
       reason: "Sarin upload refused",
     });
@@ -116,8 +130,8 @@ export async function uploadSarinImport(req: Request, actor: SarinUploadActor, l
   let encoding: string;
   try {
     request = await readSarinUploadRequest(req, limits);
-    assertUploadScope(actor.scope, request.country, request.labId);
-    await assertRegistered(request.country, request.labId);
+    assertUploadScope(actor.scope, request.labId);
+    await assertRegistered(request.labId);
     const decoded = decodeSarinSource(request.bytes, limits);
     lines = decoded.lines;
     encoding = decoded.encoding;
@@ -140,16 +154,14 @@ export async function ingestSarinSource(
   const sha256 = sha256Hex(request.bytes);
   const notAccepted = source.records.filter((r) => r.outcome !== "ACCEPTED").length;
   const identity = {
-    stoneType: request.stoneType,
-    country: request.country,
+    packetType: request.packetType,
     labScope: request.labId,
     contractVersion: SARIN_RAW_CONTRACT_VERSION,
     planningDate: new Date(`${request.planningDate}T00:00:00.000Z`),
   };
   const facts = {
     sha256Prefix: sha256.slice(0, 12),
-    stoneType: request.stoneType,
-    country: request.country,
+    packetType: request.packetType,
     labId: request.labId,
     planningDate: request.planningDate,
     byteSize: request.bytes.length,
@@ -176,8 +188,9 @@ export async function ingestSarinSource(
         });
 
         if (batch.count === 0) {
-          // The same import already exists — archived or not, it is the historical record.
-          const existing = await tx.sarinImportBatch.findFirstOrThrow({ where: { sourceFileId: file.id, ...identity }, select: { id: true } });
+          // The same active import already exists: it is returned, output and all. The
+          // identity index excludes archived imports, so an archived one never answers here.
+          const existing = await tx.sarinImportBatch.findFirstOrThrow({ where: { sourceFileId: file.id, ...identity, status: { not: "ARCHIVED" } }, select: { id: true } });
           await actor.audit(tx, { action: SARIN_AUDIT_ACTIONS.duplicateReused, entity: AUDIT_ENTITY, entityId: existing.id, after: { ...facts, batchId: existing.id }, reason: "Identical Sarin upload returned the existing import" });
           return { created: false, batchId: existing.id };
         }
@@ -228,5 +241,68 @@ export async function ingestSarinSource(
   const summary = await getSarinImportById(outcome.batchId);
   if (!summary) throw new ApiError(500, "UPLOAD_NOT_STORED", "The upload could not be read back after storing.");
   return { created: outcome.created, duplicate: !outcome.created, batch: summary };
+}
+
+/** Handles deletion/archival of an import batch atomically. */
+export async function deleteSarinImport(batchId: string, api: ApiContext<unknown>): Promise<void> {
+  const batch = await db.sarinImportBatch.findUnique({
+    where: { id: batchId },
+    select: {
+      id: true,
+      sourceFileId: true,
+      status: true,
+      labScope: true,
+      packetType: true,
+      planningDate: true,
+      sourceFile: { select: { sanitizedFileName: true } },
+    },
+  });
+
+  if (!batch) {
+    throw new ApiError(404, "NOT_FOUND", "Sarin import not found");
+  }
+
+  assertWithinScope(api.scope, { lab: batch.labScope });
+
+  if (batch.status === "ARCHIVED") {
+    return;
+  }
+
+  if (batch.status === "VALIDATING") {
+    throw new ApiError(409, "BATCH_BUSY", "Cannot delete a batch that is currently validating.");
+  }
+
+  await db.$transaction(
+    async (tx) => {
+      await tx.sarinImportBatch.update({
+        where: { id: batchId },
+        data: {
+          status: "ARCHIVED",
+          archivedAt: new Date(),
+          statusChangedAt: new Date(),
+        },
+      });
+
+      await api.audit(tx, {
+        action: SARIN_AUDIT_ACTIONS.archived,
+        entity: AUDIT_ENTITY,
+        entityId: batchId,
+        before: {
+          batchId: batch.id,
+          fileName: batch.sourceFile?.sanitizedFileName,
+          labId: batch.labScope,
+          packetType: batch.packetType,
+          status: batch.status,
+          planningDate: batch.planningDate,
+        },
+        after: {
+          batchId: batch.id,
+          status: "ARCHIVED",
+        },
+        reason: "User deleted Sarin import file",
+      });
+    },
+    { timeout: 10_000, maxWait: 5_000 }
+  );
 }
 

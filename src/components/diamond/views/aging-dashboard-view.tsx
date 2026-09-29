@@ -104,7 +104,7 @@ export function AgingDashboardView() {
     <div className="space-y-4 p-3">
       <PageHeader
         title="Aging Dashboard"
-        subtitle="Current canonical stock grouped by inventory bucket and location"
+        subtitle="Current stock by inventory bucket and location"
         actions={
           <Button size="sm" variant="outline" className="h-8" onClick={() => openCategoryView("analysis-aging", {})}>
             Open Stock Aging
@@ -118,7 +118,7 @@ export function AgingDashboardView() {
 
       <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
         <KpiCard label="Current lots" value={data?.currentLots ?? 0} intent="info" icon={Boxes} hint="Records currently in stock" />
-        <KpiCard label="Confirmed quantity" value={totalConfirmed} unit="pcs" intent="success" hint="Pieces the source established" />
+        <KpiCard label="Confirmed quantity" value={totalConfirmed} unit="pcs" intent="success" hint="Confirmed pieces in stock" />
         <KpiCard label="Needing review" value={totalReview} intent="warning" hint="Quantity or classification not confirmed" />
       </div>
 
@@ -137,7 +137,7 @@ export function AgingDashboardView() {
 
       <Section
         title="Stock by location"
-        description="Factual distribution of current stock. It is not a transfer recommendation."
+        description="Where current stock sits today"
         actions={<Globe className="h-3.5 w-3.5 text-muted-foreground" />}
       >
         {locations?.truncated && (

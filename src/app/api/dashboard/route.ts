@@ -94,7 +94,8 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request)
   });
   const hasFailed = lastSyncs.some((s) => s.status === "FAILED");
   const hasPartial = lastSyncs.some((s) => s.status === "PARTIAL");
-  const fantasySyncHealth = hasFailed ? "FAILED" : hasPartial ? "PARTIAL" : "HEALTHY";
+  // No run yet is NOT_RUN, never a healthy default.
+  const fantasySyncHealth = lastSyncs.length === 0 ? "NOT_RUN" : hasFailed ? "FAILED" : hasPartial ? "PARTIAL" : "HEALTHY";
 
   // Yield variance
   const reconciliations = await db.planActualReconciliation.findMany({ take: SCAN_MAX }).then(scanned);

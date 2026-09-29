@@ -492,11 +492,11 @@ async function main() {
   let roughCounter = 1;
   const roughIds: string[] = [];
   for (let i = 0; i < 180; i++) {
-    const stoneType = rand() < 0.4 ? "BLUE" : "WHITE";
-    const kapan = stoneType === "BLUE" ? `${randInt(100, 999)}D` : `${randInt(1000, 9999)}`;
-    const packet = stoneType === "BLUE" ? String(randInt(100, 999)) : String(randInt(1, 999)).padStart(3, "0");
+    const packetType = rand() < 0.4 ? "BLUE" : "WHITE";
+    const kapan = packetType === "BLUE" ? `${randInt(100, 999)}D` : `${randInt(1000, 9999)}`;
+    const packet = packetType === "BLUE" ? String(randInt(100, 999)) : String(randInt(1, 999)).padStart(3, "0");
     const signer = pick(["pv", "HA", "AB", "KX", "ZQ", "RT", "MD", "NK", "TS", "GL"]);
-    const stoneName = stoneType === "BLUE" ? `${kapan}-${packet}_E+${signer}` : `${kapan}-${packet} ${signer}`;
+    const stoneName = packetType === "BLUE" ? `${kapan}-${packet}_E+${signer}` : `${kapan}-${packet} ${signer}`;
     const roughWeight = randDec(6.5, 95.0, 2);
     const country = pick(["IN", "BE", "IN", "IN", "BE"]);
     const branch = country === "IN" ? "Surat" : "Antwerp";
@@ -507,7 +507,7 @@ async function main() {
         packet,
         stoneName,
         signer,
-        stoneType,
+        packetType,
         roughWeight,
         country,
         branch,
@@ -631,8 +631,8 @@ async function main() {
   for (let i = 0; i < Math.min(roughIds.length, 120); i++) {
     const rough = await prisma.roughStone.findUnique({ where: { id: roughIds[i] } });
     if (!rough) continue;
-    const stoneType = rough.stoneType;
-    const mainPlanLimit = stoneType === "BLUE" ? 17 : 32;
+    const packetType = rough.packetType;
+    const mainPlanLimit = packetType === "BLUE" ? 17 : 32;
     const planCount = randInt(3, Math.min(mainPlanLimit, 8));
     const status = pick([
       "DRAFT", "READY_FOR_REVIEW", "SELECTED", "APPROVAL_PENDING",
@@ -647,12 +647,12 @@ async function main() {
         kapan: rough.kapan,
         packet: rough.packet,
         originalRoughWeight: rough.roughWeight,
-        stoneType,
+        packetType,
         planner: pick(PLANNERS),
         planningDate: dayOffset(randInt(0, 45)),
         status,
         currentVersion: 1,
-        sourceFile: `workbook-${stoneType.toLowerCase()}-${caseCounter}.xlsx`,
+        sourceFile: `workbook-${packetType.toLowerCase()}-${caseCounter}.xlsx`,
         approvedBy: status === "APPROVED" || status === "RELEASED_TO_MANUFACTURING" ? pick(APPROVERS) : null,
         approvedAt: status === "APPROVED" || status === "RELEASED_TO_MANUFACTURING" ? dayOffset(randInt(0, 20)) : null,
         approvalComment: status === "REJECTED" ? "Yield too low vs requirement coverage" : status === "APPROVED" ? "Approved - balanced yield + coverage" : null,

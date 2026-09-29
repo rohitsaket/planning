@@ -574,7 +574,7 @@ async function main() {
   console.log("🚀 [13/16] TEST 13: RBAC Separation & Authority Matrix...");
   // Case A: ADMIN must NOT automatically receive plan.approve
   assert(hasPermission("ADMIN", "plan.approve") === false, "CRITICAL RBAC: ADMIN does NOT have plan.approve");
-  assert(hasPermission("ADMIN", "business_rule.manage") === false, "ADMIN does NOT have business_rule.manage");
+  assert(hasPermission("ADMIN", "feature_flag.manage") === false, "ADMIN does NOT have feature_flag.manage");
   assert(hasPermission("ADMIN", "feature_flag.manage") === false, "ADMIN does NOT have feature_flag.manage");
   assert(hasPermission("ADMIN", "user.read") === true, "ADMIN has user.read");
   assert(hasPermission("ADMIN", "user.super_admin.assign") === false, "ADMIN does NOT hold protected-role assignment authority");

@@ -45,7 +45,7 @@ export const GET = withApi({ permission: "plan.read" }, async (req: Request) => 
     packet: r.packet,
     stoneName: r.stoneName,
     signer: r.signer,
-    stoneType: r.stoneType,
+    packetType: r.packetType,
     roughWeight: num(r.roughWeight),
     country: r.country,
     branch: r.branch,

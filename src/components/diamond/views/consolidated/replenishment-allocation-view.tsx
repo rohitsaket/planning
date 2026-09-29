@@ -13,7 +13,7 @@ export function ReplenishmentAllocationView() {
   return (
     <TabbedHostView
       title="Replenishment and Allocation"
-      subtitle="Stock replenishment targets, pipeline coverage matching, and requirement allocations against planning outputs"
+      subtitle="Replenishment targets, coverage and allocations"
       tabs={TABS}
       defaultTab="replenishment"
     />

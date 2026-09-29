@@ -319,10 +319,6 @@ export function DemandTraceView() {
         }
       />
 
-      {/* The shared page header renders no subtitle, so the page states its purpose here. */}
-      <p className="-mt-1 text-[11px] text-muted-foreground">
-        Review the final demand position and the business records contributing to it.
-      </p>
 
       {wipUnavailable && <InfoBanner variant="warning">{data!.wipCoverage.message}</InfoBanner>}
 
@@ -337,7 +333,7 @@ export function DemandTraceView() {
       ) : !data?.hasEverRun ? (
         <EmptyState
           title="No demand calculation available"
-          message="No demand result has been produced yet. Once a calculation has been run, its results and the records behind them appear here."
+          message="No demand result yet. Run demand to see results here."
           icon={<Target className="h-6 w-6" />}
         />
       ) : (

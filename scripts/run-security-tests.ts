@@ -54,11 +54,24 @@ const MODULES = [
   "../tests/security/source-disclosure.test",
   "../tests/security/category-classification.test",
   "../tests/security/projection-integrity.test",
+  // First among the Sarin suites: it needs the catalog exactly as a fresh installation has it.
+  "../tests/security/sarin-baseline-catalog.test",
   "../tests/security/sarin-foundation.test",
   "../tests/security/sarin-ingestion.test",
   "../tests/security/sarin-validation.test",
   "../tests/security/sarin-output.test",
   "../tests/security/sarin-pink.test",
+  "../tests/security/sarin-workflow.test",
+  "../tests/security/sarin-readiness.test",
+  "../tests/security/sarin-xlsx.test",
+  "../tests/security/sarin-processing.test",
+  "../tests/security/sarin-mapping-catalog.test",
+  "../tests/security/sarin-import-lifecycle.test",
+  "../tests/security/sarin-shape-passthrough.test",
+  "../tests/security/sarin-import-ux.test",
+  "../tests/security/sarin-yield-rank.test",
+  // Renders whole pages; registered last so its fixtures meet every other suite's data.
+  "../tests/security/ui-content.test",
 ] as const;
 
 async function main() {

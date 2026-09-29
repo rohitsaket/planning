@@ -183,8 +183,8 @@ export function TabbedHostView({
             requiredPermission={currentTab?.permission}
             description={
               currentTab
-                ? "You do not have the required permission to view this specific tab within this module."
-                : "You do not have permission to view any section of this module."
+                ? "You don't have access to this tab."
+                : "You don't have access to this page."
             }
           />
         ) : ActiveComponent ? (

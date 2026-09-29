@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 
-const FIELD = "h-[52px] rounded-lg border-slate-300 bg-white px-4 text-[15px] shadow-none md:text-[15px] dark:border-slate-700 dark:bg-slate-900";
+const FIELD = "h-[48px] rounded-xl border-border bg-background/60 hover:bg-background focus:bg-background px-4 text-sm text-foreground placeholder:text-muted-foreground/70 focus:border-[#F9733E] focus-visible:ring-2 focus-visible:ring-[#F9733E]/20 shadow-none transition-all";
 
 interface Errors {
   username?: string;
@@ -71,8 +71,8 @@ export function AccessRequestForm({ onBack }: { onBack: () => void }) {
 
   if (submitted) {
     return (
-      <div className="w-full max-w-[520px]">
-        <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-5 dark:border-emerald-900/60 dark:bg-emerald-950/40">
+      <div className="w-full max-w-[480px] bg-card p-6 sm:p-8 rounded-2xl border border-border/80 shadow-2xs">
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50/80 p-5 dark:border-emerald-900/60 dark:bg-emerald-950/40">
           <div className="flex gap-3">
             <CheckCircle2 aria-hidden className="mt-0.5 h-5 w-5 flex-shrink-0 text-emerald-600 dark:text-emerald-400" />
             <div>
@@ -86,7 +86,7 @@ export function AccessRequestForm({ onBack }: { onBack: () => void }) {
         <button
           type="button"
           onClick={onBack}
-          className="mt-6 flex items-center gap-2 rounded text-sm font-medium text-blue-600 hover:text-blue-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 dark:text-blue-400"
+          className="mt-6 flex items-center gap-2 rounded-xl text-xs sm:text-sm font-semibold text-[#F9733E] hover:text-[#EA580C] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F9733E]"
         >
           <ArrowLeft aria-hidden className="h-4 w-4" /> Back to sign in
         </button>
@@ -95,21 +95,21 @@ export function AccessRequestForm({ onBack }: { onBack: () => void }) {
   }
 
   return (
-    <form onSubmit={submit} noValidate className="w-full max-w-[520px]">
-      <h2 className="text-3xl font-bold tracking-tight text-slate-900 lg:text-4xl dark:text-slate-50">Request Access</h2>
-      <p className="mt-2 text-[15px] text-slate-500 dark:text-slate-400">
+    <form onSubmit={submit} noValidate className="w-full max-w-[480px] bg-card p-6 sm:p-8 rounded-2xl border border-border/80 shadow-2xs">
+      <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground">Request Access</h2>
+      <p className="mt-1.5 text-xs sm:text-sm text-muted-foreground">
         Submitting this does not create an account. An administrator reviews every request and assigns your role.
       </p>
 
       {error && (
-        <p role="alert" className="mt-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">
+        <p role="alert" className="mt-5 rounded-xl border border-red-200 bg-red-50/80 px-4 py-3 text-xs sm:text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300">
           {error}
         </p>
       )}
 
-      <div className="mt-6 space-y-5">
-        <div className="space-y-2">
-          <Label htmlFor="req-username" className="text-sm text-slate-700 dark:text-slate-300">Requested username</Label>
+      <div className="mt-6 space-y-4">
+        <div className="space-y-1.5">
+          <Label htmlFor="req-username" className="text-xs font-semibold uppercase tracking-wider text-foreground/80">Requested username</Label>
           <Input
             id="req-username"
             ref={usernameRef}
@@ -131,8 +131,8 @@ export function AccessRequestForm({ onBack }: { onBack: () => void }) {
           {fieldErrors.username && <p id="req-username-error" role="alert" className="text-xs text-red-600 dark:text-red-400">{fieldErrors.username}</p>}
         </div>
 
-        <div className="space-y-2">
-          <Label htmlFor="req-name" className="text-sm text-slate-700 dark:text-slate-300">Full name</Label>
+        <div className="space-y-1.5">
+          <Label htmlFor="req-name" className="text-xs font-semibold uppercase tracking-wider text-foreground/80">Full name</Label>
           <Input
             id="req-name"
             autoComplete="name"
@@ -150,29 +150,29 @@ export function AccessRequestForm({ onBack }: { onBack: () => void }) {
           {fieldErrors.displayName && <p id="req-name-error" role="alert" className="text-xs text-red-600 dark:text-red-400">{fieldErrors.displayName}</p>}
         </div>
 
-        <div className="grid gap-5 sm:grid-cols-2">
-          <div className="space-y-2">
-            <Label htmlFor="req-email" className="text-sm text-slate-700 dark:text-slate-300">
-              Work email <span className="font-normal text-slate-400">(optional)</span>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label htmlFor="req-email" className="text-xs font-semibold uppercase tracking-wider text-foreground/80">
+              Work email <span className="font-normal text-muted-foreground lowercase">(optional)</span>
             </Label>
             <Input id="req-email" type="email" autoComplete="email" maxLength={200} placeholder="name@company.com" className={FIELD} value={email} onChange={(e) => setEmail(e.target.value)} />
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="req-dept" className="text-sm text-slate-700 dark:text-slate-300">
-              Department <span className="font-normal text-slate-400">(optional)</span>
+          <div className="space-y-1.5">
+            <Label htmlFor="req-dept" className="text-xs font-semibold uppercase tracking-wider text-foreground/80">
+              Department <span className="font-normal text-muted-foreground lowercase">(optional)</span>
             </Label>
             <Input id="req-dept" maxLength={100} placeholder="e.g. Planning" className={FIELD} value={department} onChange={(e) => setDepartment(e.target.value)} />
           </div>
         </div>
 
-        <div className="space-y-2">
-          <Label htmlFor="req-why" className="text-sm text-slate-700 dark:text-slate-300">Why do you need access?</Label>
+        <div className="space-y-1.5">
+          <Label htmlFor="req-why" className="text-xs font-semibold uppercase tracking-wider text-foreground/80">Why do you need access?</Label>
           <Textarea
             id="req-why"
-            rows={4}
+            rows={3}
             maxLength={1000}
             placeholder="Your role, the work this supports, and who can vouch for you."
-            className="rounded-lg border-slate-300 bg-white px-4 py-3 text-[15px] shadow-none dark:border-slate-700 dark:bg-slate-900"
+            className="rounded-xl border-border bg-background/60 hover:bg-background focus:bg-background px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground/70 focus:border-[#F9733E] focus-visible:ring-2 focus-visible:ring-[#F9733E]/20 shadow-none transition-all"
             value={justification}
             onChange={(e) => {
               setJustification(e.target.value);
@@ -184,7 +184,7 @@ export function AccessRequestForm({ onBack }: { onBack: () => void }) {
           {fieldErrors.justification ? (
             <p id="req-why-error" role="alert" className="text-xs text-red-600 dark:text-red-400">{fieldErrors.justification}</p>
           ) : (
-            <p id="req-why-hint" className="text-xs text-slate-400 dark:text-slate-500">{justification.trim().length}/1000 · minimum 20 characters</p>
+            <p id="req-why-hint" className="text-xs text-muted-foreground">{justification.trim().length}/1000 · minimum 20 characters</p>
           )}
         </div>
       </div>
@@ -192,7 +192,7 @@ export function AccessRequestForm({ onBack }: { onBack: () => void }) {
       <button
         type="submit"
         disabled={submitting}
-        className="mt-7 flex h-[54px] w-full items-center justify-center gap-2 rounded-lg bg-blue-600 text-[15px] font-semibold text-white transition-colors hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-70 motion-reduce:transition-none dark:focus-visible:ring-offset-slate-950"
+        className="mt-6 flex h-[48px] w-full items-center justify-center gap-2 rounded-xl bg-[#F9733E] text-sm font-bold text-white transition-all hover:bg-[#EA580C] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F9733E] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-70 motion-reduce:transition-none shadow-xs"
       >
         {submitting && <Loader2 aria-hidden className="h-4 w-4 animate-spin motion-reduce:animate-none" />}
         {submitting ? "Submitting…" : "Submit Request"}
@@ -201,7 +201,7 @@ export function AccessRequestForm({ onBack }: { onBack: () => void }) {
       <button
         type="button"
         onClick={onBack}
-        className="mt-5 flex items-center gap-2 rounded text-sm font-medium text-blue-600 hover:text-blue-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 dark:text-blue-400"
+        className="mt-4 flex items-center gap-2 rounded-xl text-xs font-semibold text-[#F9733E] hover:text-[#EA580C] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F9733E]"
       >
         <ArrowLeft aria-hidden className="h-4 w-4" /> Back to sign in
       </button>

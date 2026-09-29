@@ -427,7 +427,7 @@ export function ExecutiveAnalysisView() {
     <div className="space-y-3">
       <PageHeader
         title="Executive Analysis"
-        subtitle="Past sales → demand → available inventory → shortage and excess"
+        subtitle="Sales, demand, inventory, shortage and excess"
       />
       {/* Persistent and unmistakable while fixture data is on screen. */}
       <SimulationBanner disclosure={readiness.data?.sourceDisclosure} />
@@ -486,22 +486,19 @@ export function ExecutiveAnalysisView() {
           {salesDemand.data && !salesDemand.data.available ? (
             <EmptyState
               title="NOT RUN"
-              message="No completed demand run exists, so sales and target figures are unavailable. This is not a zero."
+              message="No demand run yet. Run demand to see sales and targets."
               icon={<Info className="h-5 w-5" />}
             />
           ) : (
             <>
               {salesDemand.data && !salesDemand.data.salesWindowsAvailable && (
                 <InfoBanner variant="info">
-                  This demand run kept no per-sale trace, so the 30-day windows cannot be counted from
-                  it. They are shown as unavailable rather than as zero, which would contradict the
-                  90-day total. Re-running the demand calculation records the trace.
+                  30-day figures are unavailable for this run. Re-run demand to see them.
                 </InfoBanner>
               )}
               {salesDemand.data && !salesDemand.data.locationFilterApplies && (globalFilter.country || globalFilter.branch) && (
                 <InfoBanner variant="info">
-                  Demand categories have no location dimension, so the country and branch filters do not
-                  narrow this table. They apply to Inventory Position.
+                  Country and branch filters do not apply to this table.
                 </InfoBanner>
               )}
               <DataTable
@@ -528,7 +525,7 @@ export function ExecutiveAnalysisView() {
       {activeTab === "inventory" && (
         <Section
           title="Inventory Position"
-          description="Current classified inventory by location. Only physical available polished stock can meet finished-diamond demand; every other bucket is shown separately."
+          description="Current inventory by location"
         >
           {inventory.data && !inventory.data.available ? (
             <EmptyState
@@ -564,7 +561,7 @@ export function ExecutiveAnalysisView() {
           title="Shortage and Excess"
           description={
             gaps.data?.available
-              ? `Stored result of the demand run of ${gaps.data.runAtIst ?? "—"}. Memo, reserved and WIP quantities are advisory and do not reduce physical shortage.`
+              ? `Demand run of ${gaps.data.runAtIst ?? "—"}. Memo, reserved and WIP do not reduce shortage.`
               : "Shortage and excess come from a completed demand run."
           }
           actions={
@@ -592,7 +589,7 @@ export function ExecutiveAnalysisView() {
           {gaps.data && !gaps.data.available ? (
             <EmptyState
               title="NOT RUN"
-              message="No completed demand run exists, so shortage and excess are unavailable. This is not a zero."
+              message="No demand run yet. Run demand to see shortage and excess."
               icon={<Info className="h-5 w-5" />}
             />
           ) : (
@@ -630,7 +627,7 @@ export function ExecutiveAnalysisView() {
       {activeTab === "attention" && (
         <Section
           title="Attention Required"
-          description="Factual exceptions only. This section does not rank work or recommend what to manufacture."
+          description="Items that need attention"
         >
           <DataTable
             columns={attentionColumns}

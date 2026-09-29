@@ -4,11 +4,10 @@ import { useAuthStore } from "@/stores/auth-store";
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useApi, apiPost } from "@/lib/api-client";
-import { PageHeader, Section } from "@/components/diamond/shared/page-header";
+import { PageHeader } from "@/components/diamond/shared/page-header";
 import { DataTable, type Column } from "@/components/diamond/shared/data-table";
 import { StatusBadge, Badge } from "@/components/diamond/shared/badges";
 import { KpiCard } from "@/components/diamond/shared/kpi-card";
-import { InfoBanner } from "@/components/diamond/shared/empty-state";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import {
@@ -22,13 +21,15 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { toast as sonnerToast } from "sonner";
-import { Check, X, MessageSquare, AlertTriangle, RefreshCw } from "lucide-react";
+import { Check, X, AlertTriangle, RefreshCw } from "lucide-react";
+import { parseValidationWarnings } from "@/lib/domain/validation-warnings";
+import { packetTypeLabel, packetTypeName } from "@/lib/domain/packet-type";
 
 interface ApprovalRow {
   id: string;
   caseCode: string;
   stoneName: string | null;
-  stoneType: string;
+  packetType: string;
   originalRoughWeight: number;
   planner: string;
   planningDate: string;
@@ -58,15 +59,7 @@ const fmtDate = (iso: string | null): string => {
 
 function WarningsCell({ value }: { value: string | null }) {
   if (!value) return <span className="text-muted-foreground">—</span>;
-  let parsed: string[] = [];
-  try {
-    const j = JSON.parse(value);
-    if (Array.isArray(j)) parsed = j.map((s) => String(s));
-    else if (typeof j === "string") parsed = [j];
-    else parsed = [JSON.stringify(j)];
-  } catch {
-    parsed = [value];
-  }
+  const parsed = parseValidationWarnings(value);
   if (parsed.length === 0) return <span className="text-muted-foreground">—</span>;
   return (
     <div className="flex flex-wrap gap-1">
@@ -80,9 +73,6 @@ function WarningsCell({ value }: { value: string | null }) {
   );
 }
 
-// Display only — the server records the authenticated user as approver / actor.
-const APPROVER = () => useAuthStore.getState().user?.username ?? "signed-in user";
-const REPLAN_ACTOR = APPROVER;
 const REPLAN_REASON_MIN = 5;
 
 export function ApprovalQueueView() {
@@ -91,6 +81,8 @@ export function ApprovalQueueView() {
   const [actingId, setActingId] = useState<string | null>(null);
   const [replanTarget, setReplanTarget] = useState<ApprovalRow | null>(null);
   const [replanReason, setReplanReason] = useState("");
+  const canApprove = useAuthStore((s) => !!s.user?.permissions.includes("plan.approve"));
+  const canReplan = useAuthStore((s) => !!s.user?.permissions.includes("plan.replan"));
 
   const { data, isLoading } = useApi<ApiResponse>("/api/planning/approvals");
   const rows = data?.rows ?? [];
@@ -107,7 +99,7 @@ export function ApprovalQueueView() {
     onSuccess: (data, vars) => {
       toast({
         title: vars.action === "approve" ? "Plan Approved" : "Plan Rejected",
-        description: `${vars.caseId} → ${data.status}`,
+        description: vars.action === "approve" ? "The plan was approved." : "The plan was rejected.",
       });
       qc.invalidateQueries({ queryKey: ["/api/planning/approvals"] });
       qc.invalidateQueries({ queryKey: ["/api/planning/cases"] });
@@ -170,7 +162,7 @@ export function ApprovalQueueView() {
   const act = (row: ApprovalRow, action: "approve" | "reject") => {
     const comment =
       window.prompt(
-        `${action === "approve" ? "Approve" : "Reject"} case ${row.caseCode} — comment (optional):`,
+        `${action === "approve" ? "Approve this plan" : "Reject this plan"} (${row.caseCode}). Comment (optional):`,
         row.approvalComment ?? ""
       ) ?? "";
     // If user hits Cancel on prompt, window.prompt returns null — treat as abort.
@@ -198,12 +190,12 @@ export function ApprovalQueueView() {
       cell: (r) => r.stoneName ?? "—",
     },
     {
-      key: "stoneType",
-      header: "Type",
+      key: "packetType",
+      header: "Packet Type",
       align: "center",
       width: "70px",
       cell: (r) => (
-        <Badge variant={r.stoneType === "BLUE" ? "info" : "default"}>{r.stoneType}</Badge>
+        <Badge variant={r.packetType === "BLUE" ? "info" : "default"}>{packetTypeName(r.packetType)}</Badge>
       ),
     },
     {
@@ -329,14 +321,17 @@ export function ApprovalQueueView() {
         const acting =
           (mutation.isPending && actingId === r.id) ||
           (replanMutation.isPending && replanTarget?.id === r.id);
+        if (!canApprove && !canReplan) return <span className="text-muted-foreground">—</span>;
         return (
           <div className="flex items-center justify-center gap-1">
+            {canApprove && (
             <Button
               size="sm"
               variant="default"
               className="h-7 text-xs"
               disabled={acting}
               onClick={() => act(r, "approve")}
+              title="Approve this plan"
             >
               {mutation.isPending && actingId === r.id ? (
                 <div className="h-3 w-3 border-2 border-white border-t-transparent rounded-full animate-spin mr-1" />
@@ -345,23 +340,28 @@ export function ApprovalQueueView() {
               )}
               Approve
             </Button>
+            )}
+            {canApprove && (
             <Button
               size="sm"
               variant="outline"
               className="h-7 text-xs text-rose-700 dark:text-rose-300 border-rose-300 dark:border-rose-900"
               disabled={acting}
               onClick={() => act(r, "reject")}
+              title="Reject this plan"
             >
               <X className="h-3 w-3 mr-1" />
               Reject
             </Button>
+            )}
+            {canReplan && (
             <Button
               size="sm"
               variant="outline"
               className="h-7 text-xs text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-900 hover:bg-amber-50 dark:hover:bg-amber-950/40"
               disabled={acting}
               onClick={() => openReplan(r)}
-              title="Mark this case for replan — creates a new DRAFT plan version"
+              title="Request replanning"
             >
               {replanMutation.isPending && replanTarget?.id === r.id ? (
                 <div className="h-3 w-3 border-2 border-amber-600 border-t-transparent rounded-full animate-spin mr-1" />
@@ -370,6 +370,7 @@ export function ApprovalQueueView() {
               )}
               Replan
             </Button>
+            )}
           </div>
         );
       },
@@ -380,16 +381,11 @@ export function ApprovalQueueView() {
     <div className="flex flex-col gap-3 p-3">
       <PageHeader
         title="Approval Queue"
-        subtitle="Plans awaiting review · approve or reject with a comment · action is logged to the audit trail"
-        meta={
-          <span className="text-[10px] text-muted-foreground">
-            approver: <code className="font-mono">{APPROVER()}</code>
-          </span>
-        }
+        subtitle="Plans awaiting review"
       />
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-        <KpiCard label="Pending Review" value={pending} unit="cases" intent="warning" hint="READY_FOR_REVIEW + SELECTED + APPROVAL_PENDING" />
+        <KpiCard label="Pending Review" value={pending} unit="cases" intent="warning" hint="Ready for review or awaiting approval" />
         <KpiCard label="Replan Required" value={replan} unit="cases" intent="critical" hint="Need revised plan from planner" />
         <KpiCard label="With Warnings" value={totalWarnings} unit="cases" intent="warning" hint="Validation warnings present" />
         <KpiCard label="Total in Queue" value={rows.length} unit="cases" intent="default" />
@@ -399,24 +395,18 @@ export function ApprovalQueueView() {
         <div className="flex items-start gap-2 rounded-md border border-amber-300 dark:border-amber-900 bg-amber-50/60 dark:bg-amber-950/30 px-3 py-2 text-[11px]">
           <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
           <div>
-            <span className="font-medium text-amber-700 dark:text-amber-300">Heads up: </span>
             <span className="text-amber-800 dark:text-amber-200">
-              {totalWarnings} case(s) in the queue carry validation warnings. Review them before approving — warnings are not blockers but indicate constraint checks (e.g. EMERALD 5STEP, weight band edge cases).
+              {totalWarnings} case(s) have validation warnings. Review them before approving.
             </span>
           </div>
         </div>
       )}
 
-      <InfoBanner variant="warning">
-        <span className="font-semibold">Replan preserves history. </span>
-        Replanning preserves historical planning evidence. A new plan version is created in <span className="font-medium">DRAFT</span> status; the previous version is superseded. Use <span className="font-medium">Replan</span> when actual output missed the target category or yield fell below threshold — the case moves to <span className="font-medium">REPLAN_REQUIRED</span> and the action is audit-logged.
-      </InfoBanner>
-
       <DataTable<ApprovalRow>
         columns={columns}
         rows={rows}
         loading={isLoading}
-        emptyMessage="No plans awaiting approval. New cases will appear here once planners submit them."
+        emptyMessage="No plans awaiting approval."
         maxHeight="600px"
         searchable
         searchPlaceholder="Search by case code, stone name, planner…"
@@ -442,19 +432,6 @@ export function ApprovalQueueView() {
         }
       />
 
-      <Section title="How approval works" bodyClassName="p-2">
-        <ul className="text-[11px] space-y-1 text-muted-foreground">
-          <li className="flex items-start gap-1">
-            <MessageSquare className="h-3 w-3 mt-0.5 flex-shrink-0" />
-            Click <span className="font-medium text-foreground">Approve</span> or <span className="font-medium text-foreground">Reject</span> on a row. A prompt will ask for an optional comment.
-          </li>
-          <li>Click <span className="font-medium text-foreground">Replan</span> to open a dialog requesting a reason (min 5 chars). Use this when the actual output missed the target category or yield fell below threshold.</li>
-          <li>Approve/Reject POSTs <code className="font-mono">{`{ caseId, action, comment }`}</code> to <code className="font-mono">/api/planning/approvals</code>. Replan POSTs <code className="font-mono">{`{ reason }`}</code> to <code className="font-mono">/api/planning/cases/{`{id}`}/replan</code>.</li>
-          <li>On success, the queue, planning cases, and case detail queries are invalidated (TanStack Query) and a toast confirms the action.</li>
-          <li>Approved cases move to status <Badge variant="success">APPROVED</Badge>; rejected cases move to <Badge variant="critical">REJECTED</Badge>; replanned cases move to <Badge variant="warning">REPLAN_REQUIRED</Badge> with a new DRAFT version. All three actions write an audit log row.</li>
-        </ul>
-      </Section>
-
       {/* Replan Dialog */}
       <Dialog
         open={!!replanTarget}
@@ -466,25 +443,24 @@ export function ApprovalQueueView() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-sm">
               <RefreshCw className="h-4 w-4 text-amber-600 dark:text-amber-400" />
-              Mark case for replan
+              Request replanning
             </DialogTitle>
             <DialogDescription className="text-[11px]">
               {replanTarget && (
                 <span>
                   Case <span className="font-medium text-foreground">{replanTarget.caseCode}</span>
-                  {" · "}{replanTarget.stoneType}
+                  {" · "}{packetTypeLabel(replanTarget.packetType)}
                   {" · "}<StatusBadge status={replanTarget.status} />
                   <br />
                 </span>
               )}
-              A new plan version will be created in <span className="font-medium">DRAFT</span> status; the current version is superseded. The action is audit-logged.
+              Replanning creates a new version and preserves the previous one.
             </DialogDescription>
           </DialogHeader>
 
           <div className="flex flex-col gap-2">
             <Label htmlFor="replan-reason" className="text-xs">
               Reason <span className="text-rose-600">*</span>
-              <span className="ml-1 text-[10px] text-muted-foreground">(min {REPLAN_REASON_MIN} chars)</span>
             </Label>
             <Textarea
               id="replan-reason"
@@ -495,20 +471,9 @@ export function ApprovalQueueView() {
               className="text-xs resize-none"
               autoFocus
             />
-            <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-              <span>
-                actor: <code className="font-mono">{REPLAN_ACTOR()}</code>
-              </span>
-              <span
-                className={
-                  replanReason.trim().length >= REPLAN_REASON_MIN
-                    ? "text-emerald-600 dark:text-emerald-400"
-                    : "text-amber-600 dark:text-amber-400"
-                }
-              >
-                {replanReason.trim().length}/{REPLAN_REASON_MIN}+ chars
-              </span>
-            </div>
+            {replanReason.length > 0 && replanReason.trim().length < REPLAN_REASON_MIN && (
+              <span className="text-[10px] text-amber-600 dark:text-amber-400">Enter at least {REPLAN_REASON_MIN} characters.</span>
+            )}
           </div>
 
           <DialogFooter className="gap-2">

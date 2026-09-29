@@ -89,7 +89,7 @@ export function TransferAnalyzerView() {
     <div className="space-y-4 p-3">
       <PageHeader
         title="Transfer Analyzer"
-        subtitle="Whether an inter-location transfer recommendation can currently be made"
+        subtitle="Transfer recommendations and stock by location"
       />
       {/* Persistent and unmistakable while fixture data is on screen. */}
       <SimulationBanner disclosure={data?.sourceDisclosure} />
@@ -122,13 +122,13 @@ export function TransferAnalyzerView() {
 
       <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
         <KpiCard label="Current lots" value={data?.distribution.currentLots ?? 0} intent="info" icon={Boxes} hint="Records currently in stock" />
-        <KpiCard label="Confirmed quantity" value={totalConfirmed} unit="pcs" intent="success" hint="Pieces the source established" />
+        <KpiCard label="Confirmed quantity" value={totalConfirmed} unit="pcs" intent="success" hint="Confirmed pieces in stock" />
         <KpiCard label="Locations" value={locations?.total ?? 0} intent="default" icon={Globe} hint="Country and branch combinations holding stock" />
       </div>
 
       <Section
         title="Current inventory distribution by location"
-        description="Where current stock sits today. This is a factual distribution, not a transfer recommendation."
+        description="Where current stock sits today"
       >
         {locations?.truncated && (
           <div className="border-b border-border px-4 py-2 text-[11px] text-muted-foreground">
@@ -147,7 +147,7 @@ export function TransferAnalyzerView() {
 
       <Section
         title="Current inventory distribution by bucket"
-        description="Memo, reserved and WIP are shown as their own buckets; none of them is available finished stock."
+        description="Memo, reserved and WIP are shown separately."
       >
         <DataTable
           columns={bucketColumns}

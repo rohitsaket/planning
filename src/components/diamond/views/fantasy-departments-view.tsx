@@ -47,7 +47,7 @@ export function FantasyDepartmentsView() {
 
       {/* KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-        <KpiCard label="Departments" value={rows.length} unit="depts" intent="info" hint="Fantasy entity count" />
+        <KpiCard label="Departments" value={rows.length} unit="depts" intent="info" hint="From Fantasy" />
         <KpiCard label="Total Locations" value={totalLocations} unit="locs" intent="success" hint="Nested under departments" />
         <KpiCard label="Countries" value={countries.size} intent="default" hint="Distinct countries covered" />
         <KpiCard label="Branches" value={branches.size} intent="default" hint="Distinct branches covered" />
@@ -55,7 +55,7 @@ export function FantasyDepartmentsView() {
 
       <Section
         title="Department Registry"
-        description="Each department is expandable to reveal its nested Fantasy locations. Department type is shown when available."
+        description="Click a department to see its locations"
         actions={
           <Pill>
             <Layers className="h-3 w-3" /> {deptTypes.size} type{deptTypes.size === 1 ? "" : "s"}
@@ -121,7 +121,6 @@ function DepartmentCard({ dept }: { dept: DepartmentRow }) {
                     <div><span className="text-muted-foreground">Loc ID:</span> <span className="font-medium tabular-nums">{l.fantasyLocId}</span></div>
                     <div><span className="text-muted-foreground">Country:</span> <span className="font-medium">{l.country}</span></div>
                     <div><span className="text-muted-foreground">Branch:</span> <span className="font-medium">{l.branch}</span></div>
-                    <div><span className="text-muted-foreground">ID:</span> <span className="font-medium text-[9px] truncate">{l.id}</span></div>
                   </div>
                 </div>
               ))}

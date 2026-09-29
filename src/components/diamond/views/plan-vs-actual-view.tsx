@@ -121,7 +121,7 @@ export function PlanVsActualView() {
     <div className="flex flex-col gap-3 p-3">
       <PageHeader
         title="Plan vs Actual — Yield Variance"
-        subtitle="Reconciliation between planned yield and actual achieved yield per plan option · Coverage gap tracking"
+        subtitle="Planned vs actual yield by plan option"
       />
 
       {/* KPIs */}
@@ -132,7 +132,7 @@ export function PlanVsActualView() {
           label="Yield Variance (avg)"
           value={`${varianceAvg > 0 ? "+" : ""}${varianceAvg.toFixed(2)}%`}
           intent={varianceIntent}
-          hint="Actual − Planned (positive is better)"
+          hint="Positive means above plan"
         />
         <KpiCard label="Expected Coverage" value={expectedCoverageAvg.toFixed(1)} unit="pcs" intent="default" hint="Avg pieces expected per option" />
         <KpiCard
@@ -157,7 +157,7 @@ export function PlanVsActualView() {
       </InfoBanner>
 
       {/* Chart */}
-      <Section title="Planned vs Actual Yield per Option" description="Side-by-side comparison of planned vs achieved yield percentage per plan option">
+      <Section title="Planned vs Actual Yield per Option">
         <div className="h-72">
           {chartData.length === 0 ? (
             <div className="flex items-center justify-center h-full text-xs text-muted-foreground">
@@ -180,12 +180,12 @@ export function PlanVsActualView() {
       </Section>
 
       {/* Table */}
-      <Section title="Reconciliation Detail" description="Per-option reconciliation: expected vs actual pieces, yield, coverage, and status">
+      <Section title="Detail by Option">
         <DataTable
           columns={columns}
           rows={rows}
           loading={isLoading}
-          emptyMessage="No plan-actual reconciliations found."
+          emptyMessage="No plan vs actual results yet."
           maxHeight="500px"
           initialSortKey="variance"
           initialSortDir="asc"

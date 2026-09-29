@@ -1,13 +1,13 @@
 /**
  * Reads and validates the multipart body of a Sarin upload. Nothing here trusts the
- * client beyond the five declared fields: an unknown or repeated field is refused, the
+ * client beyond the four declared fields: an unknown or repeated field is refused, the
  * MIME type is ignored in favour of the content checks, and the file name is kept only as
  * untrusted metadata.
  *
  * Server-only.
  */
 
-import { SARIN_STONE_TYPES, type SarinStoneType } from "@/lib/sarin/domain";
+import { SARIN_PACKET_TYPES, type SarinPacketType } from "@/lib/sarin/domain";
 import type { SarinIngestionLimits } from "@/lib/sarin/ingestion-config";
 import { SarinUploadRejection } from "@/lib/sarin/source-decoding";
 
@@ -20,18 +20,16 @@ export interface SarinUploadRequest {
   /** As the client sent it. Never used as a path or in a response header. */
   readonly originalFileName: string;
   readonly sanitizedFileName: string;
-  readonly stoneType: SarinStoneType;
-  readonly country: string;
+  readonly packetType: SarinPacketType;
   readonly labId: string | null;
   /** YYYY-MM-DD, as declared. */
   readonly planningDate: string;
 }
 
-const FIELDS = ["file", "stoneType", "country", "labId", "planningDate"] as const;
+const FIELDS = ["file", "packetType", "labId", "planningDate"] as const;
 const reject = (code: string, message: string) => new SarinUploadRejection(400, code, message);
 
 /** Scope values are compared verbatim, so the declared value must already be canonical. */
-const COUNTRY = /^[A-Z]{2}$/;
 const LAB = /^[A-Za-z0-9](?:[A-Za-z0-9._ -]{0,62}[A-Za-z0-9])?$/;
 const DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
@@ -98,12 +96,10 @@ export async function readSarinUploadRequest(req: Request, limits: SarinIngestio
     return v;
   };
 
-  const stoneType = text("stoneType");
-  if (stoneType === null || !(SARIN_STONE_TYPES as readonly string[]).includes(stoneType)) {
-    throw reject("INVALID_STONE_TYPE", "Declare the stone type as BLUE, WHITE or PINK.");
+  const packetType = text("packetType");
+  if (packetType === null || !(SARIN_PACKET_TYPES as readonly string[]).includes(packetType)) {
+    throw reject("INVALID_PACKET_TYPE", "Declare the packet type as BLUE, WHITE or PINK.");
   }
-  const country = text("country");
-  if (country === null || !COUNTRY.test(country)) throw reject("INVALID_COUNTRY", "Declare the country as a two-letter upper-case country code.");
   // An empty lab field is the same as no lab: an optional form input submits "" when unused.
   const labRaw = text("labId");
   const labId = labRaw === null || labRaw === "" ? null : labRaw;
@@ -125,8 +121,7 @@ export async function readSarinUploadRequest(req: Request, limits: SarinIngestio
     bytes: new Uint8Array(await file.arrayBuffer()),
     originalFileName,
     sanitizedFileName: sanitizeSarinFileName(originalFileName),
-    stoneType: stoneType as SarinStoneType,
-    country,
+    packetType: packetType as SarinPacketType,
     labId,
     planningDate,
   };

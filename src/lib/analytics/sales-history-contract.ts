@@ -72,16 +72,6 @@ export const SALES_READINESS_EXPLANATIONS: Record<SalesReadinessState, string> =
   UNAVAILABLE: "This figure cannot be established from the current snapshot.",
 };
 
-export const READINESS_INTENT: Record<SalesReadinessState, "success" | "info" | "warning" | "critical" | "neutral"> = {
-  CURRENT: "success",
-  SIMULATED: "info",
-  STALE: "warning",
-  INCOMPLETE: "warning",
-  BLOCKED_BY_DATA_QUALITY: "critical",
-  NOT_RUN: "neutral",
-  UNAVAILABLE: "neutral",
-};
-
 // ---------------------------------------------------------------------------
 // The approved 90-day layout
 // ---------------------------------------------------------------------------

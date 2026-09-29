@@ -10,7 +10,7 @@ import type { SessionUser } from "@/stores/auth-store";
 // lifetime is owned entirely by the server (HttpOnly cookie, absolute + idle TTL).
 const REMEMBERED_USERNAME = "dp_remembered_username";
 
-const FIELD = "h-[52px] rounded-lg border-slate-300 bg-white px-4 text-[15px] shadow-none md:text-[15px] dark:border-slate-700 dark:bg-slate-900";
+const FIELD = "h-[48px] rounded-xl border-border bg-background/60 hover:bg-background focus:bg-background px-4 text-sm text-foreground placeholder:text-muted-foreground/70 focus:border-[#F9733E] focus-visible:ring-2 focus-visible:ring-[#F9733E]/20 shadow-none transition-all";
 
 function readRemembered(): string {
   try {
@@ -91,23 +91,23 @@ export function LoginForm({ onAuthenticated, onRequestAccess }: { onAuthenticate
   };
 
   return (
-    <form onSubmit={submit} noValidate className="w-full max-w-[520px]">
-      <h2 className="text-3xl font-bold tracking-tight text-slate-900 lg:text-4xl dark:text-slate-50">Welcome Back</h2>
-      <p className="mt-2 text-[15px] text-slate-500 dark:text-slate-400">Sign in to access your ERP workspace.</p>
+    <form onSubmit={submit} noValidate className="w-full max-w-[460px] bg-card p-6 sm:p-8 rounded-2xl border border-border/80 shadow-2xs">
+      <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground">Welcome Back</h2>
+      <p className="mt-1.5 text-xs sm:text-sm text-muted-foreground">Sign in to access your ERP workspace.</p>
 
       {/* Server-side failures. aria-live so screen readers hear it without focus moving. */}
       {error && (
         <p
           role="alert"
-          className="mt-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300"
+          className="mt-5 rounded-xl border border-red-200 bg-red-50/80 px-4 py-3 text-xs sm:text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/40 dark:text-red-300"
         >
           {error}
         </p>
       )}
 
-      <div className="mt-6 space-y-5">
-        <div className="space-y-2">
-          <Label htmlFor="username" className="text-sm text-slate-700 dark:text-slate-300">
+      <div className="mt-6 space-y-4">
+        <div className="space-y-1.5">
+          <Label htmlFor="username" className="text-xs font-semibold uppercase tracking-wider text-foreground/80">
             Username
           </Label>
           <Input
@@ -137,8 +137,8 @@ export function LoginForm({ onAuthenticated, onRequestAccess }: { onAuthenticate
           )}
         </div>
 
-        <div className="space-y-2">
-          <Label htmlFor="password" className="text-sm text-slate-700 dark:text-slate-300">
+        <div className="space-y-1.5">
+          <Label htmlFor="password" className="text-xs font-semibold uppercase tracking-wider text-foreground/80">
             Password
           </Label>
           <div className="relative">
@@ -166,9 +166,9 @@ export function LoginForm({ onAuthenticated, onRequestAccess }: { onAuthenticate
               aria-label={showPassword ? "Hide password" : "Show password"}
               aria-pressed={showPassword}
               aria-controls="password"
-              className="absolute inset-y-0 right-0 flex w-12 items-center justify-center rounded-r-lg text-slate-400 transition-colors hover:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 motion-reduce:transition-none dark:hover:text-slate-200"
+              className="absolute inset-y-0 right-0 flex w-12 items-center justify-center rounded-r-xl text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F9733E] motion-reduce:transition-none"
             >
-              {showPassword ? <EyeOff aria-hidden className="h-5 w-5" /> : <Eye aria-hidden className="h-5 w-5" />}
+              {showPassword ? <EyeOff aria-hidden className="h-4 w-4" /> : <Eye aria-hidden className="h-4 w-4" />}
             </button>
           </div>
           {fieldErrors.password && (
@@ -179,14 +179,14 @@ export function LoginForm({ onAuthenticated, onRequestAccess }: { onAuthenticate
         </div>
       </div>
 
-      <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
-        <label htmlFor="remember" className="flex cursor-pointer items-center gap-2.5 text-sm text-slate-700 select-none dark:text-slate-300">
+      <div className="mt-5 flex flex-wrap items-center justify-between gap-2 text-xs">
+        <label htmlFor="remember" className="flex cursor-pointer items-center gap-2 text-muted-foreground select-none hover:text-foreground">
           <input
             id="remember"
             type="checkbox"
             checked={remember}
             onChange={(e) => setRemember(e.target.checked)}
-            className="h-4 w-4 cursor-pointer rounded border-slate-300 text-blue-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 dark:border-slate-600"
+            className="h-4 w-4 cursor-pointer rounded border-border text-[#F9733E] accent-[#F9733E] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F9733E]"
           />
           Remember my username
         </label>
@@ -195,7 +195,7 @@ export function LoginForm({ onAuthenticated, onRequestAccess }: { onAuthenticate
           onClick={() => setShowRecovery((v) => !v)}
           aria-expanded={showRecovery}
           aria-controls="password-recovery"
-          className="rounded text-sm font-medium text-blue-600 hover:text-blue-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 dark:text-blue-400"
+          className="rounded font-semibold text-[#F9733E] hover:text-[#EA580C] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F9733E]"
         >
           Forgot password?
         </button>
@@ -207,7 +207,7 @@ export function LoginForm({ onAuthenticated, onRequestAccess }: { onAuthenticate
       {showRecovery && (
         <p
           id="password-recovery"
-          className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-300"
+          className="mt-3 rounded-xl border border-border bg-muted/40 px-3.5 py-2.5 text-xs text-muted-foreground leading-relaxed"
         >
           Password resets are handled by your ERP administrator. Contact them to have a temporary password issued for your account.
         </p>
@@ -216,7 +216,7 @@ export function LoginForm({ onAuthenticated, onRequestAccess }: { onAuthenticate
       <button
         type="submit"
         disabled={submitting}
-        className="mt-7 flex h-[54px] w-full items-center justify-center gap-2 rounded-lg bg-blue-600 text-[15px] font-semibold text-white transition-colors hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-70 motion-reduce:transition-none dark:focus-visible:ring-offset-slate-950"
+        className="mt-6 flex h-[48px] w-full items-center justify-center gap-2 rounded-xl bg-[#F9733E] text-sm font-bold text-white transition-all hover:bg-[#EA580C] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F9733E] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-70 motion-reduce:transition-none shadow-xs"
       >
         {submitting && <Loader2 aria-hidden className="h-4 w-4 animate-spin motion-reduce:animate-none" />}
         {submitting ? "Signing in…" : "Sign In"}
@@ -224,12 +224,12 @@ export function LoginForm({ onAuthenticated, onRequestAccess }: { onAuthenticate
 
       {/* Registration is a request, not a signup: it creates no account and grants
           no access until an administrator approves it and assigns a role. */}
-      <p className="mt-6 border-t border-slate-200 pt-5 text-center text-sm text-slate-500 dark:border-slate-800 dark:text-slate-400">
+      <p className="mt-5 border-t border-border pt-4 text-center text-xs text-muted-foreground">
         Need an account?{" "}
         <button
           type="button"
           onClick={onRequestAccess}
-          className="rounded font-medium text-blue-600 hover:text-blue-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 dark:text-blue-400"
+          className="rounded font-semibold text-[#F9733E] hover:text-[#EA580C] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F9733E]"
         >
           Request access
         </button>

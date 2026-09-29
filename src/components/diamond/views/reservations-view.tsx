@@ -8,10 +8,9 @@ import { PageHeader, Section } from "@/components/diamond/shared/page-header";
 import { DataTable, type Column } from "@/components/diamond/shared/data-table";
 import { StatusBadge, Badge } from "@/components/diamond/shared/badges";
 import { KpiCard } from "@/components/diamond/shared/kpi-card";
-import { InfoBanner, EmptyState } from "@/components/diamond/shared/empty-state";
+import { EmptyState } from "@/components/diamond/shared/empty-state";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Dialog,
@@ -28,7 +27,8 @@ import {
   SelectContent,
   SelectItem,
 } from "@/components/ui/select";
-import { Lock, Plus, AlertTriangle, ShieldCheck } from "lucide-react";
+import { Lock, Plus, AlertTriangle } from "lucide-react";
+import { packetTypeLabel, packetTypeName } from "@/lib/domain/packet-type";
 
 interface ReservationRow {
   id: string;
@@ -52,7 +52,7 @@ interface AvailableRough {
   kapan: string | null;
   packet: string | null;
   stoneName: string | null;
-  stoneType: string | null;
+  packetType: string | null;
   roughWeight: number;
   country: string | null;
   branch: string | null;
@@ -67,12 +67,10 @@ const fmtDate = (iso: string | null): string => {
   }
 };
 
-// Display only — the server records the authenticated user as the reserver.
-const RESERVER = () => useAuthStore.getState().user?.username ?? "signed-in user";
-
 export function ReservationsView() {
   const qc = useQueryClient();
   const { toast } = useToast();
+  const canReserve = useAuthStore((s) => !!s.user?.permissions.includes("rough.reserve"));
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedRoughId, setSelectedRoughId] = useState<string>("");
@@ -100,7 +98,7 @@ export function ReservationsView() {
     onSuccess: (resp) => {
       toast({
         title: "Rough Reserved",
-        description: `Reservation ${resp.reservationId.slice(0, 8)}… → ${resp.status}`,
+        description: "Rough reserved for planning.",
       });
       qc.invalidateQueries({ queryKey: ["/api/planning/reservations"] });
       qc.invalidateQueries({ queryKey: ["/api/planning/rough"] });
@@ -112,7 +110,7 @@ export function ReservationsView() {
       const msg = (e as Error).message;
       if (msg.startsWith("409")) {
         toast({
-          title: "Conflict — rough already reserved",
+          title: "Rough already reserved",
           description: "Another planner just reserved this rough. Pick a different stone.",
           variant: "destructive",
         });
@@ -228,46 +226,27 @@ export function ReservationsView() {
     <div className="flex flex-col gap-3 p-3">
       <PageHeader
         title="Rough Reservations"
-        subtitle="All rough reservation records · create, release, audit · strong consistency guarantees"
+        subtitle="Reserve rough for planning and track reservations"
         actions={
-          <Button size="sm" className="h-8" onClick={() => setDialogOpen(true)}>
-            <Plus className="h-3.5 w-3.5 mr-1" /> New Reservation
-          </Button>
-        }
-        meta={
-          <span className="text-[10px] text-muted-foreground">
-            reserver: <code className="font-mono">{RESERVER()}</code>
-          </span>
+          canReserve ? (
+            <Button size="sm" className="h-8" onClick={() => setDialogOpen(true)}>
+              <Plus className="h-3.5 w-3.5 mr-1" /> New Reservation
+            </Button>
+          ) : undefined
         }
       />
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-        <KpiCard label="Total Records" value={rows.length} unit="rows" intent="default" />
-        <KpiCard label="Active (RESERVED)" value={active} unit="stones" intent="warning" />
+        <KpiCard label="Total Reservations" value={rows.length} unit="records" intent="default" />
+        <KpiCard label="Active" value={active} unit="stones" intent="warning" />
         <KpiCard label="Released" value={released} unit="stones" intent="success" />
         <KpiCard label="Active Weight" value={totalWeight.toFixed(3)} unit="ct" intent="info" />
       </div>
 
-      <InfoBanner variant="info">
-        <div className="flex items-start gap-2">
-          <ShieldCheck className="h-4 w-4 mt-0.5 flex-shrink-0" />
-          <div>
-            <p className="font-semibold">Concurrency contract</p>
-            <p className="mt-0.5">
-              Two planners selecting the same rough simultaneously: exactly one final reservation should succeed.
-              The backend uses a transactional compare-and-swap on <code className="font-mono">RoughStone.planningStatus</code>:
-              if the rough is already <code className="font-mono">RESERVED</code> or <code className="font-mono">RELEASED_TO_MANUFACTURING</code>,
-              the POST returns <strong>HTTP 409 Conflict</strong> and no reservation row is written.
-              The losing planner receives a toast and must pick a different rough.
-            </p>
-          </div>
-        </div>
-      </InfoBanner>
-
       {active === 0 && !isLoading && (
         <EmptyState
           title="No active reservations"
-          message="Click 'New Reservation' to reserve an available rough for planning."
+          message={canReserve ? "Select New Reservation to reserve an available rough." : "No rough is reserved."}
           icon={<Lock className="h-5 w-5" />}
         />
       )}
@@ -315,7 +294,7 @@ export function ReservationsView() {
               New Rough Reservation
             </DialogTitle>
             <DialogDescription className="text-[11px]">
-              Pick an available rough. The backend will compare-and-swap the planning status; a 409 conflict means another planner won.
+              Pick an available rough to reserve.
             </DialogDescription>
           </DialogHeader>
 
@@ -335,7 +314,7 @@ export function ReservationsView() {
                   <SelectItem value="NONE">— Select a rough —</SelectItem>
                   {availableRoughs.map((r) => (
                     <SelectItem key={r.id} value={r.id}>
-                      {r.stoneName ?? r.fantasyRoughId ?? r.id} · {r.kapan ?? "?"}/{r.packet ?? "?"} · {r.roughWeight.toFixed(3)} ct · {r.stoneType ?? "?"}
+                      {r.stoneName ?? r.fantasyRoughId ?? r.id} · {r.kapan ?? "?"}/{r.packet ?? "?"} · {r.roughWeight.toFixed(3)} ct · {r.packetType ? packetTypeLabel(r.packetType) : "?"}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -356,7 +335,7 @@ export function ReservationsView() {
                   <div><span className="text-muted-foreground">Stone Name: </span>{selectedRough.stoneName ?? "—"}</div>
                   <div><span className="text-muted-foreground">Fantasy ID: </span>{selectedRough.fantasyRoughId ?? "—"}</div>
                   <div><span className="text-muted-foreground">Kapan/Packet: </span>{selectedRough.kapan ?? "—"}/{selectedRough.packet ?? "—"}</div>
-                  <div><span className="text-muted-foreground">Type: </span>{selectedRough.stoneType ?? "—"}</div>
+                  <div><span className="text-muted-foreground">Packet type: </span>{selectedRough.packetType ? packetTypeName(selectedRough.packetType) : "—"}</div>
                   <div><span className="text-muted-foreground">Weight: </span><span className="tabular-nums">{selectedRough.roughWeight.toFixed(3)} ct</span></div>
                   <div><span className="text-muted-foreground">Country: </span>{selectedRough.country ?? "—"}</div>
                 </div>
@@ -367,16 +346,11 @@ export function ReservationsView() {
               <div className="flex items-start gap-1.5">
                 <AlertTriangle className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
                 <p className="text-[11px] text-amber-800 dark:text-amber-200">
-                  Reservation is final: the rough moves to <code className="font-mono">RESERVED</code> planning status and cannot be re-reserved until released.
+                  The rough stays reserved until it is released.
                 </p>
               </div>
             </div>
 
-            <Input
-              type="hidden"
-              value={RESERVER()}
-              readOnly
-            />
           </div>
 
           <DialogFooter>

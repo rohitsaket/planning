@@ -65,9 +65,6 @@ export function ServerPagination({
             Showing <span className="font-semibold text-foreground">{first.toLocaleString()}</span> to{" "}
             <span className="font-semibold text-foreground">{last.toLocaleString()}</span> of{" "}
             <span className="font-semibold text-foreground">{total.toLocaleString()}</span> {label}
-            <span className="ml-2 text-muted-foreground/70 hidden sm:inline">
-              (server-paginated)
-            </span>
           </>
         )}
       </span>

@@ -107,7 +107,7 @@ export function AccessRequestsView() {
     <div className="flex flex-col gap-3 p-3">
       <PageHeader
         title="Access Requests"
-        subtitle="Self-service registration queue — approval provisions the account and assigns the role"
+        subtitle="Review requests for new accounts"
         meta={<span className="text-[10px] text-muted-foreground">{rows.length} shown</span>}
         actions={
           <Select value={status} onValueChange={setStatus}>
@@ -125,8 +125,7 @@ export function AccessRequestsView() {
       />
 
       <InfoBanner variant="warning">
-        <strong className="font-semibold">A request is not an account.</strong> Submitting the form on the sign-in page creates no
-        login and grants no permission. The role is chosen here, by you, at approval time — the applicant has no say in it.
+        Approving creates the account with the role you choose.
       </InfoBanner>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
@@ -165,12 +164,12 @@ export function AccessRequestsView() {
                     ))}
                   </SelectContent>
                 </Select>
-                <p className="text-[10px] text-muted-foreground">Grants exactly the permissions of this role. Start least-privileged.</p>
+                <p className="text-[10px] text-muted-foreground">Choose the lowest role that meets the need.</p>
               </div>
 
               <div className="space-y-2">
                 <Label htmlFor="ar-note" className="text-xs">Note <span className="font-normal text-muted-foreground">(optional, approval)</span></Label>
-                <Input id="ar-note" value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} className="h-9 text-xs" placeholder="Context for the audit trail" />
+                <Input id="ar-note" value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} className="h-9 text-xs" placeholder="Optional note" />
               </div>
 
               <div className="space-y-2">

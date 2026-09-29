@@ -3,7 +3,6 @@
 import { ShieldAlert, Lock, ArrowLeft, KeyRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useNavStore } from "@/stores/nav-store";
-import { useAuthStore } from "@/stores/auth-store";
 import { viewPermission, PERMISSION_LABELS } from "@/lib/auth/view-permissions";
 
 interface AccessRestrictedProps {
@@ -20,11 +19,10 @@ export function AccessRestricted({
   requiredPermission,
 }: AccessRestrictedProps) {
   const setView = useNavStore((s) => s.setView);
-  const user = useAuthStore((s) => s.user);
-  const isAdmin = user?.role === "SUPER_ADMIN" || user?.role === "ADMIN";
 
   const perm = requiredPermission || (viewId ? viewPermission(viewId) : null);
-  const permLabel = perm ? PERMISSION_LABELS[perm] || perm : undefined;
+  // Only a business label is shown; a permission code never reaches the screen.
+  const permLabel = perm ? PERMISSION_LABELS[perm] : undefined;
   // A view with no permission mapping is denied to everyone. Say so plainly rather than
   // implying the visitor is simply missing a role.
   const unmapped = Boolean(viewId) && !requiredPermission && perm === null;
@@ -43,15 +41,14 @@ export function AccessRestricted({
       <p className="mt-2 max-w-md text-xs text-muted-foreground leading-relaxed">
         {description ||
           (unmapped
-            ? "This section has no access mapping, so it is closed to every account. An administrator must assign it a permission before it can be opened."
-            : "You do not currently have authorization to view this section. Access is governed by role-based permissions to protect commercial and operational integrity.")}
+            ? "This page isn't available yet. Contact an administrator."
+            : "You don't have access to this page. Ask an administrator if you need it.")}
       </p>
 
       {permLabel && (
         <div className="mt-4 inline-flex items-center gap-1.5 rounded-md border border-border/80 bg-muted/40 px-3 py-1.5 text-[11px] text-muted-foreground">
           <ShieldAlert className="h-3.5 w-3.5 text-amber-500" />
           <span>Requires: <strong className="text-foreground font-medium">{permLabel}</strong></span>
-          {isAdmin && perm && <span className="font-mono text-[9px] text-muted-foreground/60">({perm})</span>}
         </div>
       )}
 

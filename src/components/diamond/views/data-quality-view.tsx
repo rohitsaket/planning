@@ -79,12 +79,12 @@ export function DataQualityView() {
     <div className="flex flex-col gap-3 p-3">
       <PageHeader
         title="Data Quality Issues"
-        subtitle="Validation results across all entities — blocking issues MUST prevent the relevant operation"
+        subtitle="Data validation issues"
         meta={<span className="text-[10px] text-muted-foreground">{data?.rows.length ?? 0} issues</span>}
       />
 
       <InfoBanner variant="critical">
-        <strong className="font-semibold">Blocking issues must prevent the relevant operation.</strong> Records with BLOCKING severity cannot proceed downstream until resolved or explicitly waived.
+        Blocking issues stop processing until they are resolved or waived.
       </InfoBanner>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
@@ -118,10 +118,10 @@ export function DataQualityView() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="__all">All Severities</SelectItem>
-                <SelectItem value="INFO">INFO</SelectItem>
-                <SelectItem value="WARNING">WARNING</SelectItem>
-                <SelectItem value="ERROR">ERROR</SelectItem>
-                <SelectItem value="BLOCKING">BLOCKING</SelectItem>
+                <SelectItem value="INFO">Info</SelectItem>
+                <SelectItem value="WARNING">Warning</SelectItem>
+                <SelectItem value="ERROR">Error</SelectItem>
+                <SelectItem value="BLOCKING">Blocking</SelectItem>
               </SelectContent>
             </Select>
             <Select value={status || "__all"} onValueChange={(v) => setStatus(v === "__all" ? "" : v)}>
@@ -130,10 +130,10 @@ export function DataQualityView() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="__all">All Statuses</SelectItem>
-                <SelectItem value="OPEN">OPEN</SelectItem>
-                <SelectItem value="IN_REVIEW">IN_REVIEW</SelectItem>
-                <SelectItem value="RESOLVED">RESOLVED</SelectItem>
-                <SelectItem value="IGNORED">IGNORED</SelectItem>
+                <SelectItem value="OPEN">Open</SelectItem>
+                <SelectItem value="IN_REVIEW">In Review</SelectItem>
+                <SelectItem value="RESOLVED">Resolved</SelectItem>
+                <SelectItem value="IGNORED">Ignored</SelectItem>
               </SelectContent>
             </Select>
             <div className="relative flex-1 min-w-[180px] max-w-xs">
@@ -146,7 +146,7 @@ export function DataQualityView() {
         <div />
       </Section>
 
-      <Section title="Issues" description="All detected issues across the pipeline">
+      <Section title="Issues">
         <DataTable
           columns={columns}
           rows={filteredRows}

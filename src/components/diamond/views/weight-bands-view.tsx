@@ -37,7 +37,7 @@ const columns: Column<WeightBandRow>[] = [
       </div>
     ),
   },
-  { key: "active", header: "Active", align: "center", cell: (r) => <Badge variant={r.active ? "success" : "neutral"}>{r.active ? "ACTIVE" : "INACTIVE"}</Badge> },
+  { key: "active", header: "Active", align: "center", cell: (r) => <Badge variant={r.active ? "success" : "neutral"}>{r.active ? "Active" : "Inactive"}</Badge> },
 ];
 
 export function WeightBandsView() {
@@ -46,16 +46,16 @@ export function WeightBandsView() {
   return (
     <div className="flex flex-col gap-3 p-3">
       <PageHeader
-        title="Weight Bands (Admin)"
-        subtitle="Confirmed analytical scope — 24 bands covering 1.00 ct and above"
+        title="Weight Bands"
+        subtitle="Weight bands from 1.00 ct and above"
         meta={<span className="text-[10px] text-muted-foreground">{data?.rows.length ?? 0} bands</span>}
       />
 
       <InfoBanner variant="warning">
-        <strong className="font-semibold">Confirmed analytical scope starts at 1.00 ct.</strong> 0.90–0.99 is <strong>NOT</strong> part of the current confirmed scope. Inclusive boundaries, no overlap, no gaps for in-scope values, decimal-safe comparison.
+        Bands start at 1.00 ct. Stones below 1.00 ct are not included.
       </InfoBanner>
 
-      <Section title="Confirmed Weight Bands" description="Master weight band definitions used for analytical grouping">
+      <Section title="Confirmed Weight Bands" description="Weight bands used to group stones">
         <DataTable
           columns={columns}
           rows={data?.rows ?? []}

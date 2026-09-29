@@ -17,9 +17,13 @@ export const GET = withApi<{ batchId: string }>({ permission: "sarin.import.read
   const status = url.searchParams.get("status") ? qEnum(url, "status", SARIN_VALIDATION_ISSUE_STATUSES, "OPEN") : null;
   const code = qStr(url, "code", 64);
   if (code !== null && !CODES.includes(code)) throw badRequest("Query parameter 'code' is not a known finding code.");
+  // Leaves out one kind of finding the page summarises elsewhere (the unmapped-shape warnings).
+  const exclude = qStr(url, "exclude", 64);
+  if (exclude !== null && !CODES.includes(exclude)) throw badRequest("Query parameter 'exclude' is not a known finding code.");
+  const blocking = url.searchParams.get("blocking") ? qEnum(url, "blocking", ["true", "false"] as const, "true") === "true" : null;
   const page = qInt(url, "page", { def: 1, min: 1, max: 1_000_000 });
   const pageSize = qInt(url, "pageSize", { def: SARIN_ISSUE_PAGE.default, min: 1, max: SARIN_ISSUE_PAGE.max });
-  const result = await listValidationIssues(api.scope, batchId, { attempt, severity, status, code }, { page, pageSize });
+  const result = await listValidationIssues(api.scope, batchId, { attempt, severity, status, code, blocking, excludeCode: exclude }, { page, pageSize });
   if (!result) throw notFound("Sarin import");
   return NextResponse.json(result);
 });

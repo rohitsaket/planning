@@ -12,7 +12,7 @@ export interface ErpBrand {
 }
 
 export const erpBrand: ErpBrand = {
-  name: "Diamond Manufacturing ERP",
+  name: "Diamond Planning Utility",
   tagline: "Plan Today. Deliver Tomorrow.",
   description: "A unified platform for analysis, requirement, planning and traceability.",
   logo: "/logo.svg",

@@ -14,6 +14,8 @@ import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { scopeWhere, type EffectiveScope } from "@/lib/auth/access-scope";
 import { describeIssue } from "@/lib/sarin/issue-catalog";
+import { SARIN_MAPPING_LINEAGE_STATUSES } from "@/lib/sarin/domain";
+import { SARIN_VALIDATION_PROFILE_VERSION } from "@/lib/sarin/plan-structure";
 import type { Page } from "@/lib/sarin/import-queries";
 
 if (typeof window !== "undefined") {
@@ -24,7 +26,7 @@ export const SARIN_BLOCK_PAGE = { default: 100, max: 500 } as const;
 export const SARIN_ISSUE_PAGE = { default: 100, max: 500 } as const;
 export const SARIN_INTERPRETATION_PAGE = { default: 100, max: 500 } as const;
 
-const scopeOf = (scope: EffectiveScope) => scopeWhere(scope, { country: "country", lab: "labScope" }) as Prisma.SarinImportBatchWhereInput;
+const scopeOf = (scope: EffectiveScope) => scopeWhere(scope, { country: null, lab: "labScope" }) as Prisma.SarinImportBatchWhereInput;
 
 async function scopedBatchId(scope: EffectiveScope, batchId: string): Promise<string | null> {
   const b = await db.sarinImportBatch.findFirst({ where: { id: batchId, ...scopeOf(scope) }, select: { id: true } });
@@ -42,6 +44,7 @@ const attemptView = (a: {
   failureCode: string | null;
   startedAt: Date;
   finishedAt: Date | null;
+  validationProfileVersion: string;
   shapeMappingSet: { id: string; version: number; status: string };
 }) => ({
   number: a.attemptNumber,
@@ -50,6 +53,7 @@ const attemptView = (a: {
   failureCode: a.failureCode,
   startedAt: a.startedAt.toISOString(),
   finishedAt: a.finishedAt?.toISOString() ?? null,
+  validationProfile: a.validationProfileVersion,
   mappingSet: { id: a.shapeMappingSet.id, version: a.shapeMappingSet.version, status: a.shapeMappingSet.status },
 });
 
@@ -66,6 +70,7 @@ const ATTEMPT_SELECT = {
   interpretationCount: true,
   issueCount: true,
   blockingIssueCount: true,
+  validationProfileVersion: true,
   shapeMappingSet: { select: { id: true, version: true, status: true } },
 } as const satisfies Prisma.SarinValidationAttemptSelect;
 
@@ -86,6 +91,13 @@ export async function getValidationSummary(batchId: string) {
     }
     issues = { bySeverity, byStatus };
   }
+  const revalidationReason = !completed
+    ? null
+    : completed.validationProfileVersion !== SARIN_VALIDATION_PROFILE_VERSION
+      ? ("RULES_UPDATED" as const)
+      : !SARIN_MAPPING_LINEAGE_STATUSES.includes(completed.shapeMappingSet.status)
+        ? ("MAPPING_SUPERSEDED" as const)
+        : null;
   return {
     attemptCount: latest?.attemptNumber ?? 0,
     latestAttempt: latest ? attemptView(latest) : null,
@@ -98,6 +110,14 @@ export async function getValidationSummary(batchId: string) {
         }
       : null,
     lastValidatedAt: completed?.finishedAt?.toISOString() ?? null,
+    // The rules this build validates with. A completed validation under older rules proves
+    // nothing about the current ones: the import must be validated again before output.
+    currentValidationProfile: SARIN_VALIDATION_PROFILE_VERSION,
+    revalidationRequired: revalidationReason !== null,
+    // RULES_UPDATED: validated under older validation rules. MAPPING_SUPERSEDED: validated
+    // with a mapping version that is no longer approved. Either way the earlier result is
+    // kept as history but cannot produce new output.
+    revalidationReason,
   };
 }
 
@@ -143,6 +163,10 @@ export interface IssueFilters {
   readonly severity: string | null;
   readonly status: string | null;
   readonly code: string | null;
+  /** true: blocking findings only; false: advisories only; null: both. */
+  readonly blocking: boolean | null;
+  /** A finding kind to leave out (ignored when `code` is given). */
+  readonly excludeCode?: string | null;
 }
 
 export async function listValidationIssues(scope: EffectiveScope, batchId: string, filters: IssueFilters, page: Page) {
@@ -155,7 +179,8 @@ export async function listValidationIssues(scope: EffectiveScope, batchId: strin
     validationAttempt: attempt,
     ...(filters.severity ? { severity: filters.severity } : {}),
     ...(filters.status ? { status: filters.status } : {}),
-    ...(filters.code ? { code: filters.code } : {}),
+    ...(filters.code ? { code: filters.code } : filters.excludeCode ? { code: { not: filters.excludeCode } } : {}),
+    ...(filters.blocking !== null ? { blocking: filters.blocking } : {}),
   };
   const [total, rows] = await Promise.all([
     db.sarinValidationIssue.count({ where }),

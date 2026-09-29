@@ -15,6 +15,8 @@ export const SARIN_OUTPUT_BOUNDS = {
   SARIN_OUTPUT_TRANSACTION_TIMEOUT_MS: { fallback: 600_000, max: 1_800_000 },
   /** Stones read and written per round; their options and pieces are written with them. */
   SARIN_OUTPUT_WRITE_BATCH: { fallback: 200, max: 2000 },
+  /** Largest output version, in pieces, one export may contain. A larger one is refused, never cut short. */
+  SARIN_OUTPUT_EXPORT_MAX_ROWS: { fallback: 150_000, max: 500_000 },
 } as const satisfies Record<string, NumericEnvBounds>;
 
 /**
@@ -34,3 +36,5 @@ export const SARIN_OUTPUT_CONFIG: SarinOutputConfig = {
   writeBatch: resolveNumericEnv("SARIN_OUTPUT_WRITE_BATCH", SARIN_OUTPUT_BOUNDS.SARIN_OUTPUT_WRITE_BATCH).value,
   lockWaitMs: OUTPUT_LOCK_WAIT_MS,
 };
+
+export const SARIN_OUTPUT_EXPORT_MAX_ROWS = resolveNumericEnv("SARIN_OUTPUT_EXPORT_MAX_ROWS", SARIN_OUTPUT_BOUNDS.SARIN_OUTPUT_EXPORT_MAX_ROWS).value;

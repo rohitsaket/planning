@@ -7,7 +7,7 @@ export const GET = withApi({ permission: "rough.read" }, async (req: Request) =>
   const url = new URL(req.url);
   const p = paging(url);
   const planningStatus = qStr(url, "planningStatus");
-  const stoneType = qStr(url, "stoneType");
+  const packetType = qStr(url, "packetType");
   const country = qStr(url, "country");
   const branch = qStr(url, "branch");
   const windowDays = qStr(url, "windowDays");
@@ -15,7 +15,7 @@ export const GET = withApi({ permission: "rough.read" }, async (req: Request) =>
 
   const where: Record<string, unknown> = {};
   if (planningStatus) where.planningStatus = planningStatus;
-  if (stoneType) where.stoneType = stoneType;
+  if (packetType) where.packetType = packetType;
   if (country) where.country = country;
   if (branch) where.branch = branch;
 
@@ -56,7 +56,7 @@ export const GET = withApi({ permission: "rough.read" }, async (req: Request) =>
       packet: r.packet,
       stoneName: r.stoneName,
       signer: r.signer,
-      stoneType: r.stoneType,
+      packetType: r.packetType,
       roughWeight: num(r.roughWeight),
       country: r.country,
       branch: r.branch,

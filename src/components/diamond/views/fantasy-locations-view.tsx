@@ -68,7 +68,7 @@ export function FantasyLocationsView() {
 
       {/* KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2 flex-shrink-0">
-        <KpiCard label="Total Locations" value={rows.length} unit="locs" intent="info" hint="Fantasy entity count" />
+        <KpiCard label="Total Locations" value={rows.length} unit="locs" intent="info" hint="From Fantasy" />
         <KpiCard label="Countries" value={countries.size} intent="default" hint="Distinct countries covered" />
         <KpiCard label="Branches" value={branches.size} intent="default" hint="Distinct branches covered" />
         <KpiCard
@@ -81,7 +81,6 @@ export function FantasyLocationsView() {
 
       <DataTable
         title="Location Registry"
-        description="Click column headers to sort · Use search to filter live"
         columns={columns}
         rows={rows}
         loading={isLoading}

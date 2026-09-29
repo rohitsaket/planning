@@ -14,9 +14,10 @@ import {
   Layers,
   ArrowRight,
   AlertTriangle,
-  CheckCircle2,
 } from "lucide-react";
 import { TableSkeleton } from "@/components/diamond/shared/skeleton";
+import { parseValidationWarnings } from "@/lib/domain/validation-warnings";
+import { packetTypeName } from "@/lib/domain/packet-type";
 
 interface QueueRow {
   id: string;
@@ -42,7 +43,7 @@ interface RoughRow {
   packet: string | null;
   stoneName: string | null;
   signer: string | null;
-  stoneType: string | null;
+  packetType: string | null;
   roughWeight: number;
   country: string | null;
   branch: string | null;
@@ -98,15 +99,7 @@ const fmtDate = (iso: string | null): string => {
 
 function WarningsCell({ value }: { value: string | null }) {
   if (!value) return null;
-  let parsed: string[] = [];
-  try {
-    const j = JSON.parse(value);
-    if (Array.isArray(j)) parsed = j.map((s) => String(s));
-    else if (typeof j === "string") parsed = [j];
-    else parsed = [JSON.stringify(j)];
-  } catch {
-    parsed = [value];
-  }
+  const parsed = parseValidationWarnings(value);
   if (parsed.length === 0) return null;
   return (
     <div className="flex flex-wrap gap-1">
@@ -200,12 +193,12 @@ export function PlanningWorkbenchView() {
       cell: (r) => r.packet ?? "—",
     },
     {
-      key: "stoneType",
-      header: "Type",
+      key: "packetType",
+      header: "Packet Type",
       align: "center",
       width: "60px",
       cell: (r) => (
-        <Badge variant={r.stoneType === "BLUE" ? "info" : "default"}>{r.stoneType ?? "—"}</Badge>
+        <Badge variant={r.packetType === "BLUE" ? "info" : "default"}>{r.packetType ? packetTypeName(r.packetType) : "—"}</Badge>
       ),
     },
     {
@@ -223,7 +216,7 @@ export function PlanningWorkbenchView() {
     <div className="flex flex-col gap-3 p-3">
       <PageHeader
         title="Planning Workbench"
-        subtitle="Three-panel layout · LEFT priority queue · CENTER available rough · RIGHT plan possibilities"
+        subtitle="Pick a requirement and a rough, then review plan options"
         meta={
           <span className="text-[10px] text-muted-foreground">
             {leftQueue.length} priority requirements · {centerRough.length} available roughs ·{" "}
@@ -236,21 +229,21 @@ export function PlanningWorkbenchView() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
         <div className="rounded-xl border border-border bg-card p-3 shadow-xs border-l-4 border-l-primary">
           <div className="flex items-center gap-1.5 text-[10px] uppercase font-bold tracking-wider text-muted-foreground mb-1">
-            <ListOrdered className="h-3.5 w-3.5 text-primary" /> LEFT — Queue Size
+            <ListOrdered className="h-3.5 w-3.5 text-primary" /> Queue Size
           </div>
           <div className="text-xl font-bold tabular-nums text-foreground">{leftQueue.length}</div>
-          <p className="text-[10px] text-muted-foreground">Top 25 by priority & remaining</p>
+          <p className="text-[10px] text-muted-foreground">Highest priority first</p>
         </div>
         <div className="rounded-xl border border-border bg-card p-3 shadow-xs border-l-4 border-l-emerald-500">
           <div className="flex items-center gap-1.5 text-[10px] uppercase font-bold tracking-wider text-muted-foreground mb-1">
-            <Gem className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" /> CENTER — Available Rough
+            <Gem className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" /> Available Rough
           </div>
           <div className="text-xl font-bold tabular-nums text-foreground">{centerRough.length}</div>
-          <p className="text-[10px] text-muted-foreground">Top 20 eligible AVAILABLE</p>
+          <p className="text-[10px] text-muted-foreground">Ready for planning</p>
         </div>
         <div className="rounded-xl border border-border bg-card p-3 shadow-xs border-l-4 border-l-brand">
           <div className="flex items-center gap-1.5 text-[10px] uppercase font-bold tracking-wider text-muted-foreground mb-1">
-            <Layers className="h-3.5 w-3.5 text-brand" /> RIGHT — Plan Cases
+            <Layers className="h-3.5 w-3.5 text-brand" /> Plan Cases
           </div>
           <div className="text-xl font-bold tabular-nums text-foreground">{rightPlan?.length ?? 0}</div>
           <p className="text-[10px] text-muted-foreground">Cases for selected rough</p>
@@ -272,8 +265,8 @@ export function PlanningWorkbenchView() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
         {/* LEFT panel */}
         <Section
-          title="LEFT · Priority Requirement Queue"
-          description="Top 25 by priority + remaining unplanned"
+          title="Priority Requirements"
+          description="Highest priority first"
           bodyClassName="p-2"
           className="flex flex-col"
         >
@@ -302,8 +295,8 @@ export function PlanningWorkbenchView() {
 
         {/* CENTER panel */}
         <Section
-          title="CENTER · Available Rough"
-          description="Top 20 AVAILABLE planning-eligible roughs · click to load plan possibilities"
+          title="Available Rough"
+          description="Click a rough to see plan options"
           bodyClassName="p-2"
         >
           <div className="max-h-[600px] overflow-y-auto">
@@ -329,11 +322,11 @@ export function PlanningWorkbenchView() {
 
         {/* RIGHT panel */}
         <Section
-          title="RIGHT · Plan Possibilities"
+          title="Plan Options"
           description={
             selectedRough
               ? `${selectedRough.stoneName ?? selectedRough.fantasyRoughId ?? "—"} · ${selectedRough.roughWeight.toFixed(3)} ct`
-              : "Select a rough from the center panel"
+              : "Select a rough"
           }
           bodyClassName="p-2"
         >
@@ -343,13 +336,13 @@ export function PlanningWorkbenchView() {
             ) : !selectedRoughId ? (
               <EmptyState
                 title="No rough selected"
-                message="Click a row in the center panel to load its plan possibilities."
+                message="Select a rough to see its plan options."
                 icon={<Gem className="h-5 w-5" />}
               />
             ) : !rightPlan || rightPlan.length === 0 ? (
               <EmptyState
                 title="No plan cases for this rough"
-                message="Import a workbook for this rough to seed plan cases & options."
+                message="Import a planning workbook for this rough."
                 icon={<AlertTriangle className="h-5 w-5" />}
               />
             ) : (
@@ -444,10 +437,6 @@ export function PlanningWorkbenchView() {
         </Section>
       </div>
 
-      <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-        <CheckCircle2 className="h-3 w-3" />
-        Click a rough in the CENTER panel to populate the RIGHT panel with all draft / pending plan cases & their options.
-      </div>
     </div>
   );
 }

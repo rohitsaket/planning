@@ -152,7 +152,7 @@ export const GET = withApi(
         caseId: pc.id,
         caseCode: pc.caseCode,
         stoneName: pc.stoneName,
-        stoneType: pc.stoneType,
+        packetType: pc.packetType,
         roughWeight: round2(num(pc.rough.roughWeight)),
         plannedYieldPct: round2(plannedYield),
         predictedActualYield: round2(predictedActual),

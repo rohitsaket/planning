@@ -14,9 +14,32 @@
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { scopeWhere, type EffectiveScope } from "@/lib/auth/access-scope";
-import type { Page } from "@/lib/sarin/import-queries";
+import { displayNamesOf, type Page } from "@/lib/sarin/import-queries";
 import { bestTwinWeightFinding } from "@/lib/sarin/pink-structure";
 import { displayYield, YIELD_SCALE } from "@/lib/sarin/yield";
+import { outputShape } from "@/lib/sarin/domain";
+import { outputRowRange, yieldRankMap } from "@/lib/sarin/yield-rank";
+
+/** At most this many distinct unmapped shapes are named in one output's warning summary. */
+const MAX_WARNING_SHAPES = 100;
+
+/**
+ * An output's pass-through warning: each Sarin shape written unchanged because its mapping
+ * set had no rule for it (design v1.7 §15.10), with the number of output rows showing it.
+ */
+async function unmappedShapesOf(versionId: string) {
+  const groups = await db.sarinPlanPiece.groupBy({
+    by: ["rawShape"],
+    where: { outputVersionId: versionId, shapeResolution: "RAW_PASSTHROUGH" },
+    _count: { _all: true },
+    orderBy: { rawShape: "asc" },
+    take: MAX_WARNING_SHAPES + 1,
+  });
+  const byShape = new Map<string, number>();
+  for (const g of groups.slice(0, MAX_WARNING_SHAPES)) byShape.set(g.rawShape.trim(), (byShape.get(g.rawShape.trim()) ?? 0) + g._count._all);
+  const shapes = [...byShape.entries()].map(([shape, records]) => ({ shape, records })).sort((a, b) => b.records - a.records || (a.shape < b.shape ? -1 : 1));
+  return { shapes, records: shapes.reduce((n, s) => n + s.records, 0), partial: groups.length > MAX_WARNING_SHAPES };
+}
 
 if (typeof window !== "undefined") {
   throw new Error("sarin/output-queries is server-only and must not be imported by client code.");
@@ -27,14 +50,14 @@ export const SARIN_OUTPUT_STONE_PAGE = { default: 100, max: 500 } as const;
 export const SARIN_OUTPUT_OPTION_PAGE = { default: 100, max: 500 } as const;
 export const SARIN_OUTPUT_PIECE_PAGE = { default: 100, max: 500 } as const;
 
-const scopeOf = (scope: EffectiveScope) => scopeWhere(scope, { country: "country", lab: "labScope" }) as Prisma.SarinImportBatchWhereInput;
+const scopeOf = (scope: EffectiveScope) => scopeWhere(scope, { country: null, lab: "labScope" }) as Prisma.SarinImportBatchWhereInput;
 
 const paged = <T>(rows: T[], page: Page, total: number) => ({ rows, page: page.page, pageSize: page.pageSize, total, hasMore: page.page * page.pageSize < total });
 const skipTake = (page: Page) => ({ skip: (page.page - 1) * page.pageSize, take: page.pageSize });
 const d3 = (v: Prisma.Decimal) => v.toFixed(3);
 
-/** The option kinds a version of each stone type holds, in display order. */
-const KINDS_OF = (stoneType: string): string[] => (stoneType === "PINK" ? ["MK", "SL", "BP", "BT"] : ["MAIN", "ADDITIONAL"]);
+/** The option kinds a version of each packet type holds, in display order. */
+const KINDS_OF = (packetType: string): string[] => (packetType === "PINK" ? ["MK", "SL", "BP", "BT"] : ["MAIN", "ADDITIONAL"]);
 
 async function scopedBatch(scope: EffectiveScope, batchId: string) {
   return db.sarinImportBatch.findFirst({ where: { id: batchId, ...scopeOf(scope) }, select: { id: true, validationAttempt: true } });
@@ -50,7 +73,7 @@ const VERSION_SELECT = {
   id: true,
   versionNumber: true,
   status: true,
-  stoneType: true,
+  packetType: true,
   validationProfileVersion: true,
   transformProfileVersion: true,
   transformProfileHash: true,
@@ -65,19 +88,20 @@ const VERSION_SELECT = {
   shapeMappingSet: { select: { id: true, version: true } },
 } as const satisfies Prisma.SarinOutputVersionSelect;
 
-function versionView(v: Prisma.SarinOutputVersionGetPayload<{ select: typeof VERSION_SELECT }>, currentAttempt: number) {
+function versionView(v: Prisma.SarinOutputVersionGetPayload<{ select: typeof VERSION_SELECT }>, currentAttempt: number, names: Map<string, string>) {
   return {
     id: v.id,
     versionNumber: v.versionNumber,
     status: v.status,
     // Current means: the batch's one GENERATED version, derived from its current validation.
     isCurrent: v.status === "GENERATED" && v.validationAttempt.attemptNumber === currentAttempt,
-    stoneType: v.stoneType,
+    packetType: v.packetType,
     validationAttempt: v.validationAttempt.attemptNumber,
     mappingSet: { id: v.shapeMappingSet.id, version: v.shapeMappingSet.version },
     validationProfile: v.validationProfileVersion,
     transformProfile: { version: v.transformProfileVersion, hash: v.transformProfileHash },
     generatedByUserId: v.generatedByUserId,
+    generatedBy: names.get(v.generatedByUserId) ?? null,
     generatedAt: v.generatedAt.toISOString(),
     supersededAt: v.supersededAt?.toISOString() ?? null,
     supersedesVersionId: v.supersedesVersionId,
@@ -93,7 +117,8 @@ export async function listOutputVersions(scope: EffectiveScope, batchId: string,
     db.sarinOutputVersion.count({ where }),
     db.sarinOutputVersion.findMany({ where, orderBy: { versionNumber: "desc" }, ...skipTake(page), select: VERSION_SELECT }),
   ]);
-  return { batchId: batch.id, ...paged(rows.map((v) => versionView(v, batch.validationAttempt)), page, total) };
+  const names = await displayNamesOf(rows.map((v) => v.generatedByUserId));
+  return { batchId: batch.id, ...paged(rows.map((v) => versionView(v, batch.validationAttempt, names)), page, total) };
 }
 
 /** One version with bounded aggregates of its content. */
@@ -104,21 +129,22 @@ export async function getOutputVersion(scope: EffectiveScope, batchId: string, v
   if (!v) return null;
   const kinds = await db.sarinPlanOption.groupBy({ by: ["optionKind"], where: { outputVersionId: v.id }, _count: { _all: true }, _sum: { pieceCount: true } });
   const content = Object.fromEntries(
-    KINDS_OF(v.stoneType).map((k) => {
+    KINDS_OF(v.packetType).map((k) => {
       const g = kinds.find((x) => x.optionKind === k);
       return [k.toLowerCase(), { options: g?._count._all ?? 0, pieces: g?._sum.pieceCount ?? 0 }];
     }),
   );
   return {
     batchId: batch.id,
-    version: versionView(v, batch.validationAttempt),
+    version: versionView(v, batch.validationAttempt, await displayNamesOf([v.generatedByUserId])),
     content,
+    unmappedShapes: await unmappedShapesOf(v.id),
     yield: { scale: YIELD_SCALE, displayDecimals: 2, rounding: "HALF_UP" },
   };
 }
 
 export async function listOutputStones(scope: EffectiveScope, batchId: string, versionId: string, page: Page) {
-  const version = await db.sarinOutputVersion.findFirst({ where: { id: versionId, batchId, batch: scopeOf(scope) }, select: { id: true, stoneType: true } });
+  const version = await db.sarinOutputVersion.findFirst({ where: { id: versionId, batchId, batch: scopeOf(scope) }, select: { id: true, packetType: true } });
   if (!version) return null;
   const id = version.id;
   const where: Prisma.SarinStoneBlockWhereInput = { batchId, planOptions: { some: { outputVersionId: id } } };
@@ -147,7 +173,7 @@ export async function listOutputStones(scope: EffectiveScope, batchId: string, v
           signer: b.signer,
           roughWeight: b.roughWeight ? d3(b.roughWeight) : null,
           sourceRows: { first: b.firstRowNumber, last: b.lastRowNumber, count: b.rowCount },
-          optionsByKind: Object.fromEntries(KINDS_OF(version.stoneType).map((k) => [k, own.find((g) => g.optionKind === k)?._count._all ?? 0])),
+          optionsByKind: Object.fromEntries(KINDS_OF(version.packetType).map((k) => [k, own.find((g) => g.optionKind === k)?._count._all ?? 0])),
           options: own.reduce((n, g) => n + g._count._all, 0),
           pieces: own.reduce((n, g) => n + (g._sum.pieceCount ?? 0), 0),
         };
@@ -176,10 +202,23 @@ export async function listOutputOptions(scope: EffectiveScope, batchId: string, 
       select: {
         id: true, optionSequence: true, optionKind: true, mainOrdinal: true, additionalGroupOrdinal: true, pieceCount: true,
         totalEstimatedWeight: true, yieldNumerator: true, yieldDenominator: true, yieldPercent: true, firstOutputRow: true, lastOutputRow: true, pairWeightDifference: true,
+        stoneBlockId: true,
         stoneBlock: { select: { blockSequence: true, stoneNameRaw: true } },
       },
     }),
   ]);
+  // Ranks compare every option of a stone, so they are computed over the whole stone even
+  // when this page (or a kind filter) holds only some of its options.
+  const stoneIds = [...new Set(rows.map((o) => o.stoneBlockId))];
+  const stoneOptions = stoneIds.length
+    ? await db.sarinPlanOption.findMany({
+        where: { outputVersionId: id, stoneBlockId: { in: stoneIds } },
+        select: { id: true, stoneBlockId: true, optionSequence: true, pieceCount: true, yieldPercent: true, firstOutputRow: true, lastOutputRow: true },
+      })
+    : [];
+  const rankOf = yieldRankMap(
+    stoneOptions.map((o) => ({ stoneId: o.stoneBlockId, optionId: o.id, optionSequence: o.optionSequence, pieceCount: o.pieceCount, yieldPercent: o.yieldPercent, outputRows: outputRowRange(o.firstOutputRow, o.lastOutputRow) })),
+  );
   return {
     versionId: id,
     ...paged(
@@ -193,6 +232,8 @@ export async function listOutputOptions(scope: EffectiveScope, batchId: string, 
         pieceCount: o.pieceCount,
         totalEstimatedWeight: d3(o.totalEstimatedWeight),
         yield: { numerator: d3(o.yieldNumerator), denominator: d3(o.yieldDenominator), percent: o.yieldPercent.toFixed(YIELD_SCALE), display: displayYield(o.yieldPercent) },
+        /** 1, 2 or 3 for the stone's three highest yields; null otherwise. */
+        yieldRank: rankOf.get(o.id) ?? null,
         outputRows: { first: o.firstOutputRow, last: o.lastOutputRow },
         // Best Twin only: the stored difference, and the advisory it raises under the
         // current (unconfirmed-tolerance) policy.
@@ -205,11 +246,12 @@ export async function listOutputOptions(scope: EffectiveScope, batchId: string, 
   };
 }
 
-export async function listOutputPieces(scope: EffectiveScope, batchId: string, versionId: string, filters: { optionId: string | null; stoneSequence: number | null }, page: Page) {
+export async function listOutputPieces(scope: EffectiveScope, batchId: string, versionId: string, filters: { optionId: string | null; stoneSequence: number | null; unmappedOnly?: boolean }, page: Page) {
   const id = await scopedVersionId(scope, batchId, versionId);
   if (!id) return null;
   const where: Prisma.SarinPlanPieceWhereInput = {
     outputVersionId: id,
+    ...(filters.unmappedOnly ? { shapeResolution: "RAW_PASSTHROUGH" } : {}),
     ...(filters.optionId ? { planOptionId: filters.optionId } : {}),
     ...(filters.stoneSequence !== null ? { planOption: { stoneBlock: { blockSequence: filters.stoneSequence } } } : {}),
   };
@@ -220,9 +262,9 @@ export async function listOutputPieces(scope: EffectiveScope, batchId: string, v
       orderBy: { outputRowSequence: "asc" },
       ...skipTake(page),
       select: {
-        outputRowSequence: true, pieceSequence: true, sourceRowNumber: true, rawShape: true, normalizedShape: true, mappingRuleId: true,
+        outputRowSequence: true, pieceSequence: true, sourceRowNumber: true, rawShape: true, shapeResolution: true, normalizedShape: true, mappingRuleId: true,
         estimatedWeight: true, clarity: true, color: true, depthPct: true, ratio: true, length: true, width: true, depthMm: true,
-        planOption: { select: { id: true, optionSequence: true, optionKind: true, stoneBlock: { select: { blockSequence: true } } } },
+        planOption: { select: { id: true, optionSequence: true, optionKind: true, mainOrdinal: true, additionalGroupOrdinal: true, stoneBlock: { select: { blockSequence: true, stoneNameRaw: true } } } },
       },
     }),
   ]);
@@ -232,10 +274,14 @@ export async function listOutputPieces(scope: EffectiveScope, batchId: string, v
       rows.map((p) => ({
         outputRow: p.outputRowSequence,
         stoneSequence: p.planOption.stoneBlock.blockSequence,
-        option: { id: p.planOption.id, sequence: p.planOption.optionSequence, kind: p.planOption.optionKind },
+        stoneName: p.planOption.stoneBlock.stoneNameRaw,
+        option: { id: p.planOption.id, sequence: p.planOption.optionSequence, kind: p.planOption.optionKind, mainOrdinal: p.planOption.mainOrdinal, additionalGroupOrdinal: p.planOption.additionalGroupOrdinal },
         pieceSequence: p.pieceSequence,
         sourceRowNumber: p.sourceRowNumber,
         rawShape: p.rawShape,
+        // The shape the output shows, and whether it is a confirmed mapping or the raw Sarin text.
+        shape: outputShape(p),
+        shapeResolution: p.shapeResolution,
         normalizedShape: p.normalizedShape,
         mappingRuleId: p.mappingRuleId,
         estimatedWeight: d3(p.estimatedWeight),

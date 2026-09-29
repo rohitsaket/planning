@@ -175,9 +175,8 @@ export function CountryView() {
           <span className="flex items-center gap-2 font-semibold">
             <Info className="h-4 w-4" />
             {data?.geographicDemandMessage ??
-              "Demand is not currently calculated by country or branch, so geographic shortage, excess and transfer recommendations are unavailable."}
+              "Demand is not currently calculated by country or branch."}
           </span>
-          <div className="text-xs">{data?.geographicDemandDetail}</div>
         </div>
       </InfoBanner>
 
@@ -194,7 +193,7 @@ export function CountryView() {
 
       <Section
         title="Confirmed sales by country"
-        description="What actually sold in the snapshot window, attributed to the location on the canonical lot record. This is history, not a target."
+        description="Confirmed sales in the snapshot window, by country"
       >
         {sales?.rows.truncated && (
           <div className="border-b border-border px-4 py-2 text-[11px] text-muted-foreground">
@@ -246,7 +245,7 @@ export function CountryView() {
 
       <Section
         title="Current inventory by location"
-        description="Where stock sits today, from the same bucket definition as Stock Aging. A present position, not a comparison against the sales above."
+        description="Where current stock sits today"
       >
         {data?.inventory.locations.truncated && (
           <div className="border-b border-border px-4 py-2 text-[11px] text-muted-foreground">

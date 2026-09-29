@@ -24,8 +24,8 @@ interface KpiCardProps {
   hint?: string;
   icon?: LucideIcon;
   sparkline?: number[];
-  // Describes what the sparkline plots. When given it replaces the rising/declining guess,
-  // which is only meaningful for chronological data.
+  // Describes what the sparkline plots, for assistive technology. Without it the sparkline
+  // carries no text: a rising/declining label is only meaningful for chronological data.
   sparklineTitle?: string;
   onClick?: () => void;
   subtitle?: string;
@@ -86,8 +86,6 @@ function Sparkline({ data, color, title }: { data: number[]; color: string; titl
   const step = w / (data.length - 1);
   const points = data.map((v, i) => `${i * step},${h - ((v - min) / range) * (h - 4) - 2}`).join(" ");
   const lastVal = data[data.length - 1];
-  const firstVal = data[0];
-  const rising = lastVal >= firstVal;
   const lastY = h - ((lastVal - min) / range) * (h - 4) - 2;
   const gradientId = `spark-${color.replace("#", "")}-${Math.random().toString(36).slice(2, 7)}`;
 
@@ -118,7 +116,7 @@ function Sparkline({ data, color, title }: { data: number[]; color: string; titl
         fill={color}
         className="animate-pulse"
       />
-      {title ? <title>{title}</title> : !rising && <title>Declining trend</title>}
+      {title && <title>{title}</title>}
     </svg>
   );
 }

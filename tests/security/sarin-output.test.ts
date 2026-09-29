@@ -8,7 +8,7 @@
 // synthetic.
 
 import { beforeAll, beforeEach, describe, expect, test } from "./harness";
-import { call, db, ensureCountryRegistry, ensureLabRegistry, makeUser, resetDb } from "./helpers";
+import { call, db, ensureLabRegistry, makeUser, resetDb } from "./helpers";
 import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { resetRateLimits } from "@/lib/api/rate-limit";
@@ -20,11 +20,7 @@ import { GET as getOutput } from "@/app/api/planning/sarin/imports/[batchId]/out
 import { GET as listStones } from "@/app/api/planning/sarin/imports/[batchId]/outputs/[versionId]/stones/route";
 import { GET as listOptions } from "@/app/api/planning/sarin/imports/[batchId]/outputs/[versionId]/options/route";
 import { GET as listPieces } from "@/app/api/planning/sarin/imports/[batchId]/outputs/[versionId]/pieces/route";
-import { GET as listApproved } from "@/app/api/planning/sarin/mapping-sets/approved/route";
-import { POST as createSet } from "@/app/api/planning/sarin/mapping-sets/route";
-import { POST as addRule } from "@/app/api/planning/sarin/mapping-sets/[setId]/rules/route";
-import { POST as approveSet } from "@/app/api/planning/sarin/mapping-sets/[setId]/approve/route";
-import { POST as retireSet } from "@/app/api/planning/sarin/mapping-sets/[setId]/retire/route";
+import { GET as listImports } from "@/app/api/planning/sarin/imports/route";
 import { POST as rolesPost } from "@/app/api/admin/roles/route";
 import { POST as usersPost } from "@/app/api/admin/users/route";
 import { generateSarinOutput } from "@/lib/sarin/output-service";
@@ -32,11 +28,12 @@ import { SARIN_OUTPUT_CONFIG } from "@/lib/sarin/output-config";
 import { planBlueWhiteStone, SARIN_BLUE_WHITE_TRANSFORM_PROFILE, SARIN_BLUE_WHITE_TRANSFORM_PROFILE_HASH } from "@/lib/sarin/transform/blue-white";
 import { displayYield, planYield } from "@/lib/sarin/yield";
 import { SARIN_VALIDATION_PROFILE_VERSION } from "@/lib/sarin/plan-structure";
+import { applyCatalog, type CatalogRule } from "./sarin-catalog";
 
 const URL_ = "http://localhost:3000/api/planning/sarin/imports";
 type User = Awaited<ReturnType<typeof makeUser>>;
 let planner: User, viewer: User, planningViewer: User, admin: User, manager: User, root: User;
-let mapperA: User, mapperB: User;
+let mapper: User;
 let standardSetId = "";
 
 // ---- synthetic records ---------------------------------------------------------------------
@@ -68,7 +65,7 @@ async function upload(cookie: string, content: string, fields: Record<string, st
   resetRateLimits();
   const fd = new FormData();
   fd.append("file", new File([new TextEncoder().encode(content) as BlobPart], "sarin.csv", { type: "text/csv" }));
-  for (const [k, v] of Object.entries({ stoneType: "BLUE", country: "IN", planningDate: "2026-09-26", ...fields })) fd.append(k, v);
+  for (const [k, v] of Object.entries({ packetType: "BLUE", planningDate: "2026-09-26", ...fields })) fd.append(k, v);
   const encoded = new Response(fd);
   const body = new Uint8Array(await encoded.arrayBuffer());
   const res = await uploadImport(
@@ -82,13 +79,14 @@ async function uploadBatch(content: string, fields: Record<string, string> = {})
   if (r.status !== 201) throw new Error(`upload failed: ${r.status} ${JSON.stringify(r.json)}`);
   return r.json.batch.id;
 }
-const validate = (batchId: string, mappingSetId = standardSetId, cookie = planner.cookie) => {
+/** Checks a file against the shape mappings in effect. */
+const validate = (batchId: string, cookie = planner.cookie) => {
   resetRateLimits();
-  return call(validateImport, { method: "POST", cookie, body: { mappingSetId }, params: { batchId } });
+  return call(validateImport, { method: "POST", cookie, body: {}, params: { batchId } });
 };
-async function validatedBatch(content: string, fields: Record<string, string> = {}, mappingSetId = standardSetId) {
+async function validatedBatch(content: string, fields: Record<string, string> = {}) {
   const batchId = await uploadBatch(content, fields);
-  const v = await validate(batchId, mappingSetId);
+  const v = await validate(batchId);
   if (v.status !== 200 || v.json.batch.status !== "VALIDATED") throw new Error(`validation did not pass: ${v.status} ${JSON.stringify(v.json.batch?.status ?? v.json)}`);
   return batchId;
 }
@@ -100,24 +98,8 @@ const read = (handler: any, params: Record<string, string>, query = "", cookie =
   resetRateLimits();
   return call(handler, { cookie, path: `/api/x${query}`, params });
 };
-const post = (handler: any, cookie: string, body: unknown, params: Record<string, string> = {}) => {
-  resetRateLimits();
-  return call(handler, { method: "POST", cookie, body, params });
-};
 
-async function approvedSetViaApi(rules: Array<{ rawShape: string; normalizedShape: string; conditionKind?: "NONE" | "RATIO_RANGE"; ratioMin?: string | null; ratioMax?: string | null }>) {
-  const created = await post(createSet, mapperA.cookie, { description: "synthetic" });
-  if (created.status !== 201) throw new Error(`create failed ${created.status}`);
-  const setId = created.json.set.id;
-  for (const r of rules) {
-    const a = await post(addRule, mapperA.cookie, { conditionKind: "NONE", ...r }, { setId });
-    if (a.status !== 201) throw new Error(`rule failed ${a.status} ${JSON.stringify(a.json)}`);
-  }
-  const ok = await post(approveSet, mapperB.cookie, {}, { setId });
-  if (ok.status !== 200) throw new Error(`approve failed ${ok.status}`);
-  return setId;
-}
-const STANDARD_RULES = [
+const STANDARD_RULES: CatalogRule[] = [
   { rawShape: "ROUND", normalizedShape: "Round" },
   { rawShape: "EMERALD 5STEP", normalizedShape: "Asscher", conditionKind: "RATIO_RANGE" as const, ratioMin: "1.000", ratioMax: "1.030" },
   { rawShape: "EMERALD 5STEP", normalizedShape: "Emerald", conditionKind: "RATIO_RANGE" as const, ratioMin: "1.400", ratioMax: null },
@@ -132,9 +114,9 @@ const serviceActor = () => ({
   },
 });
 
-async function grantScope(userId: string, countries: string[]) {
+async function grantLabScope(userId: string, labs: string[]) {
   await db.userAccessScope.deleteMany({ where: { userId } });
-  if (countries.length) await db.userAccessScope.createMany({ data: countries.map((value) => ({ userId, dimension: "COUNTRY", value })) });
+  if (labs.length) await db.userAccessScope.createMany({ data: labs.map((value) => ({ userId, dimension: "LAB", value })) });
 }
 const auditCount = (action: string, batchId: string) => db.auditLog.count({ where: { action, entityId: batchId } });
 const outputRows = async (batchId: string) => ({
@@ -149,53 +131,36 @@ beforeAll(async () => {
   await resetDb();
   await db.$executeRawUnsafe(`TRUNCATE ${SARIN_DATA.map((t) => `"${t}"`).join(", ")}`);
   await db.userAccessScope.deleteMany({});
-  await ensureCountryRegistry(["IN", "BE"]);
-  await ensureLabRegistry(["GIA"]);
+  await ensureLabRegistry(["GIA", "IGI"]);
   planner = await makeUser("out.planner", "PLANNER");
   viewer = await makeUser("out.viewer", "VIEWER");
   planningViewer = await makeUser("out.pviewer", "PLANNING_VIEWER");
   admin = await makeUser("out.admin", "ADMIN");
   manager = await makeUser("out.manager", "PLANNING_MANAGER");
   root = await makeUser("out.root", "SUPER_ADMIN");
-  mapperA = await makeUser("out.mapper.a", "PLANNER");
-  mapperB = await makeUser("out.mapper.b", "PLANNER");
+  mapper = await makeUser("out.mapper", "PLANNER");
   const code = `SARIN_MAPPER_${Date.now().toString(36).toUpperCase()}`;
   resetRateLimits();
-  const role = await call(rolesPost, { method: "POST", cookie: root.cookie, body: { op: "createRole", code, name: "Sarin Mapping Manager", permissions: ["sarin.mapping.manage"] } });
+  const role = await call(rolesPost, { method: "POST", cookie: root.cookie, body: { op: "createRole", code, name: "Sarin Mapping Manager", permissions: ["sarin.mapping.read", "sarin.mapping.manage"] } });
   if (role.status !== 200) throw new Error(`role create failed ${role.status}`);
-  for (const u of [mapperA, mapperB]) {
+  for (const u of [mapper]) {
     resetRateLimits();
     const r = await call(usersPost, { method: "POST", cookie: root.cookie, body: { op: "setRoles", id: u.user.id, roles: ["PLANNER", code] } });
     if (r.status !== 200) throw new Error(`role assign failed ${r.status}`);
   }
-  standardSetId = await approvedSetViaApi(STANDARD_RULES);
 });
-beforeEach(() => resetRateLimits());
+// Every test starts from the standard catalog; a test that changes it does so through the API.
+beforeEach(async () => {
+  resetRateLimits();
+  standardSetId = await applyCatalog(mapper.cookie, STANDARD_RULES);
+});
 
 // =========================================================================================
-describe("sarin output: approved mapping-set discovery", () => {
-  test("validators see approved sets only, with identity facts and no editing surface", async () => {
-    const draft = await post(createSet, mapperA.cookie, { description: "draft, never listed" });
-    expect(draft.status).toBe(201);
-    const r = await read(listApproved, {}, "?pageSize=100");
-    expect(r.status).toBe(200);
-    expect(r.json.rows.every((s: any) => s.status === "APPROVED")).toBe(true);
-    expect(r.json.rows.some((s: any) => s.id === draft.json.set.id)).toBe(false);
-    const std = r.json.rows.find((s: any) => s.id === standardSetId);
-    expect(Object.keys(std).sort()).toEqual(["approvedAt", "contentHashPrefix", "id", "ruleCount", "sourceSystem", "status", "version"]);
-    const full = await db.sarinShapeMappingSet.findUniqueOrThrow({ where: { id: standardSetId } });
-    expect([std.ruleCount, std.sourceSystem, std.contentHashPrefix]).toEqual([3, "SARIN", full.contentHash!.slice(0, 12)]);
-    expect(std.contentHashPrefix).toHaveLength(12);
-    // Mapping managers use it too (every default role holding mapping management validates).
-    expect((await read(listApproved, {}, "", mapperA.cookie)).status).toBe(200);
-  });
-
-  test("callers without sarin.import.validate are refused; pagination is bounded", async () => {
-    expect((await call(listApproved, { path: "/api/x" })).status).toBe(401);
-    for (const u of [viewer, planningViewer, admin]) expect([u.user.username, (await read(listApproved, {}, "", u.cookie)).status]).toEqual([u.user.username, 403]);
-    expect((await read(listApproved, {}, "?pageSize=101")).status).toBe(400);
-    const p = await read(listApproved, {}, "?pageSize=1");
-    expect([p.json.rows.length, p.json.hasMore]).toEqual([1, p.json.total > 1]);
+describe("sarin output: shape mappings in effect", () => {
+  test("processing learns only whether mappings are configured, never their content", async () => {
+    const r = await read(listImports, {}, "?pageSize=1");
+    expect([r.status, r.json.mappingsConfigured]).toEqual([200, true]);
+    expect(JSON.stringify(r.json).includes("EMERALD 5STEP")).toBe(false);
   });
 });
 
@@ -238,11 +203,11 @@ describe("sarin output: validation reuse is bound to the validation profile", ()
 describe("sarin output: Blue/White plan structure validation", () => {
   test("a stone shorter than its main-plan limit is a blocking finding; exactly the limit validates", async () => {
     const cases: Array<[string, number, string]> = [["BLUE", 16, "NEEDS_REVIEW"], ["BLUE", 17, "VALIDATED"], ["WHITE", 31, "NEEDS_REVIEW"], ["WHITE", 32, "VALIDATED"]];
-    for (const [stoneType, rows, expected] of cases) {
-      const signer = stoneType === "BLUE" ? "DC" : "HA";
-      const batchId = await uploadBatch(file(stone({ name: `${kapan()}-001 ${signer}` }, rows)), { stoneType });
+    for (const [packetType, rows, expected] of cases) {
+      const signer = packetType === "BLUE" ? "DC" : "HA";
+      const batchId = await uploadBatch(file(stone({ name: `${kapan()}-001 ${signer}` }, rows)), { packetType });
       const v = await validate(batchId);
-      expect([stoneType, rows, v.json.batch.status]).toEqual([stoneType, rows, expected]);
+      expect([packetType, rows, v.json.batch.status]).toEqual([packetType, rows, expected]);
       const issues = (await read(listIssues, { batchId }, "?pageSize=500")).json.rows;
       const short = issues.filter((i: any) => i.code === "STONE_BLOCK_SHORTER_THAN_MAIN_LIMIT");
       if (expected === "NEEDS_REVIEW") {
@@ -258,7 +223,7 @@ describe("sarin output: Blue/White plan structure validation", () => {
     const name = `${kapan()}-001 DC`;
     const lines = stone({ name }, 20);
     lines[2] = rec({ name, est: "" }); // row 3: main plan, no Estimated Weight
-    lines[4] = rec({ name, shape: "HEXAGON" }); // row 5: no approved shape
+    lines[4] = rec({ name, shape: "EMERALD 5STEP", ratio: "1.200" }); // row 5: Ratio outside every mapped range, so no confirmed shape
     lines[6] = rec({ name, clarity: "" }); // row 7: accepted, but no clarity to show
     lines[8] = rec({ name, depthMm: "" }); // row 9: accepted, but no depth (mm)
     lines[18] = rec({ name, est: "" }); // row 19: additional plan, cannot be grouped
@@ -289,7 +254,7 @@ describe("sarin output: Blue/White plan structure validation", () => {
 
   test("Pink batches carry no Blue/White structural findings; their own structure applies instead", async () => {
     const name = `${kapan()}-111_M`;
-    const batchId = await uploadBatch(file([rec({ name, clarity: "" }), rec({ name })]), { stoneType: "PINK" });
+    const batchId = await uploadBatch(file([rec({ name, clarity: "" }), rec({ name })]), { packetType: "PINK" });
     const v = await validate(batchId);
     expect(v.json.batch.status).toBe("NEEDS_REVIEW");
     const codes = (await read(listIssues, { batchId }, "?pageSize=500")).json.rows.map((i: any) => i.code);
@@ -344,7 +309,7 @@ describe("sarin output: plan construction and yield", () => {
     const g = await generate(batchId);
     expect([g.status, g.json.reused]).toEqual([201, false]);
     const version = g.json.output.version;
-    expect([version.versionNumber, version.status, version.isCurrent, version.stoneType, version.counts]).toEqual([1, "GENERATED", true, "BLUE", { stones: 2, options: 37, pieces: 41 }]);
+    expect([version.versionNumber, version.status, version.isCurrent, version.packetType, version.counts]).toEqual([1, "GENERATED", true, "BLUE", { stones: 2, options: 37, pieces: 41 }]);
     expect([version.validationAttempt, version.mappingSet.id, version.validationProfile, version.transformProfile]).toEqual([
       attempt.attemptNumber,
       standardSetId,
@@ -388,7 +353,7 @@ describe("sarin output: plan construction and yield", () => {
 
   test("a White stone has 32 main plans before its groups", async () => {
     const name = `${kapan()}-001 HA`;
-    const batchId = await validatedBatch(file(stoneOf(name, [...Array(32).fill("0.100"), "0.200", "0.100"], { rough: "5.000" })), { stoneType: "WHITE" });
+    const batchId = await validatedBatch(file(stoneOf(name, [...Array(32).fill("0.100"), "0.200", "0.100"], { rough: "5.000" })), { packetType: "WHITE" });
     const g = await generate(batchId);
     expect([g.status, g.json.output.version.counts, g.json.output.content]).toEqual([201, { stones: 1, options: 33, pieces: 34 }, { main: { options: 32, pieces: 32 }, additional: { options: 1, pieces: 2 } }]);
   });
@@ -403,7 +368,7 @@ describe("sarin output: API contract, authorization and scope", () => {
     expect([first.status, again.status, again.json.reused, again.json.output.version.id]).toEqual([201, 200, true, first.json.output.version.id]);
     expect(await outputRows(batchId)).toEqual({ versions: 1, options: 18, pieces: 19 });
     expect([await auditCount("SARIN_OUTPUT_GENERATED", batchId), await auditCount("SARIN_OUTPUT_REUSED", batchId)]).toEqual([1, 1]);
-    for (const body of [{ yieldPercent: "99.9" }, { options: [] }, { userId: "someone" }, { stoneType: "WHITE" }, { validationAttemptId: "bad id!" }]) {
+    for (const body of [{ yieldPercent: "99.9" }, { options: [] }, { userId: "someone" }, { packetType: "WHITE" }, { validationAttemptId: "bad id!" }]) {
       expect([body, (await generate(batchId, planner.cookie, body)).status]).toEqual([body, 400]);
     }
     // Naming the reviewed attempt is a precondition, not an input.
@@ -428,10 +393,10 @@ describe("sarin output: API contract, authorization and scope", () => {
   });
 
   test("an out-of-scope batch is a 404 for generation and every preview; a version is only found under its own batch", async () => {
-    const be = await validatedBatch(file(stone({ name: `${kapan()}-001 DC` })), { country: "BE" });
+    const be = await validatedBatch(file(stone({ name: `${kapan()}-001 DC` })), { labId: "IGI" });
     const versionId = (await generate(be)).json.output.version.id;
-    const scoped = await makeUser("out.scoped.in", "PLANNER");
-    await grantScope(scoped.user.id, ["IN"]);
+    const scoped = await makeUser("out.scoped.gia", "PLANNER");
+    await grantLabScope(scoped.user.id, ["GIA"]);
     expect((await generate(be, scoped.cookie)).status).toBe(404);
     for (const [h, params] of [[listOutputs, { batchId: be }], [getOutput, { batchId: be, versionId }], [listStones, { batchId: be, versionId }], [listOptions, { batchId: be, versionId }], [listPieces, { batchId: be, versionId }]] as const) {
       expect((await read(h, params, "", scoped.cookie)).status).toBe(404);
@@ -440,19 +405,21 @@ describe("sarin output: API contract, authorization and scope", () => {
     for (const h of [getOutput, listStones, listOptions, listPieces]) expect((await read(h, { batchId: other, versionId })).status).toBe(404);
   });
 
-  test("status refusals: not validated, needs review, Pink, retired mapping set", async () => {
+  test("a file that was not checked is refused", async () => {
     const uploaded = await uploadBatch(file(stone({ name: `${kapan()}-001 DC` })));
     const r1 = await generate(uploaded);
     expect([r1.status, r1.json.error.code]).toEqual([409, "IMPORT_NOT_VALIDATED"]);
+    expect(/SELECT|prisma|at .*\.ts/i.test(JSON.stringify(r1.json))).toBe(false);
+  });
 
-    const setId = await approvedSetViaApi([{ rawShape: "ROUND", normalizedShape: "Round" }]);
-    const batchId = await validatedBatch(file(stone({ name: `${kapan()}-001 DC` })), {}, setId);
-    expect((await post(retireSet, mapperA.cookie, { reason: "Replaced by a newer master" }, { setId })).status).toBe(200);
-    const r2 = await generate(batchId);
-    expect([r2.status, r2.json.error.code]).toEqual([409, "MAPPING_SET_NOT_APPROVED"]);
-    expect((await outputRows(batchId)).versions).toBe(0);
-    expect(await auditCount("SARIN_OUTPUT_REJECTED", batchId)).toBe(1);
-    expect(/SELECT|prisma|at .*\.ts/i.test(JSON.stringify(r2.json))).toBe(false);
+  test("a mapping change after checking does not block output: it uses the snapshot the file was checked with", async () => {
+    const batchId = await validatedBatch(file(stone({ name: `${kapan()}-001 DC` })));
+    const checkedWith = standardSetId;
+    const changed = await applyCatalog(mapper.cookie, [...STANDARD_RULES, { rawShape: "HEXAGON", normalizedShape: "Kite" }]);
+    expect(changed === checkedWith).toBe(false);
+    const r = await generate(batchId);
+    expect([r.status, r.json.output.version.mappingSet.id]).toEqual([201, checkedWith]);
+    expect((await db.sarinShapeMappingSet.findUniqueOrThrow({ where: { id: checkedWith } })).status).toBe("SUPERSEDED");
   });
 });
 
@@ -464,8 +431,8 @@ describe("sarin output: versions, supersession and stale requests", () => {
     const v1 = (await generate(batchId)).json.output.version;
     const firstAttempt = await db.sarinValidationAttempt.findFirstOrThrow({ where: { batchId } });
 
-    const secondSet = await approvedSetViaApi([...STANDARD_RULES, { rawShape: "HEXAGON", normalizedShape: "Kite" }]);
-    expect((await validate(batchId, secondSet)).json.batch.status).toBe("VALIDATED");
+    const secondSet = await applyCatalog(mapper.cookie, [...STANDARD_RULES, { rawShape: "HEXAGON", normalizedShape: "Kite" }]);
+    expect((await validate(batchId)).json.batch.status).toBe("VALIDATED");
     // Still GENERATED, but no longer derived from the current validation.
     const between = (await read(listOutputs, { batchId })).json.rows;
     expect(between.map((v: any) => [v.versionNumber, v.status, v.isCurrent])).toEqual([[1, "GENERATED", false]]);
@@ -488,11 +455,11 @@ describe("sarin output: versions, supersession and stale requests", () => {
     const batchId = await validatedBatch(file(stone({ name: `${kapan()}-001 DC` })));
     const v1 = (await generate(batchId)).json.output.version;
     const attempt1 = await db.sarinValidationAttempt.findFirstOrThrow({ where: { batchId } });
-    const secondSet = await approvedSetViaApi(STANDARD_RULES);
-    await validate(batchId, secondSet);
+    await applyCatalog(mapper.cookie, [...STANDARD_RULES, { rawShape: "HEXAGON", normalizedShape: "Kite" }]);
+    await validate(batchId);
     const base = {
       batchId, shapeMappingSetId: standardSetId, validationProfileVersion: SARIN_VALIDATION_PROFILE_VERSION, transformProfileVersion: "SARIN_BLUE_WHITE_TRANSFORM_V1",
-      transformProfileHash: "a".repeat(64), inputsHash: "b".repeat(64), stoneType: "BLUE", generatedByUserId: "u", stoneCount: 1, optionCount: 17, pieceCount: 17,
+      transformProfileHash: "a".repeat(64), inputsHash: "b".repeat(64), packetType: "BLUE", generatedByUserId: "u", stoneCount: 1, optionCount: 17, pieceCount: 17,
     };
     await db.sarinOutputVersion.updateMany({ where: { batchId, status: "GENERATED" }, data: { status: "SUPERSEDED" } });
     await expect(db.sarinOutputVersion.create({ data: { ...base, validationAttemptId: attempt1.id, versionNumber: 2 } })).rejects.toThrow(/current clean validation/);
@@ -581,8 +548,8 @@ describe("sarin output: concurrency, rollback and batch size", () => {
     const batchId = await validatedBatch(file(manyStones(6)));
     const v1 = (await generate(batchId)).json.output.version;
     const before = await outputRows(batchId);
-    const secondSet = await approvedSetViaApi(STANDARD_RULES);
-    await validate(batchId, secondSet);
+    await applyCatalog(mapper.cookie, [...STANDARD_RULES, { rawShape: "HEXAGON", normalizedShape: "Kite" }]);
+    await validate(batchId);
     await db.$executeRawUnsafe(`
       CREATE OR REPLACE FUNCTION test_inject_piece_failure() RETURNS trigger AS $$
       BEGIN

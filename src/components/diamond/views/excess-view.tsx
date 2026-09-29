@@ -72,7 +72,8 @@ interface CategoriesResponse {
   runId: string | null;
   unavailableMessage: string | null;
   rows: ExcessRow[];
-  paging: { page: number; pageSize: number; total: number; hasMore: boolean };
+  // Absent when the run is unavailable: the response is then a state, not a page.
+  paging?: { page: number; pageSize: number; total: number; hasMore: boolean };
   totals: {
     categoriesWithExcess: number;
     totalPhysicalAvailable: number;
@@ -168,8 +169,8 @@ export function ExcessView() {
     { key: "targetQuantity", header: "Target (pcs)", align: "right", cell: (r) => <NumberCell value={r.targetQuantity} intent="info" /> },
     { key: "physicalAvailable", header: "Physical available polished (pcs)", align: "right", cell: (r) => <NumberCell value={r.physicalAvailable} intent="success" /> },
     { key: "excessQuantity", header: "Excess (pcs)", align: "right", cell: (r) => <NumberCell value={r.excessQuantity} intent="warning" zeroAsDash /> },
-    { key: "memoQuantity", header: "Memo — advisory (pcs)", align: "right", cell: (r) => <NumberCell value={r.memoQuantity} zeroAsDash /> },
-    { key: "wipQuantity", header: "WIP — separate (pcs)", align: "right", cell: (r) => <NumberCell value={r.wipQuantity} zeroAsDash /> },
+    { key: "memoQuantity", header: "Memo (pcs)", align: "right", cell: (r) => <NumberCell value={r.memoQuantity} zeroAsDash /> },
+    { key: "wipQuantity", header: "WIP (pcs)", align: "right", cell: (r) => <NumberCell value={r.wipQuantity} zeroAsDash /> },
     {
       key: "latestSaleDateIst", header: "Latest confirmed sale", width: "10rem",
       cell: (r) => <span className="text-xs text-muted-foreground">{r.latestSaleDateIst ?? "—"}</span>,
@@ -201,7 +202,7 @@ export function ExcessView() {
     <div className="space-y-4 p-3">
       <PageHeader
         title="Excess Stock"
-        subtitle="Categories holding more available finished polished stock than the stored demand target"
+        subtitle="Categories with stock above target"
         actions={
           <div className="flex items-center gap-2">
             {canRunDemand && (
@@ -273,7 +274,7 @@ export function ExcessView() {
           )}
           {scopeIgnored && (
             <InfoBanner variant="info">
-              The country and branch filters do not apply to this page. {s.countryScopeNotice}
+              The country and branch filters do not apply to this page.
             </InfoBanner>
           )}
         </div>
@@ -283,7 +284,7 @@ export function ExcessView() {
         <KpiCard label="Categories with excess" value={hasRun ? (totals?.categoriesWithExcess ?? 0) : "NOT RUN"} intent="info" icon={Layers} hint="Available finished stock above target" />
         <KpiCard label="Physical available" value={hasRun ? (totals?.totalPhysicalAvailable ?? 0) : "NOT RUN"} unit="pcs" intent="success" icon={Package} hint="Finished polished stock only" />
         <KpiCard label="Target quantity" value={hasRun ? (totals?.totalTargetQuantity ?? 0) : "NOT RUN"} unit="pcs" intent="info" icon={Target} hint="Across matching categories" />
-        <KpiCard label="Excess quantity" value={hasRun ? (totals?.totalExcessQuantity ?? 0) : "NOT RUN"} unit="pcs" intent="warning" hint="As calculated by the demand run" />
+        <KpiCard label="Excess quantity" value={hasRun ? (totals?.totalExcessQuantity ?? 0) : "NOT RUN"} unit="pcs" intent="warning" hint="Stock above target" />
         <KpiCard label="Needing review" value={hasRun ? (totals?.categoriesRequiringReview ?? 0) : "NOT RUN"} intent="default" hint="Excluded from the totals shown here" />
       </div>
 
@@ -291,7 +292,7 @@ export function ExcessView() {
         title="Categories"
         description={
           hasRun
-            ? "Stock above target as calculated by the selected demand run. Memo is advisory and WIP is shown separately; neither is finished-stock excess."
+            ? "Memo and WIP are shown separately and are not counted as excess."
             : "Excess comes from a completed 90-day demand calculation."
         }
         actions={
@@ -347,10 +348,10 @@ export function ExcessView() {
               exportScope="current-page"
             />
             <ServerPagination
-              page={categories.data?.paging.page ?? 1}
-              pageSize={categories.data?.paging.pageSize ?? PAGE_SIZE}
-              total={categories.data?.paging.total ?? 0}
-              hasMore={categories.data?.paging.hasMore ?? false}
+              page={categories.data?.paging?.page ?? 1}
+              pageSize={categories.data?.paging?.pageSize ?? PAGE_SIZE}
+              total={categories.data?.paging?.total ?? 0}
+              hasMore={categories.data?.paging?.hasMore ?? false}
               onPageChange={setPage}
               loading={categories.isLoading}
               label="categories"

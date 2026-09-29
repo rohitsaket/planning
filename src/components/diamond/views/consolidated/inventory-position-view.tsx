@@ -33,7 +33,7 @@ export function InventoryPositionView() {
   return (
     <TabbedHostView
       title="Inventory"
-      subtitle="Current canonical Fantasy stock by classification bucket, category and lot"
+      subtitle="Current stock by bucket, category and lot"
       tabs={TABS}
       defaultTab="position"
     />
