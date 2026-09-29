@@ -3,7 +3,8 @@
 // creds file: one "<username> <password>" per line for roles VIEWER, DATA_ANALYST, PLANNER, PLANNING_MANAGER, ADMIN, SUPER_ADMIN.
 import { readFileSync, writeFileSync, mkdirSync, readdirSync } from "node:fs";
 import path from "node:path";
-import { hasPermission } from "../src/lib/auth/permissions";
+// Roles other than SUPER_ADMIN are test fixture custom roles (tests/security/fixture-roles.ts).
+import { testHasPermission } from "../tests/security/fixture-roles";
 
 const BASE = process.env.SWEEP_BASE || "http://127.0.0.1:3100";
 const scriptDir = import.meta.dirname || (import.meta as any).dir || path.dirname(new URL(import.meta.url).pathname);
@@ -79,7 +80,7 @@ for (const e of entries) {
   for (const s of sessions) {
     if (e.route === "/api/auth/logout") { cells.push("n/a"); continue; }
     const status = await hit(e, s.cookie);
-    const allowed = e.guard === "PUBLIC" || e.guard === "AUTHENTICATED" || hasPermission(s.role, e.guard as never);
+    const allowed = e.guard === "PUBLIC" || e.guard === "AUTHENTICATED" || testHasPermission(s.role, e.guard as never);
     const ok = allowed ? status !== 401 && status !== 403 && status < 500 : status === 403;
     if (!ok) check(`${key} as ${s.role}`, false, `got ${status}, expected ${allowed ? "allowed (not 401/403/5xx)" : "403"}`);
     cells.push(String(status));

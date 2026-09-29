@@ -6,7 +6,6 @@ import { badRequest, conflict, forbidden, notFound } from "@/lib/api/errors";
 import {
   ROLES,
   PERMISSIONS,
-  ROLE_PERMISSIONS,
   permissionsFor,
   isPermission,
   type Permission,

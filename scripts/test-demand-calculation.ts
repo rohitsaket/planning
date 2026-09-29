@@ -47,7 +47,8 @@ import {
 import { roundHalfUpInt } from "../src/lib/domain/diamond-rules";
 import { SECTEST_DB } from "../tests/security/test-db";
 import { parseISTDateToUTC, getISTDateString } from "../src/lib/fantasy/time";
-import { hasPermission } from "../src/lib/auth/permissions";
+// Roles other than SUPER_ADMIN are test fixture custom roles (tests/security/fixture-roles.ts).
+import { testHasPermission } from "../tests/security/fixture-roles";
 import { readPublicFailure, recordOperationalFailure, serializePublicFailure } from "../src/lib/api/operational-failure";
 
 function assert(condition: boolean, message: string) {
@@ -1152,33 +1153,33 @@ async function main() {
   // TEST 32: Permission matrix for demand permissions (NOT an API test — see scripts/test-demand-inventory.ts section E)
   // -------------------------------------------------------------------------
   console.log("\n--- TEST 32: Permission-matrix checks (role → permission; API boundary covered separately) ---");
-  assert(!hasPermission("VIEWER", "demand.run"), "VIEWER cannot run demand calculation");
-  assert(!hasPermission("VIEWER", "demand.unlock"), "VIEWER cannot unlock demand calculation");
-  assert(!hasPermission("VIEWER", "demand.trace"), "VIEWER cannot view lot-level trace");
-  assert(!hasPermission("VIEWER", "demand.export"), "VIEWER cannot export demand calculations");
+  assert(!testHasPermission("VIEWER", "demand.run"), "VIEWER cannot run demand calculation");
+  assert(!testHasPermission("VIEWER", "demand.unlock"), "VIEWER cannot unlock demand calculation");
+  assert(!testHasPermission("VIEWER", "demand.trace"), "VIEWER cannot view lot-level trace");
+  assert(!testHasPermission("VIEWER", "demand.export"), "VIEWER cannot export demand calculations");
 
-  assert(hasPermission("SUPER_ADMIN", "demand.run"), "SUPER_ADMIN has demand.run");
-  assert(hasPermission("SUPER_ADMIN", "demand.unlock"), "SUPER_ADMIN has demand.unlock");
-  assert(hasPermission("SUPER_ADMIN", "demand.trace"), "SUPER_ADMIN has demand.trace");
-  assert(hasPermission("SUPER_ADMIN", "demand.export"), "SUPER_ADMIN has demand.export");
+  assert(testHasPermission("SUPER_ADMIN", "demand.run"), "SUPER_ADMIN has demand.run");
+  assert(testHasPermission("SUPER_ADMIN", "demand.unlock"), "SUPER_ADMIN has demand.unlock");
+  assert(testHasPermission("SUPER_ADMIN", "demand.trace"), "SUPER_ADMIN has demand.trace");
+  assert(testHasPermission("SUPER_ADMIN", "demand.export"), "SUPER_ADMIN has demand.export");
 
   // Running a demand calculation replaces the snapshot every Analysis page reads, and
   // unlocking one can abandon an in-flight run. Both are operational acts with a
   // consequence for the data, so administering the system no longer confers them; they
   // stay assignable to an administrator who genuinely holds that duty.
-  assert(!hasPermission("ADMIN", "demand.run"), "ADMIN does NOT automatically have demand.run");
-  assert(!hasPermission("ADMIN", "demand.unlock"), "ADMIN does NOT automatically have demand.unlock");
+  assert(!testHasPermission("ADMIN", "demand.run"), "ADMIN does NOT automatically have demand.run");
+  assert(!testHasPermission("ADMIN", "demand.unlock"), "ADMIN does NOT automatically have demand.unlock");
   // Reading remains administrative.
-  assert(hasPermission("ADMIN", "demand.trace"), "ADMIN has demand.trace");
-  assert(hasPermission("ADMIN", "demand.export"), "ADMIN has demand.export");
-  assert(!hasPermission("ADMIN", "plan.approve"), "ADMIN strictly DOES NOT have plan.approve");
-  assert(!hasPermission("ADMIN", "fantasy.sync.run"), "ADMIN does NOT automatically have fantasy.sync.run");
-  assert(!hasPermission("ADMIN", "fantasy.sync.unlock"), "ADMIN does NOT automatically have fantasy.sync.unlock");
+  assert(testHasPermission("ADMIN", "demand.trace"), "ADMIN has demand.trace");
+  assert(testHasPermission("ADMIN", "demand.export"), "ADMIN has demand.export");
+  assert(!testHasPermission("ADMIN", "plan.approve"), "ADMIN strictly DOES NOT have plan.approve");
+  assert(!testHasPermission("ADMIN", "fantasy.sync.run"), "ADMIN does NOT automatically have fantasy.sync.run");
+  assert(!testHasPermission("ADMIN", "fantasy.sync.unlock"), "ADMIN does NOT automatically have fantasy.sync.unlock");
 
-  assert(hasPermission("ANALYSIS_MANAGER", "demand.run"), "ANALYSIS_MANAGER has demand.run");
-  assert(!hasPermission("ANALYSIS_MANAGER", "demand.unlock"), "ANALYSIS_MANAGER does NOT have demand.unlock");
-  assert(hasPermission("ANALYSIS_MANAGER", "demand.trace"), "ANALYSIS_MANAGER has demand.trace");
-  assert(hasPermission("ANALYSIS_MANAGER", "demand.export"), "ANALYSIS_MANAGER has demand.export");
+  assert(testHasPermission("ANALYSIS_MANAGER", "demand.run"), "ANALYSIS_MANAGER has demand.run");
+  assert(!testHasPermission("ANALYSIS_MANAGER", "demand.unlock"), "ANALYSIS_MANAGER does NOT have demand.unlock");
+  assert(testHasPermission("ANALYSIS_MANAGER", "demand.trace"), "ANALYSIS_MANAGER has demand.trace");
+  assert(testHasPermission("ANALYSIS_MANAGER", "demand.export"), "ANALYSIS_MANAGER has demand.export");
 
   // -------------------------------------------------------------------------
   // TEST 33: Existing Fantasy regression tests remain passing

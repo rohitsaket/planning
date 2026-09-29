@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { call, makeUser, resetDb } from "./helpers";
-import { hasPermission, PERMISSIONS, type Role } from "@/lib/auth/permissions";
+import { PERMISSIONS } from "@/lib/auth/permissions";
+import { testHasPermission, type TestRole } from "./fixture-roles";
 import { resetRateLimits } from "@/lib/api/rate-limit";
 
 const ROOT = process.cwd();
@@ -19,7 +20,8 @@ function findRouteFiles(dir: string, acc: string[] = []): string[] {
 }
 const files = findRouteFiles("src/app/api").sort();
 const PUBLIC = new Set(["GET /api", "POST /api/auth/login", "POST /api/auth/logout", "GET /api/public/login-context", "GET /api/public/daily-motivation", "POST /api/public/access-request"]);
-const SWEEP_ROLES: { label: string; role: Role }[] = [
+// Super Admin (built in) and fixture custom roles standing for typical least-privilege profiles.
+const SWEEP_ROLES: { label: string; role: TestRole }[] = [
   { label: "Viewer", role: "VIEWER" },
   { label: "Analyst", role: "DATA_ANALYST" },
   { label: "Planner", role: "PLANNER" },
@@ -106,7 +108,7 @@ describe("runtime 401/403 sweep over every handler", () => {
         // 5xx here means the handler threw rather than answering, which is a defect
         // whether or not the caller was authorized.
         expect({ r: `${e.method} ${e.route}`, role: SWEEP_ROLES[i].label, serverError: status >= 500 }).toEqual({ r: `${e.method} ${e.route}`, role: SWEEP_ROLES[i].label, serverError: false });
-        const allowed = e.guard === "PUBLIC" || e.guard === "AUTHENTICATED" || hasPermission(SWEEP_ROLES[i].role, e.guard as never);
+        const allowed = e.guard === "PUBLIC" || e.guard === "AUTHENTICATED" || testHasPermission(SWEEP_ROLES[i].role, e.guard as never);
         if (allowed) expect({ r: `${e.method} ${e.route}`, role: SWEEP_ROLES[i].label, denied: status === 401 || status === 403 }).toEqual({ r: `${e.method} ${e.route}`, role: SWEEP_ROLES[i].label, denied: false });
         else expect({ r: `${e.method} ${e.route}`, role: SWEEP_ROLES[i].label, status }).toEqual({ r: `${e.method} ${e.route}`, role: SWEEP_ROLES[i].label, status: 403 });
         cells.push(`${status}${allowed ? "" : " (denied)"}`);

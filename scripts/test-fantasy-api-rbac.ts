@@ -1,5 +1,6 @@
 import { db } from "../src/lib/db";
-import { hasPermission, ROLE_PERMISSIONS } from "../src/lib/auth/permissions";
+// Roles other than SUPER_ADMIN are test fixture custom roles (tests/security/fixture-roles.ts).
+import { testHasPermission } from "../tests/security/fixture-roles";
 import { viewPermission } from "../src/lib/auth/view-permissions";
 
 function assert(condition: boolean, message: string) {
@@ -17,24 +18,24 @@ async function main() {
 
   // 1. Check permissions definition
   console.log("\n[1/4] Verifying Permission Matrices...");
-  assert(hasPermission("ADMIN", "overall.read"), "ADMIN role has overall.read");
-  assert(hasPermission("ADMIN", "overall.export"), "ADMIN role has overall.export");
-  assert(hasPermission("ADMIN", "fantasy.read"), "ADMIN role has fantasy.read");
+  assert(testHasPermission("ADMIN", "overall.read"), "ADMIN role has overall.read");
+  assert(testHasPermission("ADMIN", "overall.export"), "ADMIN role has overall.export");
+  assert(testHasPermission("ADMIN", "fantasy.read"), "ADMIN role has fantasy.read");
   // Reading Fantasy data is administrative; running a synchronization is operational —
   // it pulls real source data and advances the checkpoint — so it is assigned rather
   // than inherited. FANTASY_INTEGRATION is the role that holds it.
-  assert(!hasPermission("ADMIN", "fantasy.sync.run"), "ADMIN role does NOT automatically have fantasy.sync.run");
-  assert(!hasPermission("ADMIN", "fantasy.sync.unlock"), "ADMIN role does NOT automatically have fantasy.sync.unlock");
-  assert(hasPermission("FANTASY_INTEGRATION", "fantasy.sync.run"), "FANTASY_INTEGRATION role has fantasy.sync.run");
+  assert(!testHasPermission("ADMIN", "fantasy.sync.run"), "ADMIN role does NOT automatically have fantasy.sync.run");
+  assert(!testHasPermission("ADMIN", "fantasy.sync.unlock"), "ADMIN role does NOT automatically have fantasy.sync.unlock");
+  assert(testHasPermission("FANTASY_INTEGRATION", "fantasy.sync.run"), "FANTASY_INTEGRATION role has fantasy.sync.run");
 
-  assert(hasPermission("PLANNER", "overall.read"), "PLANNER role has overall.read");
-  assert(!hasPermission("PLANNER", "overall.export"), "PLANNER role does NOT have overall.export");
-  assert(hasPermission("PLANNER", "fantasy.read"), "PLANNER role has fantasy.read");
-  assert(!hasPermission("PLANNER", "fantasy.sync.run"), "PLANNER role does NOT have fantasy.sync.run (restricted to Fantasy Integration)");
+  assert(testHasPermission("PLANNER", "overall.read"), "PLANNER role has overall.read");
+  assert(!testHasPermission("PLANNER", "overall.export"), "PLANNER role does NOT have overall.export");
+  assert(testHasPermission("PLANNER", "fantasy.read"), "PLANNER role has fantasy.read");
+  assert(!testHasPermission("PLANNER", "fantasy.sync.run"), "PLANNER role does NOT have fantasy.sync.run (restricted to Fantasy Integration)");
 
-  assert(hasPermission("VIEWER", "overall.read"), "VIEWER role has overall.read");
-  assert(!hasPermission("VIEWER", "overall.export"), "VIEWER role does NOT have overall.export");
-  assert(!hasPermission("VIEWER", "fantasy.sync.run"), "VIEWER role does NOT have fantasy.sync.run");
+  assert(testHasPermission("VIEWER", "overall.read"), "VIEWER role has overall.read");
+  assert(!testHasPermission("VIEWER", "overall.export"), "VIEWER role does NOT have overall.export");
+  assert(!testHasPermission("VIEWER", "fantasy.sync.run"), "VIEWER role does NOT have fantasy.sync.run");
 
   // 2. View Permission Registry
   console.log("\n[2/4] Verifying View Permission Registry...");
@@ -46,7 +47,7 @@ async function main() {
   console.log("\n[3/4] Verifying Database Seed Users & Roles...");
   const users = await db.user.findMany({ select: { username: true, role: true } });
   assert(users.length > 0, `Found ${users.length} registered system users: ${users.map((u) => `${u.username}(${u.role})`).join(", ")}`);
-  const adminUser = users.find((u) => u.role === "SUPER_ADMIN" || u.role === "ADMIN");
+  const adminUser = users.find((u) => u.role === "SUPER_ADMIN");
   assert(adminUser !== undefined, `Found Administrator user: ${adminUser?.username} (${adminUser?.role})`);
 
   // 4. Verify Overall Data Records in Database

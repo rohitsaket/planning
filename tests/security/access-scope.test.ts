@@ -23,7 +23,7 @@ import {
   readEffectiveScope,
   scopeWhere,
 } from "@/lib/auth/access-scope";
-import { ROLE_PERMISSIONS } from "@/lib/auth/permissions";
+import { ROLE_PERMISSIONS, ROLES } from "@/lib/auth/permissions";
 
 /**
  * Country and lab authorization scope.
@@ -456,15 +456,10 @@ describe("Access scope — exports carry the same restriction", () => {
 });
 
 describe("Access scope — managing it is its own authority", () => {
-  test("a general administrator does not get scope assignment by default", () => {
-    // The centralized policy grants it explicitly or not at all. ADMIN is built by
-    // excluding specific authorities from the full set, so a new permission would
-    // otherwise arrive there silently.
-    expect(ROLE_PERMISSIONS.ADMIN.includes("user.scope.assign")).toBe(false);
-    // Reading an account's scope is part of reviewing the account, so that is allowed.
-    expect(ROLE_PERMISSIONS.ADMIN.includes("user.scope.read")).toBe(true);
-    // And it remains assignable to whoever genuinely holds the authority.
-    expect(ROLE_PERMISSIONS.SUPER_ADMIN.includes("user.scope.assign")).toBe(true);
+  test("only Super Admin holds scope assignment by default; anyone else needs a custom role that names it", () => {
+    // Super Admin is the only built-in role, so no other account receives it implicitly.
+    expect([...ROLES]).toEqual(["SUPER_ADMIN"]);
+    expect([ROLE_PERMISSIONS.SUPER_ADMIN.includes("user.scope.assign"), ROLE_PERMISSIONS.SUPER_ADMIN.includes("user.scope.read")]).toEqual([true, true]);
   });
 
   test("an administrator without the permission is refused", async () => {

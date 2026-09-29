@@ -5,7 +5,6 @@
 import { randomBytes } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
 import { hashPassword, PASSWORD_MIN_LENGTH } from "../src/lib/auth/password";
-import { isRole, ROLES } from "../src/lib/auth/permissions";
 
 if (typeof (process as any).loadEnvFile === "function") {
   try { (process as any).loadEnvFile(); } catch {}
@@ -19,7 +18,8 @@ if (!username || !role || !displayName) {
   process.exit(2);
 }
 if (!/^[a-z0-9._-]{3,50}$/.test(username)) throw new Error("username: 3-50 chars of a-z 0-9 . _ -");
-if (!isRole(role)) throw new Error(`role must be one of: ${ROLES.join(", ")}`);
+// SUPER_ADMIN or the code of an active custom role; the Role table decides below.
+if (!/^[A-Z0-9_]{1,64}$/.test(role)) throw new Error("role must be a role code such as SUPER_ADMIN");
 const password = generate ? randomBytes(18).toString("base64url") : process.env.NEW_USER_PASSWORD;
 if (!password || password.length < PASSWORD_MIN_LENGTH) throw new Error(`Set NEW_USER_PASSWORD (min ${PASSWORD_MIN_LENGTH} chars) or pass --generate`);
 

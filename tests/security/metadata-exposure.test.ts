@@ -12,7 +12,7 @@ import { GET as dataQuality } from "@/app/api/data-quality/route";
 import { GET as auditLog } from "@/app/api/admin/audit/route";
 import { GET as overallExport, OVERALL_EXPORT_ROW_LIMIT } from "@/app/api/fantasy/overall/export/route";
 import { GET as overallList } from "@/app/api/fantasy/overall/route";
-import { ROLE_PERMISSIONS } from "@/lib/auth/permissions";
+import { ROLE_PERMISSIONS, ROLES } from "@/lib/auth/permissions";
 import { AUDITABLE_ENTITIES, ENTITY_LABELS, entityLabel } from "@/lib/domain/entity-labels";
 
 /**
@@ -167,14 +167,9 @@ describe("policy status without rule identifiers", () => {
 describe("forecast methodology is a separate authority", () => {
   const P = "forecast.methodology.read";
 
-  test("no ordinary read-only role holds it, and administering the system does not grant it", () => {
-    for (const role of ["VIEWER", "SALES_VIEWER", "MFG_VIEWER", "PLANNING_VIEWER", "DATA_ANALYST", "ANALYSIS_MANAGER", "AUDITOR", "ADMIN"] as const) {
-      expect(ROLE_PERMISSIONS[role].includes(P)).toBe(false);
-    }
-  });
-
-  test("the model-governance role holds it", () => {
-    expect(ROLE_PERMISSIONS.DATA_SCIENTIST.includes(P)).toBe(true);
+  test("only Super Admin holds it by default; any other account needs a custom role that names it", () => {
+    expect([...ROLES]).toEqual(["SUPER_ADMIN"]);
+    expect(ROLE_PERMISSIONS.SUPER_ADMIN.includes(P)).toBe(true);
   });
 
   test("an ordinary viewer receives predictions without the method behind them", async () => {

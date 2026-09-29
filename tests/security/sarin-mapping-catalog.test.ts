@@ -14,7 +14,8 @@ import { effectiveSnapshotId, applyCatalog, type CatalogRule } from "./sarin-cat
 import type { ComponentType } from "react";
 import { resetRateLimits } from "@/lib/api/rate-limit";
 import { isViewAuthorized } from "@/lib/auth/view-permissions";
-import { PERMISSIONS, permissionsFor, ROLES } from "@/lib/auth/permissions";
+import { PERMISSIONS } from "@/lib/auth/permissions";
+import { TEST_ROLES, testPermissionsFor } from "./fixture-roles";
 import { NAV } from "@/components/layout/app-shell";
 import { GET as readCatalog, POST as saveMapping } from "@/app/api/planning/sarin/shape-mappings/route";
 import { DELETE as removeMapping } from "@/app/api/planning/sarin/shape-mappings/[ruleId]/route";
@@ -331,14 +332,13 @@ describe("sarin mapping catalog: authority", () => {
     const pear = await mappingOf("PEAR");
     for (const u of [admin, planner, reader]) expect([u.user.username, (await remove(u, pear.id)).status]).toEqual([u.user.username, 403]);
     expect([(await get(reader)).status, (await save(manager, { sarinShape: "HEXA", fantasyShape: "Kite" })).status]).toEqual([200, 200]);
-    // SUPER_ADMIN holds both through its existing policy; ADMIN holds neither.
+    // SUPER_ADMIN holds both through its built-in policy; a custom administrator role without them holds neither.
     expect([(await get(root)).status, (await save(root, { sarinShape: "HEXA 2", fantasyShape: "Kite" })).status]).toEqual([200, 200]);
-    expect(permissionsFor("ADMIN").filter((p) => p.startsWith("sarin.mapping"))).toEqual([]);
   });
 
   test("mapping approval is withdrawn: not a permission, not grantable, held by no role", async () => {
     expect((PERMISSIONS as readonly string[]).includes("sarin.mapping.approve")).toBe(false);
-    for (const role of ROLES) expect([role, permissionsFor(role).includes("sarin.mapping.approve" as never)]).toEqual([role, false]);
+    for (const role of TEST_ROLES) expect([role, testPermissionsFor(role).includes("sarin.mapping.approve" as never)]).toEqual([role, false]);
     resetRateLimits();
     const r = await call(rolesPost, { method: "POST", cookie: root.cookie, body: { op: "createRole", code: `SMC_APPROVE_${Date.now().toString(36).toUpperCase()}`, name: "Approver", permissions: ["sarin.mapping.approve"] } });
     expect(r.status).toBe(400);
@@ -387,8 +387,8 @@ describe("sarin mapping catalog: the page and navigation", () => {
       { view: "admin-mappings", tab: null },
       { view: "admin-mappings", tab: "sarin-shape-mapping" },
     ]);
-    for (const role of ROLES) {
-      const perms = permissionsFor(role);
+    for (const role of TEST_ROLES) {
+      const perms = testPermissionsFor(role);
       expect([role, isViewAuthorized(perms, "admin-mappings")]).toEqual([role, perms.includes("config.read") || perms.includes("sarin.mapping.read")]);
     }
   });

@@ -21,7 +21,8 @@ import {
   CanonicalRecord,
 } from "../src/lib/fantasy/canonical";
 import { FixtureFantasyProvider } from "../src/lib/fantasy/provider";
-import { hasPermission, permissionsFor } from "../src/lib/auth/permissions";
+// Roles other than SUPER_ADMIN are test fixture custom roles (tests/security/fixture-roles.ts).
+import { testHasPermission, testPermissionsFor } from "../tests/security/fixture-roles";
 import { SECTEST_DB } from "../tests/security/test-db";
 import { Prisma } from "@prisma/client";
 
@@ -573,38 +574,38 @@ async function main() {
   // =========================================================================
   console.log("🚀 [13/16] TEST 13: RBAC Separation & Authority Matrix...");
   // Case A: ADMIN must NOT automatically receive plan.approve
-  assert(hasPermission("ADMIN", "plan.approve") === false, "CRITICAL RBAC: ADMIN does NOT have plan.approve");
-  assert(hasPermission("ADMIN", "feature_flag.manage") === false, "ADMIN does NOT have feature_flag.manage");
-  assert(hasPermission("ADMIN", "feature_flag.manage") === false, "ADMIN does NOT have feature_flag.manage");
-  assert(hasPermission("ADMIN", "user.read") === true, "ADMIN has user.read");
-  assert(hasPermission("ADMIN", "user.super_admin.assign") === false, "ADMIN does NOT hold protected-role assignment authority");
+  assert(testHasPermission("ADMIN", "plan.approve") === false, "CRITICAL RBAC: ADMIN does NOT have plan.approve");
+  assert(testHasPermission("ADMIN", "feature_flag.manage") === false, "ADMIN does NOT have feature_flag.manage");
+  assert(testHasPermission("ADMIN", "feature_flag.manage") === false, "ADMIN does NOT have feature_flag.manage");
+  assert(testHasPermission("ADMIN", "user.read") === true, "ADMIN has user.read");
+  assert(testHasPermission("ADMIN", "user.super_admin.assign") === false, "ADMIN does NOT hold protected-role assignment authority");
 
   // Case B: Explicit Planning Approval roles
-  assert(hasPermission("SUPER_ADMIN", "plan.approve") === true, "SUPER_ADMIN has plan.approve");
-  assert(hasPermission("PLANNING_MANAGER", "plan.approve") === true, "PLANNING_MANAGER has plan.approve");
-  assert(hasPermission("PLANNER", "plan.approve") === false, "PLANNER does NOT have plan.approve");
+  assert(testHasPermission("SUPER_ADMIN", "plan.approve") === true, "SUPER_ADMIN has plan.approve");
+  assert(testHasPermission("PLANNING_MANAGER", "plan.approve") === true, "PLANNING_MANAGER has plan.approve");
+  assert(testHasPermission("PLANNER", "plan.approve") === false, "PLANNER does NOT have plan.approve");
 
   // Case C: VIEWER cannot trigger or retry sync
-  assert(hasPermission("VIEWER", "fantasy.sync.run") === false, "VIEWER does NOT have fantasy.sync.run");
-  assert(hasPermission("VIEWER", "fantasy.read") === false, "VIEWER does NOT have fantasy.read");
-  assert(hasPermission("VIEWER", "overall.export") === false, "VIEWER does NOT have overall.export");
+  assert(testHasPermission("VIEWER", "fantasy.sync.run") === false, "VIEWER does NOT have fantasy.sync.run");
+  assert(testHasPermission("VIEWER", "fantasy.read") === false, "VIEWER does NOT have fantasy.read");
+  assert(testHasPermission("VIEWER", "overall.export") === false, "VIEWER does NOT have overall.export");
 
   // Case D: Fantasy Integration role cannot approve plans or broadcast notifications
-  assert(hasPermission("FANTASY_INTEGRATION", "fantasy.sync.run") === true, "FANTASY_INTEGRATION has fantasy.sync.run");
-  assert(hasPermission("FANTASY_INTEGRATION", "fantasy.sync.unlock") === false, "FANTASY_INTEGRATION cannot unlock a stuck sync: running one does not imply it");
-  assert(hasPermission("FANTASY_INTEGRATION", "plan.approve") === false, "FANTASY_INTEGRATION cannot approve plans");
-  assert(hasPermission("FANTASY_INTEGRATION", "notification.broadcast") === false, "FANTASY_INTEGRATION cannot broadcast notifications");
+  assert(testHasPermission("FANTASY_INTEGRATION", "fantasy.sync.run") === true, "FANTASY_INTEGRATION has fantasy.sync.run");
+  assert(testHasPermission("FANTASY_INTEGRATION", "fantasy.sync.unlock") === false, "FANTASY_INTEGRATION cannot unlock a stuck sync: running one does not imply it");
+  assert(testHasPermission("FANTASY_INTEGRATION", "plan.approve") === false, "FANTASY_INTEGRATION cannot approve plans");
+  assert(testHasPermission("FANTASY_INTEGRATION", "notification.broadcast") === false, "FANTASY_INTEGRATION cannot broadcast notifications");
 
   // Case E: Dedicated data-quality permissions
-  assert(hasPermission("ANALYSIS_MANAGER", "data_quality.manage") === true, "ANALYSIS_MANAGER has data_quality.manage");
-  assert(hasPermission("DATA_ANALYST", "data_quality.read") === true, "DATA_ANALYST has data_quality.read");
-  assert(hasPermission("DATA_ANALYST", "data_quality.manage") === false, "DATA_ANALYST does NOT have data_quality.manage");
+  assert(testHasPermission("ANALYSIS_MANAGER", "data_quality.manage") === true, "ANALYSIS_MANAGER has data_quality.manage");
+  assert(testHasPermission("DATA_ANALYST", "data_quality.read") === true, "DATA_ANALYST has data_quality.read");
+  assert(testHasPermission("DATA_ANALYST", "data_quality.manage") === false, "DATA_ANALYST does NOT have data_quality.manage");
 
   // Case F: Export permission separation
-  assert(hasPermission("DATA_ANALYST", "overall.read") === true, "DATA_ANALYST has overall.read");
-  assert(hasPermission("DATA_ANALYST", "overall.export") === true, "DATA_ANALYST has overall.export");
-  assert(hasPermission("AUDITOR", "overall.read") === true, "AUDITOR has overall.read");
-  assert(hasPermission("AUDITOR", "overall.export") === false, "AUDITOR has overall.read but NOT overall.export");
+  assert(testHasPermission("DATA_ANALYST", "overall.read") === true, "DATA_ANALYST has overall.read");
+  assert(testHasPermission("DATA_ANALYST", "overall.export") === true, "DATA_ANALYST has overall.export");
+  assert(testHasPermission("AUDITOR", "overall.read") === true, "AUDITOR has overall.read");
+  assert(testHasPermission("AUDITOR", "overall.export") === false, "AUDITOR has overall.read but NOT overall.export");
   console.log("  ✓ RBAC positive & negative authorization matrix verified.\n");
 
   // =========================================================================

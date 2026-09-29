@@ -2,7 +2,7 @@ import { db } from "@/lib/db";
 import { hashPassword } from "@/lib/auth/password";
 import { createSession, SESSION_COOKIE } from "@/lib/auth/session";
 import { resetRateLimits } from "@/lib/api/rate-limit";
-import type { Role } from "@/lib/auth/permissions";
+import { ensureFixtureRole, type TestRole } from "./fixture-roles";
 
 export { db };
 export const BASE = "http://localhost:3000";
@@ -17,15 +17,18 @@ export async function resetDb() {
 }
 
 let pwHash: string | null = null;
-export async function makeUser(username: string, role: Role, displayName = username) {
+/**
+ * A signed-in test user holding one role: SUPER_ADMIN (the built-in role) or a fixture
+ * custom role (fixture-roles.ts). The role is assigned as a real role record, so tests
+ * exercise assignment-based principal resolution.
+ */
+export async function makeUser(username: string, role: TestRole, displayName = username) {
   pwHash ??= await hashPassword(PW);
   const user = await db.user.create({ data: { username, displayName, role, passwordHash: pwHash } });
-  // Assign the real role record as well as the legacy column, so tests exercise the
-  // assignment-based principal resolution rather than only the transitional fallback.
-  const roleRow = await db.role.findUnique({ where: { code: role }, select: { id: true } });
-  if (roleRow) {
-    await db.userRole.create({ data: { userId: user.id, roleId: roleRow.id, reason: "test fixture" } });
-  }
+  const roleId = role === "SUPER_ADMIN"
+    ? (await db.role.findUniqueOrThrow({ where: { code: role }, select: { id: true } })).id
+    : await ensureFixtureRole(role);
+  await db.userRole.create({ data: { userId: user.id, roleId, reason: "test fixture" } });
   const { token, session } = await createSession(user.id, { ip: null, userAgent: "test" });
   return { user, session, cookie: `${SESSION_COOKIE}=${token}` };
 }

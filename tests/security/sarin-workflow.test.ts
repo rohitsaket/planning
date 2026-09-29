@@ -13,7 +13,7 @@ import { call, db, ensureLabRegistry, makeUser, resetDb } from "./helpers";
 import { randomUUID } from "node:crypto";
 import { resetRateLimits } from "@/lib/api/rate-limit";
 import { isViewAuthorized } from "@/lib/auth/view-permissions";
-import { permissionsFor, ROLES } from "@/lib/auth/permissions";
+import { TEST_ROLES, testPermissionsFor } from "./fixture-roles";
 import { GET as listImports, POST as uploadImport } from "@/app/api/planning/sarin/imports/route";
 import * as importRoute from "@/app/api/planning/sarin/imports/[batchId]/route";
 import { POST as validateImport } from "@/app/api/planning/sarin/imports/[batchId]/validate/route";
@@ -136,8 +136,8 @@ beforeEach(async () => {
 // =========================================================================================
 describe("sarin workflow: page and navigation permissions", () => {
   test("the page admits exactly the roles that hold sarin.import.read, not plan.create", () => {
-    for (const role of ROLES) {
-      const perms = permissionsFor(role);
+    for (const role of TEST_ROLES) {
+      const perms = testPermissionsFor(role);
       expect([role, isViewAuthorized(perms, "planning-workbook-import")]).toEqual([role, perms.includes("sarin.import.read")]);
     }
     expect(isViewAuthorized(["plan.create"], "planning-workbook-import")).toBe(false);

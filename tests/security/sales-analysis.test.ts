@@ -29,7 +29,7 @@ import { GET as movementRoute } from "@/app/api/analysis/sales/movement/route";
 import { GET as contributionRoute } from "@/app/api/analysis/sales/contribution/route";
 import { GET as recordsRoute } from "@/app/api/analysis/sales/records/route";
 import { GET as exportRoute } from "@/app/api/analysis/sales/export/route";
-import { permissionsFor } from "@/lib/auth/permissions";
+import { testPermissionsFor } from "./fixture-roles";
 import { salesWindows } from "@/lib/analytics/sales-history";
 import { contributionsAllowed, SALES_WINDOW_SIZE_DAYS } from "@/lib/analytics/sales-history-contract";
 
@@ -77,7 +77,7 @@ describe("SH-01 authorization is enforced on the server for every route", () => 
   });
 
   test("a signed-in user without sales.read receives 403 on every sales route", async () => {
-    expect(permissionsFor("VIEWER")).not.toContain("sales.read");
+    expect(testPermissionsFor("VIEWER")).not.toContain("sales.read");
     for (const [name, handler, path] of routes) {
       expect({ name, status: (await get(handler, path, viewer)).status }).toEqual({ name, status: 403 });
     }
@@ -90,8 +90,8 @@ describe("SH-01 authorization is enforced on the server for every route", () => 
   });
 
   test("customer contribution requires customers.read on top of sales.read", async () => {
-    expect(permissionsFor("DATA_SCIENTIST")).toContain("sales.read");
-    expect(permissionsFor("DATA_SCIENTIST")).not.toContain("customers.read");
+    expect(testPermissionsFor("DATA_SCIENTIST")).toContain("sales.read");
+    expect(testPermissionsFor("DATA_SCIENTIST")).not.toContain("customers.read");
     const denied = await get(contributionRoute, "/api/analysis/sales/contribution?dimension=customer", scientist);
     expect(denied.status).toBe(403);
     expect(JSON.stringify(denied.json)).not.toContain("Alpha Diamonds");
@@ -119,8 +119,8 @@ describe("SH-01 authorization is enforced on the server for every route", () => 
   });
 
   test("the browser control set matches the server decision", () => {
-    expect(contributionsAllowed(permissionsFor("DATA_SCIENTIST"))).not.toContain("customer");
-    expect(contributionsAllowed(permissionsFor("SALES_VIEWER"))).toContain("customer");
+    expect(contributionsAllowed(testPermissionsFor("DATA_SCIENTIST"))).not.toContain("customer");
+    expect(contributionsAllowed(testPermissionsFor("SALES_VIEWER"))).toContain("customer");
   });
 });
 
@@ -513,8 +513,8 @@ describe("SH-10 export is separately authorized, bounded and spreadsheet-safe", 
   };
 
   test("reading sales on screen does not imply exporting them", async () => {
-    expect(permissionsFor("SALES_VIEWER")).toContain("sales.read");
-    expect(permissionsFor("SALES_VIEWER")).not.toContain("sales.export");
+    expect(testPermissionsFor("SALES_VIEWER")).toContain("sales.read");
+    expect(testPermissionsFor("SALES_VIEWER")).not.toContain("sales.export");
     expect((await exportCsv(salesViewer)).status).toBe(403);
     expect((await exportCsv(scientist)).status).toBe(200);
   });

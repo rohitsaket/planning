@@ -15,7 +15,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ROLES } from "@/lib/auth/permissions";
 
 interface RequestRow {
   id: string;
@@ -34,6 +33,8 @@ interface RequestData {
   rows: RequestRow[];
   pendingCount: number;
   hasMore: boolean;
+  /** Roles this reviewer may grant on approval, from the server. */
+  assignableRoles: Array<{ code: string; name: string }>;
 }
 
 const fmtDate = (v: string | null) => (v ? new Date(v).toLocaleString() : "—");
@@ -41,7 +42,7 @@ const fmtDate = (v: string | null) => (v ? new Date(v).toLocaleString() : "—")
 export function AccessRequestsView() {
   const [status, setStatus] = useState("PENDING");
   const [active, setActive] = useState<RequestRow | null>(null);
-  const [role, setRole] = useState<string>("VIEWER");
+  const [role, setRole] = useState<string>("");
   const [note, setNote] = useState("");
   const [reason, setReason] = useState("");
   const [issued, setIssued] = useState<{ username: string; password: string } | null>(null);
@@ -54,7 +55,7 @@ export function AccessRequestsView() {
     setActive(null);
     setNote("");
     setReason("");
-    setRole("VIEWER");
+    setRole("");
   };
 
   const decide = useMutation({
@@ -156,11 +157,11 @@ export function AccessRequestsView() {
                 <Label htmlFor="ar-role" className="text-xs">Role to assign on approval</Label>
                 <Select value={role} onValueChange={setRole}>
                   <SelectTrigger id="ar-role" size="sm" className="h-9 text-xs">
-                    <SelectValue />
+                    <SelectValue placeholder="Choose a role" />
                   </SelectTrigger>
                   <SelectContent>
-                    {ROLES.map((r) => (
-                      <SelectItem key={r} value={r} className="text-xs">{r}</SelectItem>
+                    {(data?.assignableRoles ?? []).map((r) => (
+                      <SelectItem key={r.code} value={r.code} className="text-xs">{r.name}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -189,10 +190,10 @@ export function AccessRequestsView() {
                 </Button>
                 <Button
                   size="sm"
-                  disabled={decide.isPending}
+                  disabled={decide.isPending || !role}
                   onClick={() => decide.mutate({ op: "approve", id: active.id, role, ...(note.trim() ? { note: note.trim() } : {}) })}
                 >
-                  <Check className="mr-1 h-3.5 w-3.5" /> Approve as {role}
+                  <Check className="mr-1 h-3.5 w-3.5" /> {role ? `Approve as ${data?.assignableRoles.find((r) => r.code === role)?.name ?? role}` : "Approve"}
                 </Button>
               </div>
             </div>

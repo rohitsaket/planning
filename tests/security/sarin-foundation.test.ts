@@ -23,7 +23,6 @@ import {
   ROLE_PERMISSIONS,
   ROLES,
   type Permission,
-  type Role,
 } from "@/lib/auth/permissions";
 import {
   SARIN_IMPORT_STATUSES,
@@ -799,18 +798,11 @@ describe("sarin foundation: versioned shape mappings", () => {
 
 // ---------------------------------------------------------------------------------------
 const SARIN_PERMISSIONS = PERMISSIONS.filter((p) => p.startsWith("sarin.")) as Permission[];
-const PLANNING_WORKFLOW: Permission[] = ["sarin.import.read", "sarin.import.upload", "sarin.import.validate", "sarin.issue.review", "sarin.output.generate", "sarin.output.export"];
 
-// The approved default policy. Any role not listed holds no Sarin permission.
-const EXPECTED_SARIN: Partial<Record<Role, Permission[]>> = {
-  // Output approval is an explicit grant: administering the system does not confer it.
+// The default policy of the one built-in role. Output approval is an explicit grant:
+// administering the system does not confer it; only a custom role that names it does.
+const EXPECTED_SARIN: Record<(typeof ROLES)[number], Permission[]> = {
   SUPER_ADMIN: SARIN_PERMISSIONS.filter((p) => p !== "sarin.output.approve"),
-  ADMIN: ["sarin.import.read"],
-  PLANNING_MANAGER: [...PLANNING_WORKFLOW, "sarin.issue.override", "sarin.output.approve"],
-  PLANNER: PLANNING_WORKFLOW,
-  PLANNING_VIEWER: ["sarin.import.read"],
-  MFG_MANAGER: ["sarin.import.read"],
-  AUDITOR: ["sarin.import.read"],
 };
 const sarinOf = (perms: readonly string[]) => perms.filter((p) => p.startsWith("sarin.")).sort();
 
@@ -822,15 +814,14 @@ describe("sarin foundation: permission defaults", () => {
     expect((EXPORT_PERMISSIONS as readonly string[]).includes("sarin.output.export")).toBe(true);
   });
 
-  test("every role holds exactly its approved Sarin defaults", () => {
-    for (const role of ROLES) expect([role, sarinOf(ROLE_PERMISSIONS[role])]).toEqual([role, (EXPECTED_SARIN[role] ?? []).slice().sort()]);
+  test("Super Admin is the only built-in role and holds exactly its Sarin defaults", () => {
+    expect([...ROLES]).toEqual(["SUPER_ADMIN"]);
+    for (const role of ROLES) expect([role, sarinOf(ROLE_PERMISSIONS[role])]).toEqual([role, EXPECTED_SARIN[role].slice().sort()]);
   });
 
-  test("approval is never reached through `ALL`, and only the approval business role holds it", () => {
+  test("approval is never reached through `ALL`: no built-in role holds it", () => {
     expect((EXPLICIT_GRANT_PERMISSIONS as readonly string[]).includes("sarin.output.approve")).toBe(true);
-    for (const role of ROLES) {
-      expect([role, ROLE_PERMISSIONS[role].includes("sarin.output.approve")]).toEqual([role, role === "PLANNING_MANAGER"]);
-    }
+    for (const role of ROLES) expect([role, ROLE_PERMISSIONS[role].includes("sarin.output.approve")]).toEqual([role, false]);
     // SUPER_ADMIN keeps every other permission it held before, so nothing else changed.
     const everythingElse = PERMISSIONS.filter((p) => !(EXPLICIT_GRANT_PERMISSIONS as readonly string[]).includes(p));
     expect(ROLE_PERMISSIONS.SUPER_ADMIN.slice().sort()).toEqual(everythingElse.slice().sort());
@@ -842,7 +833,7 @@ describe("sarin foundation: permission defaults", () => {
       const u = await makeUser(`sarin.me.${role.toLowerCase()}`, role);
       const r = await call(me, { cookie: u.cookie, path: "/api/auth/me" });
       expect([role, r.status]).toEqual([role, 200]);
-      expect([role, sarinOf(r.json.user.permissions)]).toEqual([role, (EXPECTED_SARIN[role] ?? []).slice().sort()]);
+      expect([role, sarinOf(r.json.user.permissions)]).toEqual([role, EXPECTED_SARIN[role].slice().sort()]);
     }
   });
 

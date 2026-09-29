@@ -70,6 +70,7 @@ const MODULES = [
   "../tests/security/sarin-shape-passthrough.test",
   "../tests/security/sarin-import-ux.test",
   "../tests/security/sarin-yield-rank.test",
+  "../tests/security/single-system-role.test",
   // Renders whole pages; registered last so its fixtures meet every other suite's data.
   "../tests/security/ui-content.test",
 ] as const;

@@ -420,27 +420,22 @@ describe("persisted roles cannot re-grant operational access to ADMIN", () => {
     resetRateLimits();
   });
 
-  test("ADMIN is a system role, so its permissions come from code and rows are ignored", async () => {
-    const admin = await db.role.findUnique({
-      where: { code: "ADMIN" },
-      select: { isSystem: true, status: true, permissions: { select: { permissionCode: true } } },
-    });
-    expect(admin?.isSystem).toBe(true);
+  test("Super Admin is the only system role; system-role permissions come from code and rows are ignored", async () => {
+    const systemRoles = await db.role.findMany({ where: { isSystem: true }, select: { code: true } });
+    expect(systemRoles.map((r) => r.code)).toEqual(["SUPER_ADMIN"]);
 
-    // The decisive check: even a row explicitly granting an operational permission
-    // contributes nothing for a system role, so no database state can undo Phase I.
+    // The decisive check: a row forged as a system role — a retired code, or Super Admin
+    // with an explicit-grant permission — contributes nothing beyond what code defines.
     const withForgedGrant = resolveEffectiveAccess(
-      [{
-        code: "ADMIN",
-        isSystem: true,
-        status: "ACTIVE",
-        permissions: OPERATIONAL.map((permissionCode) => ({ permissionCode })),
-      }],
+      [
+        { code: "ADMIN", isSystem: true, status: "ACTIVE", permissions: OPERATIONAL.map((permissionCode) => ({ permissionCode })) },
+        { code: "SUPER_ADMIN_COPY", isSystem: true, status: "ACTIVE", permissions: [{ permissionCode: "sarin.output.approve" }] },
+      ],
       null,
     );
-    for (const p of OPERATIONAL) {
-      expect({ p, granted: withForgedGrant.permissions.includes(p) }).toEqual({ p, granted: false });
-    }
+    expect(withForgedGrant.permissions).toEqual([]);
+    const superAdmin = resolveEffectiveAccess([{ code: "SUPER_ADMIN", isSystem: true, status: "ACTIVE", permissions: [{ permissionCode: "sarin.output.approve" }] }], null);
+    expect([superAdmin.permissions.includes("sarin.output.approve"), OPERATIONAL.every((p) => superAdmin.permissions.includes(p))]).toEqual([false, true]);
   });
 
   test("an explicit custom-role grant is still honoured, so specialized access is preserved", () => {

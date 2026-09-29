@@ -12,6 +12,7 @@ import { call, db, makeUser, resetDb } from "./helpers";
 import { resetRateLimits } from "@/lib/api/rate-limit";
 import { isViewAuthorized } from "@/lib/auth/view-permissions";
 import { permissionsFor } from "@/lib/auth/permissions";
+import { testPermissionsFor } from "./fixture-roles";
 import { GET as listImports } from "@/app/api/planning/sarin/imports/route";
 import { GET as readCatalog, POST as saveMapping } from "@/app/api/planning/sarin/shape-mappings/route";
 import { POST as rolesPost } from "@/app/api/admin/roles/route";
@@ -102,10 +103,9 @@ describe("sarin readiness: freshly migrated, empty database", () => {
 
   test("page access follows the read permissions; mapping approval no longer exists", async () => {
     for (const [role, expected] of [["SUPER_ADMIN", true], ["PLANNER", true], ["PLANNING_VIEWER", true], ["ADMIN", true], ["VIEWER", false]] as const) {
-      expect([role, isViewAuthorized(permissionsFor(role), "planning-workbook-import")]).toEqual([role, expected]);
+      expect([role, isViewAuthorized(testPermissionsFor(role), "planning-workbook-import")]).toEqual([role, expected]);
     }
     expect(permissionsFor("SUPER_ADMIN").filter((p) => p.startsWith("sarin.mapping")).sort()).toEqual(["sarin.mapping.manage", "sarin.mapping.read"]);
-    expect(permissionsFor("ADMIN").some((p) => p.startsWith("sarin.mapping"))).toBe(false);
     expect((await get(readCatalog, admin)).status).toBe(403);
     // The withdrawn permission cannot be granted again, and no role holds it.
     resetRateLimits();

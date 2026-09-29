@@ -139,117 +139,26 @@ export const EXPORT_PERMISSIONS = [
 export type Permission = (typeof PERMISSIONS)[number];
 
 /**
- * Permissions no role receives by holding "everything".
- *
- * `ALL` below is the set SUPER_ADMIN and ADMIN derive from. A permission listed here is
- * left out of it, so it reaches a user only through a role that names it — a business
- * role defined below, or a custom role someone deliberately built. Approving Sarin output
- * for planning is a planning authority, not a consequence of administering the system.
+ * Permissions Super Admin does not receive by holding "everything". A permission listed here
+ * reaches a user only through a custom role that names it, built deliberately by whoever
+ * holds that authority. Approving Sarin output for planning is a planning authority, not a
+ * consequence of administering the system.
  */
 export const EXPLICIT_GRANT_PERMISSIONS = ["sarin.output.approve"] as const satisfies readonly Permission[];
 
-export const ROLES = [
-  "SUPER_ADMIN",
-  "ADMIN",
-  "ANALYSIS_MANAGER",
-  "DATA_ANALYST",
-  "DATA_SCIENTIST",
-  "PLANNING_MANAGER",
-  "PLANNER",
-  "PLANNING_VIEWER",
-  "MFG_MANAGER",
-  "MFG_VIEWER",
-  "SALES_MANAGER",
-  "SALES_VIEWER",
-  "FANTASY_INTEGRATION",
-  "AUDITOR",
-  "VIEWER",
-] as const;
+/**
+ * The one built-in system role. Every narrower access profile is a custom role (Role rows
+ * with isSystem = false and explicit RolePermission rows), created and assigned under
+ * role.manage and user.roles.assign.
+ */
+export const ROLES = ["SUPER_ADMIN"] as const;
 
 export type Role = (typeof ROLES)[number];
 
 const ALL = PERMISSIONS.filter((p) => !(EXPLICIT_GRANT_PERMISSIONS as readonly Permission[]).includes(p)) as Permission[];
-const BASE: Permission[] = ["notification.read"];
-
-/** Triaging shared system notifications. Not in BASE: the rows are global, so marking
- *  one read changes what every other user sees. */
-const NOTIFICATION_TRIAGE: Permission[] = ["notification.manage"];
-const PLANNING_READ: Permission[] = ["analysis.read", "requirement.read", "plan.read", "rough.read", "fantasy.read", "overall.read", "data_quality.read", "config.read"];
-const COMMERCIAL_READ: Permission[] = ["sales.read", "customers.read", "orders.read"];
-/** Seeing Sarin import history, previews and issues. */
-const SARIN_READ: Permission[] = ["sarin.import.read"];
-/** The everyday Sarin planning workflow. Excludes overriding findings, approval and mapping management. */
-const SARIN_PLANNING: Permission[] = [...SARIN_READ, "sarin.import.upload", "sarin.import.validate", "sarin.issue.review", "sarin.output.generate", "sarin.output.export"];
 
 export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   SUPER_ADMIN: ALL,
-  // ADMIN keeps administrative and operational powers but is deliberately denied
-  // planning approval, feature-flag management, and — added with the
-  // access-administration split — defining what a role may do and assigning the
-  // protected Super Admin role.
-  ADMIN: ALL.filter(
-    (p) =>
-      p !== "feature_flag.manage" &&
-      p !== "plan.approve" &&
-      p !== "role.manage" &&
-      p !== "role.permissions.assign" &&
-      p !== "user.super_admin.assign" &&
-      // Deciding which countries and labs an account may see is a data-access boundary,
-      // not an administrative chore. Administering the system does not carry it; it stays
-      // explicitly assignable to whoever actually holds that authority.
-      p !== "user.scope.assign" &&
-      // Administering the system does not make someone a model reviewer. Assignable,
-      // but never automatic.
-      p !== "forecast.methodology.read" &&
-      // Nor an integration or demand operator. Running a synchronization pulls real
-      // source data and advances the checkpoint; running a demand calculation replaces
-      // the snapshot every Analysis page reads; force-releasing a sync lock can abandon
-      // another worker's in-flight run. Each is an operational act with a consequence
-      // for the data, not an administrative one — and each already has a role whose job
-      // it is: FANTASY_INTEGRATION for synchronization, ANALYSIS_MANAGER for demand.
-      // All three stay assignable to an administrator who genuinely holds that duty.
-      p !== "fantasy.sync.run" &&
-      p !== "fantasy.sync.retry" &&
-      p !== "fantasy.sync.unlock" &&
-      p !== "demand.run" &&
-      p !== "demand.unlock" &&
-      // Sarin: an administrator may read import history, but bringing files in, running
-      // validation, triaging and overriding findings, generating and exporting output are
-      // planning work, and the shape mappings are rule configuration — withheld for the
-      // same reason as feature_flag.manage. Output approval is already outside `ALL`. Each stays
-      // assignable to an administrator who genuinely holds that duty.
-      p !== "sarin.import.upload" &&
-      p !== "sarin.import.validate" &&
-      p !== "sarin.issue.review" &&
-      p !== "sarin.issue.override" &&
-      p !== "sarin.output.generate" &&
-      p !== "sarin.output.export" &&
-      p !== "sarin.mapping.read" &&
-      p !== "sarin.mapping.manage",
-  ),
-  ANALYSIS_MANAGER: [...BASE, ...NOTIFICATION_TRIAGE, ...PLANNING_READ, ...COMMERCIAL_READ, "requirement.create", "requirement.override", "demand.run", "demand.trace", "demand.export", "overall.export", "analysis.export", "sales.export", "customers.export", "orders.export", "requirement.export", "fantasy.export", "data_quality.manage", "data_quality.export", "audit.read"],
-  DATA_ANALYST: [...BASE, ...PLANNING_READ, ...COMMERCIAL_READ, "demand.trace", "demand.export", "overall.export", "analysis.export", "sales.export", "customers.export", "orders.export", "data_quality.read", "data_quality.export", "audit.read"],
-  DATA_SCIENTIST: [...BASE, ...PLANNING_READ, "sales.read", "demand.trace", "demand.export", "forecast.run", "forecast.publish", "forecast.methodology.read", "overall.export", "analysis.export", "sales.export", "data_quality.read", "audit.read"],
-  // Explicitly authorized planning approval authority. It is the business role that already
-  // holds plan.approve, so it also carries Sarin output approval and the authority to
-  // override a validation finding. Separation of duties between the uploader, the
-  // overrider and the approver of one batch is enforced by the approval service.
-  PLANNING_MANAGER: [...BASE, ...NOTIFICATION_TRIAGE, ...PLANNING_READ, ...SARIN_PLANNING, "orders.read", "demand.trace", "plan.create", "plan.select", "plan.approve", "plan.replan", "rough.reserve", "overall.export", "analysis.export", "plan.export", "requirement.export", "audit.read", "sarin.issue.override", "sarin.output.approve"],
-  PLANNER: [...BASE, ...PLANNING_READ, ...SARIN_PLANNING, "orders.read", "plan.create", "plan.select", "plan.replan", "rough.reserve", "plan.export"],
-  PLANNING_VIEWER: [...BASE, ...PLANNING_READ, ...SARIN_READ],
-  // Reads Sarin imports because manufacturing receives the plans they produce.
-  MFG_MANAGER: [...BASE, ...NOTIFICATION_TRIAGE, ...PLANNING_READ, ...SARIN_READ, "analysis.export", "audit.read"],
-  MFG_VIEWER: [...BASE, "analysis.read", "plan.read", "rough.read", "fantasy.read", "overall.read"],
-  SALES_MANAGER: [...BASE, ...NOTIFICATION_TRIAGE, "analysis.read", "requirement.read", ...COMMERCIAL_READ, "overall.export", "analysis.export", "sales.export", "customers.export", "orders.export", "audit.read"],
-  SALES_VIEWER: [...BASE, "analysis.read", ...COMMERCIAL_READ],
-  // Fantasy Integration role: sync & data access only; no exports, notification
-  // broadcast or planning approval. Runs and retries synchronization. Force-releasing a stuck lock is a separate
-  // authority and is deliberately NOT granted here: running a sync must not imply it.
-  FANTASY_INTEGRATION: ["fantasy.read", "fantasy.sync.run", "fantasy.sync.retry", "fantasy.projection.run", "fantasy.projection.read", "overall.read", "data_quality.read"],
-  // Reads projection diagnostics but cannot start a run: inspecting how data would be
-  // interpreted is an audit activity; consuming batch-sized work is not.
-  AUDITOR: [...BASE, ...SARIN_READ, "audit.read", "audit.export", "overall.read", "data_quality.read", "fantasy.projection.read", "feature_flag.read", "config.read", "config.export"],
-  VIEWER: [...BASE, "analysis.read", "requirement.read", "plan.read", "rough.read", "overall.read"],
 };
 
 /**

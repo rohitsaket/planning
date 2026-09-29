@@ -3,7 +3,7 @@ import { db } from "@/lib/db";
 import { ok } from "@/lib/api-utils";
 import { withApi, paging, paged, idSchema } from "@/lib/api/with-api";
 import { badRequest, conflict, forbidden, notFound } from "@/lib/api/errors";
-import { ROLES, permissionsFor, type Permission } from "@/lib/auth/permissions";
+import type { Permission } from "@/lib/auth/permissions";
 import { hashPassword, PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH } from "@/lib/auth/password";
 import { revokeAllSessions } from "@/lib/auth/session";
 import {
@@ -174,7 +174,10 @@ export const POST = withApi({ permission: "user.read", body: bodySchema }, async
   if (!api.principal.permissions.includes(OPERATION_PERMISSION[b.op])) throw forbidden();
 
   if (b.op === "create") {
-    const rawRoles = b.roles && b.roles.length > 0 ? b.roles : [b.role || "VIEWER"];
+    // No default role: the only built-in role is Super Admin, so an account's access is
+    // always chosen explicitly (Super Admin or a custom role).
+    const rawRoles = b.roles && b.roles.length > 0 ? b.roles : b.role ? [b.role] : [];
+    if (rawRoles.length === 0) throw badRequest("Choose at least one role for the new account.");
     const hasSuperAdmin = rawRoles.includes("SUPER_ADMIN");
     if (hasSuperAdmin && !api.principal.permissions.includes("user.super_admin.assign")) {
       throw forbidden("Assigning the Super Admin role requires a separate authority.");

@@ -9,6 +9,7 @@
  */
 
 import { Prisma } from "@prisma/client";
+import { ApiError } from "@/lib/api/errors";
 import { isPermission, permissionsFor, type Permission } from "@/lib/auth/permissions";
 import { resolveEffectiveAccess, type AssignedRole } from "@/lib/auth/effective-permissions";
 
@@ -74,12 +75,13 @@ export interface RoleServiceTx {
   };
 }
 
-export class RoleAssignmentError extends Error {
-  readonly code: string;
-  constructor(code: string, message: string) {
-    super(message);
+const ROLE_ASSIGNMENT_STATUS: Record<string, number> = { NO_ROLES: 400, UNKNOWN_ROLE: 400, INACTIVE_ROLE: 400, NOT_DELEGABLE: 403, LAST_SECURITY_ADMIN: 409 };
+
+/** A refused role assignment, answered with its own status and code rather than a server error. */
+export class RoleAssignmentError extends ApiError {
+  constructor(code: keyof typeof ROLE_ASSIGNMENT_STATUS, message: string) {
+    super(ROLE_ASSIGNMENT_STATUS[code], code, message);
     this.name = "RoleAssignmentError";
-    this.code = code;
   }
 }
 

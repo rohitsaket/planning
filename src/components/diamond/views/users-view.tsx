@@ -50,13 +50,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
-import {
-  PERMISSIONS as SERVER_PERMISSIONS,
-  ROLES as SERVER_ROLES,
-  ROLE_PERMISSIONS as SERVER_ROLE_PERMISSIONS,
-  type Permission,
-  type Role,
-} from "@/lib/auth/permissions";
+import { PERMISSIONS as SERVER_PERMISSIONS, type Permission } from "@/lib/auth/permissions";
 import { useApi, apiPost } from "@/lib/api-client";
 import { useAuthStore } from "@/stores/auth-store";
 
@@ -201,14 +195,8 @@ interface RoleRecord {
   createdAt: string;
 }
 
-const roleBadgeVariant = (roleCode: string): "critical" | "warning" | "info" | "success" | "neutral" | "default" => {
-  if (roleCode === "SUPER_ADMIN") return "critical";
-  if (roleCode === "ADMIN") return "warning";
-  if (roleCode.includes("MANAGER")) return "warning";
-  if (roleCode.includes("VIEWER") || roleCode === "AUDITOR") return "neutral";
-  if (roleCode === "FANTASY_INTEGRATION") return "info";
-  return "default";
-};
+// Super Admin is the only built-in role; every other role is custom.
+const roleBadgeVariant = (roleCode: string): "critical" | "default" => (roleCode === "SUPER_ADMIN" ? "critical" : "default");
 
 export function UsersView() {
   const currentUser = useAuthStore((st) => st.user);
@@ -257,7 +245,7 @@ export function UsersView() {
     username: "",
     displayName: "",
     email: "",
-    selectedRoles: ["VIEWER"] as string[],
+    selectedRoles: [] as string[],
     password: "",
   });
 
@@ -320,7 +308,7 @@ export function UsersView() {
       });
       showToast("success", `User '${newUser.username}' created successfully.`);
       setIsAddUserOpen(false);
-      setNewUser({ username: "", displayName: "", email: "", selectedRoles: ["VIEWER"], password: "" });
+      setNewUser({ username: "", displayName: "", email: "", selectedRoles: [], password: "" });
       await refreshData();
     } catch (err: any) {
       showToast("error", err.message || "Failed to create user.");
@@ -1003,7 +991,7 @@ export function UsersView() {
   const activeAdminsCount = users.filter(
     (u) =>
       u.status === "ACTIVE" &&
-      (u.roles.includes("SUPER_ADMIN") || u.roles.includes("ADMIN") || u.permissions.includes("user.roles.assign"))
+      (u.roles.includes("SUPER_ADMIN") || u.permissions.includes("user.roles.assign"))
   ).length;
 
   return (
@@ -1209,7 +1197,7 @@ export function UsersView() {
             <div>
               <h3 className="text-sm font-semibold text-foreground">Role Definitions</h3>
               <p className="text-xs text-muted-foreground">
-                System roles are fixed. Custom roles can be created with selected permissions.
+                Super Admin is the only built-in role and is fixed. Every other role is a custom role created here with selected permissions.
               </p>
             </div>
             {canManageRoles && (
@@ -1587,7 +1575,7 @@ export function UsersView() {
               <Button type="button" variant="outline" size="sm" onClick={() => setIsAddUserOpen(false)}>
                 Cancel
               </Button>
-              <Button type="submit" size="sm" className="bg-primary text-primary-foreground font-medium">
+              <Button type="submit" size="sm" className="bg-primary text-primary-foreground font-medium" disabled={newUser.selectedRoles.length === 0}>
                 Create Account
               </Button>
             </DialogFooter>

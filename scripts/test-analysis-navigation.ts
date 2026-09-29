@@ -37,7 +37,9 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { NAV } from "../src/components/layout/app-shell";
 import { viewPermission, viewPermissions, isViewAuthorized } from "../src/lib/auth/view-permissions";
-import { permissionsFor, PERMISSIONS, ROLES } from "../src/lib/auth/permissions";
+import { PERMISSIONS, ROLES } from "../src/lib/auth/permissions";
+// Roles other than SUPER_ADMIN are test fixture custom roles (tests/security/fixture-roles.ts).
+import { TEST_ROLES, testPermissionsFor } from "../tests/security/fixture-roles";
 import {
   useNavStore, initNavFromHash, parseNavHash, resolveViewAlias, navHash, DEMAND_TRACE_VIEW,
 } from "../src/stores/nav-store";
@@ -235,7 +237,7 @@ async function main() {
   ];
 
   for (const role of testRoles) {
-    const perms = permissionsFor(role);
+    const perms = testPermissionsFor(role);
     console.log(`\n  Checking Role: ${role} (${perms.length} permissions)`);
 
     // Analysis Executive -> requires analysis.read
@@ -333,7 +335,7 @@ async function main() {
   }
   // RBAC: same gate for both tabs and the module
   for (const role of testRoles) {
-    const perms = permissionsFor(role);
+    const perms = testPermissionsFor(role);
     const canModule = isViewAuthorized(perms, "analysis-sales");
     const canTabs = SALES_ANALYSIS_TABS.every((t) => !t.permission || (perms as readonly string[]).includes(t.permission));
     assert(canModule === canTabs && canModule === perms.includes("sales.read"), `${role}: module and both tabs require sales.read (${canModule})`);
@@ -554,8 +556,8 @@ async function main() {
     "The Fantasy current-data route id is unchanged and unique, so existing links still resolve",
   );
   assert(viewPermission("fantasy-live") === "fantasy.read", "The renamed page keeps its server-side permission");
-  assert(isViewAuthorized(permissionsFor("FANTASY_INTEGRATION"), "fantasy-live"), "An authorized role still reaches the renamed page");
-  assert(!isViewAuthorized(permissionsFor("SALES_VIEWER"), "fantasy-live"), "An unauthorized role still cannot reach the renamed page");
+  assert(isViewAuthorized(testPermissionsFor("FANTASY_INTEGRATION"), "fantasy-live"), "An authorized role still reaches the renamed page");
+  assert(!isViewAuthorized(testPermissionsFor("SALES_VIEWER"), "fantasy-live"), "An unauthorized role still cannot reach the renamed page");
   assert(navHash("fantasy-live", null) === "#fantasy-live", "The navigation hash for the renamed page is unchanged, so existing bookmarks still resolve");
 
   const fantasyPaletteLabel = /\{ id: "fantasy-live", label: "([^"]+)"/.exec(paletteSource)?.[1];
@@ -579,16 +581,16 @@ async function main() {
   // permission decision was visible to almost every role.
   for (const invented of ["totally-new-page", "admin-secret-console", "fantasy-invented", "requirements-invented", "planning-invented", ""]) {
     assert(viewPermission(invented) === null, `Unmapped view '${invented}' has no permission`);
-    for (const role of ROLES) {
+    for (const role of TEST_ROLES) {
       assert(
-        !isViewAuthorized(permissionsFor(role), invented),
+        !isViewAuthorized(testPermissionsFor(role), invented),
         `Unmapped view '${invented}' is denied to ${role}`,
       );
     }
   }
-  assert(!isViewAuthorized(permissionsFor("SUPER_ADMIN"), "totally-new-page"), "Super Admin has no wildcard over unmapped pages");
-  assert(!isViewAuthorized(permissionsFor("ADMIN"), "totally-new-page"), "Ordinary administrators have no wildcard over unmapped pages");
-  assert(isViewAuthorized(permissionsFor("SUPER_ADMIN"), "dashboard"), "A mapped page is still reachable, so the check above is not vacuous");
+  assert(!isViewAuthorized(testPermissionsFor("SUPER_ADMIN"), "totally-new-page"), "Super Admin has no wildcard over unmapped pages");
+  assert(!isViewAuthorized(testPermissionsFor("ADMIN"), "totally-new-page"), "Ordinary administrators have no wildcard over unmapped pages");
+  assert(isViewAuthorized(testPermissionsFor("SUPER_ADMIN"), "dashboard"), "A mapped page is still reachable, so the check above is not vacuous");
 
   // Every registered view must have an explicit mapping, or it is unreachable.
   const viewRegistrySource = readFileSync(path.join(process.cwd(), "src/app/page.tsx"), "utf8");
@@ -608,25 +610,26 @@ async function main() {
   assert(viewPermissions("admin-business-rules").length === 0 && viewPermissions("admin-rules-mappings").length === 0 && viewPermissions("admin-sarin-shape-mappings").length === 0, "Business Rules and the old mapping pages are no longer pages");
   assert(!(PERMISSIONS as readonly string[]).includes("sarin.mapping.approve"), "Mapping approval is withdrawn");
   assert(!(PERMISSIONS as readonly string[]).some((p) => p.startsWith("business_rule.")), "Business-rule permissions are withdrawn with the Business Rules page and API");
-  assert(isViewAuthorized(permissionsFor("PLANNING_VIEWER"), "planning-workbook-import"), "A Sarin reader without plan.create can open Workbook Import");
-  assert(!isViewAuthorized(permissionsFor("VIEWER"), "planning-workbook-import"), "A role without sarin.import.read cannot open Workbook Import");
+  assert(isViewAuthorized(testPermissionsFor("PLANNING_VIEWER"), "planning-workbook-import"), "A Sarin reader without plan.create can open Workbook Import");
+  assert(!isViewAuthorized(testPermissionsFor("VIEWER"), "planning-workbook-import"), "A role without sarin.import.read cannot open Workbook Import");
   assert(viewPermission("planning-approval-queue") === "plan.read", "Approval queue is readable with plan.read; approving needs plan.approve");
   assert(viewPermission("manufacturing-traceability") === "plan.read", "Traceability uses the same permission at page and API");
-  assert(permissionsFor("PLANNING_MANAGER").includes("plan.approve"), "Approval authority is still explicitly assigned");
-  assert(!permissionsFor("ADMIN").includes("plan.approve"), "Administration still does not grant planning approval");
+  assert(testPermissionsFor("PLANNING_MANAGER").includes("plan.approve"), "Approval authority is still explicitly assigned");
+  assert(!testPermissionsFor("ADMIN").includes("plan.approve"), "Administration still does not grant planning approval");
 
   // --- Separated Fantasy synchronization authorities (RBAC-A) ---
-  assert(permissionsFor("FANTASY_INTEGRATION").includes("fantasy.sync.run"), "The integration role may run a synchronization");
-  assert(!permissionsFor("FANTASY_INTEGRATION").includes("fantasy.sync.unlock"), "Running a synchronization does not imply releasing a stuck lock");
-  assert(!permissionsFor("PLANNER").includes("fantasy.sync.retry"), "An unrelated role holds none of the synchronization authorities");
+  assert(testPermissionsFor("FANTASY_INTEGRATION").includes("fantasy.sync.run"), "The integration role may run a synchronization");
+  assert(!testPermissionsFor("FANTASY_INTEGRATION").includes("fantasy.sync.unlock"), "Running a synchronization does not imply releasing a stuck lock");
+  assert(!testPermissionsFor("PLANNER").includes("fantasy.sync.retry"), "An unrelated role holds none of the synchronization authorities");
 
   // --- Access administration is no longer one super-permission (RBAC-A) ---
   assert(!(PERMISSIONS as readonly string[]).includes("user.manage"), "The user.manage super-permission is retired");
-  assert(permissionsFor("ADMIN").includes("user.read"), "Administrators keep directory access");
-  assert(!permissionsFor("ADMIN").includes("user.super_admin.assign"), "Administrators cannot assign the protected administrator role");
-  assert(!permissionsFor("ADMIN").includes("role.permissions.assign"), "Administrators cannot change what a role may do");
-  assert(permissionsFor("SUPER_ADMIN").includes("role.permissions.assign"), "Super Admin retains permission-assignment authority");
-  assert(!permissionsFor("VIEWER").includes("notification.manage"), "Marking shared notifications read is not a viewer capability");
+  assert(JSON.stringify(ROLES) === JSON.stringify(["SUPER_ADMIN"]), "Super Admin is the only built-in role; narrower access is a custom role");
+  assert(testPermissionsFor("ADMIN").includes("user.read"), "Administrators keep directory access");
+  assert(!testPermissionsFor("ADMIN").includes("user.super_admin.assign"), "Administrators cannot assign the protected administrator role");
+  assert(!testPermissionsFor("ADMIN").includes("role.permissions.assign"), "Administrators cannot change what a role may do");
+  assert(testPermissionsFor("SUPER_ADMIN").includes("role.permissions.assign"), "Super Admin retains permission-assignment authority");
+  assert(!testPermissionsFor("VIEWER").includes("notification.manage"), "Marking shared notifications read is not a viewer capability");
 
 
   console.log("\n===============================================================================");

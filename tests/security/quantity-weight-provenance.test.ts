@@ -4,7 +4,7 @@ import { resetRateLimits } from "@/lib/api/rate-limit";
 import { POST as fantasySync } from "@/app/api/fantasy/sync/route";
 import { POST as fantasyUnlock } from "@/app/api/fantasy/sync/unlock/route";
 import { POST as demandRun } from "@/app/api/demand/run/route";
-import { ROLE_PERMISSIONS } from "@/lib/auth/permissions";
+import { ROLE_PERMISSIONS, ROLES } from "@/lib/auth/permissions";
 import { SYNC_LOCK_LEASE_MS, releaseSyncLock, unlockSynchronization } from "@/lib/fantasy/sync-service";
 import {
   QUANTITY_REVIEW_REASONS,
@@ -230,21 +230,9 @@ describe("persisted provenance", () => {
 describe("operational actions are assigned, not inherited from administration", () => {
   const OPERATIONAL = ["fantasy.sync.run", "fantasy.sync.retry", "fantasy.sync.unlock", "demand.run", "demand.unlock"] as const;
 
-  test("an ordinary administrator holds none of them by default", () => {
-    for (const p of OPERATIONAL) {
-      expect({ p, admin: ROLE_PERMISSIONS.ADMIN.includes(p) }).toEqual({ p, admin: false });
-    }
-  });
-
-  test("the roles whose job it is still hold them, so the check above is not vacuous", () => {
-    expect(ROLE_PERMISSIONS.FANTASY_INTEGRATION.includes("fantasy.sync.run")).toBe(true);
-    expect(ROLE_PERMISSIONS.FANTASY_INTEGRATION.includes("fantasy.sync.retry")).toBe(true);
-    expect(ROLE_PERMISSIONS.ANALYSIS_MANAGER.includes("demand.run")).toBe(true);
-  });
-
-  test("unlock stays separately assignable, granted to neither operator role", () => {
-    expect(ROLE_PERMISSIONS.FANTASY_INTEGRATION.includes("fantasy.sync.unlock")).toBe(false);
-    expect(ROLE_PERMISSIONS.ANALYSIS_MANAGER.includes("demand.unlock")).toBe(false);
+  test("only Super Admin holds them by default; any other account needs a custom role that names them", () => {
+    expect([...ROLES]).toEqual(["SUPER_ADMIN"]);
+    for (const p of OPERATIONAL) expect({ p, superAdmin: ROLE_PERMISSIONS.SUPER_ADMIN.includes(p) }).toEqual({ p, superAdmin: true });
   });
 
   test("the boundary is enforced at the route, not only in the role table", async () => {

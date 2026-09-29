@@ -4,7 +4,6 @@ import { db } from "@/lib/db";
 import { ok } from "@/lib/api-utils";
 import { withApi, paging, paged, idSchema, qEnum, reasonSchema } from "@/lib/api/with-api";
 import { conflict, forbidden, notFound } from "@/lib/api/errors";
-import { ROLES } from "@/lib/auth/permissions";
 import { hashPassword } from "@/lib/auth/password";
 import { replaceUserRoles, resolveAssignableRoles } from "@/lib/auth/role-service";
 
@@ -22,6 +21,15 @@ export const GET = withApi({ permission: "access_request.review" }, async (_req,
     take: p.take,
   });
   const pendingCount = await db.accessRequest.count({ where: { status: "PENDING" } });
+  // The roles this reviewer may grant on approval: active roles, and Super Admin only for
+  // a reviewer who holds that separate authority. The approve operation checks it again.
+  const canAssignSuperAdmin = api.principal.permissions.includes("user.super_admin.assign");
+  const assignableRoles = await db.role.findMany({
+    where: { status: "ACTIVE", ...(canAssignSuperAdmin ? {} : { code: { not: "SUPER_ADMIN" } }) },
+    select: { code: true, name: true },
+    orderBy: [{ isSystem: "desc" }, { name: "asc" }],
+    take: 200,
+  });
   return ok({
     ...paged(
       rows.map((r) => ({
@@ -40,13 +48,15 @@ export const GET = withApi({ permission: "access_request.review" }, async (_req,
       p,
     ),
     pendingCount,
+    assignableRoles,
   });
 });
 
 const bodySchema = z.discriminatedUnion("op", [
   // The role is chosen here, by a human, at approval time. It is never taken from
-  // the request itself — the applicant has no say in their own permissions.
-  z.object({ op: z.literal("approve"), id: idSchema, role: z.enum(ROLES), note: z.string().trim().max(500).optional() }),
+  // the request itself — the applicant has no say in their own permissions. Super Admin or
+  // any active custom role; the code is checked against the Role table when assigned.
+  z.object({ op: z.literal("approve"), id: idSchema, role: z.string().regex(/^[A-Z0-9_]{1,64}$/), note: z.string().trim().max(500).optional() }),
   z.object({ op: z.literal("reject"), id: idSchema, reason: reasonSchema }),
 ]);
 
