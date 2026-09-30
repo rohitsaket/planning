@@ -5,7 +5,7 @@ import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxi
 import { ArrowRight, BarChart3, Globe, TrendingUp } from "lucide-react";
 import { useApi } from "@/lib/api-client";
 import { PageHeader, Section } from "@/components/diamond/shared/page-header";
-import { DataTable, Column, DATA_TABLE_VIEWPORT_MAX_HEIGHT } from "@/components/diamond/shared/data-table";
+import { DataTable, Column } from "@/components/diamond/shared/data-table";
 import { ServerPagination } from "@/components/diamond/shared/server-pagination";
 import { InfoBanner, NumberCell } from "@/components/diamond/shared/empty-state";
 import { Badge } from "@/components/diamond/shared/badges";
@@ -232,14 +232,14 @@ export function SalesTrendsView() {
   );
 
   return (
-    <div data-page-body className="flex flex-col gap-section px-page-x py-page-y flex-1 min-h-0 overflow-hidden">
+    <div data-page-body className="flex flex-col gap-section px-page-x py-page-y">
       <PageHeader
         title="Sales Trends"
         subtitle="How confirmed sales moved between periods. Not a forecast."
         meta={<SalesFilterBar />}
       />
 
-      <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+      <div className="flex flex-col gap-section">
         {activeTab === "period" && (
           <Section
             title={renderTabs("period")}
@@ -255,8 +255,7 @@ export function SalesTrendsView() {
                 </SelectContent>
               </Select>
             }
-            bodyClassName="p-0 flex-1 min-h-0 flex flex-col"
-            className="flex-1 min-h-0 flex flex-col"
+            bodyClassName="p-0"
           >
             {trend.error && <div className="p-3"><InfoBanner variant="critical">The period trend could not be loaded. {trend.error.message}</InfoBanner></div>}
             {trend.data && !trend.data.available && (
@@ -286,7 +285,6 @@ export function SalesTrendsView() {
               rows={trendRows}
               loading={trend.isLoading}
               emptyMessage="No confirmed sales for the selected filters."
-              maxHeight={DATA_TABLE_VIEWPORT_MAX_HEIGHT}
               enableColumnValueFilter={false}
             />
           </Section>
@@ -296,8 +294,7 @@ export function SalesTrendsView() {
           <Section
             title={renderTabs("movement")}
             actions={<SortControls keys={MOVEMENT_SORT_KEYS} labels={MOVEMENT_SORT_LABELS} value={movementSort} onChange={setMovementSort} label="Sort the movement table" />}
-            bodyClassName="p-0 flex-1 min-h-0 flex flex-col"
-            className="flex-1 min-h-0 flex flex-col"
+            bodyClassName="p-0"
           >
             {movement.error && <div className="p-3"><InfoBanner variant="critical">Movement could not be loaded. {movement.error.message}</InfoBanner></div>}
             {movement.data && !movement.data.available && (
@@ -312,7 +309,6 @@ export function SalesTrendsView() {
               rows={movement.data?.rows ?? []}
               loading={movement.isLoading}
               emptyMessage="No confirmed sales match these filters."
-              maxHeight={DATA_TABLE_VIEWPORT_MAX_HEIGHT}
               enableColumnValueFilter={false}
             />
             <div className="flex-shrink-0">
@@ -349,8 +345,7 @@ export function SalesTrendsView() {
                 </Button>
               </div>
             }
-            bodyClassName="p-0 flex-1 min-h-0 flex flex-col"
-            className="flex-1 min-h-0 flex flex-col"
+            bodyClassName="p-0"
           >
             {contribution.error && <div className="p-3"><InfoBanner variant="critical">Contribution could not be loaded. {contribution.error.message}</InfoBanner></div>}
             <DataTable<ContributionRow>
@@ -358,7 +353,6 @@ export function SalesTrendsView() {
               rows={contribution.data?.rows ?? []}
               loading={contribution.isLoading}
               emptyMessage="No confirmed sales match these filters."
-              maxHeight={DATA_TABLE_VIEWPORT_MAX_HEIGHT}
               enableColumnValueFilter={false}
             />
             <div className="flex-shrink-0">

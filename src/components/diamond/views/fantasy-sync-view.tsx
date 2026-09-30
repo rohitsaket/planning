@@ -428,7 +428,6 @@ export function FantasySyncView() {
           rows={recentRuns}
           loading={isLoading}
           emptyMessage="No synchronization has run yet."
-          maxHeight="480px"
           initialSortKey="startedAt"
           initialSortDir="desc"
           exportable

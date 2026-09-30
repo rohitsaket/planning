@@ -270,27 +270,25 @@ export function PlanningWorkbenchView() {
           bodyClassName="p-2"
           className="flex flex-col"
         >
-          <div className="max-h-[600px] overflow-y-auto">
-            {isLoading && !data ? (
-              <TableSkeleton rows={5} cols={4} />
-            ) : (
-              <DataTable<QueueRow>
-                columns={queueCols}
-                rows={leftQueue}
-                loading={isLoading}
-                emptyMessage="No open requirements."
-                maxHeight="560px"
-                onRowClick={() => setView("requirements-matrix")}
-                rowClassName={(r) =>
-                  r.requirementPriority === "CRITICAL"
-                    ? "bg-rose-50/40 dark:bg-rose-950/10"
-                    : r.requirementPriority === "HIGH"
-                    ? "bg-amber-50/40 dark:bg-amber-950/10"
-                    : ""
-                }
-              />
-            )}
-          </div>
+          {isLoading && !data ? (
+            <TableSkeleton rows={5} cols={4} />
+          ) : (
+            <DataTable<QueueRow>
+              columns={queueCols}
+              rows={leftQueue}
+              loading={isLoading}
+              emptyMessage="No open requirements."
+              scroll="bounded"
+              onRowClick={() => setView("requirements-matrix")}
+              rowClassName={(r) =>
+                r.requirementPriority === "CRITICAL"
+                  ? "bg-rose-50/40 dark:bg-rose-950/10"
+                  : r.requirementPriority === "HIGH"
+                  ? "bg-amber-50/40 dark:bg-amber-950/10"
+                  : ""
+              }
+            />
+          )}
         </Section>
 
         {/* CENTER panel */}
@@ -299,29 +297,28 @@ export function PlanningWorkbenchView() {
           description="Click a rough to see plan options"
           bodyClassName="p-2"
         >
-          <div className="max-h-[600px] overflow-y-auto">
-            {isLoading && !data ? (
-              <TableSkeleton rows={5} cols={4} />
-            ) : (
-              <DataTable<RoughRow>
-                columns={roughCols}
-                rows={centerRough}
-                loading={isLoading}
-                emptyMessage="No available roughs."
-                maxHeight="560px"
-                onRowClick={(r) => setSelectedRoughId(r.id)}
-                rowClassName={(r) =>
-                  r.id === selectedRoughId
-                    ? "bg-primary/10 dark:bg-primary/20 ring-1 ring-inset ring-primary/60 font-medium"
-                    : ""
-                }
-              />
-            )}
-          </div>
+          {isLoading && !data ? (
+            <TableSkeleton rows={5} cols={4} />
+          ) : (
+            <DataTable<RoughRow>
+              columns={roughCols}
+              rows={centerRough}
+              loading={isLoading}
+              emptyMessage="No available roughs."
+              scroll="bounded"
+              onRowClick={(r) => setSelectedRoughId(r.id)}
+              rowClassName={(r) =>
+                r.id === selectedRoughId
+                  ? "bg-primary/10 dark:bg-primary/20 ring-1 ring-inset ring-primary/60 font-medium"
+                  : ""
+              }
+            />
+          )}
         </Section>
 
         {/* RIGHT panel */}
         <Section
+          layout="bounded"
           title="Plan Options"
           description={
             selectedRough
@@ -330,110 +327,108 @@ export function PlanningWorkbenchView() {
           }
           bodyClassName="p-2"
         >
-          <div className="max-h-[600px] overflow-y-auto">
-            {isLoading && !data ? (
-              <TableSkeleton rows={5} cols={4} />
-            ) : !selectedRoughId ? (
-              <EmptyState
-                title="No rough selected"
-                message="Select a rough to see its plan options."
-                icon={<Gem className="h-5 w-5" />}
-              />
-            ) : !rightPlan || rightPlan.length === 0 ? (
-              <EmptyState
-                title="No plan cases for this rough"
-                message="Import a planning workbook for this rough."
-                icon={<AlertTriangle className="h-5 w-5" />}
-              />
-            ) : (
-              <div className="flex flex-col gap-2">
-                {rightPlan.map((c) => (
-                  <div key={c.id} className="rounded-md border border-border p-2 bg-card">
-                    {/* Case header */}
-                    <div className="flex items-center gap-2 mb-2 flex-wrap">
-                      <span className="text-[11px] font-semibold">{c.caseCode}</span>
-                      <StatusBadge status={c.status} />
-                      <span className="text-[10px] text-muted-foreground">planner: {c.planner}</span>
-                      <span className="text-[10px] text-muted-foreground">· {fmtDate(c.planningDate)}</span>
-                      <span className="ml-auto text-[10px] text-muted-foreground">{c.options.length} option(s)</span>
-                    </div>
-
-                    {/* Options list */}
-                    <div className="flex flex-col gap-1.5">
-                      {c.options.map((o) => (
-                        <div
-                          key={o.id}
-                          className={cn(
-                            "rounded border p-2 text-[10px]",
-                            o.selected
-                              ? "border-sky-300 dark:border-sky-900 bg-sky-50/50 dark:bg-sky-950/30"
-                              : "border-border bg-muted/20"
-                          )}
-                        >
-                          <div className="flex items-center gap-1 mb-1 flex-wrap">
-                            <span className="font-medium text-[11px]">{o.optionCode}</span>
-                            {o.selected && <Badge variant="info">SELECTED</Badge>}
-                            {o.approvalStatus && <StatusBadge status={o.approvalStatus} />}
-                          </div>
-
-                          <div className="grid grid-cols-2 gap-x-2 gap-y-0.5">
-                            <Metric label="Pieces" value={o.expectedPieces} intent="info" />
-                            <Metric label="Total Wt" value={`${o.expectedTotalWeight.toFixed(3)}`} />
-                            <Metric label="Yield %" value={`${o.yieldPct.toFixed(2)}%`} intent={o.yieldPct >= 35 ? "success" : "warning"} />
-                            <Metric label="Cov %" value={`${o.coveragePct.toFixed(2)}%`} intent={o.coveragePct >= 100 ? "success" : "warning"} />
-                            <Metric label="Match Req" value={o.matchingRequiredPieces} />
-                            <Metric label="Excess" value={o.potentialExcess} intent={o.potentialExcess > 0 ? "warning" : "success"} />
-                          </div>
-
-                          {o.validationWarnings && (
-                            <div className="mt-1.5">
-                              <WarningsCell value={o.validationWarnings} />
-                            </div>
-                          )}
-
-                          {/* Pieces list */}
-                          {o.pieces.length > 0 && (
-                            <div className="mt-1.5 rounded border border-border bg-background/60 overflow-hidden">
-                              <div className="text-[9px] uppercase tracking-wide font-semibold text-muted-foreground bg-muted px-2 py-0.5 border-b border-border">
-                                Pieces Breakdown ({o.pieces.length})
-                              </div>
-                              <table className="w-full text-[10px] border-collapse">
-                                <thead className="bg-muted/40 text-[9px] uppercase text-muted-foreground border-b border-border/50">
-                                  <tr>
-                                    <th className="px-1.5 py-0.5 text-left border-r border-border/40">Code</th>
-                                    <th className="px-1.5 py-0.5 text-left border-r border-border/40">Shape</th>
-                                    <th className="px-1.5 py-0.5 text-right border-r border-border/40">Weight</th>
-                                    <th className="px-1.5 py-0.5 text-left">Category</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {o.pieces.slice(0, 6).map((p, i) => (
-                                    <tr key={i} className="border-b border-border/30 last:border-b-0 hover:bg-muted/30">
-                                      <td className="px-1.5 py-0.5 font-mono border-r border-border/40">{p.pieceCode}</td>
-                                      <td className="px-1.5 py-0.5 border-r border-border/40">{p.expectedShape ?? "—"}</td>
-                                      <td className="px-1.5 py-0.5 text-right tabular-nums font-medium border-r border-border/40">{p.expectedWeight.toFixed(3)}</td>
-                                      <td className="px-1.5 py-0.5 text-muted-foreground">{p.expectedCategory ?? "—"}</td>
-                                    </tr>
-                                  ))}
-                                  {o.pieces.length > 6 && (
-                                    <tr className="border-t border-border/30 bg-muted/10">
-                                      <td colSpan={4} className="px-1.5 py-0.5 text-muted-foreground text-center">
-                                        +{o.pieces.length - 6} more…
-                                      </td>
-                                    </tr>
-                                  )}
-                                </tbody>
-                              </table>
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
+          {isLoading && !data ? (
+            <TableSkeleton rows={5} cols={4} />
+          ) : !selectedRoughId ? (
+            <EmptyState
+              title="No rough selected"
+              message="Select a rough to see its plan options."
+              icon={<Gem className="h-5 w-5" />}
+            />
+          ) : !rightPlan || rightPlan.length === 0 ? (
+            <EmptyState
+              title="No plan cases for this rough"
+              message="Import a planning workbook for this rough."
+              icon={<AlertTriangle className="h-5 w-5" />}
+            />
+          ) : (
+            <div className="flex flex-col gap-2">
+              {rightPlan.map((c) => (
+                <div key={c.id} className="rounded-md border border-border p-2 bg-card">
+                  {/* Case header */}
+                  <div className="flex items-center gap-2 mb-2 flex-wrap">
+                    <span className="text-[11px] font-semibold">{c.caseCode}</span>
+                    <StatusBadge status={c.status} />
+                    <span className="text-[10px] text-muted-foreground">planner: {c.planner}</span>
+                    <span className="text-[10px] text-muted-foreground">· {fmtDate(c.planningDate)}</span>
+                    <span className="ml-auto text-[10px] text-muted-foreground">{c.options.length} option(s)</span>
                   </div>
-                ))}
-              </div>
-            )}
-          </div>
+
+                  {/* Options list */}
+                  <div className="flex flex-col gap-1.5">
+                    {c.options.map((o) => (
+                      <div
+                        key={o.id}
+                        className={cn(
+                          "rounded border p-2 text-[10px]",
+                          o.selected
+                            ? "border-sky-300 dark:border-sky-900 bg-sky-50/50 dark:bg-sky-950/30"
+                            : "border-border bg-muted/20"
+                        )}
+                      >
+                        <div className="flex items-center gap-1 mb-1 flex-wrap">
+                          <span className="font-medium text-[11px]">{o.optionCode}</span>
+                          {o.selected && <Badge variant="info">SELECTED</Badge>}
+                          {o.approvalStatus && <StatusBadge status={o.approvalStatus} />}
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-x-2 gap-y-0.5">
+                          <Metric label="Pieces" value={o.expectedPieces} intent="info" />
+                          <Metric label="Total Wt" value={`${o.expectedTotalWeight.toFixed(3)}`} />
+                          <Metric label="Yield %" value={`${o.yieldPct.toFixed(2)}%`} intent={o.yieldPct >= 35 ? "success" : "warning"} />
+                          <Metric label="Cov %" value={`${o.coveragePct.toFixed(2)}%`} intent={o.coveragePct >= 100 ? "success" : "warning"} />
+                          <Metric label="Match Req" value={o.matchingRequiredPieces} />
+                          <Metric label="Excess" value={o.potentialExcess} intent={o.potentialExcess > 0 ? "warning" : "success"} />
+                        </div>
+
+                        {o.validationWarnings && (
+                          <div className="mt-1.5">
+                            <WarningsCell value={o.validationWarnings} />
+                          </div>
+                        )}
+
+                        {/* Pieces list */}
+                        {o.pieces.length > 0 && (
+                          <div className="mt-1.5 rounded border border-border bg-background/60 overflow-hidden">
+                            <div className="text-[9px] uppercase tracking-wide font-semibold text-muted-foreground bg-muted px-2 py-0.5 border-b border-border">
+                              Pieces Breakdown ({o.pieces.length})
+                            </div>
+                            <table className="w-full text-[10px] border-collapse">
+                              <thead className="bg-muted/40 text-[9px] uppercase text-muted-foreground border-b border-border/50">
+                                <tr>
+                                  <th className="px-1.5 py-0.5 text-left border-r border-border/40">Code</th>
+                                  <th className="px-1.5 py-0.5 text-left border-r border-border/40">Shape</th>
+                                  <th className="px-1.5 py-0.5 text-right border-r border-border/40">Weight</th>
+                                  <th className="px-1.5 py-0.5 text-left">Category</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {o.pieces.slice(0, 6).map((p, i) => (
+                                  <tr key={i} className="border-b border-border/30 last:border-b-0 hover:bg-muted/30">
+                                    <td className="px-1.5 py-0.5 font-mono border-r border-border/40">{p.pieceCode}</td>
+                                    <td className="px-1.5 py-0.5 border-r border-border/40">{p.expectedShape ?? "—"}</td>
+                                    <td className="px-1.5 py-0.5 text-right tabular-nums font-medium border-r border-border/40">{p.expectedWeight.toFixed(3)}</td>
+                                    <td className="px-1.5 py-0.5 text-muted-foreground">{p.expectedCategory ?? "—"}</td>
+                                  </tr>
+                                ))}
+                                {o.pieces.length > 6 && (
+                                  <tr className="border-t border-border/30 bg-muted/10">
+                                    <td colSpan={4} className="px-1.5 py-0.5 text-muted-foreground text-center">
+                                      +{o.pieces.length - 6} more…
+                                    </td>
+                                  </tr>
+                                )}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </Section>
       </div>
 

@@ -421,7 +421,6 @@ export function OverallDataView() {
           emptyMessage="No lot records found matching the selected filters."
           pagination
           pageSize={25}
-          maxHeight="540px"
           initialSortKey="lotId"
           initialSortDir="asc"
         />
@@ -429,7 +428,7 @@ export function OverallDataView() {
 
       {/* Historical Timeline Drawer / Dialog */}
       <Dialog open={!!selectedLotId} onOpenChange={(open) => !open && setSelectedLotId(null)}>
-        <DialogContent className="max-w-4xl sm:max-w-4xl max-h-[88vh] overflow-y-auto">
+        <DialogContent className="max-w-4xl sm:max-w-4xl max-h-[88dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-base">
               <History className="h-5 w-5 text-primary" />

@@ -221,7 +221,7 @@ function NavRail() {
   };
 
   return (
-    <aside className="hidden md:flex md:static md:w-14 md:flex-shrink-0 md:my-2 md:ml-2 md:h-[calc(100vh-16px)] md:flex-col md:rounded-xl border border-sidebar-border bg-sidebar shadow-xs overflow-hidden z-20">
+    <aside className="hidden md:flex md:w-14 md:flex-shrink-0 md:my-2 md:ml-2 md:flex-col md:rounded-xl border border-sidebar-border bg-sidebar shadow-xs overflow-hidden">
       {/* Brand Logo in collapsed rail */}
       <div className="p-2 flex-shrink-0 flex items-center justify-center border-b border-sidebar-border/50">
         <button
@@ -530,6 +530,13 @@ export function AppShell({ children }: { children: ReactNode }) {
   const sidebarOpen = useNavStore((s) => s.sidebarOpen);
   const setSidebarOpen = useNavStore((s) => s.setSidebarOpen);
   const view = useNavStore((s) => s.view);
+  const tab = useNavStore((s) => s.tab);
+  const mainRef = useRef<HTMLElement>(null);
+
+  // <main> is the page's only vertical scroller: another page or tab starts at its top.
+  useEffect(() => {
+    mainRef.current?.scrollTo({ top: 0 });
+  }, [view, tab]);
 
   // Close mobile sidebar on view change (via hash change)
   useEffect(() => {
@@ -561,7 +568,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [setSidebarOpen]);
 
   return (
-    <div data-app-shell className="h-screen max-h-screen w-full flex text-foreground overflow-hidden">
+    // A viewport-high frame that never scrolls itself: the sidebar scrolls its navigation and
+    // <main> scrolls the page, so there is exactly one page scrollbar and none on the body.
+    <div data-app-shell className="flex w-full overflow-hidden bg-white dark:bg-[#0E1117] text-foreground">
       {/* Mobile backdrop when sidebar open */}
       {sidebarOpen && (
         <div
@@ -577,8 +586,8 @@ export function AppShell({ children }: { children: ReactNode }) {
             "bg-sidebar flex flex-col border border-sidebar-border shadow-xs overflow-hidden transition-all",
             // Mobile: fixed drawer overlay
             "fixed inset-y-2 left-2 w-72 max-w-[85vw] rounded-2xl shadow-2xl z-50",
-            // Desktop: static side-by-side rounded panel with subtle margin
-            "md:static md:my-2 md:ml-2 md:h-[calc(100vh-16px)] md:w-sidebar md:max-w-none md:flex-shrink-0 md:rounded-xl md:z-20 md:shadow-xs"
+            // Desktop: a side-by-side rounded panel as tall as the frame, less its margin
+            "md:static md:my-2 md:ml-2 md:w-sidebar md:max-w-none md:flex-shrink-0 md:rounded-xl md:z-auto md:shadow-xs"
           )}
         >
           {/* Differentiated Project Header Capsule */}
@@ -611,7 +620,8 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
 
           {/* Navigation Items */}
-          <nav className="flex-1 overflow-y-auto px-1 py-1">
+          {/* Scrolls on its own; reaching its end never scrolls the page behind the mobile drawer. */}
+          <nav aria-label="Main navigation" className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-1 py-1">
             {NAV.map((g) => (
               <NavGroupItem key={g.id} group={g} />
             ))}
@@ -624,9 +634,9 @@ export function AppShell({ children }: { children: ReactNode }) {
       {!sidebarOpen && <NavRail />}
 
       {/* Right Content Area: Top Bar + Main View + Bottom Footer */}
-      <div className="flex-1 flex flex-col h-screen min-w-0 overflow-hidden">
-        {/* Pinned Top Bar with Frosted Glass & Warm Background Shade */}
-        <header className="sticky top-0 z-50 flex h-bar flex-shrink-0 items-center gap-1.5 border-b border-border/80 bg-[#FFF3EB]/95 dark:bg-[#131720]/95 px-2 backdrop-blur-md sm:gap-2 sm:px-page-x shadow-2xs">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-white dark:bg-[#0E1117]">
+        {/* Top bar: outside the scroller, so it never scrolls away and never covers content. */}
+        <header className="relative z-30 flex h-bar flex-shrink-0 items-center gap-1.5 border-b border-border/80 bg-white/95 dark:bg-[#131720]/95 px-2 backdrop-blur-md sm:gap-2 sm:px-page-x shadow-2xs">
           {/* Mobile hamburger toggle (only when sidebar is closed) */}
           <Button
             variant="ghost"
@@ -660,7 +670,9 @@ export function AppShell({ children }: { children: ReactNode }) {
         </header>
 
         {/* Center Main Workspace */}
-        <main className="flex-1 min-w-0 h-full overflow-y-auto overflow-x-hidden flex flex-col">
+        {/* scroll-pt keeps anything scrolled into view (keyboard focus, a table's first row) clear of
+            the sticky page or tab header. */}
+        <main ref={mainRef} data-scroll-owner="page" className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden scroll-pt-16 bg-white dark:bg-[#0E1117]">
           {children}
         </main>
 

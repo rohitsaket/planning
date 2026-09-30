@@ -190,7 +190,7 @@ export function CustomerSalesView() {
   ];
 
   return (
-    <div data-page-body className="flex flex-col gap-section px-page-x py-page-y flex-1 min-h-0 overflow-hidden">
+    <div data-page-body className="flex flex-col gap-section px-page-x py-page-y">
       {/* Persistent and unmistakable while fixture data is on screen. */}
       <SimulationBanner disclosure={customers.data?.sourceDisclosure} />
 
@@ -202,7 +202,6 @@ export function CustomerSalesView() {
               ? `Confirmed sales for the 90 days ending ${customers.data.businessDateIst} (IST)`
               : "Customer activity comes from a completed 90-day sales snapshot."
           }
-          className="flex-1 min-h-0 flex flex-col"
           actions={
             <div className="flex items-center gap-2">
               <div className="relative">
@@ -226,7 +225,7 @@ export function CustomerSalesView() {
               icon={<Info className="h-5 w-5" />}
             />
           ) : (
-            <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+            <div className="flex flex-col gap-section">
               <DataTable
                 columns={customerColumns}
                 rows={customers.data?.rows ?? []}
@@ -264,14 +263,13 @@ export function CustomerSalesView() {
               ? `${detail.data.customerCode ?? "Unidentified"}${detail.data.customerName ? ` — ${detail.data.customerName}` : ""} · snapshot business date ${detail.data.businessDateIst} (IST)`
               : "Loading…"
           }
-          className="flex-1 min-h-0 flex flex-col"
           actions={
             <Button size="sm" variant="outline" className="h-7 gap-1 cursor-pointer" onClick={() => setSelected(null)}>
               <X className="h-3.5 w-3.5" /> Back to Customers
             </Button>
           }
         >
-          <div className="flex-1 min-h-0 flex flex-col overflow-hidden gap-2">
+          <div className="flex flex-col gap-2">
             {detail.data?.periods && (
               <div className="flex flex-wrap gap-2 px-3 pb-1 text-[11px] flex-shrink-0">
                 {detail.data.periods.map((p) => (
@@ -310,7 +308,7 @@ export function CustomerSalesView() {
               </button>
             </div>
 
-            <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+            <div className="flex flex-col gap-section">
               {activeDetailTab === "categories" && (
                 <DataTable
                   columns={categoryColumns}
@@ -322,7 +320,7 @@ export function CustomerSalesView() {
               )}
 
               {activeDetailTab === "records" && (
-                <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+                <div className="flex flex-col gap-section">
                   <DataTable
                     columns={recordColumns}
                     rows={detail.data?.records ?? []}

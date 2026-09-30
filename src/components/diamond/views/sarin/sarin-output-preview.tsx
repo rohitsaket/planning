@@ -165,7 +165,7 @@ function StonePanel({ batchId, versionId, stone, position, total, onMove }: Ston
   const toReview = options.data?.rows.filter((o) => o.advisory !== null).length ?? 0;
 
   return (
-    <section aria-labelledby={headingId} className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
+    <section aria-labelledby={headingId} className="overflow-clip rounded-lg border border-border bg-card shadow-sm">
       <header className="flex flex-col gap-3 border-b border-border px-4 py-3 lg:flex-row lg:items-start lg:justify-between">
         <div className="flex min-w-0 flex-col gap-2">
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">

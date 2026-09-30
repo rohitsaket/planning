@@ -217,7 +217,6 @@ export function OrdersView() {
           searchFn={(r, q) => `${r.orderNumber} ${r.customerName} ${r.country} ${r.branch} ${r.status}`.toLowerCase().includes(q.toLowerCase())}
           rowClassName={(r) => isOverdue(r) ? "bg-rose-50/50 dark:bg-rose-950/30" : ""}
           exportScope="current-page"
-          maxHeight="650px"
         />
         <ServerPagination
           page={data?.page ?? 1}

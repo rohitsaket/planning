@@ -66,7 +66,6 @@ export function ShapeMappingsView() {
           rows={data?.rows ?? []}
           loading={isLoading}
           emptyMessage="No shape mappings configured"
-          maxHeight="640px"
           exportable
           exportPermission="config.export"
           exportFilename="shape-mappings.csv"

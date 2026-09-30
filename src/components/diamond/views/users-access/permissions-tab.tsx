@@ -14,6 +14,7 @@ import { useAccessFocusStore } from "@/stores/access-focus-store";
 import { PermissionEditor } from "./permission-editor";
 import { UserAccessInspector } from "./user-access-inspector";
 import { ApprovalPolicySection } from "./approval-policy-section";
+import { BOUNDED_REGION_MAX_HEIGHT } from "@/components/diamond/shared/density";
 import { ROLES_URL, USERS_URL, useAccessRefresh, type PermissionMeta, type RoleRow, type RolesResponse, type UsersResponse } from "./shared";
 
 const sameSet = (a: ReadonlySet<string>, b: ReadonlySet<string>) => a.size === b.size && [...a].every((v) => b.has(v));
@@ -107,7 +108,7 @@ function RolePermissions() {
               </Button>
             )}
           </div>
-          <ul className="max-h-[70vh] overflow-y-auto p-1.5">
+          <ul className="overflow-y-auto p-1.5" style={{ maxHeight: BOUNDED_REGION_MAX_HEIGHT }}>
             {roles.length === 0 && <li className="px-2.5 py-2 text-xs text-muted-foreground">No roles yet.</li>}
             {roles.map((r) => (
               <li key={r.id}>
@@ -396,7 +397,7 @@ function SaveDialog({
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Save permissions for {role.name}</DialogTitle>
           <DialogDescription>Review the effect before saving. The change is recorded in the audit log.</DialogDescription>

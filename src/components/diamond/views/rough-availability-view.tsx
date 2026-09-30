@@ -316,7 +316,7 @@ export function RoughAvailabilityView() {
         rows={rows}
         loading={isLoading}
         emptyMessage="No rough stones match the current filters."
-        maxHeight="600px"
+        scroll="bounded"
         searchable
         searchPlaceholder="Search by stone name, kapan, packet…"
         searchFn={(r, q) => {

@@ -405,7 +405,7 @@ function FindingList({ batchId }: { batchId: string }) {
           <div><OpenMappings /></div>
         </div>
       )}
-      <ul className="flex max-h-[420px] flex-col gap-1 overflow-y-auto">
+      <ul className="flex flex-col gap-1">
         {findings.data.rows.map((f) => {
           const shape = typeof f.details?.rawShapeKey === "string" ? f.details.rawShapeKey : null;
           return (

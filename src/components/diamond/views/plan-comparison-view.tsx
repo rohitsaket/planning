@@ -813,7 +813,6 @@ export function PlanComparisonView() {
               rowClassName={(r) =>
                 r.selected ? "bg-sky-50/50 dark:bg-sky-950/30" : ""
               }
-              maxHeight="500px"
             />
           </Section>
 
@@ -933,7 +932,7 @@ export function PlanComparisonView() {
               </Badge>
             }
           >
-            <div className="rounded border border-border/60 overflow-hidden bg-card">
+            <div className="rounded border border-border/60 overflow-clip bg-card">
               {options.length === 0 ? (
                 <EmptyState title="No options" message="No planned pieces to display." />
               ) : (

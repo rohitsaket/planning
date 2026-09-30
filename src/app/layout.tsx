@@ -40,9 +40,9 @@ export default async function RootLayout({
   // Reading the per-request nonce makes the page dynamic, which the nonce-based CSP requires.
   const nonce = (await headers()).get("x-nonce") ?? undefined;
   return (
-    <html lang="en" suppressHydrationWarning className="h-full overflow-hidden">
+    <html lang="en" suppressHydrationWarning className="h-full">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground h-full overflow-hidden`}
+        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground h-full`}
       >
         <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false} nonce={nonce}>
           {children}

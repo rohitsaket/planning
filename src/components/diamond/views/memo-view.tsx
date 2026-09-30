@@ -216,7 +216,7 @@ export function MemoView() {
   );
 
   return (
-    <div data-page-body className="flex flex-col gap-section px-page-x py-page-y flex-1 min-h-0 overflow-hidden">
+    <div data-page-body className="flex flex-col gap-section px-page-x py-page-y">
       <div className="flex-shrink-0 flex flex-col gap-section">
         <PageHeader
           title="Memo Analysis"
@@ -255,12 +255,11 @@ export function MemoView() {
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+      <div className="flex flex-col gap-section">
         {activeTab === "country" && (
           <Section
             title={renderTabs("country")}
             description="Memo qty, value and avg age per country"
-            className="flex-1 min-h-0 flex flex-col"
           >
             <DataTable<MemoAggRow>
               columns={aggColumns}
@@ -282,7 +281,6 @@ export function MemoView() {
           <Section
             title={renderTabs("customer")}
             description="Memo qty, value and avg age per customer"
-            className="flex-1 min-h-0 flex flex-col"
           >
             <DataTable<MemoAggRow>
               columns={aggColumns}
@@ -304,7 +302,6 @@ export function MemoView() {
           <Section
             title={renderTabs("detail")}
             description="Memo lots with stone details and age"
-            className="flex-1 min-h-0 flex flex-col"
           >
             <DataTable<MemoRow>
               columns={detailColumns}
@@ -339,7 +336,6 @@ export function MemoView() {
           <Section
             title={renderTabs("aging")}
             description="Memo count by age"
-            className="flex-1 min-h-0 flex flex-col"
           >
             <div className="flex-1 min-h-[260px] p-4">
               <ResponsiveContainer width="100%" height="100%">

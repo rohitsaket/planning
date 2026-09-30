@@ -39,20 +39,8 @@ import { createPortal } from "react-dom";
 import { exportDataTableToExcel } from "@/lib/excel-export";
 import { exportToPDF } from "@/lib/pdf-export";
 import { useAuthStore } from "@/stores/auth-store";
-import { useSectionContext } from "@/components/diamond/shared/density";
+import { BOUNDED_REGION_MAX_HEIGHT, useSectionContext } from "@/components/diamond/shared/density";
 import { readTableLayout, reconcileColumnOrder, tableLayoutStorageKey } from "@/components/diamond/shared/table-layout";
-
-/**
- * Viewport-aware row-viewport height for data-dense tables. Roughly 7–12 rows: ~336px at
- * 1366×768, ~468px at 1440×900, capped at 520px on large displays, never below 300px.
- * `dvh` follows the real viewport on mobile browsers; the surrounding chrome (shell header,
- * tab strip, section header, KPIs, chart) is what the 27rem accounts for.
- */
-/** Below this many rows on screen, `maxHeight` is not applied (see the scroll area). */
-const BOUNDED_TABLE_MIN_ROWS = 50;
-
-export const DATA_TABLE_VIEWPORT_MAX_HEIGHT =
-  "clamp(300px, calc(100dvh - 27rem), 520px)";
 
 export interface Column<T> {
   key: string;
@@ -123,8 +111,15 @@ export interface DataTableProps<T> {
   rows: T[];
   loading?: boolean;
   emptyMessage?: string;
-  stickyHeader?: boolean;
-  maxHeight?: string;
+  /**
+   * Who scrolls the rows vertically. Never decided by how many rows happen to be loaded.
+   * - "flow" (default): the table is as tall as its rows and the enclosing scroller (the page,
+   *   a dialog or a sheet) scrolls them; the table itself scrolls only horizontally.
+   * - "bounded": the rows scroll inside a viewport-aware height under a sticky header, for a
+   *   long unpaginated list that sits beside other panels. The region is focusable for
+   *   keyboard scrolling, and reaching either end hands the gesture back to the page.
+   */
+  scroll?: "flow" | "bounded";
   onRowClick?: (row: T) => void;
   rowClassName?: (row: T) => string;
   initialSortKey?: string;
@@ -173,8 +168,7 @@ export function DataTable<T>({
   rows,
   loading,
   emptyMessage = "No data available.",
-  stickyHeader = true,
-  maxHeight,
+  scroll = "flow",
   onRowClick,
   rowClassName,
   initialSortKey,
@@ -233,6 +227,8 @@ export function DataTable<T>({
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const bounded = scroll === "bounded";
 
   // Column layout: the user's column order, hidden columns and widths start from the layout
   // saved for this tableId. The order shown is derived from the user's order and the current
@@ -335,10 +331,21 @@ export function DataTable<T>({
     }
   });
 
-  // A new sort, search, page or dataset starts the row viewport at the top.
+  // A new sort, search, page or dataset starts a bounded row viewport at its top.
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: 0 });
-  }, [sortKey, sortDir, query, page, rows, columnFilters]);
+    if (bounded) scrollRef.current?.scrollTo({ top: 0 });
+  }, [bounded, sortKey, sortDir, query, page, rows, columnFilters]);
+
+  // A flowing table paged from its bottom bar would leave the reader at the end of the new
+  // page: bring the table's top back into view when it has scrolled out above.
+  const shownPage = useRef(page);
+  useEffect(() => {
+    if (shownPage.current === page) return;
+    shownPage.current = page;
+    const root = rootRef.current;
+    const scrollerTop = root?.closest("[data-scroll-owner]")?.getBoundingClientRect().top ?? 0;
+    if (!bounded && root && root.getBoundingClientRect().top < scrollerTop) root.scrollIntoView({ block: "start" });
+  }, [bounded, page]);
 
   // Filter processed rows by global search AND by active per-column filters
   let processed = rows;
@@ -780,11 +787,15 @@ export function DataTable<T>({
 
   return (
     <div
+      ref={rootRef}
       data-table-root
+      data-table-scroll={scroll}
       className={cn(
-        "flex min-h-0 flex-1 flex-col overflow-hidden bg-card",
+        // `isolate` keeps the sticky header's and sticky columns' z-index inside the table, so
+        // they never paint over the page's own sticky headers.
+        "isolate flex flex-col bg-card",
         // Inside a Section the panel already draws the border; a second card is not repeated.
-        !inSection && "rounded-lg border border-border/80",
+        !inSection && "overflow-clip rounded-lg border border-border/80",
       )}
     >
       {/* If inside a Section with a header and table has no title, portal toolbar controls to Section header */}
@@ -815,16 +826,20 @@ export function DataTable<T>({
       {/* Table Scroll Area */}
       <div
         ref={scrollRef}
-        tabIndex={0}
-        aria-label={title ? `${title} rows` : "Table rows"}
-        className="overflow-auto flex-1 min-h-0 w-full max-w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-        // A bounded scroll area only for a genuinely long list. A paged table (client or server)
-        // shows at most a page, so it scrolls with the page instead of adding a second
-        // scrollbar inside it.
-        style={maxHeight && currentRows.length > BOUNDED_TABLE_MIN_ROWS ? { maxHeight } : undefined}
+        data-table-viewport
+        // Horizontal overflow is always the table's own; vertical is the page's unless the
+        // table is bounded. `overflow-y-hidden` on a flowing table clips nothing (it is as tall
+        // as its rows) and lets a vertical wheel or swipe over it scroll the page.
+        className={cn(
+          "w-full max-w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+          bounded ? "overflow-auto" : "overflow-x-auto overflow-y-hidden",
+        )}
+        // Only an independently scrolling region is a focusable, named landmark.
+        {...(bounded ? { tabIndex: 0, role: "region", "aria-label": title ? `${title} rows` : "Table rows" } : {})}
+        style={bounded ? { maxHeight: BOUNDED_REGION_MAX_HEIGHT } : undefined}
       >
         <table className="w-full text-xs border-collapse">
-          <thead className={cn(stickyHeader && "sticky top-0 z-20 bg-[#FEE1C7] dark:bg-[#1D2332]")}>
+          <thead className={cn(bounded && "sticky top-0 z-20 bg-[#FEE1C7] dark:bg-[#1D2332]")}>
             <tr className="bg-[#FEE1C7] dark:bg-[#1D2332]">
               {visibleColumns.map((c, colIndex) => {
                 const isFirst = colIndex === 0;
@@ -881,7 +896,7 @@ export function DataTable<T>({
                     }}
                     className={cn(
                       "group relative select-none whitespace-nowrap border-b border-[#FDBA74] bg-[#FEE1C7]/92 backdrop-blur-md px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-[#7C2D12] transition-colors dark:border-border dark:bg-[#1D2332]/92 dark:text-[#E4E4E7]",
-                      stickyHeader &&
+                      bounded &&
                         "sticky top-0 z-20 shadow-[inset_0_-1px_0_0_var(--color-border)]",
                       c.align === "right"
                         ? "text-right"

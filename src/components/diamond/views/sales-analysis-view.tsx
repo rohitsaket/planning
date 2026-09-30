@@ -5,7 +5,7 @@ import { Download, Gem, Layers, Package, Rows3 } from "lucide-react";
 import { useApi } from "@/lib/api-client";
 import { KpiCard } from "@/components/diamond/shared/kpi-card";
 import { PageHeader, Section } from "@/components/diamond/shared/page-header";
-import { DataTable, Column, DATA_TABLE_VIEWPORT_MAX_HEIGHT } from "@/components/diamond/shared/data-table";
+import { DataTable, Column } from "@/components/diamond/shared/data-table";
 import { ServerPagination } from "@/components/diamond/shared/server-pagination";
 import { InfoBanner, NumberCell } from "@/components/diamond/shared/empty-state";
 import { Badge } from "@/components/diamond/shared/badges";
@@ -234,7 +234,7 @@ export function SalesAnalysisView() {
   );
 
   return (
-    <div data-page-body className="flex flex-col gap-section px-page-x py-page-y flex-1 min-h-0 overflow-hidden">
+    <div data-page-body className="flex flex-col gap-section px-page-x py-page-y">
       <SimulationBanner disclosure={data?.sourceDisclosure} />
       <PageHeader
         title="Sales Analysis"
@@ -268,13 +268,12 @@ export function SalesAnalysisView() {
         <KpiCard label="Categories" value={totals.categories} intent="default" hint="Categories with sales" icon={Layers} />
       </div>
 
-      <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+      <div className="flex flex-col gap-section">
         {activeTab === "summary" && (
           <Section
             title={renderTabs("summary")}
             actions={<SortControls keys={CATEGORY_SORT_KEYS} labels={CATEGORY_SORT_LABELS} value={sort} onChange={setSort} label="Sort the category summary" />}
-            bodyClassName="p-0 flex-1 min-h-0 flex flex-col"
-            className="flex-1 min-h-0 flex flex-col"
+            bodyClassName="p-0"
           >
             <DataTable<CategorySalesRow>
               columns={columns}
@@ -285,7 +284,6 @@ export function SalesAnalysisView() {
                   ? "No sales data yet."
                   : "No confirmed sales match these filters."
               }
-              maxHeight={DATA_TABLE_VIEWPORT_MAX_HEIGHT}
               enableColumnValueFilter={false}
             />
             <div className="flex-shrink-0">
@@ -311,8 +309,7 @@ export function SalesAnalysisView() {
                 : undefined
             }
             actions={<SortControls keys={RECORD_SORT_KEYS} labels={RECORD_SORT_LABELS} value={recordSort} onChange={setRecordSort} label="Sort the supporting records" />}
-            bodyClassName="p-0 flex-1 min-h-0 flex flex-col"
-            className="flex-1 min-h-0 flex flex-col"
+            bodyClassName="p-0"
           >
             {records.error && <div className="p-3"><InfoBanner variant="critical">Supporting records could not be loaded. {records.error.message}</InfoBanner></div>}
             <DataTable<SupportingRecordRow>
@@ -320,7 +317,6 @@ export function SalesAnalysisView() {
               rows={records.data?.rows ?? []}
               loading={records.isLoading}
               emptyMessage="No confirmed sale records match these filters."
-              maxHeight={DATA_TABLE_VIEWPORT_MAX_HEIGHT}
               enableColumnValueFilter={false}
             />
             <div className="flex-shrink-0">

@@ -88,8 +88,8 @@
 
 :root {
   --radius: 0.625rem;
-  /* Visual Reference Theme — Vibrant Light Orange Theme */
-  --background: #FFF9F3;
+  /* Visual Reference Theme — Clean White Background with Vibrant Orange Accents */
+  --background: #FFFFFF;
   --foreground: #1C1917;
   --card: #FFFFFF;
   --card-foreground: #1C1917;
@@ -212,21 +212,14 @@
 }
 
 [data-app-shell] {
-  background: 
-    radial-gradient(ellipse 70% 55% at 95% 15%, #FED7AA 0%, transparent 60%),
-    radial-gradient(ellipse 65% 50% at 5% 10%, #FFF7ED 0%, transparent 55%),
-    radial-gradient(ellipse 50% 50% at 85% 90%, #FEE5CC 0%, transparent 60%),
-    linear-gradient(135deg, #FFFDFB 0%, #FFF5EB 50%, #FEE8D2 100%);
-  background-attachment: fixed;
+  /* The frame is exactly the viewport. dvh follows mobile browser toolbars; vh is the fallback. */
+  height: 100vh;
+  height: 100dvh;
+  background-color: var(--background);
 }
 
 .dark [data-app-shell] {
-  background: 
-    radial-gradient(ellipse 70% 55% at 95% 15%, rgba(249, 115, 62, 0.07) 0%, transparent 60%),
-    radial-gradient(ellipse 65% 50% at 5% 10%, rgba(59, 130, 246, 0.06) 0%, transparent 55%),
-    radial-gradient(ellipse 50% 50% at 85% 90%, rgba(30, 41, 59, 0.4) 0%, transparent 60%),
-    linear-gradient(135deg, #0A0D15 0%, #0C1019 50%, #0E1117 100%);
-  background-attachment: fixed;
+  background-color: var(--background);
 }
 
 /* ============================================================
@@ -264,6 +257,13 @@
     width: 100% !important;
     padding: 0 !important;
     margin: 0 !important;
+  }
+
+  /* Bounded screen regions (DataTable scroll="bounded", Section layout="bounded") print in full. */
+  [data-table-scroll],
+  [data-section] [role="region"] {
+    max-height: none !important;
+    overflow: visible !important;
   }
 
   /* Expand scroll containers so all rows render to the print page */

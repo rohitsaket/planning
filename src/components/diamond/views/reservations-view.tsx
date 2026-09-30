@@ -256,7 +256,6 @@ export function ReservationsView() {
         rows={rows}
         loading={isLoading}
         emptyMessage="No reservation records yet."
-        maxHeight="600px"
         searchable
         searchPlaceholder="Search by stone name, kapan, reserver…"
         searchFn={(r, q) => {

@@ -76,6 +76,7 @@ const MODULES = [
   "../tests/security/password-change.test",
   "../tests/security/approval-policy.test",
   "../tests/security/data-table-layout.test",
+  "../tests/security/scroll-layout.test",
   // Renders whole pages; registered last so its fixtures meet every other suite's data.
   "../tests/security/ui-content.test",
 ] as const;

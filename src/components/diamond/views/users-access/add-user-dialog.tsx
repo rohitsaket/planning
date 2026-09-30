@@ -102,7 +102,7 @@ export function AddUserDialog({
 
   return (
     <Dialog open={open} onOpenChange={close}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
+      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>Add user</DialogTitle>
           <DialogDescription>Access comes from the roles you choose. Permissions are edited on roles, not on individual accounts.</DialogDescription>

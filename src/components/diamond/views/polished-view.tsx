@@ -237,7 +237,7 @@ export function PolishedView() {
   );
 
   return (
-    <div data-page-body className="flex flex-col gap-section px-page-x py-page-y flex-1 min-h-0 overflow-hidden">
+    <div data-page-body className="flex flex-col gap-section px-page-x py-page-y">
       <div className="flex-shrink-0 flex flex-col gap-section">
         <PageHeader
           title="Polished Stock Analysis"
@@ -298,12 +298,11 @@ export function PolishedView() {
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+      <div className="flex flex-col gap-section">
         {activeTab === "dimension" && (
           <Section
             title={renderTabs("dimension")}
             description="Pieces, carats and estimated value"
-            className="flex-1 min-h-0 flex flex-col"
           >
             <DataTable<PolishedRow>
               columns={columns}
@@ -328,7 +327,6 @@ export function PolishedView() {
           <Section
             title={renderTabs("lots")}
             description="Individual lots for the current filters"
-            className="flex-1 min-h-0 flex flex-col"
           >
             <DataTable<PolishedDetailRow>
               columns={detailColumns}
@@ -358,7 +356,6 @@ export function PolishedView() {
           <Section
             title={renderTabs("aging")}
             description="Polished lot count by days since last update"
-            className="flex-1 min-h-0 flex flex-col"
           >
             <div className="flex-1 min-h-[260px] p-4">
               <ResponsiveContainer width="100%" height="100%">

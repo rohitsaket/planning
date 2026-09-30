@@ -188,7 +188,6 @@ function PrioritySection({
         rows={rows}
         loading={loading}
         emptyMessage={`No ${title.toLowerCase()} requirements with remaining unplanned pieces.`}
-        maxHeight="320px"
         pagination
         pageSize={15}
         onRowClick={() => onOpenMatrix()}

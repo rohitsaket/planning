@@ -41,7 +41,6 @@ export function StatusMappingsView() {
           rows={data?.rows ?? []}
           loading={isLoading}
           emptyMessage="No status mappings configured"
-          maxHeight="640px"
           exportable
           exportPermission="config.export"
           exportFilename="status-mappings.csv"

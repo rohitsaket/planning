@@ -145,9 +145,10 @@ export function TabbedHostView({
   const ActiveComponent = currentTab?.component;
 
   return (
-    <div className="flex flex-col h-full min-h-0 overflow-hidden">
+    <div className="flex flex-col">
       {/* Sleek Compact Tab Header with Frosted Glass */}
-      <div className="z-20 flex flex-shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-border/70 bg-card/85 px-page-x py-1 backdrop-blur-md">
+      {/* Stays at the top of <main>, the page scroller, while the tab content scrolls under it. */}
+      <div className="sticky top-0 z-30 flex flex-shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-border/70 bg-card/85 px-page-x py-1 backdrop-blur-md">
         <div className="flex items-center gap-3 min-w-0 flex-1 overflow-x-auto no-scrollbar">
           {/* Page Title */}
           <div className="flex items-center gap-2 flex-shrink-0">
@@ -241,17 +242,14 @@ export function TabbedHostView({
         )}
       </div>
 
-      {/* Tab Body — the single vertical scroll owner for a module. The shell locks the viewport
-          (<main> is overflow-hidden), so page content scrolls here, below the always-visible
-          title/tab strip. Sub-views that size themselves to `h-full` keep scrolling only their
-          own tables; taller sub-views scroll here. Horizontal overflow is handled by the table
-          wrappers, never by the page. */}
+      {/* Tab body: flows with its content. <main> scrolls the page vertically; wide tables
+          scroll themselves horizontally; nothing here adds a second vertical scroller. */}
       <div
         role="tabpanel"
         id={currentTab ? panelId(currentTab.id) : undefined}
         aria-labelledby={currentTab && visibleTabs.length > 1 ? tabId(currentTab.id) : undefined}
         aria-label={visibleTabs.length > 1 ? undefined : title}
-        className="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden flex flex-col"
+        className="min-w-0"
       >
         {!isTabAuthorized ? (
           <AccessRestricted

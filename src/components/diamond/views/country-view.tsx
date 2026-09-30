@@ -207,7 +207,7 @@ export function CountryView() {
   );
 
   return (
-    <div data-page-body className="flex flex-col gap-section px-page-x py-page-y flex-1 min-h-0 overflow-hidden">
+    <div data-page-body className="flex flex-col gap-section px-page-x py-page-y">
       <div className="flex-shrink-0 flex flex-col gap-section">
         <PageHeader
           title="Country / Branch Analysis"
@@ -252,12 +252,11 @@ export function CountryView() {
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+      <div className="flex flex-col gap-section">
         {activeTab === "country" && (
           <Section
             title={renderTabs("country")}
             description="Confirmed sales in the snapshot window, by country"
-            className="flex-1 min-h-0 flex flex-col"
           >
             {sales?.rows.truncated && (
               <div className="border-b border-border px-4 py-2 text-[11px] text-muted-foreground flex-shrink-0">
@@ -291,7 +290,6 @@ export function CountryView() {
                 ? "The same sales, broken down by branch."
                 : "The same sales, broken down by branch. Customer counts are withheld without customer access."
             }
-            className="flex-1 min-h-0 flex flex-col"
           >
             <DataTable<SalesRow>
               columns={branchColumns}
@@ -313,7 +311,6 @@ export function CountryView() {
           <Section
             title={renderTabs("inventory")}
             description="Where current stock sits today"
-            className="flex-1 min-h-0 flex flex-col"
           >
             {data?.inventory.locations.truncated && (
               <div className="border-b border-border px-4 py-2 text-[11px] text-muted-foreground flex-shrink-0">

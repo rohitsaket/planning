@@ -307,7 +307,6 @@ export function PlannedPiecesView() {
         rows={rows}
         loading={isLoading}
         emptyMessage="No planned pieces match the current filters."
-        maxHeight="600px"
         searchable
         searchPlaceholder="Search piece code, case code, lot ID…"
         searchFn={(r, q) => {

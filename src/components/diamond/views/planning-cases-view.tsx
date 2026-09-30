@@ -508,7 +508,6 @@ export function PlanningCasesView() {
         rows={rows}
         loading={isLoading}
         emptyMessage="No planning cases match the current filters."
-        maxHeight="600px"
         searchable
         searchPlaceholder="Search by case code, stone name, kapan…"
         searchFn={(r, q) => {

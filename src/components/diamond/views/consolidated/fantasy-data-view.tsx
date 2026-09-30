@@ -28,7 +28,7 @@ function FantasyCurrentDataTab() {
   if (!active) return null;
   const Active = active.component;
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex flex-col">
       {allowed.length > 1 && (
         <div role="radiogroup" aria-label="Stock type" className="flex gap-1 px-3 pt-3 sm:px-4">
           {allowed.map((o) => (

@@ -130,13 +130,12 @@ export function InventoryPositionTab() {
   ];
 
   return (
-    <div data-page-body className="flex flex-col gap-section px-page-x py-page-y flex-1 min-h-0 overflow-hidden">
+    <div data-page-body className="flex flex-col gap-section px-page-x py-page-y">
       {/* Persistent and unmistakable while fixture data is on screen. */}
       <SimulationBanner disclosure={data?.sourceDisclosure} />
       <Section
         title="Inventory position"
         description="Current stock by bucket"
-        className="flex-1 min-h-0 flex flex-col"
         actions={
           <div className="flex flex-wrap items-center gap-1">
             {GROUPINGS.map((g) => (
@@ -216,13 +215,12 @@ export function InventoryCategoriesTab() {
   ];
 
   return (
-    <div data-page-body className="flex flex-col gap-section px-page-x py-page-y flex-1 min-h-0 overflow-hidden">
+    <div data-page-body className="flex flex-col gap-section px-page-x py-page-y">
       {/* Persistent and unmistakable while fixture data is on screen. */}
       <SimulationBanner disclosure={data?.sourceDisclosure} />
       <Section
         title="Category inventory"
         description="Current stock by category"
-        className="flex-1 min-h-0 flex flex-col"
       >
         <DataTable
           columns={columns}
@@ -312,13 +310,12 @@ export function InventoryLotsTab() {
   ];
 
   return (
-    <div data-page-body className="flex flex-col gap-section px-page-x py-page-y flex-1 min-h-0 overflow-hidden">
+    <div data-page-body className="flex flex-col gap-section px-page-x py-page-y">
       {/* Persistent and unmistakable while fixture data is on screen. */}
       <SimulationBanner disclosure={data?.sourceDisclosure} />
       <Section
         title="Lot-level inventory"
         description="Current lots only"
-        className="flex-1 min-h-0 flex flex-col"
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <select
@@ -398,7 +395,7 @@ export function InventoryReconciliationTab() {
   ];
 
   return (
-    <div data-page-body className="flex flex-col gap-section px-page-x py-page-y flex-1 min-h-0 overflow-hidden">
+    <div data-page-body className="flex flex-col gap-section px-page-x py-page-y">
       {/* Persistent and unmistakable while fixture data is on screen. */}
       <SimulationBanner disclosure={data?.sourceDisclosure} />
       <div className="flex-shrink-0">
@@ -410,7 +407,7 @@ export function InventoryReconciliationTab() {
         </InfoBanner>
       </div>
 
-      <Section title="Inventory reconciliation" description="Inventory compared with operational records" className="flex-1 min-h-0 flex flex-col">
+      <Section title="Inventory reconciliation" description="Inventory compared with operational records">
         {!isLoading && !data ? (
           <EmptyState title="UNAVAILABLE" message="Reconciliation could not be computed." icon={<Database className="h-5 w-5" />} />
         ) : (

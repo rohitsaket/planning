@@ -772,7 +772,6 @@ export function RequirementsMatrixView() {
           rows={rows}
           loading={isLoading}
           emptyMessage="No requirements match the current filters."
-          maxHeight="640px"
           onRowClick={(r) => setSelectedId(r.id)}
           rowClassName={(r) => (r.remainingUnplanned > 0 ? "bg-rose-50/40 dark:bg-rose-950/10" : "")}
           exportable
@@ -825,7 +824,7 @@ export function RequirementsMatrixView() {
           }
         }}
       >
-        <DialogContent className="max-w-4xl sm:max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-4xl sm:max-w-4xl max-h-[90dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-sm">
               <span>{detail?.requirementCode ?? "Loading…"}</span>
@@ -1028,7 +1027,7 @@ export function RequirementsMatrixView() {
               </div>
 
               {/* Allocations */}
-              <div className="rounded-md border border-border overflow-hidden">
+              <div className="rounded-md border border-border overflow-clip">
                 <div className="px-2.5 py-1.5 border-b border-border bg-muted/40 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                   Plan Allocations ({detail.allocations.length})
                 </div>

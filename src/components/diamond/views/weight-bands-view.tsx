@@ -61,7 +61,6 @@ export function WeightBandsView() {
           rows={data?.rows ?? []}
           loading={isLoading}
           emptyMessage="No weight bands configured"
-          maxHeight="640px"
           exportable
           exportPermission="config.export"
           exportFilename="weight-bands.csv"

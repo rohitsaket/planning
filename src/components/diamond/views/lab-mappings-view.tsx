@@ -54,7 +54,6 @@ export function LabMappingsView() {
           rows={data?.rows ?? []}
           loading={isLoading}
           emptyMessage="No lab mappings configured"
-          maxHeight="640px"
           exportable
           exportPermission="config.export"
           exportFilename="lab-mappings.csv"

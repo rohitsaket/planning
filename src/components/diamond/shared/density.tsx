@@ -12,6 +12,13 @@ import { cn } from "@/lib/utils";
  * Pages and shared components use these rather than choosing their own sizes.
  */
 
+/**
+ * The height of a bounded scroll region (a long unpaginated list beside other panels): what
+ * the viewport leaves after the top bar, the page's tab strip and a panel header, never taller
+ * than 36rem and never shorter than 16rem. `dvh` follows mobile browser toolbars.
+ */
+export const BOUNDED_REGION_MAX_HEIGHT = "clamp(16rem, calc(100dvh - 18rem), 36rem)";
+
 /** The body of every page: page gutters and the gap between blocks. */
 export const PAGE_BODY = "flex flex-col gap-section px-page-x py-page-y";
 

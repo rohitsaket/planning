@@ -178,7 +178,7 @@ function CustomerDetailDialog({
 
   return (
     <Dialog open={!!customer} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-5xl sm:max-w-5xl max-h-[92vh] overflow-y-auto p-6">
+      <DialogContent className="max-w-5xl sm:max-w-5xl max-h-[92dvh] overflow-y-auto p-6">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 flex-wrap">
             <Users className="h-4 w-4 text-muted-foreground" />
@@ -574,7 +574,6 @@ export function CustomersView() {
               className="h-7 w-52 rounded-md border border-border bg-background/90 px-2 text-xs"
             />
           }
-          maxHeight="600px"
         />
         <ServerPagination
           page={data?.page ?? 1}

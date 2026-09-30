@@ -426,7 +426,6 @@ export function ApprovalQueueView() {
         rows={rows}
         loading={isLoading}
         emptyMessage="No plans awaiting approval."
-        maxHeight="600px"
         searchable
         searchPlaceholder="Search by case code, stone name, planner…"
         searchFn={(r, q) => {

@@ -125,7 +125,6 @@ export function AuditLogView() {
           rows={filteredRows}
           loading={isLoading}
           emptyMessage="No audit entries match the current filters"
-          maxHeight="640px"
           pagination
           pageSize={25}
         />
