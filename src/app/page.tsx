@@ -21,10 +21,7 @@ import { RequirementsMatrixView } from "@/components/diamond/views/requirements-
 import { PriorityQueueView } from "@/components/diamond/views/priority-queue-view";
 import { OrdersExceptionsView } from "@/components/diamond/views/consolidated/orders-exceptions-view";
 import { ReplenishmentAllocationView } from "@/components/diamond/views/consolidated/replenishment-allocation-view";
-import { RoughAvailabilityView } from "@/components/diamond/views/rough-availability-view";
 import { WorkbookImportView } from "@/components/diamond/views/workbook-import-view";
-import { PlanningWorkbenchHostView } from "@/components/diamond/views/consolidated/planning-workbench-host-view";
-import { ApprovalQueueView } from "@/components/diamond/views/approval-queue-view";
 import { UsersAccessView } from "@/components/diamond/views/consolidated/users-access-view";
 import { MappingsView } from "@/components/diamond/views/consolidated/mappings-view";
 import { AuditLogView } from "@/components/diamond/views/audit-log-view";
@@ -55,10 +52,7 @@ const VIEW_REGISTRY: Record<string, React.ComponentType> = {
   "orders-exceptions": OrdersExceptionsView,
   "replenishment-allocation": ReplenishmentAllocationView,
   // Planning
-  "planning-rough-availability": RoughAvailabilityView,
   "planning-workbook-import": WorkbookImportView,
-  "planning-workbench": PlanningWorkbenchHostView,
-  "planning-approval-queue": ApprovalQueueView,
   // Administration
   "admin-users-access": UsersAccessView,
   "admin-mappings": MappingsView,

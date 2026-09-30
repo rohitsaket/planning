@@ -16,7 +16,6 @@ import {
   CheckCircle2,
   Database,
   Boxes,
-  Gem,
   FlaskConical,
   Play,
   RotateCcw,
@@ -54,7 +53,6 @@ interface PublicFailure {
 }
 
 interface Reconciliation {
-  fantasyRoughCount: number;
   fantasyPolishedCount: number;
   totalOverallLots: number;
   activeOverallLots: number;
@@ -397,8 +395,7 @@ export function FantasySyncView() {
       </div>
 
       <Section title="Data differences">
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
-          <MetricTile icon={<Gem className="h-3.5 w-3.5" />} label="Current Rough" value={reconciliation?.fantasyRoughCount} intent="info" />
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
           <MetricTile icon={<Boxes className="h-3.5 w-3.5" />} label="Current Polished" value={reconciliation?.fantasyPolishedCount} intent="success" />
           <MetricTile icon={<Database className="h-3.5 w-3.5" />} label="Active Lots" value={reconciliation?.activeOverallLots} intent="success" />
           <MetricTile icon={<Activity className="h-3.5 w-3.5" />} label="Historical Lots" value={reconciliation?.historicalOverallLots} intent="info" />

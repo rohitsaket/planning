@@ -773,7 +773,7 @@ export function DataTable<T>({
             )}
             {pdfExportable && (
               <button type="button" className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-muted focus-visible:bg-muted focus-visible:outline-none" onClick={exportPDF}>
-                <FileText className="h-3.5 w-3.5" /> Export loaded rows (PDF)
+                <FileText className="h-3.5 w-3.5" /> {pageScoped ? "Export visible rows (PDF)" : "Export loaded rows (PDF)"}
               </button>
             )}
           </PopoverContent>
@@ -861,6 +861,7 @@ export function DataTable<T>({
                   <th
                     key={c.key}
                     scope="col"
+                    aria-sort={c.sortable ? (sortKey === c.key ? (sortDir === "asc" ? "ascending" : "descending") : "none") : undefined}
                     draggable={enableColumnReorder}
                     onDragStart={(e) => {
                       if (!enableColumnReorder) return;
@@ -940,8 +941,9 @@ export function DataTable<T>({
                       </span>
 
                       {/* Sort Indicator Arrow */}
+                      {/* Decorative: the header's aria-sort carries the sort state. */}
                       {c.sortable && (
-                        <span className="text-[9px] shrink-0 select-none">
+                        <span aria-hidden="true" className="text-[9px] shrink-0 select-none">
                           {sortKey === c.key ? (
                             <span className="text-[#F9733E] font-extrabold">{sortDir === "asc" ? "▲" : "▼"}</span>
                           ) : (

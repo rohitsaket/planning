@@ -80,8 +80,18 @@ describe("compact density: one shared token set", () => {
       }
     };
     walk(views);
-    const bodies = files.filter((f) => readFileSync(f, "utf8").includes("data-page-body"));
-    expect(bodies.length).toBeGreaterThanOrEqual(36);
+    const bodies = files.filter((f) => readFileSync(f, "utf8").includes("data-page-body")).map((f) => path.relative(views, f).split(path.sep).join("/"));
+    // Every page and page tab that is rendered today, named, so losing the shared body on any
+    // one of them fails. (The retired legacy planning pages were removed, not exempted.)
+    const PAGES = [
+      "aging-view.tsx", "audit-log-view.tsx", "country-view.tsx", "customers-orders/customer-sales-view.tsx", "customers-view.tsx",
+      "dashboard-view.tsx", "data-quality-view.tsx", "excess-view.tsx", "fantasy-polished-view.tsx",
+      "fantasy-sync-view.tsx", "inventory/inventory-tabs.tsx", "lab-mappings-view.tsx", "memo-view.tsx", "orders-view.tsx",
+      "overall-data-view.tsx", "polished-view.tsx", "priority-queue-view.tsx", "requirements-matrix-view.tsx", "sales-analysis-view.tsx",
+      "sales-trends-view.tsx", "sarin/sarin-shape-mappings-view.tsx", "shape-mappings-view.tsx", "status-mappings-view.tsx", "stockout-view.tsx",
+      "users-access/permissions-tab.tsx", "users-access/users-tab.tsx", "weight-bands-view.tsx", "workbook-import-view.tsx",
+    ];
+    expect(PAGES.filter((p) => !bodies.includes(p))).toEqual([]);
     // No page keeps the old ad-hoc roots.
     const legacy = files.filter((f) => /className="(flex flex-col gap-3 p-3|space-y-4 p-3)"/.test(readFileSync(f, "utf8")));
     expect(legacy.map((f) => path.basename(f))).toEqual([]);
@@ -142,9 +152,14 @@ describe("compact density: shared components", () => {
     expect([wrapper(alone).includes("rounded-lg border"), wrapper(inSection).includes("border")]).toEqual([true, false]);
   });
 
-  test("exports are one menu, still offered only with the export permission", async () => {
+  // The tools join the panel header after mount (a portal), which a static render cannot show.
+  // scripts/test-ui-contracts.ts checks in a real browser that Export is there, uncut and
+  // keyboard-reachable for export holders, absent for everyone else, and names its scope.
+  test("Import Issues hands its table tools to the panel header instead of drawing a second toolbar row", async () => {
     const page = await renderAs(DataQualityView, root);
-    expect([page.text.includes("Export"), page.text.includes("Export loaded rows (CSV)")]).toEqual([true, false]);
+    const section = /<section data-section[\s\S]*?<\/section>/.exec(page.html)?.[0] ?? "";
+    const header = /<header[\s\S]*?<\/header>/.exec(section)?.[0] ?? "";
+    expect([header.includes("Issues"), /class="[^"]*empty:hidden[^"]*"/.test(header), /data-table-root[\s\S]*?border-b border-border bg-muted\/30/.test(section)]).toEqual([true, true, false]);
   });
 });
 
@@ -154,7 +169,10 @@ describe("compact density: rendered pages", () => {
     const headings = [...page.html.matchAll(/<h[12][^>]*>([\s\S]*?)<\/h[12]>/g)].map((m) => m[1].replace(/<[^>]+>/g, "").trim());
     expect(headings.filter((h) => h === "Inventory").length).toBe(1);
     expect(headings.includes("Stockout Risk")).toBe(false);
-    expect(page.html).toContain("h-tab");
+    // Every tab uses the shared tab-height token (32px, 40px on phones), never a local height.
+    const tabs = [...page.html.matchAll(/<button[^>]*role="tab"[^>]*>/g)].map((m) => /class="([^"]*)"/.exec(m[0])?.[1] ?? "");
+    expect(tabs.length > 1).toBe(true);
+    expect(tabs.every((c) => c.split(" ").includes("h-tab") && !/(^|\s)h-(\d|\[)/.test(c))).toBe(true);
   });
 
   test("a page reached through a single permitted tab still names its section", async () => {
@@ -170,9 +188,9 @@ describe("compact density: rendered pages", () => {
     }
   });
 
-  test("Workbook Import keeps its simple form: file, Packet type, planning date, lab, Process File — no country", async () => {
+  test("Workbook Import keeps its simple form: file, Packet Type, planning date, lab, Process File — no country", async () => {
     const page = await renderAs(WorkbookImportView, root);
-    for (const label of ["Sarin CSV file", "Packet type", "Planning date", "Lab (optional)", "Process File", "Recent Files"]) expect([label, page.text.includes(label)]).toEqual([label, true]);
+    for (const label of ["Sarin CSV file", "Packet Type", "Planning date", "Lab (optional)", "Process File", "Recent Files"]) expect([label, page.text.includes(label)]).toEqual([label, true]);
     expect([/Country/.test(page.text), /Stone Type/i.test(page.text)]).toEqual([false, false]);
   });
 });

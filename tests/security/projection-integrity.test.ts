@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, test } from "./harness";
 import { db, resetDb } from "./helpers";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { Prisma } from "@prisma/client";
 import {
   checkProjectionInvariant,
@@ -130,17 +130,16 @@ describe("Projection integrity — the audited sequence", () => {
     expect(mirrors).toBe(9);
   });
 
-  test("step 2 — the permitted seed workflow refuses to run over canonical data", () => {
-    // The seed clears derived tables but never the canonical records, their history or
-    // their checkpoints. Running it here is what produced the audited damage, so it now
-    // refuses rather than performing half of a reset.
-    const seed = readFileSync("prisma/seed.ts", "utf8");
-    expect(seed.includes("Seed refused: this database holds canonical operational data")).toBe(true);
-    expect(seed.includes("OPERATIONAL_TABLES_NOT_CLEARED")).toBe(true);
-    // The opt-in path deletes canonical data, so it must prove where it is first.
-    expect(seed.includes("proveDisposableDatabase")).toBe(true);
-    // And it clears the canonical owners together with their projections.
-    expect(/if \(fullReset\)/.test(seed)).toBe(true);
+  test("step 2 — no general-purpose seed exists; the demo fixture clears projections with their owners, on a test database only", () => {
+    // The general seed deleted projections but kept their canonical owners, which is what
+    // produced the audited damage. It is gone; the demo fixture that replaces it proves an
+    // isolated test database before it connects, and clears canonical records together
+    // with their projections, in one transaction.
+    expect(existsSync("prisma/seed.ts")).toBe(false);
+    const fixture = readFileSync("scripts/test-demo-fixture.ts", "utf8");
+    const guardAt = fixture.indexOf("assertDisposableDatabase(process.env.DATABASE_URL");
+    expect([guardAt > 0, guardAt < fixture.indexOf("new PrismaClient()")]).toEqual([true, true]);
+    expect([/"PolishedStone"[\s\S]*"LotMasterRecord"/.test(fixture), fixture.includes("client.$transaction(")]).toEqual([true, true]);
   });
 
   test("step 3 — a seed-shaped deletion is detected and repaired", async () => {
@@ -215,14 +214,14 @@ describe("Projection integrity — demand refuses to declare an incomplete run r
 });
 
 describe("Projection integrity — database environment proof", () => {
-  test("a loopback host with a disposable database name is proven", () => {
+  test("a loopback host with an isolated test database name is proven; the development database is not", () => {
     for (const url of [
-      "postgresql://u:p@localhost:5432/planning",
       "postgres://u:p@127.0.0.1:5432/planning_sectest",
       "postgresql://u:p@localhost:5432/planning_review",
     ]) {
       expect({ url, proven: proveDisposableDatabase(url).proven }).toEqual({ url, proven: true });
     }
+    expect(proveDisposableDatabase("postgresql://u:p@localhost:5432/planning").refusal).toBe("DATABASE_NAME_NOT_DISPOSABLE");
   });
 
   test("a remote host is refused however familiar its database name looks", () => {

@@ -25,6 +25,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { db } from "../src/lib/db";
 import { SECTEST_DB } from "../tests/security/test-db";
+import { proveDisposableDatabase } from "../src/lib/fantasy/database-environment";
 import { call, makeUser } from "../tests/security/helpers";
 import { resetRateLimits } from "../src/lib/api/rate-limit";
 import { PERMISSIONS, type Permission } from "../src/lib/auth/permissions";
@@ -51,7 +52,8 @@ import { POST as demandRunPOST } from "../src/app/api/demand/run/route";
 // Safety: this suite truncates tables, so it must never see a real database.
 // ---------------------------------------------------------------------------
 const url = process.env.DATABASE_URL ?? "";
-if (!url || !new URL(url).pathname.startsWith(`/${SECTEST_DB}`)) {
+// Loopback host, an approved isolated test database, no production or staging marker.
+if (!proveDisposableDatabase(url).proven) {
   console.error(`REFUSING TO RUN: DATABASE_URL must point at the isolated ${SECTEST_DB} database.`);
   console.error("Use: npx tsx scripts/with-sectest-db.ts npx tsx scripts/test-demand-inventory.ts");
   process.exit(1);
@@ -411,8 +413,10 @@ async function main() {
   );
 
   // =========================================================================
-  section("A6. Approved plan coverage never double-counts WIP or polished output");
+  section("A6. Legacy approved plans never reduce demand; planned coverage is unavailable");
   // =========================================================================
+  const baseline = await runDemandCalculation({ actor: "test" });
+  const baseCat = baseline.categories.find((c) => c.category === `GIA|ROUND|${fx.bandRound.label}`);
   const rough = await db.roughStone.create({
     data: { fantasyRoughId: "RGH-T1", kapan: "K1", packet: "P1", stoneName: "S1", roughWeight: 10, country: "IN", branch: "Surat", fantasyStatus: "IN_STOCK" },
   });
@@ -433,13 +437,15 @@ async function main() {
 
   run = await runDemandCalculation({ actor: "test" });
   cat = run.categories.find((c) => c.category === `GIA|ROUND|${fx.bandRound.label}`);
-  assert(cat?.approvedPlanCoverage === 1, `Only the piece not already tracked as WIP counts (expected 1, got ${cat?.approvedPlanCoverage})`);
-  assert(cat?.remainingUnplanned === 0, `Remaining unplanned = MAX(0, 1 - 1) = 0, got ${cat?.remainingUnplanned}`);
+  const facts = (c: typeof cat) => JSON.stringify([c?.roundedTarget, c?.availableStock, c?.wipCoverage, c?.pipelineNeed, c?.remainingUnplanned]);
+  assert(!!cat && facts(cat) === facts(baseCat), `An approved, selected legacy plan leaves the category unchanged (${facts(cat)} vs ${facts(baseCat)})`);
+  assert(cat?.remainingUnplanned === cat?.pipelineNeed, "Remaining need equals the pipeline need: nothing is subtracted for plans");
+  assert(run.planCoverage.status === "UNAVAILABLE" && !("totalApprovedPlanCoverage" in run), "Planned coverage is UNAVAILABLE and no total is reported");
 
   await db.planOptionPiece.update({ where: { pieceCode: "PC-T1-1" }, data: { actualPolishedLotId: "WIP-MIRROR-1" } });
   run = await runDemandCalculation({ actor: "test" });
   cat = run.categories.find((c) => c.category === `GIA|ROUND|${fx.bandRound.label}`);
-  assert(cat?.approvedPlanCoverage === 0, "A piece already linked to polished output is excluded from plan coverage");
+  assert(facts(cat) === facts(baseCat), "A legacy piece linked to polished output changes nothing either");
   await db.planOptionPiece.update({ where: { pieceCode: "PC-T1-1" }, data: { actualPolishedLotId: null } });
 
   // =========================================================================

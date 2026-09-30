@@ -1,6 +1,8 @@
 import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
+import { Prisma } from "@prisma/client";
 import { withApi } from "@/lib/api/with-api";
+import { REQUIREMENT_HAS_NEED_SQL } from "@/lib/domain/requirement-need";
 
 // Executive Dashboard KPIs - all values drilldown to evidence
 export const GET = withApi({ permission: "analysis.read" }, async (req: Request) => {
@@ -17,8 +19,6 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request)
 
   let physicalShortage = 0;
   let pipelineAdjusted = 0;
-  let approvedPlanCoverage = 0;
-  let remainingUnplanned = 0;
   let forecastRequirement = 0;
 
   if (latestRun) {
@@ -26,8 +26,6 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request)
       if (lab && m.labNormalized !== lab && m.labNormalized !== "Non-Cert") continue;
       physicalShortage += num(m.physicalShortage);
       pipelineAdjusted += num(m.pipelineNeed);
-      approvedPlanCoverage += num(m.approvedPlanCoverage);
-      remainingUnplanned += num(m.remainingUnplanned);
       forecastRequirement += num(m.forecastSignal);
     }
   }
@@ -37,14 +35,16 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request)
   if (branch) polishedWhere.branch = branch;
   if (lab) polishedWhere.labNormalized = lab;
 
-  const roughWhere: Record<string, unknown> = {};
-  if (country) roughWhere.country = country;
-  if (branch) roughWhere.branch = branch;
-
-  const reqWhere: Record<string, unknown> = { remainingUnplanned: { gt: 0 } };
-  if (country) reqWhere.country = country;
-  if (branch) reqWhere.branch = branch;
-  if (lab) reqWhere.labNormalized = lab;
+  // Requirements with need left after stock and WIP. The stored remainingUnplanned column
+  // was reduced by fabricated legacy plan coverage and is not read.
+  const reqFilters = [REQUIREMENT_HAS_NEED_SQL];
+  if (country) reqFilters.push(Prisma.sql`"country" = ${country}`);
+  if (branch) reqFilters.push(Prisma.sql`"branch" = ${branch}`);
+  if (lab) reqFilters.push(Prisma.sql`"labNormalized" = ${lab}`);
+  const countRequirements = async (extra: Prisma.Sql) => {
+    const [row] = await db.$queryRaw<Array<{ n: number }>>`SELECT COUNT(*)::int AS n FROM "Requirement" WHERE ${Prisma.join([...reqFilters, extra], " AND ")}`;
+    return row?.n ?? 0;
+  };
 
   const orderWhere: Record<string, unknown> = { status: { in: ["OPEN", "PARTIAL"] } };
   if (country) orderWhere.country = country;
@@ -55,30 +55,11 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request)
   if (branch) memoWhere.branch = branch;
 
   const polishedStock = await db.polishedStone.count({ where: polishedWhere });
-  const roughAvailable = await db.roughStone.count({
-    where: { ...roughWhere, planningStatus: "AVAILABLE", planningEligible: true },
-  });
-  const roughReserved = await db.roughStone.count({
-    where: { ...roughWhere, planningStatus: { in: ["RESERVED", "PLAN_APPROVED", "RELEASED_TO_MANUFACTURING"] } },
-  });
-  // Pieces in approved plans: a planning output, not manufacturing work in progress.
-  const approvedPlanPieces = await db.planOptionPiece.count({
-    where: {
-      planOption: {
-        approvalStatus: { in: ["APPROVED", "RELEASED"] },
-      },
-    },
-  });
-
-  const criticalRequirements = await db.requirement.count({
-    where: { ...reqWhere, requirementPriority: "CRITICAL" },
-  });
-  const highRequirements = await db.requirement.count({
-    where: { ...reqWhere, requirementPriority: "HIGH" },
-  });
-  const overdueRequirements = await db.requirement.count({
-    where: { ...reqWhere, daysOverdue: { gt: 0 } },
-  });
+  // No rough-stock or planning-case figures: there is no authoritative rough source, and the
+  // legacy planning cases were seed data.
+  const criticalRequirements = await countRequirements(Prisma.sql`"requirementPriority" = 'CRITICAL'`);
+  const highRequirements = await countRequirements(Prisma.sql`"requirementPriority" = 'HIGH'`);
+  const overdueRequirements = await countRequirements(Prisma.sql`"daysOverdue" > 0`);
   const openOrders = await db.salesOrder.count({ where: orderWhere });
   const backorders = await db.salesOrderLine.aggregate({
     _sum: { backorderQty: true },
@@ -104,13 +85,8 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request)
   return ok({
     physicalShortage,
     pipelineAdjusted,
-    approvedPlanCoverage,
-    remainingUnplanned,
     forecastRequirement,
     polishedStock,
-    roughAvailable,
-    roughReserved,
-    approvedPlanPieces,
     criticalRequirements,
     highRequirements,
     overdueRequirements,

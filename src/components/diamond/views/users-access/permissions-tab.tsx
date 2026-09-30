@@ -13,20 +13,15 @@ import { useAuthStore } from "@/stores/auth-store";
 import { useAccessFocusStore } from "@/stores/access-focus-store";
 import { PermissionEditor } from "./permission-editor";
 import { UserAccessInspector } from "./user-access-inspector";
-import { ApprovalPolicySection } from "./approval-policy-section";
 import { BOUNDED_REGION_MAX_HEIGHT } from "@/components/diamond/shared/density";
 import { ROLES_URL, USERS_URL, useAccessRefresh, type PermissionMeta, type RoleRow, type RolesResponse, type UsersResponse } from "./shared";
 
 const sameSet = (a: ReadonlySet<string>, b: ReadonlySet<string>) => a.size === b.size && [...a].every((v) => b.has(v));
 
-// The tab opens for role readers and for approval-policy readers; each part is shown only to
-// holders of its own permission, and each API refuses anyone else.
 export function PermissionsTab() {
-  const perms = useAuthStore((s) => s.user?.permissions) ?? [];
   return (
     <div data-page-body className="flex flex-col gap-section px-page-x py-page-y">
-      {perms.includes("approval_policy.read") && <ApprovalPolicySection canManage={perms.includes("approval_policy.manage")} />}
-      {perms.includes("role.read") && <RolePermissions />}
+      <RolePermissions />
     </div>
   );
 }

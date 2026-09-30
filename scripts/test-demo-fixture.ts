@@ -1,10 +1,18 @@
 // ============================================================================
-// SEED SCRIPT — Realistic diamond manufacturing dataset
-// Seed: weight bands, lab mappings, shape mappings, groups/companies/countries,
-// branches, Fantasy departments/locations/status mappings, customers, sales
-// records (90-day window), polished stones, rough stones, requirements,
-// planning cases + plan versions + options + pieces, business rules,
-// feature flags, forecasts, audit logs, data quality issues, sync runs.
+// TEST DEMO FIXTURE — fabricated demonstration records, for isolated test databases only.
+// Creates weight bands, lab/shape mappings, groups/companies/countries, branches,
+// Fantasy departments/locations/status mappings, customers, sales records, polished
+// stones, requirements, orders, memos, a demand run, business rules, audit entries,
+// data-quality issues, sync runs and notifications. None of it is real: it exists so
+// suites have deterministic data. No rough stones, planning cases, options, pieces,
+// reservations or plan notifications.
+//
+// It clears everything it fills, together with canonical Fantasy records, in one
+// transaction. So it proves the target is an isolated test database (loopback host,
+// planning_sectest or planning_review, no production or staging marker) before a client is
+// even constructed, and refuses anything else — including the development database.
+//
+// Usage: npm run db:test:reset
 // ============================================================================
 import { PrismaClient } from "@prisma/client";
 import {
@@ -14,13 +22,15 @@ import {
   classifyWeightBand,
   normalizeLab,
 } from "../src/lib/domain/diamond-rules";
-import { proveDisposableDatabase } from "../src/lib/fantasy/database-environment";
+import { assertDisposableDatabase } from "../src/lib/fantasy/database-environment";
 
 if (typeof (process as any).loadEnvFile === "function") {
   try { (process as any).loadEnvFile(); } catch {}
 }
 
-const prisma = new PrismaClient();
+// Refuses before any connection exists when the target is not an isolated test database.
+assertDisposableDatabase(process.env.DATABASE_URL, "Test demo fixture load");
+const client = new PrismaClient();
 
 // Deterministic pseudo-random for reproducibility
 function mulberry32(seed: number) {
@@ -78,82 +88,12 @@ function dayOffset(daysAgo: number): Date {
   return d;
 }
 
-/**
- * Tables the ordinary seed clears, and the operational tables it must not touch.
- *
- * The seed clears reference and demonstration data. It deliberately does NOT clear
- * `LotMasterRecord`, `LotHistoryRecord` or `SyncCheckpoint` — those are the canonical
- * source of truth and its immutable history, and an ordinary seed has no business
- * deleting them.
- *
- * But it *did* clear `PolishedStone`, `DemandRun` and `DemandMetric`, which are derived
- * from those canonical records. Running it against a database holding canonical data
- * therefore left a system where 523 current, classified, physically-available lots had
- * no operational mirror, the next synchronization saw every record unchanged and rebuilt
- * nothing, and the demand calculation reported zero available stock for the whole
- * business. Deleting a projection while keeping its owner is the specific shape of the
- * damage, so the seed now refuses rather than doing half of a reset.
- */
-const OPERATIONAL_TABLES_NOT_CLEARED = ["LotMasterRecord", "LotHistoryRecord", "SyncCheckpoint"] as const;
-
-/**
- * Refuses to seed over canonical operational data.
- *
- * Proceeding requires an explicit opt-in AND a database this process can prove is local
- * or disposable, because the opt-in path performs a full coherent reset — canonical
- * records, their immutable history, their checkpoints and everything derived from them
- * together — rather than the partial deletion that caused the damage.
- */
-async function assertSafeToSeed(): Promise<{ fullReset: boolean }> {
-  const fullReset = process.argv.includes("--reset-operational")
-    || process.env.SEED_RESET_OPERATIONAL === "true";
-
-  const [canonicalLots, historyVersions, checkpoints] = await Promise.all([
-    prisma.lotMasterRecord.count(),
-    prisma.lotHistoryRecord.count(),
-    prisma.syncCheckpoint.count(),
-  ]);
-  const hasOperationalData = canonicalLots > 0 || historyVersions > 0 || checkpoints > 0;
-
-  if (!hasOperationalData) return { fullReset: false };
-
-  if (!fullReset) {
-    throw new Error(
-      [
-        "Seed refused: this database holds canonical operational data.",
-        `  canonical lots: ${canonicalLots}, history versions: ${historyVersions}, checkpoints: ${checkpoints}`,
-        "",
-        "The ordinary seed clears derived tables (PolishedStone, DemandRun, DemandMetric)",
-        `but never ${OPERATIONAL_TABLES_NOT_CLEARED.join(", ")}. Running it here would delete`,
-        "those projections and leave their canonical owners behind, which is the state that",
-        "made every Analysis page report zero available stock.",
-        "",
-        "Either point DATABASE_URL at an empty database, or, if you genuinely want to discard",
-        "the canonical data as well, re-run with --reset-operational.",
-      ].join("\n"),
-    );
-  }
-
-  // The opt-in path deletes canonical records and immutable history, so it must prove
-  // where it is first. A remote host, or a database name this tooling does not recognise,
-  // is refused outright.
-  const proof = proveDisposableDatabase(process.env.DATABASE_URL);
-  if (!proof.proven) {
-    throw new Error(`Seed refused: --reset-operational requires a local or disposable database. ${proof.message}`);
-  }
-
-  console.log(
-    `--reset-operational: clearing canonical data on ${proof.host}:${proof.port}/${proof.databaseName} ` +
-      `(${canonicalLots} lots, ${historyVersions} history versions).`,
-  );
-  return { fullReset: true };
-}
-
 async function main() {
-  const { fullReset } = await assertSafeToSeed();
-
-  console.log("Clearing existing data...");
-  // Wipe in dependency-safe order
+  // One transaction: the fixture replaces the whole dataset or nothing. `prisma` names the
+  // transaction client, so every write below belongs to it.
+  await client.$transaction(async (prisma) => {
+  console.log("Clearing the isolated test database...");
+  // Dependency-safe order; canonical records last, history before its lots.
   const tables = [
     "IntegrationSyncRun", "Notification", "DataQualityIssue", "AuditLog",
     "FeatureFlag", "BusinessRule", "ModelVersion", "ForecastPrediction",
@@ -165,19 +105,10 @@ async function main() {
     "SalesOrder", "MemoRecord", "SalesRecord", "Customer",
     "FantasyStatusMapping", "FantasyLocation", "FantasyDepartment",
     "Office", "Branch", "Country", "Company", "Group",
+    "LotHistoryRecord", "LotMasterRecord", "SyncCheckpoint",
   ];
   for (const t of tables) {
-    await (prisma as any)[t]?.deleteMany();
-  }
-
-  // Only on the explicit opt-in, and only once the database has been proven disposable.
-  // Deleted together so the system is never left holding canonical records whose
-  // projections and checkpoints have gone.
-  if (fullReset) {
-    for (const t of OPERATIONAL_TABLES_NOT_CLEARED) {
-      await (prisma as any)[t.charAt(0).toLowerCase() + t.slice(1)]?.deleteMany();
-    }
-    console.log("Canonical records, immutable history and checkpoints cleared (--reset-operational).");
+    await (prisma as any)[t.charAt(0).toLowerCase() + t.slice(1)].deleteMany();
   }
 
   // =========================================================================
@@ -486,43 +417,6 @@ async function main() {
   }
 
   // =========================================================================
-  // ROUGH STONES (Fantasy authoritative rough stock)
-  // =========================================================================
-  console.log("Seeding hundreds of rough stones...");
-  let roughCounter = 1;
-  const roughIds: string[] = [];
-  for (let i = 0; i < 180; i++) {
-    const packetType = rand() < 0.4 ? "BLUE" : "WHITE";
-    const kapan = packetType === "BLUE" ? `${randInt(100, 999)}D` : `${randInt(1000, 9999)}`;
-    const packet = packetType === "BLUE" ? String(randInt(100, 999)) : String(randInt(1, 999)).padStart(3, "0");
-    const signer = pick(["pv", "HA", "AB", "KX", "ZQ", "RT", "MD", "NK", "TS", "GL"]);
-    const stoneName = packetType === "BLUE" ? `${kapan}-${packet}_E+${signer}` : `${kapan}-${packet} ${signer}`;
-    const roughWeight = randDec(6.5, 95.0, 2);
-    const country = pick(["IN", "BE", "IN", "IN", "BE"]);
-    const branch = country === "IN" ? "Surat" : "Antwerp";
-    const c = await prisma.roughStone.create({
-      data: {
-        fantasyRoughId: `FRS-${String(roughCounter++).padStart(6, "0")}`,
-        kapan,
-        packet,
-        stoneName,
-        signer,
-        packetType,
-        roughWeight,
-        country,
-        branch,
-        fantasyDepartmentId: pick(["FDEPT-ASSY", "FDEPT-MFG"]),
-        fantasyLocationId: pick(["FLOC-ASSY-01", "FLOC-MFG-01"]),
-        fantasyStatus: pick(["AVAILABLE", "AVAILABLE", "PLANNING_AVAILABLE", "UNDER_PLANNING", "RESERVED", "IN_PROCESS"]),
-        planningEligible: rand() < 0.85,
-        planningStatus: pick(["AVAILABLE", "AVAILABLE", "AVAILABLE", "SOFT_RESERVED", "UNDER_PLANNING", "PLANNED"]),
-        lastMovement: dayOffset(randInt(0, 120)),
-      },
-    });
-    roughIds.push(c.id);
-  }
-
-  // =========================================================================
   // REQUIREMENTS — derived from sales records grouping (90-day invoice counts)
   // =========================================================================
   console.log("Seeding requirements across categories...");
@@ -549,8 +443,8 @@ async function main() {
     const excess = Math.max(0, available - roundedTarget);
     const wipCoverage = randInt(0, Math.floor(physicalShortage * 0.4));
     const pipeline = Math.max(0, physicalShortage - wipCoverage);
-    const planCov = randInt(0, Math.floor(pipeline * 0.6));
-    const remaining = Math.max(0, pipeline - planCov);
+    // No plan coverage: there is no selected-plan source, so the remaining need is the pipeline need.
+    const remaining = pipeline;
     const forecast = Math.round(sales90d * 0.15);
     const reqType = pick(["STOCK_REPLENISHMENT", "CUSTOMER_ORDER", "BACKORDER", "SPECIAL_REQUIREMENT", "MANUAL_APPROVED"]);
     const custPriority = pick(["Strategic", "Key", "Standard", "New", "Internal"]);
@@ -583,7 +477,7 @@ async function main() {
       data: {
         requirementCode: `REQ-${String(reqCounter++).padStart(5, "0")}`,
         type: reqType,
-        status: physicalShortage === 0 ? "FULFILLED" : planCov > 0 && remaining === 0 ? "FULLY_PLANNED" : planCov > 0 ? "PARTIALLY_COVERED" : "ACTIVE",
+        status: physicalShortage === 0 ? "FULFILLED" : "ACTIVE",
         customerName,
         groupCode: "GRP-01",
         companyCode: country === "HK" ? "FHK" : country === "CA" ? "FCA" : country === "IN" ? "FIN" : "FNY",
@@ -598,8 +492,6 @@ async function main() {
         memoQty: 0,
         transferCoverage: 0,
         wipCoverage,
-        approvedPlanCoverage: planCov,
-        actualCoverage: 0,
         remainingUnplanned: remaining,
         forecastQty: forecast,
         requiredBy: dayOffset(randInt(-30, 60)),
@@ -618,139 +510,6 @@ async function main() {
       },
     });
   }
-
-  // =========================================================================
-  // PLANNING CASES + VERSIONS + OPTIONS + PIECES (Hundreds of records)
-  // =========================================================================
-  console.log("Seeding planning cases, plan versions, options and pieces...");
-  let caseCounter = 1;
-  let optCounter = 1;
-  let pieceCounter = 1;
-
-  for (let i = 0; i < Math.min(roughIds.length, 120); i++) {
-    const rough = await prisma.roughStone.findUnique({ where: { id: roughIds[i] } });
-    if (!rough) continue;
-    const packetType = rough.packetType;
-    const mainPlanLimit = packetType === "BLUE" ? 17 : 32;
-    const planCount = randInt(3, Math.min(mainPlanLimit, 8));
-    const status = pick([
-      "DRAFT", "READY_FOR_REVIEW", "SELECTED", "APPROVAL_PENDING",
-      "APPROVED", "APPROVED", "RELEASED_TO_MANUFACTURING", "RELEASED_TO_MANUFACTURING",
-      "REJECTED", "REPLAN_REQUIRED"
-    ]);
-    const caseRecord = await prisma.planningCase.create({
-      data: {
-        caseCode: `PC-${String(caseCounter++).padStart(5, "0")}`,
-        roughId: rough.id,
-        stoneName: rough.stoneName,
-        kapan: rough.kapan,
-        packet: rough.packet,
-        originalRoughWeight: rough.roughWeight,
-        packetType,
-        planner: pick(PLANNERS),
-        planningDate: dayOffset(randInt(0, 45)),
-        status,
-        currentVersion: 1,
-        sourceFile: `workbook-${packetType.toLowerCase()}-${caseCounter}.xlsx`,
-        approvedBy: status === "APPROVED" || status === "RELEASED_TO_MANUFACTURING" ? pick(APPROVERS) : null,
-        approvedAt: status === "APPROVED" || status === "RELEASED_TO_MANUFACTURING" ? dayOffset(randInt(0, 20)) : null,
-        approvalComment: status === "REJECTED" ? "Yield too low vs requirement coverage" : status === "APPROVED" ? "Approved - balanced yield + coverage" : null,
-      },
-    });
-
-    const version = await prisma.planVersion.create({
-      data: {
-        planningCaseId: caseRecord.id,
-        versionNumber: 1,
-        reason: "Initial baseline plan version",
-        status,
-        createdBy: pick(PLANNERS),
-      },
-    });
-
-    let selectedOptionId: string | null = null;
-    for (let p = 1; p <= planCount; p++) {
-      const expectedPieces = randInt(1, 4);
-      const expectedWeight = randDec(0.6, 3.5, 3) * expectedPieces;
-      const yieldPct = Math.round((expectedWeight / Number(rough.roughWeight)) * 10000) / 100;
-      const matchingReq = randInt(0, expectedPieces);
-      const coverage = Math.min(matchingReq, expectedPieces);
-      const coveragePct = expectedPieces > 0 ? Math.round((coverage / expectedPieces) * 10000) / 100 : 0;
-      const isSelected = (status === "SELECTED" || status === "APPROVAL_PENDING" || status === "APPROVED" || status === "RELEASED_TO_MANUFACTURING") && p === 1;
-      const approvalStatus = status === "APPROVED" || status === "RELEASED_TO_MANUFACTURING" ? "APPROVED" : status === "REJECTED" ? "REJECTED" : status === "APPROVAL_PENDING" ? "APPROVAL_PENDING" : "DRAFT";
-      
-      const opt = await prisma.planOption.create({
-        data: {
-          optionCode: `OPT-${String(optCounter++).padStart(6, "0")}`,
-          versionId: version.id,
-          optionNumber: p,
-          expectedPieces,
-          expectedTotalWeight: expectedWeight,
-          yieldPct,
-          matchingRequiredPieces: matchingReq,
-          requirementCoverage: coverage,
-          coveragePct,
-          nonRequiredPieces: Math.max(0, expectedPieces - matchingReq),
-          expectedColor: pick(COLORS),
-          expectedClarity: pick(CLARITIES),
-          certificationIntent: pick(["GIA", "Non-Cert", "Other", "Undecided"]),
-          potentialExcess: Math.max(0, expectedPieces - matchingReq),
-          validationWarnings: rand() < 0.15 ? "Minor ratio advisory on secondary piece" : null,
-          selected: isSelected,
-          selectedBy: isSelected ? pick(PLANNERS) : null,
-          selectedAt: isSelected ? dayOffset(randInt(0, 10)) : null,
-          approvalStatus,
-          approvedBy: approvalStatus === "APPROVED" ? pick(APPROVERS) : null,
-          approvedAt: approvalStatus === "APPROVED" ? dayOffset(randInt(0, 10)) : null,
-        },
-      });
-
-      if (isSelected) {
-        selectedOptionId = opt.id;
-      }
-
-      // Generate Pieces for each option
-      for (let pi = 0; pi < expectedPieces; pi++) {
-        const shape = pick(SHAPES);
-        const w = randDec(0.6, 3.5, 3);
-        const band = classifyWeightBand(w);
-        const labN = pick(["GIA", "Non-Cert"]);
-        await prisma.planOptionPiece.create({
-          data: {
-            pieceCode: `PP-${String(pieceCounter++).padStart(6, "0")}`,
-            planOptionId: opt.id,
-            sequence: pi + 1,
-            expectedShape: shape,
-            expectedWeight: w,
-            expectedColor: pick(COLORS),
-            expectedClarity: pick(CLARITIES),
-            expectedCategory: band ? `${labN}|${shape}|${band.label}` : null,
-            certificationIntent: pick(["GIA", "Non-Cert", "Undecided"]),
-          },
-        });
-      }
-    }
-
-    await prisma.planningCase.update({
-      where: { id: caseRecord.id },
-      data: { selectedOptionId },
-    });
-
-    if (status === "APPROVED" || status === "RELEASED_TO_MANUFACTURING") {
-      await prisma.roughReservation.create({
-        data: {
-          roughId: rough.id,
-          planningCaseId: caseRecord.id,
-          status: status === "RELEASED_TO_MANUFACTURING" ? "RELEASED_TO_MANUFACTURING" : "RESERVED",
-          reservedBy: pick(PLANNERS),
-          reservedAt: dayOffset(randInt(0, 15)),
-        },
-      });
-    }
-  }
-
-  // No plan-versus-actual records: actual production results are outside the planning utility,
-  // and demonstration records must not be presented as real reconciliation.
 
   // =========================================================================
   // SALES ORDERS & ORDER LINES (Hundreds of detailed line items)
@@ -856,9 +615,9 @@ async function main() {
       totalExcess: 0,
     },
   });
-  const metricAgg = new Map<string, { sales90d: number; available: number; memo: number; wip: number; planCov: number; forecast: number }>();
+  const metricAgg = new Map<string, { sales90d: number; available: number; memo: number; wip: number; forecast: number }>();
   for (const r of salesRecords) {
-    const m = metricAgg.get(r.category) ?? { sales90d: 0, available: 0, memo: 0, wip: 0, planCov: 0, forecast: 0 };
+    const m = metricAgg.get(r.category) ?? { sales90d: 0, available: 0, memo: 0, wip: 0, forecast: 0 };
     m.sales90d += 1;
     metricAgg.set(r.category, m);
   }
@@ -875,9 +634,7 @@ async function main() {
     const shortage = Math.max(0, roundedTarget - available);
     const excess = Math.max(0, available - roundedTarget);
     const wip = randInt(0, Math.floor(shortage * 0.4));
-    const planCov = randInt(0, Math.floor(Math.max(0, shortage - wip) * 0.6));
     const pipeline = Math.max(0, shortage - wip);
-    const remaining = Math.max(0, pipeline - planCov);
     totalShortage += shortage;
     totalExcess += excess;
     await prisma.demandMetric.create({
@@ -894,8 +651,7 @@ async function main() {
         excessStock: excess,
         wipCoverage: wip,
         pipelineNeed: pipeline,
-        approvedPlanCoverage: planCov,
-        remainingUnplanned: remaining,
+        remainingUnplanned: pipeline,
         forecastSignal: Math.round(m.sales90d * 0.15),
       },
     });
@@ -1008,14 +764,9 @@ async function main() {
   // =========================================================================
   console.log("Seeding audit logs & data quality issues...");
   const auditActions = [
-    { actor: "A. Patel", action: "PLAN_CREATED", entity: "PlanningCase", reason: "Initial plan created from workbook" },
-    { actor: "R. Smith", action: "PLAN_APPROVED", entity: "PlanningCase", reason: "Balanced yield + target coverage" },
     { actor: "system", action: "DEMAND_RUN", entity: "DemandRun", reason: "Scheduled 90-day rolling recalculation" },
     { actor: "M. Tanaka", action: "RULE_CHANGE", entity: "BusinessRule", reason: "Approved CONFIRMED rule update" },
-    { actor: "B. Cohen", action: "RESERVATION", entity: "RoughStone", reason: "Soft reservation for planning case" },
     { actor: "system", action: "FANTASY_SYNC", entity: "IntegrationSyncRun", reason: "Incremental sync batch ingested" },
-    { actor: "C. Lee", action: "PLAN_REPLAN", entity: "PlanningCase", reason: "Actual manufacturing outcome variance triggered replan" },
-    { actor: "D. Garcia", action: "FORECAST_PUBLISH", entity: "ModelVersion", reason: "New quarterly forecast model published" },
   ];
   for (let i = 0; i < 80; i++) {
     const a = pick(auditActions);
@@ -1090,9 +841,7 @@ async function main() {
 
   const notifs = [
     { type: "CRITICAL_REQUIREMENT", title: "Critical requirement detected", message: "GIA Round 1.70-1.99 shortage 12 pcs", severity: "CRITICAL" },
-    { type: "PLAN_APPROVAL_PENDING", title: "Plan awaiting approval", message: "PC-00012 has 2 options pending approval", severity: "WARNING" },
     { type: "FANTASY_SYNC_FAILURE", title: "Fantasy sync failed", message: "Rough sync failed — 2 connection errors", severity: "ERROR" },
-    { type: "REPLAN_REQUIRED", title: "Replan required", message: "Actual output missed requirement category for PC-00024", severity: "WARNING" },
     { type: "STOCKOUT_PREDICTED", title: "Stockout predicted", message: "GIA Oval 2.00-2.09 projected to stockout in 18 days", severity: "WARNING" },
     { type: "EXCESS_STOCK_ALERT", title: "Excess stock identified", message: "Non-Cert Princess 1.00-1.09 exceeds 90-day target by 18 pcs", severity: "INFO" },
     { type: "MEMO_OVERDUE", title: "Overdue memo consignment", message: "MEMO-000042 at Brilliant Heritage NY has exceeded 90 days", severity: "WARNING" },
@@ -1111,7 +860,8 @@ async function main() {
     });
   }
 
-  console.log("Seed completed successfully!");
+  console.log("Test demo fixture loaded.");
+  }, { maxWait: 60_000, timeout: 15 * 60_000 });
 }
 
 main()
@@ -1120,5 +870,5 @@ main()
     process.exit(1);
   })
   .finally(async () => {
-    await prisma.$disconnect();
+    await client.$disconnect();
   });

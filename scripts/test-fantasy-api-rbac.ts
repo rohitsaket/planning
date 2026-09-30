@@ -42,9 +42,9 @@ async function main() {
   console.log("\n[2/4] Verifying View Permission Registry...");
   // Current Data, Integration Status and Historical Data are tabs of Fantasy Data; each
   // tab keeps its own permission and the page opens for any of them.
-  assert(JSON.stringify([...viewPermissions("fantasy-data")].sort()) === JSON.stringify(["fantasy.read", "overall.read", "rough.read"]), "Fantasy Data is admitted by rough.read, fantasy.read or overall.read");
-  for (const [legacy, tab] of [["fantasy-live", "current"], ["fantasy-sync", "integration"], ["overall-data", "history"]] as const) {
-    const r = resolveViewAlias(legacy);
+  assert(JSON.stringify([...viewPermissions("fantasy-data")].sort()) === JSON.stringify(["fantasy.read", "overall.read"]), "Fantasy Data is admitted by fantasy.read or overall.read; rough stock is retired");
+  for (const [legacy, legacyTab, tab] of [["fantasy-live", "polished", "current"], ["fantasy-polished", null, "current"], ["fantasy-sync", null, "integration"], ["overall-data", null, "history"]] as const) {
+    const r = resolveViewAlias(legacy, legacyTab);
     assert(r.view === "fantasy-data" && r.tab === tab, `${legacy} opens Fantasy Data → ${tab}`);
   }
 

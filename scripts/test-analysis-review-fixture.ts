@@ -21,6 +21,7 @@
 
 import { db } from "../src/lib/db";
 import { SECTEST_DB } from "../tests/security/test-db";
+import { proveDisposableDatabase } from "../src/lib/fantasy/database-environment";
 import {
   generateAnalysisReviewBatches,
   runAnalysisReviewFixtureLoader,
@@ -50,7 +51,8 @@ async function main() {
 
   // 0. Confirm safe database
   const dbUrl = process.env.DATABASE_URL ?? "";
-  if (!dbUrl.includes(SECTEST_DB)) {
+  // Loopback host, an approved isolated test database, no production or staging marker.
+  if (!proveDisposableDatabase(dbUrl).proven) {
     throw new Error(`REFUSING TO RUN: Tests must run against isolated test database ${SECTEST_DB}`);
   }
 

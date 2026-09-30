@@ -58,7 +58,7 @@ describe("demand run history publishes business fields only", () => {
   const ALLOWED_ROW_FIELDS = [
     "id", "runDate", "businessDateIst", "windowDays", "lookbackStart", "lookbackEnd",
     "startedAt", "finishedAt", "status", "totalShortage", "totalExcess", "salesCount",
-    "inventoryCount", "wipCount", "planCount", "excludedCount", "sourceCutoff",
+    "inventoryCount", "wipCount", "excludedCount", "sourceCutoff",
     "isSimulated", "actor", "durationMs", "metricCount", "failure",
     "wipPolicyStatus", "wipEligibleStages",
   ].sort();

@@ -50,7 +50,6 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request)
     salesCount: r.salesCount,
     inventoryCount: r.inventoryCount,
     wipCount: r.wipCount,
-    planCount: r.planCount,
     excludedCount: r.excludedCount,
     sourceCutoff: r.sourceCutoff?.toISOString() ?? null,
     isSimulated: r.isSimulated,

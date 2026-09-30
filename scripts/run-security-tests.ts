@@ -13,10 +13,12 @@
 
 import "../tests/security/setup";
 import { SECTEST_DB } from "../tests/security/test-db";
+import { proveDisposableDatabase } from "../src/lib/fantasy/database-environment";
 import { beginModule, registeredTestCount, runRegisteredSuites } from "../tests/security/harness";
 
 const url = process.env.DATABASE_URL ?? "";
-if (!url || !new URL(url).pathname.startsWith(`/${SECTEST_DB}`)) {
+// Loopback host, an approved isolated test database, no production or staging marker.
+if (!proveDisposableDatabase(url).proven) {
   console.error(`REFUSING TO RUN: DATABASE_URL must point at the isolated ${SECTEST_DB} database.`);
   process.exit(1);
 }
@@ -73,8 +75,9 @@ const MODULES = [
   "../tests/security/navigation-consolidation.test",
   "../tests/security/compact-density.test",
   "../tests/security/retired-features.test",
+  "../tests/security/legacy-plan-independence.test",
+  "../tests/security/database-safety.test",
   "../tests/security/password-change.test",
-  "../tests/security/approval-policy.test",
   "../tests/security/data-table-layout.test",
   "../tests/security/scroll-layout.test",
   // Renders whole pages; registered last so its fixtures meet every other suite's data.

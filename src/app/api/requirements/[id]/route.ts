@@ -3,12 +3,14 @@ import { ok, num } from "@/lib/api-utils";
 import { NextResponse } from "next/server";
 import { notFound } from "@/lib/api/errors";
 import { withApi, idSchema } from "@/lib/api/with-api";
+import { PLAN_COVERAGE } from "@/lib/demand/plan-coverage";
+import { presentRequirementStatus, requirementRemainingNeed } from "@/lib/domain/requirement-need";
 
 export const GET = withApi({ permission: "requirement.read" }, async (req: Request, { params }: { params: Promise<{ id: string }> }) => {
   const id = idSchema.parse((await params).id);
   const r = await db.requirement.findUnique({
     where: { id },
-    include: { weightBand: true, allocations: { include: { planOption: true } } },
+    include: { weightBand: true },
   });
   if (!r) throw notFound("Requirement");
 
@@ -16,7 +18,7 @@ export const GET = withApi({ permission: "requirement.read" }, async (req: Reque
     id: r.id,
     requirementCode: r.requirementCode,
     type: r.type,
-    status: r.status,
+    status: presentRequirementStatus(r.status),
     customerName: r.customerName,
     orderNumber: r.orderNumber,
     groupCode: r.groupCode,
@@ -35,9 +37,8 @@ export const GET = withApi({ permission: "requirement.read" }, async (req: Reque
     memoQty: r.memoQty,
     transferCoverage: r.transferCoverage,
     wipCoverage: r.wipCoverage,
-    approvedPlanCoverage: r.approvedPlanCoverage,
-    actualCoverage: r.actualCoverage,
-    remainingUnplanned: r.remainingUnplanned,
+    remainingUnplanned: requirementRemainingNeed(r),
+    planCoverage: PLAN_COVERAGE,
     forecastQty: r.forecastQty,
     requiredBy: r.requiredBy?.toISOString() ?? null,
     ageDays: r.ageDays,
@@ -50,18 +51,11 @@ export const GET = withApi({ permission: "requirement.read" }, async (req: Reque
     calculationRunId: r.calculationRunId,
     businessRuleVersion: r.businessRuleVersion,
     sourceRecords: r.sourceRecords ? JSON.parse(r.sourceRecords) : null,
-    allocations: r.allocations.map((a) => ({
-      id: a.id,
-      allocatedQty: a.allocatedQty,
-      allocatedBy: a.allocatedBy,
-      allocatedAt: a.allocatedAt.toISOString(),
-      status: a.status,
-      planOptionCode: a.planOption?.optionCode ?? null,
-    })),
     fourNumbers: {
       physicalShortage: r.requiredQty - r.planningAvailableQty,
       pipelineAdjusted: Math.max(0, r.requiredQty - r.planningAvailableQty - r.wipCoverage),
-      planningAdjusted: r.remainingUnplanned,
+      // Needs a selected-plan source, which does not exist (PLAN_COVERAGE).
+      planningAdjusted: null,
       forecastRequirement: r.forecastQty,
     },
   });

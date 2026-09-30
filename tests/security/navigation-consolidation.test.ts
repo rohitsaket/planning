@@ -12,14 +12,13 @@ import type { ComponentType } from "react";
 import { POST as rolesPost, GET as listRoles } from "@/app/api/admin/roles/route";
 import { POST as usersPost } from "@/app/api/admin/users/route";
 import { GET as dataQuality } from "@/app/api/data-quality/route";
-import { useNavStore } from "@/stores/nav-store";
+import { resolveViewAlias, useNavStore, type ViewId } from "@/stores/nav-store";
 import { OverviewView } from "@/components/diamond/views/consolidated/overview-view";
 import { InventoryPositionView } from "@/components/diamond/views/consolidated/inventory-position-view";
 import { FantasyDataView } from "@/components/diamond/views/consolidated/fantasy-data-view";
 import { OutOfScopeView } from "@/components/diamond/shared/out-of-scope";
 import { AppShell } from "@/components/layout/app-shell";
 import { createElement } from "react";
-import { PlanningWorkbenchHostView } from "@/components/diamond/views/consolidated/planning-workbench-host-view";
 import { UsersAccessView } from "@/components/diamond/views/consolidated/users-access-view";
 import { DataQualityView } from "@/components/diamond/views/data-quality-view";
 
@@ -85,16 +84,28 @@ describe("consolidated pages render their existing views as tabs", () => {
   test("Fantasy Data: current data, integration status and historical data", async () => {
     const current = await renderAs(FantasyDataView, root, "current");
     expect(tabLabels(current.html)).toEqual(["Current Data", "Integration Status", "Historical Data"]);
-    expect([current.text.includes("Rough stock"), current.text.includes("Polished stock")]).toEqual([true, true]);
+    // Current Data is polished stock only: no rough stock and no stock-type switch.
+    expect([current.requested.some((r) => r.startsWith("/api/fantasy/polished")), current.requested.some((r) => r.startsWith("/api/fantasy/rough")), current.html.includes('aria-label="Stock type"'), /Rough stock/i.test(current.text)]).toEqual([true, false, false, false]);
     expect((await renderAs(FantasyDataView, root, "integration")).text).toContain("Integration Status");
     expect((await renderAs(FantasyDataView, root, "history")).text).toContain("Historical Data");
     expect(/Sync Monitor|Overall Data\b/.test(current.text)).toBe(false);
   });
 
-  test("Planning Workbench: Plan Comparison opens as its Comparison tab", async () => {
-    const page = await renderAs(PlanningWorkbenchHostView, root, "comparison");
-    expect(tabLabels(page.html)).toEqual(["Cases", "Candidate Plans", "Comparison", "Planned Pieces", "Rough Reservations"]);
-    expect(page.text).toContain("Plan Comparison");
+  test("old Workbench, Approval Queue and Reservations links resolve to Not available and request no data", async () => {
+    const retired = ["planning-workbench", "planning-comparison", "planning-cases", "planning-planned-pieces", "planning-reservations", "planning-approval-queue"];
+    for (const id of retired) expect([id, resolveViewAlias(id as ViewId, "comparison")]).toEqual([id, { view: "out-of-scope", tab: null }]);
+    const page = await renderAs(OutOfScopeView as ComponentType<object>, root, null);
+    expect([page.text.includes("Not available"), /legacy planning workbench/i.test(page.text), page.text.includes("Approval")]).toEqual([true, true, false]);
+    expect(page.requested).toEqual([]);
+  });
+
+  test("old Rough Availability and Fantasy Rough links say no rough-stock source is configured, and request nothing", async () => {
+    for (const id of ["fantasy-rough", "fantasy-live"]) expect([id, resolveViewAlias(id as ViewId, null)]).toEqual([id, { view: "out-of-scope", tab: "rough-stock" }]);
+    const target = resolveViewAlias("planning-rough-availability" as ViewId, null);
+    expect(target).toEqual({ view: "out-of-scope", tab: "rough-stock" });
+    const page = await renderAs(OutOfScopeView as ComponentType<object>, root, target.tab);
+    expect([page.text.includes("Not available"), page.text.includes("No authoritative rough-stock source is configured.")]).toEqual([true, true]);
+    expect(page.requested).toEqual([]);
   });
 
   test("an old manufacturing link shows Not available and requests no data", async () => {
@@ -121,19 +132,13 @@ describe("only permitted tabs are shown, selected or requested", () => {
     expect([page.text.includes("Rough stock"), page.text.includes("Integration Status")]).toEqual([false, false]);
   });
 
-  test("a rough-only reader gets rough stock without a stock-type switch", async () => {
-    const u = await userWith("roughonly", ["rough.read"]);
-    const page = await renderAs(FantasyDataView, u, null);
-    expect(page.text.includes("Polished stock")).toBe(false);
-    expect(page.requested.some((r) => r.startsWith("/api/fantasy/polished"))).toBe(false);
-  });
-
-  test("a rough reader opens Planning Workbench on Rough Reservations only; plan data is never requested", async () => {
-    const u = await userWith("reserver", ["rough.read"]);
-    const page = await renderAs(PlanningWorkbenchHostView, u, "comparison");
-    expect(tabLabels(page.html)).toEqual([]);
-    expect(page.text).toContain("Rough Reservations");
-    expect(page.requested.some((r) => /\/api\/planning\/(cases|workbench|pieces|compare)/.test(r))).toBe(false);
+  test("rough.read is no longer grantable, and Fantasy Data needs fantasy.read or overall.read", async () => {
+    resetRateLimits();
+    const refused = await call(rolesPost, { method: "POST", cookie: root.cookie, body: { op: "createRole", code: `NAV_ROUGH_${Date.now().toString(36).toUpperCase()}`, name: "Rough reader", permissions: ["rough.read"] } });
+    expect(refused.status).toBe(400);
+    const u = await userWith("polishedreader", ["fantasy.read"]);
+    const page = await renderAs(FantasyDataView, u, "current");
+    expect([page.requested.some((r) => r.startsWith("/api/fantasy/polished")), page.requested.some((r) => r.startsWith("/api/fantasy/rough") || r.startsWith("/api/planning/"))]).toEqual([true, false]);
   });
 
   test("a user without any tab's permission is told the page is restricted, and nothing is requested", async () => {
@@ -218,9 +223,9 @@ describe("planning-only sidebar: every group expands and collapses", () => {
   });
 
   test("pages a reader may not open are never rendered, not even locked", async () => {
-    const planReader = await userWith("planonly", ["plan.read"]);
-    const page = await renderShell(planReader);
-    expect([page.text.includes("Planning Workbench"), page.text.includes("Approval Queue"), page.text.includes("Workbook Import"), page.text.includes("Rough Availability")]).toEqual([true, true, false, false]);
+    const importReader = await userWith("importonly", ["sarin.import.read"]);
+    const page = await renderShell(importReader);
+    expect([page.text.includes("Workbook Import"), page.text.includes("Requirement Matrix"), page.text.includes("Planning Workbench"), page.text.includes("Approval Queue"), page.text.includes("Rough Availability")]).toEqual([true, false, false, false, false]);
     expect(/Restricted/.test(page.html)).toBe(false);
   });
 

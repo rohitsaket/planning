@@ -181,7 +181,7 @@ function OutputReady(props: { batchId: string; outputId: string; advisories: num
       </div>
       <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[11px] sm:grid-cols-4">
         <Fact label="Source file">{props.fileName}</Fact>
-        <Fact label="Packet type">{packetTypeName(v.packetType)}</Fact>
+        <Fact label="Packet Type">{packetTypeName(v.packetType)}</Fact>
         <Fact label="Planning date">{props.planningDate}</Fact>
         <Fact label="Generated">{formatIST(v.generatedAt, false)}</Fact>
         <Fact label="Stones">{v.counts.stones.toLocaleString("en-IN")}</Fact>

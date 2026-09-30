@@ -10,7 +10,7 @@ import path from "node:path";
 const BASE = process.env.BROWSER_BASE || "http://127.0.0.1:3187";
 const CHROME = process.env.CHROME_BIN || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const PORT = 9333 + Math.floor(Math.random() * 500);
-const VIEWS = (process.env.BROWSER_VIEWS || "dashboard,analysis-sales,analysis-customers-orders,analysis-inventory-position,fantasy-data,data-quality-issues,requirements-matrix,planning-workbook-import,planning-workbench,planning-approval-queue,admin-users-access,admin-mappings,admin-audit-log").split(",");
+const VIEWS = (process.env.BROWSER_VIEWS || "dashboard,analysis-sales,analysis-customers-orders,analysis-inventory-position,fantasy-data,data-quality-issues,requirements-matrix,planning-workbook-import,admin-users-access,admin-mappings,admin-audit-log").split(",");
 
 const profile = mkdtempSync(path.join(tmpdir(), "sec-chrome-"));
 const chrome = spawn(CHROME, ["--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check", `--remote-debugging-port=${PORT}`, `--user-data-dir=${profile}`, "about:blank"], { stdio: "ignore" });

@@ -25,7 +25,6 @@ export const GET = withApi({ permission: "fantasy.read" }, async () => {
 
   // Real entity-specific statuses
   const polishedRun = runs.find((r) => r.entity === "Polished" || r.entity === "ALL" || r.entity === "BATCH") ?? null;
-  const roughRun = runs.find((r) => r.entity === "Rough" || r.entity === "ALL" || r.entity === "BATCH") ?? null;
   const wipRun = runs.find((r) => r.entity === "WIP" || r.entity === "ALL" || r.entity === "BATCH") ?? null;
 
   const summary = [
@@ -40,16 +39,6 @@ export const GET = withApi({ permission: "fantasy.read" }, async () => {
       failure: readPublicFailure(polishedRun?.errorSummary),
     },
     {
-      entity: "Rough Stock",
-      lastStatus: hasEverRun && roughRun ? roughRun.status : "NOT_RUN",
-      recordsFetched: roughRun?.recordsFetched ?? 0,
-      durationMs: roughRun?.durationMs ?? 0,
-      startedAt: roughRun?.startedAt.toISOString() ?? null,
-      finishedAt: roughRun?.finishedAt?.toISOString() ?? null,
-      nextRunAt: null,
-      failure: null,
-    },
-    {
       entity: "WIP Manufacturing",
       lastStatus: hasEverRun && wipRun ? wipRun.status : "NOT_RUN",
       recordsFetched: wipRun?.recordsFetched ?? 0,
@@ -61,8 +50,8 @@ export const GET = withApi({ permission: "fantasy.read" }, async () => {
     },
   ];
 
-  // Live reconciliation statistics
-  const fantasyRoughCount = await db.roughStone.count();
+  // Reconciliation statistics. There is no rough-stock figure: rough records have no
+  // authoritative source and were never synchronized.
   const fantasyPolishedCount = await db.polishedStone.count();
   const totalOverallLots = await db.lotMasterRecord.count();
   const activeOverallLots = await db.lotMasterRecord.count({ where: { isCurrent: true } });
@@ -118,7 +107,6 @@ export const GET = withApi({ permission: "fantasy.read" }, async () => {
     lastSyncAt: checkpoint?.lastSyncAt?.toISOString() ?? null,
     summary,
     reconciliation: {
-      fantasyRoughCount,
       fantasyPolishedCount,
       totalOverallLots,
       activeOverallLots,

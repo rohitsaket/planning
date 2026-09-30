@@ -21,6 +21,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { db } from "../src/lib/db";
 import { SECTEST_DB } from "../tests/security/test-db";
+import { proveDisposableDatabase } from "../src/lib/fantasy/database-environment";
 import { call, makeUser } from "../tests/security/helpers";
 import { resetRateLimits } from "../src/lib/api/rate-limit";
 import {
@@ -61,7 +62,8 @@ import type { RawIngestionDb } from "../src/lib/fantasy/raw-ingestion";
 import { GET as syncGET, POST as syncPOST } from "../src/app/api/fantasy/sync/route";
 
 const url = process.env.DATABASE_URL ?? "";
-if (!url || !new URL(url).pathname.startsWith(`/${SECTEST_DB}`)) {
+// Loopback host, an approved isolated test database, no production or staging marker.
+if (!proveDisposableDatabase(url).proven) {
   console.error(`REFUSING TO RUN: DATABASE_URL must point at the isolated ${SECTEST_DB} database.`);
   process.exit(1);
 }

@@ -16,6 +16,7 @@ import { spawnSync } from "node:child_process";
 import { readdirSync } from "node:fs";
 import path from "node:path";
 import { PrismaClient } from "@prisma/client";
+import { assertDisposableDatabase } from "../src/lib/fantasy/database-environment";
 
 const DB_NAME = "planning_sectest_nocatalog";
 const CATALOG_MIGRATION = "20260929090000_sarin_effective_mapping_catalog";
@@ -33,6 +34,8 @@ function targets(): { serverUrl: string; url: string } {
   if (!/^planning_sectest_[a-z]+$/.test(DB_NAME) || target.pathname !== `/${DB_NAME}` || target.host !== server.host || server.pathname === target.pathname) {
     throw new Error("refusing: the no-catalog database is not an isolated test database");
   }
+  // Loopback host, approved test database name, no production or staging marker.
+  assertDisposableDatabase(target.toString(), "Sarin no-catalog test database");
   return { serverUrl, url: target.toString() };
 }
 

@@ -1,6 +1,9 @@
 import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
 import { withApi, qInt, qStr } from "@/lib/api/with-api";
+import { badRequest } from "@/lib/api/errors";
+import { PLAN_COVERAGE } from "@/lib/demand/plan-coverage";
+import { PLAN_DERIVED_REQUIREMENT_STATUSES, presentRequirementStatus, requirementRemainingNeed } from "@/lib/domain/requirement-need";
 
 // Requirements Matrix — high-density enterprise grid
 // Supports filters: type, status, country, branch, lab, shape, weightBand, priority
@@ -21,7 +24,11 @@ export const GET = withApi({ permission: "requirement.read" }, async (req: Reque
 
   const where: Record<string, unknown> = {};
   if (type) where.type = type;
-  if (status) where.status = status;
+  if (status) {
+    // Plan-derived statuses came from fabricated plan coverage; those requirements are ACTIVE.
+    if (PLAN_DERIVED_REQUIREMENT_STATUSES.includes(status)) throw badRequest(`Status '${status}' is not a current requirement status.`);
+    where.status = status === "ACTIVE" ? { in: ["ACTIVE", ...PLAN_DERIVED_REQUIREMENT_STATUSES] } : status;
+  }
   if (country) where.country = country;
   if (branch) where.branch = branch;
   if (lab) where.labNormalized = lab;
@@ -54,7 +61,7 @@ export const GET = withApi({ permission: "requirement.read" }, async (req: Reque
       id: r.id,
       requirementCode: r.requirementCode,
       type: r.type,
-      status: r.status,
+      status: presentRequirementStatus(r.status),
       customerName: r.customerName,
       orderNumber: r.orderNumber,
       country: r.country,
@@ -68,9 +75,8 @@ export const GET = withApi({ permission: "requirement.read" }, async (req: Reque
       memoQty: r.memoQty,
       transferCoverage: r.transferCoverage,
       wipCoverage: r.wipCoverage,
-      approvedPlanCoverage: r.approvedPlanCoverage,
-      actualCoverage: r.actualCoverage,
-      remainingUnplanned: r.remainingUnplanned,
+      // Need after stock and WIP; planned coverage is unavailable and never subtracted.
+      remainingUnplanned: requirementRemainingNeed(r),
       forecastQty: r.forecastQty,
       requiredBy: r.requiredBy?.toISOString() ?? null,
       ageDays: r.ageDays,
@@ -86,5 +92,6 @@ export const GET = withApi({ permission: "requirement.read" }, async (req: Reque
     total,
     page,
     pageSize,
+    planCoverage: PLAN_COVERAGE,
   });
 });

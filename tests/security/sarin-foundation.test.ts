@@ -17,7 +17,6 @@ import { GET as me } from "@/app/api/auth/me/route";
 import { POST as rolesPost } from "@/app/api/admin/roles/route";
 import { POST as usersPost } from "@/app/api/admin/users/route";
 import {
-  EXPLICIT_GRANT_PERMISSIONS,
   EXPORT_PERMISSIONS,
   PERMISSIONS,
   ROLE_PERMISSIONS,
@@ -802,17 +801,17 @@ describe("sarin foundation: versioned shape mappings", () => {
 // ---------------------------------------------------------------------------------------
 const SARIN_PERMISSIONS = PERMISSIONS.filter((p) => p.startsWith("sarin.")) as Permission[];
 
-// The default policy of the one built-in role. Output approval is an explicit grant:
-// administering the system does not confer it; only a custom role that names it does.
+// The default policy of the one built-in role: every Sarin permission. Output approval is
+// retired (approval is not part of the confirmed workflow), so there is nothing to withhold.
 const EXPECTED_SARIN: Record<(typeof ROLES)[number], Permission[]> = {
-  SUPER_ADMIN: SARIN_PERMISSIONS.filter((p) => p !== "sarin.output.approve"),
+  SUPER_ADMIN: SARIN_PERMISSIONS,
 };
 const sarinOf = (perms: readonly string[]) => perms.filter((p) => p.startsWith("sarin.")).sort();
 
 describe("sarin foundation: permission defaults", () => {
-  test("all ten Sarin permissions are in the one canonical catalogue, export included; mapping approval is withdrawn", () => {
+  test("all nine Sarin permissions are in the one canonical catalogue, export included; output and mapping approval are withdrawn", () => {
     expect(SARIN_PERMISSIONS.slice().sort()).toEqual(
-      ["sarin.import.read", "sarin.import.upload", "sarin.import.validate", "sarin.issue.review", "sarin.issue.override", "sarin.output.generate", "sarin.output.approve", "sarin.output.export", "sarin.mapping.read", "sarin.mapping.manage"].sort(),
+      ["sarin.import.read", "sarin.import.upload", "sarin.import.validate", "sarin.issue.review", "sarin.issue.override", "sarin.output.generate", "sarin.output.export", "sarin.mapping.read", "sarin.mapping.manage"].sort(),
     );
     expect((EXPORT_PERMISSIONS as readonly string[]).includes("sarin.output.export")).toBe(true);
   });
@@ -822,13 +821,9 @@ describe("sarin foundation: permission defaults", () => {
     for (const role of ROLES) expect([role, sarinOf(ROLE_PERMISSIONS[role])]).toEqual([role, EXPECTED_SARIN[role].slice().sort()]);
   });
 
-  test("approval is never reached through `ALL`: no built-in role holds it", () => {
-    expect((EXPLICIT_GRANT_PERMISSIONS as readonly string[]).includes("sarin.output.approve")).toBe(true);
-    for (const role of ROLES) expect([role, ROLE_PERMISSIONS[role].includes("sarin.output.approve")]).toEqual([role, false]);
-    // SUPER_ADMIN keeps every other permission it held before, so nothing else changed.
-    const everythingElse = PERMISSIONS.filter((p) => !(EXPLICIT_GRANT_PERMISSIONS as readonly string[]).includes(p));
-    expect(ROLE_PERMISSIONS.SUPER_ADMIN.slice().sort()).toEqual(everythingElse.slice().sort());
-    expect(ROLE_PERMISSIONS.SUPER_ADMIN.includes("plan.approve")).toBe(true);
+  test("no approval permission exists to reach through `ALL`; Super Admin holds exactly the defined permissions", () => {
+    for (const retired of ["sarin.output.approve", "plan.approve"]) expect([retired, (PERMISSIONS as readonly string[]).includes(retired)]).toEqual([retired, false]);
+    expect(ROLE_PERMISSIONS.SUPER_ADMIN.slice().sort()).toEqual([...PERMISSIONS].sort());
   });
 
   test("the server-resolved principal of each role carries exactly those Sarin permissions", async () => {
@@ -840,7 +835,7 @@ describe("sarin foundation: permission defaults", () => {
     }
   });
 
-  test("approval is explicitly assignable: a deliberately built role grants it, through the real admin routes", async () => {
+  test("output approval is retired: no role can be built with it, through the real admin routes", async () => {
     const root = await makeUser("sarin.root.assign", "SUPER_ADMIN");
     const admin = await makeUser("sarin.admin.assign", "ADMIN");
     const planner = await makeUser("sarin.planner.assign", "PLANNER");
@@ -848,20 +843,13 @@ describe("sarin foundation: permission defaults", () => {
     const code = `SARIN_OUTPUT_APPROVER_${Date.now().toString(36).toUpperCase()}`;
     const body = { op: "createRole", code, name: "Sarin Output Approver", permissions: ["sarin.import.read", "sarin.output.approve"] };
 
-    // ADMIN administers the system but cannot define what a role may do.
-    expect((await call(rolesPost, { method: "POST", cookie: admin.cookie, body })).status).toBe(403);
+    // ADMIN administers the system but cannot define what a role may do, even with live permissions.
+    expect((await call(rolesPost, { method: "POST", cookie: admin.cookie, body: { ...body, permissions: ["sarin.import.read"] } })).status).toBe(403);
+    // Nobody, not even the Super Admin, can grant a permission that no longer exists; nothing is written.
+    for (const u of [admin, root]) expect((await call(rolesPost, { method: "POST", cookie: u.cookie, body })).status).toBe(400);
+    expect(await db.role.count({ where: { code } })).toBe(0);
 
-    const created = await call(rolesPost, { method: "POST", cookie: root.cookie, body });
-    expect(created.status).toBe(200);
-    const before = await call(me, { cookie: planner.cookie, path: "/api/auth/me" });
-    expect(before.json.user.permissions.includes("sarin.output.approve")).toBe(false);
-
-    const assigned = await call(usersPost, { method: "POST", cookie: root.cookie, body: { op: "setRoles", id: planner.user.id, roles: ["PLANNER", code] } });
-    expect(assigned.status).toBe(200);
-    const after = await call(me, { cookie: planner.cookie, path: "/api/auth/me" });
-    expect(after.json.user.permissions.includes("sarin.output.approve")).toBe(true);
-    // The planning workflow is still not widened: override and mapping remain withheld.
-    expect(after.json.user.permissions.includes("sarin.issue.override")).toBe(false);
-    expect(after.json.user.permissions.includes("sarin.mapping.manage")).toBe(false);
+    const perms = (await call(me, { cookie: planner.cookie, path: "/api/auth/me" })).json.user.permissions as string[];
+    expect([perms.includes("sarin.output.approve"), perms.includes("sarin.issue.override"), perms.includes("sarin.mapping.manage")]).toEqual([false, false, false]);
   });
 });

@@ -6,7 +6,7 @@ import { isViewAuthorized } from "@/lib/auth/view-permissions";
 import { useNavStore, ViewId } from "@/stores/nav-store";
 import { cn } from "@/lib/utils";
 import {
-  LayoutDashboard, BarChart3, TrendingUp, Users, Gem, FileText, Package, Boxes, AlertTriangle, Settings, ChevronDown, ChevronRight, Search, Bell, Database, Activity, Workflow, Hash, BookCheck, ClipboardList, Diamond, Moon, Sun, X, Shapes,
+  LayoutDashboard, BarChart3, TrendingUp, Users, FileText, Package, Boxes, AlertTriangle, Settings, ChevronDown, ChevronRight, Search, Bell, Database, Activity, Workflow, Hash, ClipboardList, Diamond, Moon, Sun, X, Shapes,
 } from "lucide-react";
 import { ReactNode, useState, useEffect, useRef, useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button";
@@ -80,10 +80,7 @@ export const NAV: NavGroup[] = [
     label: "Planning",
     icon: <Diamond className="h-4 w-4" />,
     items: [
-      { id: "planning-rough-availability", label: "Rough Availability", icon: <Gem className="h-3.5 w-3.5" /> },
       { id: "planning-workbook-import", label: "Workbook Import", icon: <FileText className="h-3.5 w-3.5" /> },
-      { id: "planning-workbench", label: "Planning Workbench", icon: <LayoutDashboard className="h-3.5 w-3.5" /> },
-      { id: "planning-approval-queue", label: "Approval Queue", icon: <BookCheck className="h-3.5 w-3.5" /> },
     ],
   },
   {
@@ -276,13 +273,11 @@ function GlobalSearch() {
       if (!query || query.trim().length < 2) return null;
       try {
         const q = encodeURIComponent(query.trim());
-        const [roughRes, polishedRes, reqRes] = await Promise.all([
-          apiFetch<{ rows: Array<{ id: string; fantasyRoughId: string; stoneName: string; kapan: string; country: string }> }>(`/api/fantasy/rough?q=${q}&take=5`).catch(() => null),
+        const [polishedRes, reqRes] = await Promise.all([
           apiFetch<{ rows: Array<{ id: string; fantasyLotId: string; shape: string; weight: number; country: string }> }>(`/api/fantasy/polished?q=${q}&take=5`).catch(() => null),
           apiFetch<{ data: Array<{ id: string; requirementCode: string; customerName: string | null }> }>(`/api/requirements?q=${q}&pageSize=5`).catch(() => null),
         ]);
         return {
-          rough: roughRes?.rows?.slice(0, 5) ?? [],
           polished: polishedRes?.rows?.slice(0, 5) ?? [],
           requirements: reqRes?.data?.slice(0, 5) ?? [],
         };
@@ -296,15 +291,12 @@ function GlobalSearch() {
 
   const hasResults =
     searchResults &&
-    (searchResults.rough.length > 0 || searchResults.polished.length > 0 || searchResults.requirements.length > 0);
+    (searchResults.polished.length > 0 || searchResults.requirements.length > 0);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && hasResults) {
-      if (searchResults.rough.length > 0) {
-        setView("fantasy-live", "rough");
-        setOpen(false);
-      } else if (searchResults.polished.length > 0) {
-        setView("fantasy-live", "polished");
+      if (searchResults.polished.length > 0) {
+        setView("fantasy-data", "current");
         setOpen(false);
       } else if (searchResults.requirements.length > 0) {
         setView("requirements-matrix");
@@ -323,7 +315,7 @@ function GlobalSearch() {
         onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
         onFocus={() => setOpen(true)}
         onKeyDown={handleKeyDown}
-        placeholder="Search Lot ID, Rough ID, Kapan..."
+        placeholder="Search lot ID or requirement..."
         className="h-8 pl-8 pr-7 text-xs bg-muted/40 hover:bg-muted/60 focus:bg-card border-border/70 focus:border-[#F9733E]/60 rounded-xl transition-all shadow-2xs"
       />
       {query && (
@@ -346,32 +338,13 @@ function GlobalSearch() {
           )}
           {hasResults && (
             <>
-              {searchResults.rough.length > 0 && (
-                <div className="p-1.5">
-                  <p className="text-[10px] uppercase font-semibold tracking-wide text-muted-foreground px-2 py-0.5">Rough Stones</p>
-                  {searchResults.rough.map((r) => (
-                    <button
-                      key={r.id}
-                      onClick={() => { setView("fantasy-live", "rough"); setOpen(false); }}
-                      className="w-full flex items-center justify-between px-2 py-1 text-xs hover:bg-muted rounded text-left transition-colors cursor-pointer"
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <Gem className="h-3.5 w-3.5 text-primary shrink-0" />
-                        <span className="font-semibold">{r.fantasyRoughId}</span>
-                        <span className="text-muted-foreground truncate">{r.stoneName} (Kapan: {r.kapan})</span>
-                      </div>
-                      <span className="text-[10px] text-muted-foreground uppercase font-mono ml-2 shrink-0">{r.country}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
               {searchResults.polished.length > 0 && (
-                <div className="p-1.5 border-t border-border">
+                <div className="p-1.5">
                   <p className="text-[10px] uppercase font-semibold tracking-wide text-muted-foreground px-2 py-0.5">Polished Lots</p>
                   {searchResults.polished.map((p) => (
                     <button
                       key={p.id}
-                      onClick={() => { setView("fantasy-live", "polished"); setOpen(false); }}
+                      onClick={() => { setView("fantasy-data", "current"); setOpen(false); }}
                       className="w-full flex items-center justify-between px-2 py-1 text-xs hover:bg-muted rounded text-left transition-colors cursor-pointer"
                     >
                       <div className="flex items-center gap-2 min-w-0">
@@ -532,6 +505,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   const view = useNavStore((s) => s.view);
   const tab = useNavStore((s) => s.tab);
   const mainRef = useRef<HTMLElement>(null);
+  // The bell reads /api/notifications, which needs notification.read: without it there is
+  // nothing to show and the request would only be refused.
+  const canReadNotifications = useAuthStore((s) => !!s.user?.permissions.includes("notification.read"));
 
   // <main> is the page's only vertical scroller: another page or tab starts at its top.
   useEffect(() => {
@@ -664,7 +640,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           {/* Right actions */}
           <div className="flex items-center gap-1 sm:gap-1.5 ml-auto flex-shrink-0">
             <ThemeToggle />
-            <NotificationsBell />
+            {canReadNotifications && <NotificationsBell />}
             <UserMenu />
           </div>
         </header>

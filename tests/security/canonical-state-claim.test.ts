@@ -436,7 +436,8 @@ describe("persisted roles cannot re-grant operational access to ADMIN", () => {
     );
     expect(withForgedGrant.permissions).toEqual([]);
     const superAdmin = resolveEffectiveAccess([{ code: "SUPER_ADMIN", isSystem: true, status: "ACTIVE", permissions: [{ permissionCode: "sarin.output.approve" }] }], null);
-    expect([superAdmin.permissions.includes("sarin.output.approve"), OPERATIONAL.every((p) => superAdmin.permissions.includes(p))]).toEqual([false, true]);
+    // A stored grant of a code this build no longer defines is ignored, even on Super Admin.
+    expect([(superAdmin.permissions as string[]).includes("sarin.output.approve"), OPERATIONAL.every((p) => superAdmin.permissions.includes(p))]).toEqual([false, true]);
   });
 
   test("an explicit custom-role grant is still honoured, so specialized access is preserved", () => {

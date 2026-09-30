@@ -15,6 +15,7 @@
  */
 
 import { db } from "@/lib/db";
+import { PLAN_COVERAGE, type PlanCoverageAvailability } from "@/lib/demand/plan-coverage";
 import { Prisma } from "@prisma/client";
 import { recordOperationalFailure, serializePublicFailure } from "@/lib/api/operational-failure";
 import {
@@ -41,7 +42,6 @@ import {
 } from "@/lib/demand/planning-category";
 import {
   classifyCurrentWip,
-  isPlanPieceCoveredElsewhere,
   loadWipClassificationContext,
   loadWipPolicy,
   type WipPolicy,
@@ -84,7 +84,7 @@ export interface DemandCategoryTrace {
   wipCoverage: number;
   unallocatedWip: number;
   pipelineNeed: number;
-  approvedPlanCoverage: number;
+  /** Need after stock and WIP coverage; planned coverage is unavailable and never subtracted. */
   remainingUnplanned: number;
   forecastSignal: number;
   status: string;
@@ -156,14 +156,14 @@ export interface DemandRunResult {
   /** WIP that could not be attributed to any planning category (quarantined, never invented). */
   totalAmbiguousWip: number;
   totalPipelineNeed: number;
-  totalApprovedPlanCoverage: number;
+  /** Planned coverage is not calculated: see PLAN_COVERAGE. */
+  planCoverage: PlanCoverageAvailability;
   totalRemainingUnplanned: number;
   /** The WIP coverage policy applied by this run. */
   wipPolicy: WipPolicy;
   salesCount: number;
   inventoryCount: number;
   wipCount: number;
-  planCount: number;
   excludedCount: number;
   checkpoint: number;
   lastBatchId: string | null;
@@ -482,23 +482,6 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
       },
     });
 
-    // 7. FETCH APPROVED PLAN COVERAGE
-    const approvedPlanOptions = await db.planOption.findMany({
-      where: {
-        selected: true,
-        approvalStatus: "APPROVED",
-        version: {
-          status: { not: "SUPERSEDED" },
-          planningCase: {
-            status: { in: ["APPROVED", "PLAN_APPROVED", "RELEASED", "SELECTED"] },
-          },
-        },
-      },
-      include: {
-        pieces: true,
-      },
-    });
-
     // 8. AGGREGATE CATEGORIES & BUILD TRACE
     const categoryTraces = new Map<string, DemandCategoryTrace>();
     const traceItemsToPersist: Array<Prisma.DemandMetricTraceItemCreateManyInput> = [];
@@ -531,7 +514,6 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
           wipCoverage: 0,
           unallocatedWip: 0,
           pipelineNeed: 0,
-          approvedPlanCoverage: 0,
           remainingUnplanned: 0,
           forecastSignal: 0,
           status: "COMPLETED",
@@ -549,7 +531,6 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
     let salesCount = 0;
     let inventoryCount = 0;
     let wipCount = 0;
-    let planCount = 0;
     let excludedCount = 0;
 
     // Process Confirmed Sales Facts
@@ -1093,62 +1074,6 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
       });
     }
 
-    // Process Approved Plan Coverage (Pieces)
-    for (const plan of approvedPlanOptions) {
-      for (const p of plan.pieces) {
-        planCount++;
-        // Output already tracked as manufacturing WIP or as polished stock is counted
-        // there; counting it again here would double-count the same physical piece.
-        if (isPlanPieceCoveredElsewhere(p, wipInventory.wipLotIds)) {
-          continue;
-        }
-
-        // Never default missing cert intent to GIA
-        if (!p.certificationIntent || !p.certificationIntent.trim()) {
-          excludedCount++;
-          const dqCode = `DQ-UNRESOLVED-PLAN-CERT-${p.id}`;
-          dqIssuesToCreate.push({
-            issueCode: dqCode,
-            source: "DEMAND_CALCULATION",
-            entity: "PlanOptionPiece",
-            recordId: p.id,
-            rule: "MISSING_CERTIFICATION_INTENT",
-            message: `Approved plan piece ${p.pieceCode} has missing certification intent`,
-            severity: "WARNING",
-            status: "OPEN",
-            affectedField: "certificationIntent",
-            downstreamImpact: "Excluded from approved plan coverage",
-          });
-          continue;
-        }
-
-        const resolvedLab = resolveLabNormalization(p.certificationIntent, labMappingsMap);
-        const normLab = resolvedLab.normalized;
-        const normShape = resolveApprovedShape(p.expectedShape, shapeMappingsMap);
-        const weight = Number(p.expectedWeight);
-        const band = resolveWeightBand(weight, weightBands);
-
-        if (band && normShape !== "UNKNOWN" && normLab !== "UNKNOWN" && !resolvedLab.requiresReview) {
-          const trace = getOrCreateCategoryTrace(normLab, normShape, band);
-          trace.approvedPlanCoverage += 1;
-          traceItemsToPersist.push({
-            runId: initialRun.id,
-            planningCategory: trace.category,
-            traceType: "PLAN_APPROVED",
-            lotId: p.pieceCode,
-            quantity: 1,
-            weight,
-            lab: normLab,
-            shape: normShape,
-            weightBand: band.label,
-            isIncluded: true,
-          });
-        } else {
-          excludedCount++;
-        }
-      }
-    }
-
     // Ensure all registered Planning Categories exist in results
     const allPlanningCategories = await db.planningCategory.findMany({
       where: { active: true },
@@ -1172,7 +1097,6 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
     let totalWipCoverage = 0;
     let totalUnallocatedWip = 0;
     let totalPipelineNeed = 0;
-    let totalApprovedPlanCoverage = 0;
     let totalRemainingUnplanned = 0;
     let anyCategoryReviewRequired = false;
 
@@ -1186,7 +1110,8 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
       const physicalShortage = Math.max(0, roundedTarget - trace.availableStock);
       const excessStock = Math.max(0, trace.availableStock - roundedTarget);
       const pipelineNeed = Math.max(0, physicalShortage - trace.wipCoverage);
-      const remainingUnplanned = Math.max(0, pipelineNeed - trace.approvedPlanCoverage);
+      // No selected-plan source exists (PLAN_COVERAGE), so nothing reduces the remaining need.
+      const remainingUnplanned = pipelineNeed;
       const forecastSignal = Math.round(trace.sales90d * 0.15);
 
       trace.monthlyAverage = Math.round(monthlyAvg * 1000) / 1000;
@@ -1212,7 +1137,6 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
       totalWipCoverage += trace.wipCoverage;
       totalUnallocatedWip += trace.unallocatedWip;
       totalPipelineNeed += pipelineNeed;
-      totalApprovedPlanCoverage += trace.approvedPlanCoverage;
       totalRemainingUnplanned += remainingUnplanned;
 
       finalCategories.push(trace);
@@ -1330,7 +1254,6 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
         wipCoverage: c.wipCoverage,
         unallocatedWip: c.unallocatedWip,
         pipelineNeed: c.pipelineNeed,
-        approvedPlanCoverage: c.approvedPlanCoverage,
         remainingUnplanned: c.remainingUnplanned,
         forecastSignal: c.forecastSignal,
         status: c.status,
@@ -1371,7 +1294,6 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
           salesCount,
           inventoryCount,
           wipCount,
-          planCount,
           excludedCount,
           finishedAt: nowUTC(),
           durationMs,
@@ -1426,13 +1348,12 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
       totalUnallocatedWip,
       totalAmbiguousWip: ambiguousWipPieces,
       totalPipelineNeed,
-      totalApprovedPlanCoverage,
+      planCoverage: PLAN_COVERAGE,
       totalRemainingUnplanned,
       wipPolicy,
       salesCount,
       inventoryCount,
       wipCount,
-      planCount,
       excludedCount,
       checkpoint: currentCheckpoint,
       lastBatchId,

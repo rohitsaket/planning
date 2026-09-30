@@ -4,7 +4,7 @@ import { GET as me } from "@/app/api/auth/me/route";
 import { POST as login } from "@/app/api/auth/login/route";
 import { POST as logout } from "@/app/api/auth/logout/route";
 import { GET as customers } from "@/app/api/analysis/customers/route";
-import { POST as approvals } from "@/app/api/planning/approvals/route";
+import { POST as priority } from "@/app/api/requirements/[id]/priority/route";
 import { resetRateLimits } from "@/lib/api/rate-limit";
 
 beforeAll(resetDb);
@@ -17,7 +17,7 @@ describe("authentication (SEC-001)", () => {
     expect(typeof r.json.error.requestId).toBe("string");
   });
   test("anonymous POST of a protected route → 401", async () => {
-    expect((await call(approvals, { method: "POST", body: { caseId: "x", action: "approve" } })).status).toBe(401);
+    expect((await call(priority, { method: "POST", params: { id: "x" }, body: { priority: "HIGH", reason: "anonymous check" } })).status).toBe(401);
   });
   test("forged / unknown session token → 401", async () => {
     expect((await call(customers, { cookie: "dp_session=not-a-real-token" })).status).toBe(401);

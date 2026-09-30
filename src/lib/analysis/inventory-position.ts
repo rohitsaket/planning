@@ -639,7 +639,6 @@ export async function readLotInventory(
 export interface MirrorReconciliation {
   readonly canonicalCurrent: number;
   readonly polishedMirrorRows: number;
-  readonly roughMirrorRows: number;
   readonly memoMirrorRows: number;
   /** Mirror rows whose lot exists in current canonical storage. */
   readonly presentInBoth: number;
@@ -660,13 +659,12 @@ export interface MirrorReconciliation {
  */
 export async function reconcileWithMirrors(client: DbClient = db): Promise<MirrorReconciliation> {
   const agg = await client.$queryRaw<Array<{
-      canonical: number; polished: number; rough: number; memo: number;
+      canonical: number; polished: number; memo: number;
       both: number; canonical_only: number; mirror_only: number; disagree: number;
     }>>`
       SELECT
         (SELECT COUNT(*)::int FROM "LotMasterRecord" WHERE "isCurrent" = TRUE) AS canonical,
         (SELECT COUNT(*)::int FROM "PolishedStone") AS polished,
-        (SELECT COUNT(*)::int FROM "RoughStone")    AS rough,
         (SELECT COUNT(*)::int FROM "MemoRecord")    AS memo,
         (SELECT COUNT(*)::int FROM "PolishedStone" p
            JOIN "LotMasterRecord" m ON m."lotId" = p."fantasyLotId" AND m."isCurrent" = TRUE) AS both,
@@ -683,7 +681,6 @@ export async function reconcileWithMirrors(client: DbClient = db): Promise<Mirro
   return {
     canonicalCurrent: a?.canonical ?? 0,
     polishedMirrorRows: a?.polished ?? 0,
-    roughMirrorRows: a?.rough ?? 0,
     memoMirrorRows: a?.memo ?? 0,
     presentInBoth: a?.both ?? 0,
     canonicalOnly: a?.canonical_only ?? 0,

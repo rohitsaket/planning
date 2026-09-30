@@ -44,7 +44,7 @@ import {
   computeCurrentMappingFingerprint,
 } from "../src/lib/demand/demand-service";
 import { roundHalfUpInt } from "../src/lib/domain/diamond-rules";
-import { SECTEST_DB } from "../tests/security/test-db";
+import { proveDisposableDatabase } from "../src/lib/fantasy/database-environment";
 import { parseISTDateToUTC, getISTDateString } from "../src/lib/fantasy/time";
 // Roles other than SUPER_ADMIN are test fixture custom roles (tests/security/fixture-roles.ts).
 import { testHasPermission } from "../tests/security/fixture-roles";
@@ -89,14 +89,13 @@ async function main() {
   console.log("💎 DEMAND & INVENTORY CALCULATION: 33-SCENARIO HARDENED BEHAVIORAL TEST SUITE");
   console.log("===============================================================================\n");
 
-  const dbUrl = process.env.DATABASE_URL || "";
-  const isTestDb = dbUrl.includes(SECTEST_DB) || dbUrl.includes("planning_sectest") || dbUrl.includes("_test");
-  if (!isTestDb) {
-    console.error("❌ CRITICAL DATABASE SAFETY GUARD TRIGGERED:");
-    console.error(`Refusing to run destructive tests on non-test database: ${dbUrl}`);
+  // Loopback host, an approved isolated test database, no production or staging marker.
+  const proof = proveDisposableDatabase(process.env.DATABASE_URL);
+  if (!proof.proven) {
+    console.error(`Refusing to run destructive tests (${proof.refusal}). ${proof.message}`);
     process.exit(1);
   }
-  console.log(`[Safety Guard] Target database verified: ${dbUrl}\n`);
+  console.log(`[Safety Guard] Isolated test database verified: ${proof.databaseName}\n`);
 
   await cleanAll();
 
@@ -814,155 +813,48 @@ async function main() {
   assert(m17?.wipCoverage === 0, `WIP coverage === 0 for early planning stage`);
 
   // -------------------------------------------------------------------------
-  // TEST 18: Approved current selected plan contributes coverage
+  // TEST 18: Legacy approved plans never reduce demand (planned coverage is unavailable)
   // -------------------------------------------------------------------------
-  console.log("\n--- TEST 18: Approved current selected plan contributes coverage ---");
+  console.log("\n--- TEST 18: Legacy approved, selected and unselected plans leave demand unchanged ---");
+  // Demand before any legacy planning record exists, to compare against.
+  const before18 = await runDemandCalculation({ actor: "Test 18 baseline" });
+  const factual = (r: typeof before18) =>
+    JSON.stringify(r.categories.map((c) => [c.category, c.roundedTarget, c.availableStock, c.physicalShortage, c.wipCoverage, c.pipelineNeed, c.remainingUnplanned]).sort());
+
   const roughStone18 = await db.roughStone.create({
     data: {
-      fantasyRoughId: "ROUGH_18",
-      kapan: "K18",
-      packet: "P18",
-      stoneName: "Stone 18",
-      roughWeight: 2.5,
-      country: "INDIA",
-      branch: "SURAT",
-      fantasyStatus: "PLAN_APPROVED",
-      planningStatus: "PLAN_APPROVED",
+      fantasyRoughId: "ROUGH_18", kapan: "K18", packet: "P18", stoneName: "Stone 18", roughWeight: 2.5,
+      country: "INDIA", branch: "SURAT", fantasyStatus: "PLAN_APPROVED", planningStatus: "PLAN_APPROVED",
     },
   });
-
   const pCase18 = await db.planningCase.create({
-    data: {
-      caseCode: "CASE-18",
-      roughId: roughStone18.id,
-      stoneName: "Stone 18",
-      kapan: "K18",
-      packet: "P18",
-      originalRoughWeight: 2.5,
-      planner: "Chief Planner",
-      status: "APPROVED",
-      currentVersion: 1,
-    },
+    data: { caseCode: "CASE-18", roughId: roughStone18.id, stoneName: "Stone 18", kapan: "K18", packet: "P18", originalRoughWeight: 2.5, planner: "Chief Planner", status: "APPROVED", currentVersion: 1 },
   });
-
-  const pVer18 = await db.planVersion.create({
-    data: {
-      planningCaseId: pCase18.id,
-      versionNumber: 1,
-      status: "APPROVED",
-      createdBy: "Chief Planner",
-    },
-  });
-
-  const pOpt18 = await db.planOption.create({
-    data: {
-      optionCode: "OPT-18-1",
-      versionId: pVer18.id,
-      optionNumber: 1,
-      expectedPieces: 1,
-      expectedTotalWeight: 0.55,
-      yieldPct: 22.0,
-      selected: true,
-      approvalStatus: "APPROVED",
-      certificationIntent: "GIA",
-    },
-  });
-
-  await db.planOptionPiece.create({
-    data: {
-      pieceCode: "PC-18-1",
-      planOptionId: pOpt18.id,
-      sequence: 1,
-      expectedShape: "ROUND",
-      expectedWeight: 0.55,
-      certificationIntent: "GIA",
-    },
-  });
+  const pVer18 = await db.planVersion.create({ data: { planningCaseId: pCase18.id, versionNumber: 1, status: "APPROVED", createdBy: "Chief Planner" } });
+  // An approved, selected option, an unselected one, and one without a certification intent,
+  // each with a piece that matches a demanded category.
+  for (const [n, selected, cert] of [[1, true, "GIA"], [2, false, "GIA"], [3, true, null]] as const) {
+    const opt = await db.planOption.create({
+      data: { optionCode: `OPT-18-${n}`, versionId: pVer18.id, optionNumber: n, expectedPieces: 1, expectedTotalWeight: 0.55, yieldPct: 22.0, selected, approvalStatus: "APPROVED", certificationIntent: cert },
+    });
+    await db.planOptionPiece.create({ data: { pieceCode: `PC-18-${n}`, planOptionId: opt.id, sequence: 1, expectedShape: "ROUND", expectedWeight: 0.55, certificationIntent: cert } });
+  }
 
   const r18 = await runDemandCalculation({ actor: "Test 18" });
+  assert(factual(r18) === factual(before18), "Approved, selected legacy plan pieces leave every category's demand, stock, WIP and remaining need unchanged");
+  assert(r18.planCoverage.status === "UNAVAILABLE" && r18.planCoverage.reason.length > 0, "Planned coverage is reported UNAVAILABLE, with its reason");
   const m18 = r18.categories.find((m) => m.category.includes("GIA|ROUND|0.50 - 0.69 ct"));
-  assert(m18?.approvedPlanCoverage === 1, `Approved plan coverage === 1 (got ${m18?.approvedPlanCoverage})`);
+  assert(!!m18 && m18.remainingUnplanned === m18.pipelineNeed, `Remaining need is the pipeline need, not reduced by a plan (${m18?.remainingUnplanned} vs ${m18?.pipelineNeed})`);
+  assert(!("approvedPlanCoverage" in (m18 ?? {})), "No plan-coverage figure is computed per category");
 
   // -------------------------------------------------------------------------
-  // TEST 19: Superseded, cancelled, rejected, unselected plan does not contribute
+  // TEST 19: Unselected options and pieces linked to output do not count either
   // -------------------------------------------------------------------------
-  console.log("\n--- TEST 19: Superseded / unselected plan does not contribute ---");
-  const pOpt19Unselected = await db.planOption.create({
-    data: {
-      optionCode: "OPT-18-2",
-      versionId: pVer18.id,
-      optionNumber: 2,
-      expectedPieces: 1,
-      expectedTotalWeight: 0.55,
-      yieldPct: 22.0,
-      selected: false, // Not selected
-      approvalStatus: "APPROVED",
-      certificationIntent: "GIA",
-    },
-  });
-  await db.planOptionPiece.create({
-    data: {
-      pieceCode: "PC-18-2",
-      planOptionId: pOpt19Unselected.id,
-      sequence: 1,
-      expectedShape: "ROUND",
-      expectedWeight: 0.55,
-      certificationIntent: "GIA",
-    },
-  });
+  console.log("\n--- TEST 19: Linking a legacy piece to polished output changes nothing ---");
+  await db.planOptionPiece.update({ where: { pieceCode: "PC-18-1" }, data: { actualPolishedLotId: "WIP_LOT_CONVERTED_21" } });
   const r19 = await runDemandCalculation({ actor: "Test 19" });
-  const m19 = r19.categories.find((m) => m.category.includes("GIA|ROUND|0.50 - 0.69 ct"));
-  assert(m19?.approvedPlanCoverage === 1, `Plan coverage remained 1 (unselected plan excluded)`);
-
-  // -------------------------------------------------------------------------
-  // TEST 20: Missing certification intent is NOT defaulted to GIA
-  // -------------------------------------------------------------------------
-  console.log("\n--- TEST 20: Missing certification intent is not defaulted to GIA ---");
-  const pOpt20MissingLab = await db.planOption.create({
-    data: {
-      optionCode: "OPT-18-3",
-      versionId: pVer18.id,
-      optionNumber: 3,
-      expectedPieces: 1,
-      expectedTotalWeight: 0.55,
-      yieldPct: 22.0,
-      selected: true,
-      approvalStatus: "APPROVED",
-      certificationIntent: null, // Missing!
-    },
-  });
-  await db.planOptionPiece.create({
-    data: {
-      pieceCode: "PC-18-3",
-      planOptionId: pOpt20MissingLab.id,
-      sequence: 1,
-      expectedShape: "ROUND",
-      expectedWeight: 0.55,
-      certificationIntent: null, // Missing!
-    },
-  });
-  const r20 = await runDemandCalculation({ actor: "Test 20" });
-  const m20 = r20.categories.find((m) => m.category.includes("GIA|ROUND|0.50 - 0.69 ct"));
-  assert(m20?.approvedPlanCoverage === 1, `Plan coverage remained 1 (missing cert intent not defaulted to GIA)`);
-
-  // -------------------------------------------------------------------------
-  // TEST 21: Plan coverage and WIP cannot double-count same output
-  // -------------------------------------------------------------------------
-  console.log("\n--- TEST 21: Plan coverage and WIP cannot double-count same output ---");
-  // Link actualPolishedLotId to a WIP lot
-  await db.planOptionPiece.update({
-    where: { pieceCode: "PC-18-1" },
-    data: { actualPolishedLotId: "WIP_LOT_CONVERTED_21" },
-  });
-  const r21 = await runDemandCalculation({ actor: "Test 21" });
-  const m21 = r21.categories.find((m) => m.category.includes("GIA|ROUND|0.50 - 0.69 ct"));
-  assert(m21?.approvedPlanCoverage === 0, `Plan piece converted to WIP is excluded from approvedPlanCoverage`);
-
-  // Restore PC-18-1 for further tests
-  await db.planOptionPiece.update({
-    where: { pieceCode: "PC-18-1" },
-    data: { actualPolishedLotId: null },
-  });
+  assert(factual(r19) === factual(before18), "A legacy piece linked to a polished lot does not alter demand");
+  await db.planOptionPiece.update({ where: { pieceCode: "PC-18-1" }, data: { actualPolishedLotId: null } });
 
   // -------------------------------------------------------------------------
   // TEST 22: Failed calculation produces one FAILED run with no partial metrics
@@ -1164,7 +1056,6 @@ async function main() {
   // Reading remains administrative.
   assert(testHasPermission("ADMIN", "demand.trace"), "ADMIN has demand.trace");
   assert(testHasPermission("ADMIN", "demand.export"), "ADMIN has demand.export");
-  assert(!testHasPermission("ADMIN", "plan.approve"), "ADMIN strictly DOES NOT have plan.approve");
   assert(!testHasPermission("ADMIN", "fantasy.sync.run"), "ADMIN does NOT automatically have fantasy.sync.run");
   assert(!testHasPermission("ADMIN", "fantasy.sync.unlock"), "ADMIN does NOT automatically have fantasy.sync.unlock");
 

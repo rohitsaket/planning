@@ -17,14 +17,6 @@ export const PERMISSIONS = [
   "requirement.create",
   "requirement.override",
   "requirement.export",
-  "plan.read",
-  "plan.create",
-  "plan.select",
-  "plan.approve",
-  "plan.replan",
-  "plan.export",
-  "rough.read",
-  "rough.reserve",
   "demand.run",
   "demand.trace",
   "demand.export",
@@ -41,8 +33,6 @@ export const PERMISSIONS = [
   "data_quality.export",
   "config.read",
   "config.export",
-  "approval_policy.read",
-  "approval_policy.manage",
   "notification.read",
   // Marking a notification read is a write: it must not travel on the read permission.
   "notification.manage",
@@ -87,9 +77,6 @@ export const PERMISSIONS = [
   "sarin.issue.review",
   "sarin.issue.override",
   "sarin.output.generate",
-  // Planning approval authority. Never granted through the `ALL` shortcut — see
-  // EXPLICIT_GRANT_PERMISSIONS.
-  "sarin.output.approve",
   "sarin.output.export",
   // Shape mappings: reading the catalog, and changing it (a saved change applies at once,
   // after the server's checks). Every change is audited and kept as a snapshot.
@@ -104,7 +91,6 @@ export const EXPORT_PERMISSIONS = [
   "customers.export",
   "orders.export",
   "requirement.export",
-  "plan.export",
   "demand.export",
   "fantasy.export",
   "overall.export",
@@ -118,14 +104,6 @@ export const EXPORT_PERMISSIONS = [
 export type Permission = (typeof PERMISSIONS)[number];
 
 /**
- * Permissions Super Admin does not receive by holding "everything". A permission listed here
- * reaches a user only through a custom role that names it, built deliberately by whoever
- * holds that authority. Approving Sarin output for planning is a planning authority, not a
- * consequence of administering the system.
- */
-export const EXPLICIT_GRANT_PERMISSIONS = ["sarin.output.approve"] as const satisfies readonly Permission[];
-
-/**
  * The one built-in system role. Every narrower access profile is a custom role (Role rows
  * with isSystem = false and explicit RolePermission rows), created and assigned under
  * role.manage and user.roles.assign.
@@ -134,7 +112,7 @@ export const ROLES = ["SUPER_ADMIN"] as const;
 
 export type Role = (typeof ROLES)[number];
 
-const ALL = PERMISSIONS.filter((p) => !(EXPLICIT_GRANT_PERMISSIONS as readonly Permission[]).includes(p)) as Permission[];
+const ALL: Permission[] = [...PERMISSIONS];
 
 export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   SUPER_ADMIN: ALL,

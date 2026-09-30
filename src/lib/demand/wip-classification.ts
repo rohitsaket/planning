@@ -402,7 +402,6 @@ export interface ClassifiedWipInventory {
   results: WipClassificationResult[];
   summary: WipSummary;
   /** Lot ids currently tracked as WIP — used to stop approved-plan coverage double-counting them. */
-  wipLotIds: Set<string>;
   eligibleLotIds: Set<string>;
 }
 
@@ -455,21 +454,6 @@ export async function classifyCurrentWip(
     policy: ctx.policy,
     results,
     summary: summarizeWipClassifications(results),
-    wipLotIds: new Set(results.map((r) => r.lotId)),
     eligibleLotIds: new Set(results.filter((r) => r.countsAsCoverage).map((r) => r.lotId)),
   };
-}
-
-/**
- * True when an approved plan piece is already represented by a WIP record or by
- * polished output, so approved-plan coverage must not count it again.
- */
-export function isPlanPieceCoveredElsewhere(
-  piece: { fulfilled: boolean; fantasyChildId: string | null; actualPolishedLotId: string | null },
-  wipLotIds: Set<string>,
-): boolean {
-  if (piece.fulfilled) return true;
-  if (piece.actualPolishedLotId) return true;
-  if (piece.fantasyChildId && wipLotIds.has(piece.fantasyChildId)) return true;
-  return false;
 }

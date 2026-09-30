@@ -93,39 +93,39 @@ check(`route sweep: ${entries.length} handlers × (anonymous + ${sessions.length
 
 // ---- targeted runtime checks ----
 const admin = sessions.find((s) => s.role === "ADMIN")!;
-const approver = sessions.find((s) => s.role === "PLANNING_MANAGER")!;
+// Any signed-in role that may override a requirement's priority: the live mutation used below.
+const overrider = sessions.find((s) => testHasPermission(s.role, "requirement.override"))!;
 const j = (cookie: string, url: string, init: RequestInit = {}) => fetch(BASE + url, { ...init, headers: { cookie, "content-type": "application/json", ...(init.headers ?? {}) } });
 
 let r = await fetch(`${BASE}/api/analysis/customers`, { headers: { cookie: "dp_session=forged", "x-user": "admin", "x-role": "SUPER_ADMIN" } });
 check("forged cookie + X-User/X-Role headers → 401", r.status === 401, `status ${r.status}`);
-r = await j(admin.cookie, "/api/planning/approvals", { method: "POST", body: "{not json" });
+const requirement = ((await (await j(overrider.cookie, "/api/requirements?pageSize=1")).json()) as { rows: { id: string }[] }).rows[0];
+const priorityUrl = `/api/requirements/${requirement?.id ?? "zzz-nonexistent"}/priority`;
+r = await j(overrider.cookie, priorityUrl, { method: "POST", body: "{not json" });
 check("malformed JSON → 400", r.status === 400, `status ${r.status}`);
 r = await j(admin.cookie, "/api/analysis/sales?windowDays=abc");
 check("windowDays=abc → 400", r.status === 400, `status ${r.status}`);
-r = await j(admin.cookie, "/api/planning/cases?pageSize=999999");
+r = await j(admin.cookie, "/api/data-quality?pageSize=999999");
 check("over-limit pageSize → 400", r.status === 400, `status ${r.status}`);
-r = await j(admin.cookie, "/api/planning/cases?pageSize=1");
-const paged = (await r.json()) as { rows: unknown[]; hasMore: boolean };
-check("pageSize=1 → 1 row + hasMore", paged.rows.length === 1 && paged.hasMore === true);
+r = await j(admin.cookie, "/api/data-quality?pageSize=1");
+const paged = (await r.json()) as { rows: unknown[]; paging: { total: number; hasMore: boolean } };
+check("pageSize=1 → at most 1 row, hasMore matches the total", paged.rows.length <= 1 && paged.paging.hasMore === paged.paging.total > 1);
 
-// forged approver over real HTTP
-const queue = (await (await j(approver.cookie, "/api/planning/approvals")).json()) as { rows: { id: string; status: string; hasSelection: boolean }[] };
-const target = queue.rows.find((x) => x.hasSelection && ["APPROVAL_PENDING", "SELECTED"].includes(x.status));
-if (target) {
-  r = await j(approver.cookie, "/api/planning/approvals", { method: "POST", body: JSON.stringify({ caseId: target.id, action: "approve", approver: "ceo", actor: "ceo" }) });
-  const audit = (await (await j(admin.cookie, "/api/admin/audit?action=PLAN_APPROVED&pageSize=5")).json()) as { rows: { actor: string; action: string; entityId: string }[] };
-  const row = audit.rows.find((a) => a.action === "PLAN_APPROVED" && a.entityId === target.id);
-  check("forged approver 'ceo' over HTTP → audit actor is the session user", r.status === 200 && row?.actor === approver.username, `status ${r.status}, actor ${row?.actor}`);
-  r = await j(approver.cookie, "/api/planning/approvals", { method: "POST", body: JSON.stringify({ caseId: target.id, action: "approve" }) });
-  check("approving the same case again → 409", r.status === 409, `status ${r.status}`);
+// forged actor over real HTTP
+if (requirement) {
+  r = await j(overrider.cookie, priorityUrl, { method: "POST", body: JSON.stringify({ priority: "HIGH", reason: "runtime sweep identity check", actor: "ceo", updatedBy: "ceo" }) });
+  const audit = (await (await j(admin.cookie, "/api/admin/audit?action=REQUIREMENT_PRIORITY_OVERRIDE&pageSize=5")).json()) as { rows: { actor: string; action: string; entityId: string }[] };
+  const row = audit.rows.find((a) => a.entityId === requirement.id);
+  check("forged actor 'ceo' over HTTP → audit actor is the session user", r.status === 200 && row?.actor === overrider.username, `status ${r.status}, actor ${row?.actor}`);
 }
-const rejected = ((await (await j(admin.cookie, "/api/planning/cases?status=REJECTED")).json()) as { rows: { id: string }[] }).rows[0];
-if (rejected) {
-  r = await j(approver.cookie, "/api/planning/approvals", { method: "POST", body: JSON.stringify({ caseId: rejected.id, action: "approve" }) });
-  check("REJECTED case cannot be approved → 409", r.status === 409, `status ${r.status}`);
-}
-r = await fetch(`${BASE}/api/planning/approvals`, { method: "POST", headers: { cookie: approver.cookie, "content-type": "application/json", origin: "https://evil.example" }, body: "{}" });
+r = await fetch(BASE + priorityUrl, { method: "POST", headers: { cookie: overrider.cookie, "content-type": "application/json", origin: "https://evil.example" }, body: "{}" });
 check("cross-origin POST with a valid cookie → 403", r.status === 403, `status ${r.status}`);
+
+// The retired legacy planning APIs are not served, whoever asks.
+for (const url of ["/api/planning/cases", "/api/planning/compare/x", "/api/planning/pieces", "/api/planning/workbench", "/api/planning/reservations", "/api/planning/approvals", "/api/planning/rough", "/api/admin/approval-policy", "/api/fantasy/rough"]) {
+  const [get, post] = [await j(admin.cookie, url), await j(admin.cookie, url, { method: "POST", body: "{}" })];
+  check(`retired ${url} → 404`, get.status === 404 && post.status === 404, `GET ${get.status}, POST ${post.status}`);
+}
 
 // headers
 const page = await fetch(`${BASE}/`);

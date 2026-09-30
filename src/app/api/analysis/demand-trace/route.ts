@@ -17,6 +17,7 @@ import {
 } from "@/lib/demand/demand-result-presentation";
 import { deriveHistoricalSourceState } from "@/lib/fantasy/source-state";
 import { describeScope, describeScopeApplication, scopeWhere } from "@/lib/auth/access-scope";
+import { PLAN_COVERAGE } from "@/lib/demand/plan-coverage";
 
 /**
  * DEMAND RESULT DETAILS — safe browser response.
@@ -85,7 +86,8 @@ export const GET = withApi(
       lookbackEnd: null,
       sourceMode: sourceState.effectiveState,
       isSimulated: sourceState.isSimulated,
-      recordsConsidered: { sales: 0, inventory: 0, manufacturing: 0, approvedPlanPieces: 0, excluded: 0 },
+      recordsConsidered: { sales: 0, inventory: 0, manufacturing: 0, excluded: 0 },
+      planCoverage: PLAN_COVERAGE,
       wipCoverage: toWipCoverageState({ policyConfigured: wipPolicy.appliesCoverage, appliedInRun: false }),
       canViewSupportingRecords: canSeeRecords,
       categories: [],
@@ -100,7 +102,7 @@ export const GET = withApi(
         totalMemo: 0,
         totalWipCoverage: 0,
         totalPipelineNeed: 0,
-        totalApprovedPlanCoverage: 0,
+        totalApprovedPlanCoverage: null,
         totalRemainingUnplanned: 0,
         categoriesWithShortage: 0,
         categoriesWithExcess: 0,
@@ -121,7 +123,9 @@ export const GET = withApi(
     const weightBand = m.weightBandLabel || parts.slice(2).join("|") || "—";
 
     const physicalShortage = num(m.physicalShortage);
-    const remainingUnplanned = num(m.remainingUnplanned);
+    // The need after stock and WIP coverage. Runs recorded while legacy (seeded) plans were
+    // subtracted stored a smaller remainder; no plan coverage is subtracted now (PLAN_COVERAGE).
+    const remainingUnplanned = num(m.pipelineNeed);
     const excessStock = num(m.excessStock);
     const businessStatus = toBusinessStatus({
       metricStatus: m.status,
@@ -151,7 +155,8 @@ export const GET = withApi(
       wipCoverage: wipCoverage.appliedInRun ? num(m.wipCoverage) : null,
       unallocatedWip: num(m.unallocatedWip),
       pipelineNeed: num(m.pipelineNeed),
-      approvedPlanCoverage: num(m.approvedPlanCoverage),
+      // Unavailable, not zero: no selected-plan source exists (PLAN_COVERAGE).
+      approvedPlanCoverage: null,
       remainingUnplanned,
       excessStock,
     };
@@ -238,7 +243,7 @@ export const GET = withApi(
     totalMemo: categories.reduce((s, c) => s + c.memoQty, 0),
     totalWipCoverage: categories.reduce((s, c) => s + (c.wipCoverage ?? 0), 0),
     totalPipelineNeed: categories.reduce((s, c) => s + c.pipelineNeed, 0),
-    totalApprovedPlanCoverage: categories.reduce((s, c) => s + c.approvedPlanCoverage, 0),
+    totalApprovedPlanCoverage: null,
     totalRemainingUnplanned: categories.reduce((s, c) => s + c.remainingUnplanned, 0),
     categoriesWithShortage: categories.filter((c) => c.physicalShortage > 0).length,
     categoriesWithExcess: categories.filter((c) => c.excessStock > 0).length,
@@ -262,10 +267,10 @@ export const GET = withApi(
       sales: targetRun.salesCount,
       inventory: targetRun.inventoryCount,
       manufacturing: targetRun.wipCount,
-      approvedPlanPieces: targetRun.planCount,
       excluded: targetRun.excludedCount,
     },
     wipCoverage,
+    planCoverage: PLAN_COVERAGE,
     canViewSupportingRecords: canSeeRecords,
     categories,
     selectedCategory,

@@ -9,7 +9,6 @@ import { OVERVIEW_TABS } from "@/components/diamond/views/consolidated/overview-
 import { SALES_ANALYSIS_TABS } from "@/components/diamond/views/consolidated/sales-analysis-trends-view";
 import { INVENTORY_TABS } from "@/components/diamond/views/consolidated/inventory-position-view";
 import { FANTASY_DATA_TABS } from "@/components/diamond/views/consolidated/fantasy-data-view";
-import { PLANNING_WORKBENCH_TABS } from "@/components/diamond/views/consolidated/planning-workbench-host-view";
 import { MAPPINGS_TABS } from "@/components/diamond/views/consolidated/mappings-view";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
@@ -17,7 +16,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import {
-  LayoutDashboard, BarChart3, TrendingUp, Users, Gem, FileText, Package, Boxes, AlertTriangle, Search, Activity, Scale, FileWarning, Workflow, CalendarClock, Hash, RefreshCw, BookCheck, ClipboardList, CornerDownLeft, HardDrive, Shapes,
+  LayoutDashboard, BarChart3, TrendingUp, Users, FileText, Package, Boxes, AlertTriangle, Search, Activity, FileWarning, Workflow, CalendarClock, Hash, RefreshCw, ClipboardList, CornerDownLeft, HardDrive, Shapes,
 } from "lucide-react";
 import { ReactNode } from "react";
 
@@ -37,7 +36,6 @@ const HOST_TABS: Partial<Record<ViewId, readonly HostTabItem[]>> = {
   "analysis-sales": SALES_ANALYSIS_TABS,
   "analysis-inventory-position": INVENTORY_TABS,
   "fantasy-data": FANTASY_DATA_TABS,
-  "planning-workbench": PLANNING_WORKBENCH_TABS,
   "admin-mappings": MAPPINGS_TABS,
 };
 
@@ -64,7 +62,7 @@ export const PALETTE_ITEMS: PaletteItem[] = [
   { id: "analysis-inventory-position", tab: "excess", label: "Inventory → Excess Stock", group: "Analysis", icon: <Package className="h-4 w-4" />, keywords: ["excess", "surplus", "overstock"] },
   { id: "analysis-inventory-position", tab: "aging", label: "Inventory → Aging", group: "Analysis", icon: <CalendarClock className="h-4 w-4" />, keywords: ["aging", "stock aging", "bucket", "location"] },
   // Data
-  { id: "fantasy-data", label: "Fantasy Data", group: "Data", icon: <Boxes className="h-4 w-4" />, keywords: ["fantasy", "current data", "rough stock", "polished stock"] },
+  { id: "fantasy-data", label: "Fantasy Data", group: "Data", icon: <Boxes className="h-4 w-4" />, keywords: ["fantasy", "current data", "polished stock"] },
   { id: "fantasy-data", tab: "integration", label: "Fantasy Data → Integration Status", group: "Data", icon: <RefreshCw className="h-4 w-4" />, keywords: ["sync", "synchronization", "integration", "freshness", "retry"] },
   { id: "fantasy-data", tab: "history", label: "Fantasy Data → Historical Data", group: "Data", icon: <HardDrive className="h-4 w-4" />, keywords: ["historical", "archive", "lots", "overall data"] },
   { id: "data-quality-issues", label: "Import Issues", group: "Data", icon: <FileWarning className="h-4 w-4" />, keywords: ["import issues", "invalid records", "unmapped", "reconciliation", "rejected records", "data quality"] },
@@ -74,11 +72,7 @@ export const PALETTE_ITEMS: PaletteItem[] = [
   { id: "orders-exceptions", label: "Order Exceptions", group: "Requirements", icon: <FileText className="h-4 w-4" />, keywords: ["customer orders", "backorders", "special requirements", "exceptions"] },
   { id: "replenishment-allocation", label: "Replenishment & Allocation", group: "Requirements", icon: <Workflow className="h-4 w-4" />, keywords: ["replenishment", "allocation", "reserve"] },
   // Planning
-  { id: "planning-rough-availability", label: "Rough Availability", group: "Planning", icon: <Gem className="h-4 w-4" />, keywords: ["rough", "available stones", "kapan", "packet type"] },
   { id: "planning-workbook-import", label: "Workbook Import", group: "Planning", icon: <FileText className="h-4 w-4" />, keywords: ["workbook", "import", "sarin", "csv", "output", "export"] },
-  { id: "planning-workbench", label: "Planning Workbench", group: "Planning", icon: <LayoutDashboard className="h-4 w-4" />, keywords: ["planning cases", "candidate plans", "planned pieces", "reservations"] },
-  { id: "planning-workbench", tab: "comparison", label: "Planning Workbench → Comparison", group: "Planning", icon: <Scale className="h-4 w-4" />, keywords: ["plan comparison", "compare", "yield", "coverage"] },
-  { id: "planning-approval-queue", label: "Approval Queue", group: "Planning", icon: <BookCheck className="h-4 w-4" />, keywords: ["approval", "queue", "sign-off"] },
   // Administration
   { id: "admin-users-access", label: "Users & Access", group: "Administration", icon: <Users className="h-4 w-4" />, keywords: ["users", "roles", "permissions", "access requests"] },
   { id: "admin-mappings", label: "Mappings", group: "Administration", icon: <Shapes className="h-4 w-4" />, keywords: ["mappings", "weight bands", "lab mapping", "shape mapping", "status mapping"] },

@@ -1,141 +1,53 @@
+// Identity and transaction integrity on a live mutation. The legacy approval, replan and
+// reservation routes these checks once covered are retired (see retired-features.test.ts);
+// the same guarantees are held here against the requirement priority override.
 import { beforeAll, describe, expect, test } from "./harness";
-import { call, db, makeCase, makeRough, makeUser, resetDb } from "./helpers";
-import { POST as approvals } from "@/app/api/planning/approvals/route";
-import { POST as reserve } from "@/app/api/planning/reservations/route";
-import { POST as replan } from "@/app/api/planning/cases/[id]/replan/route";
+import { call, db, makeUser, resetDb } from "./helpers";
 import { POST as priority } from "@/app/api/requirements/[id]/priority/route";
-import { POST as policy } from "@/app/api/admin/approval-policy/route";
-import { readApprovalPolicy } from "@/lib/planning/approval-policy";
+import { POST as rolesPost } from "@/app/api/admin/roles/route";
 
-let planner: Awaited<ReturnType<typeof makeUser>>, approver: typeof planner, root: typeof planner;
+let manager: Awaited<ReturnType<typeof makeUser>>;
 beforeAll(async () => {
   await resetDb();
-  planner = await makeUser("planner1", "PLANNER", "Planner One");
-  approver = await makeUser("approver1", "PLANNING_MANAGER", "Approver One");
-  root = await makeUser("root1", "SUPER_ADMIN");
+  manager = await makeUser("analysis.mgr", "ANALYSIS_MANAGER");
 });
 const lastAudit = (action: string) => db.auditLog.findFirst({ where: { action }, orderBy: { timestamp: "desc" } });
+const makeRequirement = () =>
+  db.requirement.create({ data: { requirementCode: `REQ-T-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, type: "STOCK_REPLENISHMENT", groupCode: "G", companyCode: "C", country: "IN", branch: "B", requiredQty: 2 } });
 
 describe("identity integrity (SEC-002): body identity fields never become the actor", () => {
-  test("approver forged in body → persisted approver is the session user", async () => {
-    const c = await makeCase();
-    const r = await call(approvals, { method: "POST", cookie: approver.cookie, body: { caseId: c.caseId, action: "approve", approver: "admin", actor: "admin", approvedBy: "admin" } });
+  test("actor forged in a priority override body → the session user is recorded", async () => {
+    const req = await makeRequirement();
+    const r = await call(priority, { method: "POST", cookie: manager.cookie, params: { id: req.id }, body: { priority: "HIGH", reason: "customer escalation", actor: "admin", updatedBy: "admin" } });
     expect(r.status).toBe(200);
-    const row = await db.planningCase.findUnique({ where: { id: c.caseId } });
-    expect(row?.approvedBy).toBe("approver1");
-    const opt = await db.planOption.findUnique({ where: { id: c.optionIds[0] } });
-    expect(opt?.approvedBy).toBe("approver1");
-    const a = await lastAudit("PLAN_APPROVED");
-    expect([a?.actor, a?.actorUserId, a?.actorRole]).toEqual(["approver1", approver.user.id, "PLANNING_MANAGER"]);
-    expect(a?.requestId).toBeTruthy();
-    expect(a?.before).toContain("APPROVAL_PENDING");
-  });
-  test("reservedBy forged in body → persisted reserver is the session user", async () => {
-    const rough = await makeRough();
-    const r = await call(reserve, { method: "POST", cookie: planner.cookie, body: { roughId: rough.id, reservedBy: "admin" } });
-    expect(r.status).toBe(200);
-    const res = await db.roughReservation.findFirst({ where: { roughId: rough.id } });
-    expect([res?.reservedBy, res?.reservedByUserId]).toEqual(["planner1", planner.user.id]);
-    expect((await lastAudit("RESERVATION"))?.actor).toBe("planner1");
-  });
-  test("actor forged in replan / priority / approval-policy bodies → session user recorded or refused", async () => {
-    const c = await makeCase({ status: "APPROVED" });
-    expect((await call(replan, { method: "POST", cookie: planner.cookie, params: { id: c.caseId }, body: { reason: "yield below threshold", actor: "admin" } })).status).toBe(200);
-    expect((await lastAudit("PLAN_REPLAN"))?.actor).toBe("planner1");
-    expect((await db.planVersion.findFirst({ where: { planningCaseId: c.caseId, versionNumber: 2 } }))?.createdBy).toBe("planner1");
-
-    const req = await db.requirement.create({ data: { requirementCode: `REQ-T-${Date.now()}`, type: "STOCK_REPLENISHMENT", groupCode: "G", companyCode: "C", country: "IN", branch: "B", requiredQty: 2 } });
-    const mgr = await makeUser("analysis.mgr", "ANALYSIS_MANAGER");
-    expect((await call(priority, { method: "POST", cookie: mgr.cookie, params: { id: req.id }, body: { priority: "HIGH", reason: "customer escalation", actor: "admin" } })).status).toBe(200);
     expect((await db.requirement.findUnique({ where: { id: req.id } }))?.updatedBy).toBe("analysis.mgr");
-
-    // The approval policy refuses any field it does not define, so a forged actor changes nothing.
-    const forged = await call(policy, { method: "POST", cookie: root.cookie, body: { requireSeparateApprover: false, reason: "forged actor test", actor: "someone.else" } });
-    expect(forged.status).toBe(400);
-    expect((await readApprovalPolicy(db)).requireSeparateApprover).toBe(true);
-    expect((await call(policy, { method: "POST", cookie: root.cookie, body: { requireSeparateApprover: true, reason: "confirm the default" } })).status).toBe(200);
-    const pa = await lastAudit("APPROVAL_POLICY_CHANGED");
-    expect([pa?.actor, pa?.category]).toEqual(["root1", "SECURITY"]);
-    expect(pa?.after).toContain("true");
+    const a = await lastAudit("REQUIREMENT_PRIORITY_OVERRIDE");
+    expect([a?.actor, a?.actorUserId]).toEqual(["analysis.mgr", manager.user.id]);
   });
-  test("privileged admin changes: ADMIN (no manage permission) → 403", async () => {
+
+  test("privileged admin changes: ADMIN (no manage permission) → 403, nothing written", async () => {
     const admin = await makeUser("admin1", "ADMIN");
-    expect((await call(policy, { method: "POST", cookie: admin.cookie, body: { requireSeparateApprover: false, reason: "admin should not" } })).status).toBe(403);
-    expect((await readApprovalPolicy(db)).requireSeparateApprover).toBe(true);
+    const code = `IDENTITY_${Date.now().toString(36).toUpperCase()}`;
+    const r = await call(rolesPost, { method: "POST", cookie: admin.cookie, body: { op: "createRole", code, name: code, permissions: [] } });
+    expect(r.status).toBe(403);
+    expect(await db.role.count({ where: { code } })).toBe(0);
   });
 });
 
-describe("approval integrity (SEC-007)", () => {
-  for (const status of ["REJECTED", "CANCELLED", "SUPERSEDED", "APPROVED", "RELEASED_TO_MANUFACTURING", "REPLAN_REQUIRED", "DRAFT"]) {
-    test(`case in ${status} cannot be approved → 409, state unchanged`, async () => {
-      const c = await makeCase({ status });
-      const r = await call(approvals, { method: "POST", cookie: approver.cookie, body: { caseId: c.caseId, action: "approve" } });
-      expect(r.status).toBe(409);
-      expect(r.json.error.code).toBe("INVALID_CASE_STATE");
-      expect((await db.planningCase.findUnique({ where: { id: c.caseId } }))?.status).toBe(status);
-    });
-  }
-  test("reject then approve: the rejected plan does not come back", async () => {
-    const c = await makeCase();
-    expect((await call(approvals, { method: "POST", cookie: approver.cookie, body: { caseId: c.caseId, action: "reject", comment: "no" } })).status).toBe(200);
-    expect((await call(approvals, { method: "POST", cookie: approver.cookie, body: { caseId: c.caseId, action: "approve" } })).status).toBe(409);
-    expect((await db.planningCase.findUnique({ where: { id: c.caseId } }))?.status).toBe("REJECTED");
-  });
-  test("superseded current version → 409", async () => {
-    const c = await makeCase();
-    await db.planVersion.update({ where: { id: c.versionId }, data: { status: "SUPERSEDED", supersededAt: new Date() } });
-    const r = await call(approvals, { method: "POST", cookie: approver.cookie, body: { caseId: c.caseId, action: "approve" } });
-    expect([r.status, r.json.error.code]).toEqual([409, "VERSION_NOT_CURRENT"]);
-  });
-  test("selected option from another case/version → 409", async () => {
-    const a = await makeCase();
-    const b = await makeCase();
-    await db.planningCase.update({ where: { id: a.caseId }, data: { selectedOptionId: b.optionIds[0] } });
-    const r = await call(approvals, { method: "POST", cookie: approver.cookie, body: { caseId: a.caseId, action: "approve" } });
-    expect([r.status, r.json.error.code]).toEqual([409, "OPTION_NOT_IN_CURRENT_VERSION"]);
-  });
-  test("no selected option → 409 (no silent fallback to the first option)", async () => {
-    const c = await makeCase({ status: "READY_FOR_REVIEW", select: false });
-    const r = await call(approvals, { method: "POST", cookie: approver.cookie, body: { caseId: c.caseId, action: "approve" } });
-    expect([r.status, r.json.error.code]).toEqual([409, "OPTION_NOT_SELECTED"]);
-    const ok = await call(approvals, { method: "POST", cookie: approver.cookie, body: { caseId: c.caseId, action: "approve", optionId: c.optionIds[1] } });
-    expect(ok.status).toBe(200);
-    expect((await db.planningCase.findUnique({ where: { id: c.caseId } }))?.selectedOptionId).toBe(c.optionIds[1]);
-  });
-  test("rough actively reserved for another case → 409", async () => {
-    const other = await makeCase();
-    const mine = await makeCase({ roughId: other.roughId });
-    await db.roughReservation.create({ data: { roughId: other.roughId, planningCaseId: other.caseId, status: "RESERVED", reservedBy: "x", activeRoughKey: other.roughId } });
-    const r = await call(approvals, { method: "POST", cookie: approver.cookie, body: { caseId: mine.caseId, action: "approve" } });
-    expect([r.status, r.json.error.code]).toEqual([409, "ROUGH_RESERVED_ELSEWHERE"]);
-  });
-  test("separation of duties: the case planner cannot approve (403); switching the approval policy off allows it", async () => {
-    const c = await makeCase({ planner: "Approver One" }); // matches approver1's display name
-    const r = await call(approvals, { method: "POST", cookie: approver.cookie, body: { caseId: c.caseId, action: "approve" } });
-    expect(r.status).toBe(403);
-    expect((await call(policy, { method: "POST", cookie: root.cookie, body: { requireSeparateApprover: false, reason: "single approver site" } })).status).toBe(200);
-    expect((await call(approvals, { method: "POST", cookie: approver.cookie, body: { caseId: c.caseId, action: "approve" } })).status).toBe(200);
-    expect((await call(policy, { method: "POST", cookie: root.cookie, body: { requireSeparateApprover: true, reason: "restore the default" } })).status).toBe(200);
-  });
-  test("planner (no plan.approve) → 403; unknown case → 404", async () => {
-    const c = await makeCase();
-    expect((await call(approvals, { method: "POST", cookie: planner.cookie, body: { caseId: c.caseId, action: "approve" } })).status).toBe(403);
-    expect((await call(approvals, { method: "POST", cookie: approver.cookie, body: { caseId: "missing", action: "approve" } })).status).toBe(404);
-  });
-  test("transaction integrity: if the audit write fails, nothing is persisted", async () => {
-    const c = await makeCase();
-    await db.$executeRawUnsafe(`CREATE OR REPLACE FUNCTION sectest_fail_audit() RETURNS trigger AS $$ BEGIN IF NEW."action" = 'PLAN_APPROVED' THEN RAISE EXCEPTION 'sectest forced failure'; END IF; RETURN NEW; END; $$ LANGUAGE plpgsql`);
+describe("transaction integrity (SEC-007)", () => {
+  test("if the audit write fails, the override is not persisted and no internals leak", async () => {
+    const req = await makeRequirement();
+    await db.$executeRawUnsafe(`CREATE OR REPLACE FUNCTION sectest_fail_audit() RETURNS trigger AS $$ BEGIN IF NEW."action" = 'REQUIREMENT_PRIORITY_OVERRIDE' THEN RAISE EXCEPTION 'sectest forced failure'; END IF; RETURN NEW; END; $$ LANGUAGE plpgsql`);
     await db.$executeRawUnsafe(`CREATE TRIGGER sectest_fail_audit BEFORE INSERT ON "AuditLog" FOR EACH ROW EXECUTE FUNCTION sectest_fail_audit()`);
     try {
-      const r = await call(approvals, { method: "POST", cookie: approver.cookie, body: { caseId: c.caseId, action: "approve" } });
+      const r = await call(priority, { method: "POST", cookie: manager.cookie, params: { id: req.id }, body: { priority: "CRITICAL", reason: "rollback check" } });
       expect(r.status).toBe(500);
-      expect(r.json.error.message).toBe("An unexpected error occurred."); // no internals leaked
+      expect(r.json.error.message).toBe("An unexpected error occurred.");
       expect(JSON.stringify(r.json)).not.toContain("sectest forced failure");
     } finally {
       await db.$executeRawUnsafe(`DROP TRIGGER sectest_fail_audit ON "AuditLog"`);
     }
-    const row = await db.planningCase.findUnique({ where: { id: c.caseId } });
-    expect([row?.status, row?.approvedBy]).toEqual(["APPROVAL_PENDING", null]);
-    expect((await db.planOption.findUnique({ where: { id: c.optionIds[0] } }))?.approvalStatus).toBe("DRAFT");
+    const row = await db.requirement.findUniqueOrThrow({ where: { id: req.id } });
+    expect([row.requirementPriority, row.updatedBy]).toEqual([null, null]);
   });
 });

@@ -142,7 +142,7 @@ beforeEach(async () => {
 describe("sarin processing: one simple form", () => {
   test("the page is one compact form with Process File; no stage interface and no mapping choice", async () => {
     const page = await render(WorkbookImportView, {}, planner);
-    for (const label of ["Prepare Sarin Output", "Sarin CSV file", "Packet type", "Lab (optional)", "Planning date", "Process File", "CSV without a header · Maximum 8.0 MB", "Recent Files"]) {
+    for (const label of ["Prepare Sarin Output", "Sarin CSV file", "Packet Type", "Lab (optional)", "Planning date", "Process File", "CSV without a header · Maximum 8.0 MB", "Recent Files"]) {
       expect([label, page.text.includes(label)]).toEqual([label, true]);
     }
     // There is no country field and no stone-type wording for the packet classification.

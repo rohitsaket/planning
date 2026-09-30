@@ -27,23 +27,17 @@ const EXACT: Record<string, string | readonly string[]> = {
   // page, and each tab still enforces its own.
   "analysis-customers-orders": ["customers.read", "orders.read"],
   "analysis-inventory-position": "analysis.read", // Inventory, including Stockout, Excess and Aging
-  "fantasy-data": ["rough.read", "fantasy.read", "overall.read"],
+  "fantasy-data": ["fantasy.read", "overall.read"],
   "data-quality-issues": "data_quality.read",
   "requirements-matrix": "requirement.read",
   "requirements-priority-queue": "requirement.read",
   "orders-exceptions": "orders.read",
   "replenishment-allocation": "requirement.read",
-  "planning-rough-availability": "rough.read",
   // Sarin file processing. Every action (upload, validate, generate, export) keeps its own
   // permission, enforced per control and per route.
   "planning-workbook-import": "sarin.import.read",
-  "planning-workbench": ["plan.read", "rough.read"],
-  // Reading the queue needs plan.read; approving/rejecting needs plan.approve and is
-  // enforced on POST /api/planning/approvals and gated per button.
-  "planning-approval-queue": "plan.read",
-  // Users tab: account readers and access-request reviewers; Permissions tab: role readers
-  // and approval-policy readers.
-  "admin-users-access": ["user.read", "access_request.review", "role.read", "approval_policy.read"],
+  // Users tab: account readers and access-request reviewers; Permissions tab: role readers.
+  "admin-users-access": ["user.read", "access_request.review", "role.read"],
   // Mappings: master-data tabs need config.read, the Sarin Shape Mapping tab needs
   // sarin.mapping.read. Changes need each tab's manage permission.
   "admin-mappings": ["config.read", "sarin.mapping.read"],
@@ -116,19 +110,11 @@ export const PERMISSION_LABELS: Record<string, string> = {
   "orders.export": "Customer Orders Export",
   "requirement.read": "Manufacturing Requirements Access",
   "requirement.export": "Requirements Export",
-  "plan.export": "Planning Data Export",
   "fantasy.export": "Fantasy ERP Data Export",
   "config.export": "Master Configuration Export",
   "audit.export": "Audit Trail Export",
   "requirement.create": "Requirement Creation",
   "requirement.override": "Priority Override Authority",
-  "plan.read": "Rough & Production Planning Access",
-  "plan.create": "Plan Creation",
-  "plan.select": "Plan Option Selection",
-  "plan.approve": "Planning Approval Authority",
-  "plan.replan": "Replanning Authority",
-  "rough.read": "Rough Diamond Inventory Access",
-  "rough.reserve": "Rough Reservation Authority",
   "demand.run": "Demand Calculation Execution",
   "fantasy.read": "Fantasy ERP & Manufacturing Data Access",
   "overall.read": "Overall Historical Data Access",
@@ -136,8 +122,6 @@ export const PERMISSION_LABELS: Record<string, string> = {
   "data_quality.read": "Import Issues Access",
   "data_quality.export": "Import Issues Export",
   "config.read": "Master Configuration Access",
-  "approval_policy.read": "Approval Policy Access",
-  "approval_policy.manage": "Approval Policy Change",
   "audit.read": "Audit Trail & System Logs Access",
   "user.read": "User Directory Access",
   "user.create": "Account Creation",
@@ -164,7 +148,6 @@ export const PERMISSION_LABELS: Record<string, string> = {
   "sarin.issue.review": "Sarin Issue Review",
   "sarin.issue.override": "Sarin Issue Override Authority",
   "sarin.output.generate": "Sarin Output Generation",
-  "sarin.output.approve": "Sarin Output Planning Approval Authority",
   "sarin.output.export": "Sarin Output Export",
   "sarin.mapping.read": "View Shape Mappings",
   "sarin.mapping.manage": "Edit Shape Mappings",

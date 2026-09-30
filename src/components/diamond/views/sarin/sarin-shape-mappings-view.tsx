@@ -150,7 +150,7 @@ export function SarinShapeMappingsView() {
                   <thead className="border-b border-border bg-muted/60 text-[10px] uppercase tracking-wide text-muted-foreground">
                     <tr>
                       <th className="px-2 py-1.5 text-left" scope="col">Sarin shape</th>
-                      <th className="px-2 py-1.5 text-left" scope="col">Packet type</th>
+                      <th className="px-2 py-1.5 text-left" scope="col">Packet Type</th>
                       <th className="px-2 py-1.5 text-right" scope="col">Records</th>
                       <th className="px-2 py-1.5 text-left" scope="col">Observed ratio</th>
                       {canManage && <th className="px-2 py-1.5 text-left" scope="col">Action</th>}

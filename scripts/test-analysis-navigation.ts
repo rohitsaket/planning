@@ -46,7 +46,6 @@ import { USERS_ACCESS_TABS } from "../src/components/diamond/views/consolidated/
 import { OVERVIEW_TABS } from "../src/components/diamond/views/consolidated/overview-view";
 import { INVENTORY_TABS } from "../src/components/diamond/views/consolidated/inventory-position-view";
 import { FANTASY_DATA_TABS } from "../src/components/diamond/views/consolidated/fantasy-data-view";
-import { PLANNING_WORKBENCH_TABS } from "../src/components/diamond/views/consolidated/planning-workbench-host-view";
 import { MAPPINGS_TABS } from "../src/components/diamond/views/consolidated/mappings-view";
 
 /** The approved sidebar, exactly. */
@@ -55,7 +54,8 @@ const EXPECTED_SIDEBAR: Array<[string, Array<[string, string]>]> = [
   ["Analysis", [["analysis-sales", "Sales & Trends"], ["analysis-customers-orders", "Customers & Orders"], ["analysis-inventory-position", "Inventory"]]],
   ["Data", [["fantasy-data", "Fantasy Data"], ["data-quality-issues", "Import Issues"]]],
   ["Requirements", [["requirements-matrix", "Requirement Matrix"], ["requirements-priority-queue", "Priority Queue"], ["orders-exceptions", "Order Exceptions"], ["replenishment-allocation", "Replenishment & Allocation"]]],
-  ["Planning", [["planning-rough-availability", "Rough Availability"], ["planning-workbook-import", "Workbook Import"], ["planning-workbench", "Planning Workbench"], ["planning-approval-queue", "Approval Queue"]]],
+  // Workbook Import only: the Workbench, Approval Queue and Rough Availability are retired.
+  ["Planning", [["planning-workbook-import", "Workbook Import"]]],
   // Planning-only scope: no Execution, Manufacturing or Quality Assurance group.
   ["Administration", [["admin-users-access", "Users & Access"], ["admin-mappings", "Mappings"], ["admin-audit-log", "Audit Log"]]],
 ];
@@ -65,7 +65,6 @@ const HOSTS: Record<string, { tabs: readonly HostTabItem[]; defaultTab: string }
   "analysis-sales": { tabs: SALES_ANALYSIS_TABS, defaultTab: SALES_ANALYSIS_DEFAULT_TAB },
   "analysis-inventory-position": { tabs: INVENTORY_TABS, defaultTab: "position" },
   "fantasy-data": { tabs: FANTASY_DATA_TABS, defaultTab: "current" },
-  "planning-workbench": { tabs: PLANNING_WORKBENCH_TABS, defaultTab: "cases" },
   "admin-mappings": { tabs: MAPPINGS_TABS, defaultTab: "weight-bands" },
   "admin-users-access": { tabs: USERS_ACCESS_TABS, defaultTab: "users" },
 };
@@ -90,7 +89,7 @@ async function main() {
   const actual = NAV.map((g) => [g.label, g.items.map((i) => [i.id, i.label])]);
   assert(JSON.stringify(actual) === JSON.stringify(EXPECTED_SIDEBAR), `Sidebar is exactly the approved structure (got ${JSON.stringify(actual)})`);
   const printed = NAV.map((g) => `${g.label}\n${g.items.map((i) => `  ${i.label}`).join("\n")}`).join("\n\n");
-  assert(printed.split("\n").length === 6 + 17 + 5, "Six groups and seventeen pages are listed");
+  assert(printed.split("\n").length === 6 + 14 + 5, "Six groups and fourteen pages are listed");
 
   // =========================================================================
   console.log("\n--- TEST 2: No duplicate destinations ---");
@@ -107,6 +106,7 @@ async function main() {
     "Executive Analysis", "Stockout Risk", "Excess Stock", "Stock Aging", "Aging Dashboard", "Reorder Signals", "Transfer Analyzer",
     "Plan Comparison", "System Settings", "Reports Library", "Forecasting", "Predictive Models", "Model Monitoring", "Current Data", "Sync Monitor", "Overall Data",
     "Manufacturing & Traceability", "Manufacturing Overview", "Traceability", "Plan vs Actual", "Quality Assurance", "Data Quality Issues",
+    "Planning Workbench", "Approval Queue", "Rough Availability", "Rough Reservations", "Reservations", "Planning Cases", "Planned Pieces",
   ];
   for (const label of ABSENT_ITEMS) assert(!sidebarLabels.includes(label), `'${label}' is not a sidebar item`);
   for (const group of ["Fantasy ERP", "Overall Data", "Data Science", "Reports", "Requirements and Priority"]) {
@@ -116,23 +116,29 @@ async function main() {
     "analysis-reorder-signals", "transfer-analyzer", "stock-strategy", "reports", "analysis-forecast",
     "data-science-forecasting", "data-science-predictive-models", "data-science-prediction-monitoring",
     "data-science-anomaly-detection", "data-science-yield-prediction", "data-science-forecast", "data-science-models", "data-science-forecast-accuracy",
-  ];
+    "planning-workbench", "planning-comparison", "planning-cases", "planning-planned-pieces", "planning-reservations", "planning-approval-queue", "planning-rough-availability",
+    "fantasy-rough", "fantasy-live",
+  ] as ViewId[];
   const registry = read("src/app/page.tsx");
   for (const id of RETIRED_IDS) {
     assert(!sidebarIds.includes(id) && !PALETTE_ITEMS.some((i) => i.id === id), `'${id}' is in neither the sidebar nor the command palette`);
     assert(!new RegExp(`"?${id}"?:\s*\w+View`).test(registry), `'${id}' is no longer a registered page`);
     assert(resolveViewAlias(id).view === "out-of-scope", `An old #${id} link opens the Not available state`);
   }
-  // The generic settings page is retired; the only setting ever in force, the plan approval
-  // policy, lives on the Permissions tab of Users & Access.
+  // The generic settings page is retired, and so is the plan approval policy it last held.
   assert(resolveViewAlias("admin-system-settings" as ViewId).view === "out-of-scope", "An old #admin-system-settings link opens the Not available state");
-  const flagsTarget = resolveViewAlias("admin-feature-flags" as ViewId);
-  assert(flagsTarget.view === "admin-users-access" && flagsTarget.tab === "permissions", "An old #admin-feature-flags link opens Users & Access → Permissions (Approval Policy)");
+  assert(resolveViewAlias("admin-feature-flags" as ViewId).view === "out-of-scope", "An old #admin-feature-flags link opens the Not available state");
+  for (const id of ["planning-rough-availability", "fantasy-rough", "fantasy-live"]) {
+    assert(resolveViewAlias(id as ViewId).tab === "rough-stock", `An old #${id} link says no rough-stock source is configured`);
+  }
+  for (const route of ["planning/cases", "planning/cases/[id]", "planning/cases/[id]/replan", "planning/compare/[caseId]", "planning/pieces", "planning/workbench", "planning/reservations", "planning/approvals", "planning/rough", "admin/approval-policy", "fantasy/rough"]) {
+    assert(!existsSync(path.join(process.cwd(), "src/app/api", route, "route.ts")), `Retired legacy planning API /api/${route} is removed`);
+  }
   // Retired APIs are gone; APIs shared with retained planning pages stay.
   for (const route of ["analysis/reorder-signals", "analysis/transfer-candidates", "forecast", "reports", "analysis/yield-prediction", "analysis/anomalies", "analysis/wip", "audit/recent", "notifications/broadcast", "traceability/[query]", "fantasy/departments", "fantasy/locations", "admin/feature-flags", "fantasy/projection", "fantasy/projection/[runId]/abort", "fantasy/projection/[runId]/reconciliation"]) {
     assert(!existsSync(path.join(process.cwd(), "src/app/api", route, "route.ts")), `Retired API /api/${route} is removed`);
   }
-  for (const route of ["analysis/forecast", "analysis/memo", "analysis/demand-trace", "admin/approval-policy", "notifications", "auth/password", "fantasy/classification-refresh"]) {
+  for (const route of ["analysis/forecast", "analysis/memo", "analysis/demand-trace", "notifications", "auth/password", "fantasy/classification-refresh", "fantasy/polished"]) {
     assert(existsSync(path.join(process.cwd(), "src/app/api", route, "route.ts")), `Shared API /api/${route} is kept`);
   }
 
@@ -188,7 +194,9 @@ async function main() {
     ["analysis-excess", null, "analysis-inventory-position", "excess"],
     ["analysis-aging", null, "analysis-inventory-position", "aging"],
     ["aging-dashboard", null, "analysis-inventory-position", "aging"],
-    ["fantasy-live", null, "fantasy-data", "current"],
+    ["fantasy-live", null, "out-of-scope", "rough-stock"],
+    ["fantasy-live", "rough", "out-of-scope", "rough-stock"],
+    ["fantasy-rough", null, "out-of-scope", "rough-stock"],
     ["fantasy-live", "polished", "fantasy-data", "current"],
     ["fantasy-live", "departments", "out-of-scope", null],
     ["fantasy-live", "locations", "out-of-scope", null],
@@ -201,9 +209,12 @@ async function main() {
     ["manufacturing", null, "out-of-scope", null],
     ["plan-vs-actual", null, "out-of-scope", null],
     ["fantasy-departments", null, "out-of-scope", null],
-    ["planning-comparison", null, "planning-workbench", "comparison"],
-    ["planning-cases", null, "planning-workbench", "cases"],
-    ["planning-reservations", null, "planning-workbench", "reservations"],
+    ["planning-workbench", "comparison", "out-of-scope", null],
+    ["planning-comparison", null, "out-of-scope", null],
+    ["planning-cases", null, "out-of-scope", null],
+    ["planning-reservations", null, "out-of-scope", null],
+    ["planning-approval-queue", null, "out-of-scope", null],
+    ["planning-rough-availability", null, "out-of-scope", "rough-stock"],
     ["data-quality-unmapped-labs", null, "admin-mappings", "lab-mappings"],
     ["admin-sarin-shape-mappings", null, "admin-mappings", "sarin-shape-mapping"],
     ["admin-users", null, "admin-users-access", "users"],
@@ -236,10 +247,14 @@ async function main() {
   initNavFromHash();
   assert(historyCalls.length === 0, "A canonical URL is not rewritten again");
   // Copying the new URL reopens the same tab.
-  fakeWindow.location.hash = "#planning-workbench?tab=comparison";
+  fakeWindow.location.hash = "#analysis-inventory-position?tab=excess";
   useNavStore.setState({ view: "dashboard", tab: null, trace: null });
   initNavFromHash();
-  assert(useNavStore.getState().view === "planning-workbench" && useNavStore.getState().tab === "comparison", "#planning-workbench?tab=comparison reopens Planning Workbench → Comparison");
+  assert(useNavStore.getState().view === "analysis-inventory-position" && useNavStore.getState().tab === "excess", "#analysis-inventory-position?tab=excess reopens Inventory → Excess Stock");
+  // A bookmarked Workbench link lands on Not available, never on a workbench.
+  fakeWindow.location.hash = "#planning-workbench?tab=comparison";
+  initNavFromHash();
+  assert(useNavStore.getState().view === "out-of-scope", "#planning-workbench?tab=comparison opens the Not available state");
   // Removed pages with no successor fail closed rather than landing on another page's content.
   const pva = parseNavHash("#plan-vs-actual");
   assert(pva?.view === "out-of-scope" && !isViewAuthorized(testPermissionsFor("SUPER_ADMIN"), pva.view), "#plan-vs-actual opens the Not available state, never demonstration data");
@@ -268,14 +283,17 @@ async function main() {
   // Custom access profiles, not just the fixtures.
   const onlyHistory = ["overall.read"];
   assert(isViewAuthorized(onlyHistory, "fantasy-data") && resolveActiveTab(FANTASY_DATA_TABS, "current", "current", onlyHistory) === "history", "A historical-data-only user opens Fantasy Data on Historical Data");
-  const onlyRough = ["rough.read"];
-  assert(isViewAuthorized(onlyRough, "planning-workbench") && resolveActiveTab(PLANNING_WORKBENCH_TABS, null, "cases", onlyRough) === "reservations", "A rough reader opens Planning Workbench on Rough Reservations only");
+  // A leftover rough.read grant opens nothing: the permission is retired.
+  assert(!isViewAuthorized(["rough.read"], "fantasy-data"), "rough.read alone no longer opens Fantasy Data");
+  const onlyPolished = ["fantasy.read"];
+  assert(isViewAuthorized(onlyPolished, "fantasy-data") && resolveActiveTab(FANTASY_DATA_TABS, null, "current", onlyPolished) === "current", "A polished-stock reader opens Fantasy Data on Current Data");
   assert(viewPermissions("manufacturing").length === 0, "Manufacturing is no longer a page");
   assert(!isViewAuthorized(["analysis.read"], "data-quality-issues") && isViewAuthorized(["data_quality.read"], "data-quality-issues"), "Import Issues needs data_quality.read (internal code unchanged)");
-  assert(viewPermission("planning-approval-queue") === "plan.read", "Approval queue is readable with plan.read; approving needs plan.approve");
-  assert(testPermissionsFor("PLANNING_MANAGER").includes("plan.approve"), "Approval authority is still explicitly assigned");
-  assert(!testPermissionsFor("ADMIN").includes("plan.approve"), "Administration does not grant planning approval");
-  assert(!testPermissionsFor("SUPER_ADMIN").includes("sarin.output.approve"), "Super Admin does not receive Sarin output approval through administration");
+  assert(viewPermissions("planning-approval-queue" as ViewId).length === 0, "The Approval Queue is no longer a page");
+  for (const code of ["rough.read", "plan.read", "plan.create", "plan.select", "plan.approve", "plan.replan", "plan.export", "rough.reserve", "sarin.output.approve", "approval_policy.read", "approval_policy.manage"]) {
+    assert(!(PERMISSIONS as readonly string[]).includes(code), `${code} is retired`);
+    assert(TEST_ROLES.every((role) => !(testPermissionsFor(role) as string[]).includes(code)), `No role holds ${code}`);
+  }
 
   // =========================================================================
   console.log("\n--- TEST 8: Tabs are history entries ---");
@@ -320,7 +338,7 @@ async function main() {
   // =========================================================================
   console.log("\n--- TEST 11: Users & Access, Mappings and permission vocabulary ---");
   assert(JSON.stringify(USERS_ACCESS_TABS.map((t) => [t.id, t.label])) === JSON.stringify([["users", "Users"], ["permissions", "Permissions"]]), "Users & Access has exactly two tabs: Users and Permissions");
-  assert(JSON.stringify(viewPermissions("admin-users-access")) === JSON.stringify(["user.read", "access_request.review", "role.read", "approval_policy.read"]), "Users & Access admits account readers, access-request reviewers, role readers and approval-policy readers");
+  assert(JSON.stringify(viewPermissions("admin-users-access")) === JSON.stringify(["user.read", "access_request.review", "role.read"]), "Users & Access admits account readers, access-request reviewers and role readers");
   assert(JSON.stringify(viewPermissions("admin-mappings")) === JSON.stringify(["config.read", "sarin.mapping.read"]), "Mappings opens with config.read or sarin.mapping.read");
   assert(MAPPINGS_TABS.map((t) => t.label).join("|") === "Weight Bands|Lab Mapping|Shape Mapping|Status Mapping|Sarin Shape Mapping", "Mappings keeps its sections as tabs, and no generic settings tab");
   assert(!(PERMISSIONS as readonly string[]).some((p) => p.startsWith("feature_flag.") || p.startsWith("fantasy.projection.")), "No feature-flag or shadow-projection permission remains");

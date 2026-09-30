@@ -135,12 +135,12 @@ beforeEach(async () => {
 
 // =========================================================================================
 describe("sarin workflow: page and navigation permissions", () => {
-  test("the page admits exactly the roles that hold sarin.import.read, not plan.create", () => {
+  test("the page admits exactly the roles that hold sarin.import.read, not demand.run", () => {
     for (const role of TEST_ROLES) {
       const perms = testPermissionsFor(role);
       expect([role, isViewAuthorized(perms, "planning-workbook-import")]).toEqual([role, perms.includes("sarin.import.read")]);
     }
-    expect(isViewAuthorized(["plan.create"], "planning-workbook-import")).toBe(false);
+    expect(isViewAuthorized(["demand.run"], "planning-workbook-import")).toBe(false);
     expect(isViewAuthorized(["sarin.import.read"], "planning-workbook-import")).toBe(true);
   });
 

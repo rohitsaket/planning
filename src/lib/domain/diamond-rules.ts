@@ -177,40 +177,6 @@ export function calculateDemand(input: DemandInput): DemandResult {
 }
 
 // ---------------------------------------------------------------------------
-// FOUR REQUIREMENT NUMBERS
-// ---------------------------------------------------------------------------
-export interface FourRequirementNumbers {
-  physicalShortage: number;
-  pipelineAdjusted: number;
-  planningAdjusted: number;
-  forecastRequirement: number;
-  eligibleWipCoverage: number;
-  approvedPlanCoverage: number;
-}
-
-export function calculateFourRequirements(params: {
-  physicalShortage: number;
-  eligibleWipCoverage: number;
-  approvedPlanCoverage: number;
-  forecastQty: number;
-}): FourRequirementNumbers {
-  const physicalShortage = Math.max(0, Math.floor(params.physicalShortage));
-  const eligibleWipCoverage = Math.max(0, Math.floor(params.eligibleWipCoverage));
-  const approvedPlanCoverage = Math.max(0, Math.floor(params.approvedPlanCoverage));
-  const pipelineAdjusted = Math.max(0, physicalShortage - eligibleWipCoverage);
-  const planningAdjusted = Math.max(0, pipelineAdjusted - approvedPlanCoverage);
-  const forecastRequirement = Math.max(0, Math.floor(params.forecastQty));
-  return {
-    physicalShortage,
-    pipelineAdjusted,
-    planningAdjusted,
-    forecastRequirement,
-    eligibleWipCoverage,
-    approvedPlanCoverage,
-  };
-}
-
-// ---------------------------------------------------------------------------
 // TREND CLASSIFICATION
 // ---------------------------------------------------------------------------
 export type TrendClass =
@@ -269,29 +235,5 @@ export const REQUIREMENT_TYPES = [
   "SPECIAL_REQUIREMENT",
   "FORECAST",
   "MANUAL_APPROVED",
-] as const;
-export const REQUIREMENT_STATUSES = [
-  "DRAFT",
-  "ACTIVE",
-  "PARTIALLY_COVERED",
-  "FULLY_PLANNED",
-  "IN_MANUFACTURING",
-  "PARTIALLY_FULFILLED",
-  "FULFILLED",
-  "ON_HOLD",
-  "CANCELLED",
-  "EXPIRED",
-] as const;
-export const PLAN_STATUSES = [
-  "DRAFT",
-  "READY_FOR_REVIEW",
-  "SELECTED",
-  "APPROVAL_PENDING",
-  "APPROVED",
-  "RELEASED_TO_MANUFACTURING",
-  "REJECTED",
-  "CANCELLED",
-  "REPLAN_REQUIRED",
-  "SUPERSEDED",
 ] as const;
 export const RULE_STATUSES = ["CONFIRMED", "PROPOSED", "OPEN", "DEPRECATED"] as const;

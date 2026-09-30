@@ -108,6 +108,8 @@ const lastRejection = async (u: User) => {
 // ---- HTML reading -------------------------------------------------------------------------------
 const decode = (s: string) => s.replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&#x27;|&#39;/g, "'").replace(/&quot;/g, '"').replace(/&nbsp;/g, " ").trim();
 const headers = (html: string) => [...html.matchAll(/<th scope="col"[^>]*>([\s\S]*?)<\/th>/g)].map((m) => decode(m[1]));
+/** A column header's accessible name: decorative content (aria-hidden, e.g. sort arrows) is not part of it. */
+const accessibleHeaders = (html: string) => [...html.matchAll(/<th[^>]*scope="col"[^>]*>([\s\S]*?)<\/th>/g)].map((m) => decode(m[1].replace(/<([a-z]+)[^>]*aria-hidden="true"[^>]*>[\s\S]*?<\/\1>/g, "")));
 const groupHeaders = (html: string) => [...html.matchAll(/<th scope="rowgroup"[^>]*>([\s\S]*?)<\/th>/g)].map((m) => decode(m[1]));
 /** The data rows of the table: each row's cells as text, with each cell's class. */
 function dataRows(html: string) {
@@ -257,12 +259,12 @@ describe("sarin import ux: output preview", () => {
 
 // =========================================================================================
 describe("sarin import ux: packet type, and no country", () => {
-  test("the form asks for a Packet type (Blue, White or Pink packet) and never for a country, whatever the scope or header filter", async () => {
+  test("the form asks for a Packet Type (Blue, White or Pink packet) and never for a country, whatever the scope or header filter", async () => {
     const form = (html: string) => html.match(/<form[\s\S]*<\/form>/)![0];
     const textInputs = (html: string) => html.match(/<input(?![^>]*type="(file|date)")[^>]*>/g) ?? [];
     for (const [u, header] of [[planner, null], [single, null], [multi, "BE"], [planner, "HK"], [labScoped, null]] as const) {
       const f = form((await render(WorkbookImportView, {}, u, header)).html);
-      expect([u.user.username, header, /country/i.test(f), /stone[ -]?type/i.test(decode(f)), f.includes('aria-label="Packet type"'), decode(f).includes("Packet type"), textInputs(f)]).toEqual([u.user.username, header, false, false, true, true, []]);
+      expect([u.user.username, header, /country/i.test(f), /stone[ -]?type/i.test(decode(f)), f.includes('aria-label="Packet Type"'), decode(f).includes("Packet Type"), textInputs(f)]).toEqual([u.user.username, header, false, false, true, true, []]);
     }
     // A lab-scoped user's lab is required, not optional.
     const lab = (await render(WorkbookImportView, {}, labScoped)).html;
@@ -328,14 +330,16 @@ describe("sarin import ux: packet type, and no country", () => {
     expect((await call(listImports, { cookie: reader.cookie, path: "/api/planning/sarin/imports?pageSize=1" })).json.upload).toBe(null);
   });
 
-  test("Recent Files and the result summary say Packet type; the packet number stays a separate field", async () => {
+  test("Recent Files and the result summary say Packet Type; the packet number stays a separate field", async () => {
     const page = await render(WorkbookImportView, {}, planner);
-    const headerCells = [...page.html.matchAll(/<th[^>]*scope="col"[^>]*>([\s\S]*?)<\/th>/g)].map((m) => decode(m[1]));
-    expect([headerCells.includes("Packet type"), headerCells.includes("Lab"), headerCells.some((h) => /stone type|country/i.test(h))]).toEqual([true, true, false]);
+    const headerCells = accessibleHeaders(page.html);
+    expect([headerCells.includes("Packet Type"), headerCells.includes("Lab"), headerCells.some((h) => /stone type|country/i.test(h))]).toEqual([true, true, false]);
+    // The sort control stays announced through aria-sort, not through the glyph.
+    expect(/<th scope="col"[^>]*aria-sort="(none|ascending|descending)"[^>]*>[\s\S]*?Packet Type/.test(page.html)).toBe(true);
     const result = await render(SarinFileResult, { batchId: blue.batchId, rights: rightsOf((await as(planner)).user.permissions), failure: null, busy: false, onProcessAgain: () => {}, onProcessAnother: () => {} }, planner);
     const text = result.text.replace(/\s+/g, " ");
-    // Packet type (Blue) in the summary; Stones counts rough stones; the preview header's Packet is the packet number.
-    expect([/Packet type\s*Blue/.test(text), /Stones\s*2\b/.test(text), /Packet\s*001/.test(text), /stone type/i.test(text)]).toEqual([true, true, true, false]);
+    // Packet Type (Blue) in the summary; Stones counts rough stones; the preview header's Packet is the packet number.
+    expect([/Packet Type\s*Blue/.test(text), /Stones\s*2\b/.test(text), /Packet\s*001/.test(text), /stone type/i.test(text)]).toEqual([true, true, true, false]);
   });
 
   test("no source file describes the Blue/White/Pink packet classification as a stone type", async () => {

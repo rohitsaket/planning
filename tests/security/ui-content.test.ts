@@ -13,7 +13,7 @@
 // exports).
 
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "./harness";
-import { call, db, ensureCountryRegistry, makeCase, makeUser, resetDb } from "./helpers";
+import { call, db, ensureCountryRegistry, makeUser, resetDb } from "./helpers";
 import { renderPage, sessionUser } from "./ui-render";
 import { Prisma } from "@prisma/client";
 import { resetRateLimits } from "@/lib/api/rate-limit";
@@ -33,9 +33,6 @@ import { SarinOutputPreview } from "@/components/diamond/views/sarin/sarin-outpu
 import { rightsOf } from "@/components/diamond/views/sarin/sarin-processing";
 import { SarinShapeMappingsView } from "@/components/diamond/views/sarin/sarin-shape-mappings-view";
 import { RequirementsMatrixView } from "@/components/diamond/views/requirements-matrix-view";
-import { ApprovalQueueView } from "@/components/diamond/views/approval-queue-view";
-import { PlanningCasesView } from "@/components/diamond/views/planning-cases-view";
-import { PlanComparisonView } from "@/components/diamond/views/plan-comparison-view";
 import { MappingsView } from "@/components/diamond/views/consolidated/mappings-view";
 import { StatusMappingsView } from "@/components/diamond/views/status-mappings-view";
 import { applyCatalog } from "./sarin-catalog";
@@ -73,7 +70,7 @@ function prohibited(text: string, except: string[] = []): string[] {
   return PROHIBITED.filter(([name, re]) => !except.includes(name) && re.test(text)).map(([name, re]) => `${name}: "${text.match(re)![0]}"`);
 }
 
-let root: User, planner: User, reader: User, mapper: User, mapReader: User, planApprover: User;
+let root: User, planner: User, reader: User, mapper: User, mapReader: User;
 const sessions = new Map<User, Session>();
 const as = async (u: User): Promise<Session> => {
   if (!sessions.has(u)) sessions.set(u, { cookie: u.cookie, user: await sessionUser(u.cookie) });
@@ -147,7 +144,6 @@ beforeAll(async () => {
   reader = await makeUser("ui.reader", "PLANNING_VIEWER");
   mapper = await userWith("mapper", ["sarin.mapping.read", "sarin.mapping.manage"]);
   mapReader = await userWith("mapreader", ["sarin.mapping.read"]);
-  planApprover = await userWith("planapprover", ["plan.read", "plan.approve", "plan.replan"]);
 
   // Shape mappings in effect for the Pink shape family, saved through the Mappings routes.
   await applyCatalog(mapper.cookie, SHAPES.map(([rawShape, normalizedShape]) => ({ rawShape, normalizedShape })));
@@ -187,10 +183,6 @@ beforeAll(async () => {
     data: { ruleId: "BR-DEMAND-001", domain: "DEMAND", name: "90-day rolling invoice window", version: "1.0", effectiveDate: new Date(), status: "CONFIRMED", configuration: JSON.stringify({ windowDays: 90, todayIncluded: true, excludes: ["0.90-0.99"], nested: { lotStatus: "Invoice" } }) },
   });
 
-  // A planning case awaiting approval whose selected option carries structured warnings.
-  const pc = await makeCase({ status: "APPROVAL_PENDING" });
-  await db.planOption.update({ where: { id: pc.optionIds[0] }, data: { validationWarnings: JSON.stringify([{ code: "WB_EDGE", message: "Weight band edge case" }, "Check girdle"]) } });
-
   // Fixture-simulated inventory, so the simulation disclosure has something to disclose.
   await db.lotMasterRecord.createMany({
     data: Array.from({ length: 3 }, (_, i) => ({
@@ -226,20 +218,14 @@ describe("ui content: no technical detail reaches a rendered page", () => {
     expect([/rules version|profile|validation run|attempt|Run \d|mapping set|lineage|transform|immutable|record \d/i.test(shown), /Source:/.test(pages[0].text)]).toEqual([false, false]);
   });
 
-  test("requirements, approval and planning pages", async () => {
+  test("requirements and dashboard pages; no retired planning wording", async () => {
     const pages = [
       await render(RequirementsMatrixView, {}, root),
-      await render(ApprovalQueueView, {}, planApprover),
-      await render(PlanningCasesView, {}, root),
-      await render(PlanComparisonView, {}, root),
       await render(DashboardView, {}, root),
     ];
     expect(pages.map((p) => prohibited(p.text))).toEqual(pages.map(() => []));
-    const [, queue, , comparison] = pages.map((p) => p.text);
-    expect([/How approval works|audit-logged|READY_FOR_REVIEW/.test(queue), /BR-PLAN-SEL-001|OPEN rule/.test(comparison)]).toEqual([false, false]);
-    expect(comparison).toContain("No recommended option is available. Select a plan using the approved business process.");
-    // Structured warnings read as their messages, never as serialized objects.
-    expect([queue.includes("Weight band edge case"), queue.includes("Check girdle"), queue.includes("WB_EDGE")]).toEqual([true, true, false]);
+    // The retired approval and plan-coverage workflow leaves no wording behind.
+    for (const text of pages.map((p) => p.text)) expect(/Approval Queue|Planning Workbench|Approved Plan|Plan Coverage|Rough Reserved|Pending Approvals?/i.test(text)).toBe(false);
   });
 
   test("administration, sales, orders, Fantasy and inventory pages", async () => {
@@ -258,9 +244,10 @@ describe("ui content: no technical detail reaches a rendered page", () => {
     // identifiers or formulas, and no generic settings.
     for (const tab of ["Weight Bands", "Lab Mapping", "Shape Mapping", "Status Mapping", "Sarin Shape Mapping"]) expect([tab, mappings.includes(tab)]).toEqual([tab, true]);
     expect(/Feature Flags|Planning Dimensions/.test(mappings)).toBe(false);
-    // The approval policy sits on the Permissions tab in business wording; retired settings
-    // never appear, even while their rows are still stored.
-    expect([permissions.includes("Approval Policy"), permissions.includes("Require a different user to approve a plan"), permissions.includes("On — a separate approver is required")]).toEqual([true, true, true]);
+    // The Permissions tab shows roles only: the plan approval policy is retired with plan
+    // approval, and retired settings never appear, even while their rows are still stored.
+    expect([permissions.includes("Approval Policy"), permissions.includes("approve a plan"), permissions.includes("separate approver")]).toEqual([false, false, false]);
+    expect(permissions).toContain("Roles");
     expect(/Feature Flag|production orders|Cross-Country|Color categorization|FF_/i.test(permissions)).toBe(false);
     expect(/Business Rules|BR-[A-Z]+-\d|windowDays|\{"/.test(mappings + statuses)).toBe(false);
     expect([/Mathematical|Reconciled 100%|Checkpoint/.test(sync), /methodology|freshness threshold|authoritative/i.test(sales), /field|seeded/i.test(orders)]).toEqual([false, false, false]);
@@ -323,12 +310,9 @@ describe("ui content: what users need is still shown", () => {
     expect([uploader.includes("Process File"), viewer.includes("Process File"), viewer.includes("Sarin CSV file"), viewer.includes("Recent Files")]).toEqual([true, false, false, true]);
     const readOnlyResult = (await fileResult(blockedBatch, reader)).text;
     expect([/Choose Another Mapping|Process Again|Try Again|Open Mappings|\bMap\b/.test(readOnlyResult), /permission/i.test(readOnlyResult)]).toEqual([false, false]);
-    const approverQueue = await render(ApprovalQueueView, {}, planApprover);
-    const readerQueue = await render(ApprovalQueueView, {}, reader);
-    expect([approverQueue.html.includes('title="Approve this plan"'), approverQueue.html.includes('title="Request replanning"'), readerQueue.html.includes('title="Approve this plan"'), readerQueue.html.includes('title="Request replanning"')]).toEqual([true, true, false, false]);
-    const policyManager = (await render(PermissionsTab, {}, root)).text;
-    const policyReader = (await render(PermissionsTab, {}, await userWith("policyreader", ["approval_policy.read"]))).text;
-    expect([policyManager.includes("Turn off"), policyReader.includes("Turn off"), policyReader.includes("On — a separate approver is required"), policyReader.includes("Roles")]).toEqual([true, false, true, false]);
+    // The approval policy is retired: even the Super Admin is offered no approval switch.
+    const permissions = await render(PermissionsTab, {}, root);
+    expect([/Turn off|separate approver|Approval policy/i.test(permissions.text), permissions.requested.some((r) => r.startsWith("/api/admin/approval-policy"))]).toEqual([false, false]);
   });
 
   test("Sarin Shape Mapping offers adding, editing and removing to managers only, and no approval or version workflow", async () => {

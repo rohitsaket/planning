@@ -155,9 +155,9 @@ function ProcessForm({ rights, busy, onRun }: { rights: ProcessingRights; busy: 
       </div>
 
       <div className="flex flex-col gap-1">
-        <Label htmlFor={`${ids}-type`} className="text-xs">Packet type</Label>
+        <Label htmlFor={`${ids}-type`} className="text-xs">Packet Type</Label>
         <Select value={packetType} onValueChange={setPacketType} disabled={busy}>
-          <SelectTrigger id={`${ids}-type`} className="text-xs" aria-label="Packet type"><SelectValue placeholder="Choose" /></SelectTrigger>
+          <SelectTrigger id={`${ids}-type`} className="text-xs" aria-label="Packet Type"><SelectValue placeholder="Choose" /></SelectTrigger>
           <SelectContent>
             {SARIN_PACKET_TYPES.map((t) => (
               <SelectItem key={t} value={t} className="text-xs">

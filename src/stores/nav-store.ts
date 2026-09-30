@@ -15,12 +15,10 @@ export type ViewId =
   | "requirements-priority-queue"
   | "orders-exceptions"
   | "replenishment-allocation"
-  | "planning-rough-availability"
   | "planning-workbook-import"
-  | "planning-workbench"
-  | "planning-approval-queue"
   // Where links to retired pages land (manufacturing, traceability, plan versus actual,
-  // forecasting, reports, stock strategy): a plain "not available" state, never old data.
+  // forecasting, reports, stock strategy, the legacy planning workbench and approvals, rough
+  // availability): a plain "not available" state, never old data.
   | "out-of-scope"
   | "admin-users-access"
   | "admin-mappings"
@@ -78,6 +76,9 @@ type LegacyViewId =
   | "data-science-models"
   | "data-science-forecast-accuracy"
   | "analysis-forecast"
+  | "planning-workbench"
+  | "planning-approval-queue"
+  | "planning-rough-availability"
   | "reports"
   | "admin-system-settings"
   | "admin-feature-flags"
@@ -117,6 +118,8 @@ interface ViewAlias extends ViewTarget {
  * by the caller and is never touched by resolution.
  */
 const OUT_OF_SCOPE: ViewTarget = { view: "out-of-scope", tab: null };
+/** Not available because no authoritative rough-stock source is configured (the tab names the reason). */
+const ROUGH_NOT_CONFIGURED: ViewTarget = { view: "out-of-scope", tab: "rough-stock" };
 
 export const LEGACY_VIEW_ALIASES: Record<LegacyViewId, ViewAlias> = {
   // Dashboard → Overview
@@ -129,13 +132,13 @@ export const LEGACY_VIEW_ALIASES: Record<LegacyViewId, ViewAlias> = {
   "analysis-excess": { view: "analysis-inventory-position", tab: "excess" },
   "analysis-aging": { view: "analysis-inventory-position", tab: "aging" },
   "aging-dashboard": { view: "analysis-inventory-position", tab: "aging" },
-  // Fantasy ERP and Overall Data → Fantasy Data.
+  // Fantasy ERP and Overall Data → Fantasy Data. The old live page and its rough stock were
+  // seeded records with no authoritative source; only its polished stock carries over.
   "fantasy-live": {
-    view: "fantasy-data",
-    tab: "current",
-    tabs: { departments: OUT_OF_SCOPE, locations: OUT_OF_SCOPE },
+    ...ROUGH_NOT_CONFIGURED,
+    tabs: { polished: { view: "fantasy-data", tab: "current" }, departments: OUT_OF_SCOPE, locations: OUT_OF_SCOPE },
   },
-  "fantasy-rough": { view: "fantasy-data", tab: "current" },
+  "fantasy-rough": ROUGH_NOT_CONFIGURED,
   "fantasy-polished": { view: "fantasy-data", tab: "current" },
   "fantasy-sync": { view: "fantasy-data", tab: "integration" },
   "overall-data": { view: "fantasy-data", tab: "history" },
@@ -168,18 +171,22 @@ export const LEGACY_VIEW_ALIASES: Record<LegacyViewId, ViewAlias> = {
   "data-science-forecast-accuracy": OUT_OF_SCOPE,
   "analysis-forecast": OUT_OF_SCOPE,
   reports: OUT_OF_SCOPE,
-  // The generic settings page is retired. Of the old feature flags only the plan approval
-  // policy was ever in force; it lives on the Permissions tab of Users & Access.
+  // The generic settings page is retired, and so is the plan approval policy it once held.
   "admin-system-settings": OUT_OF_SCOPE,
-  "admin-feature-flags": { view: "admin-users-access", tab: "permissions" },
+  "admin-feature-flags": OUT_OF_SCOPE,
   // Unmapped values are fixed where the mappings live.
   "data-quality-unmapped-labs": { view: "admin-mappings", tab: "lab-mappings" },
   "data-quality-unmapped-shapes": { view: "admin-mappings", tab: "shape-mappings" },
-  // Planning Workbench
-  "planning-comparison": { view: "planning-workbench", tab: "comparison" },
-  "planning-cases": { view: "planning-workbench", tab: "cases" },
-  "planning-planned-pieces": { view: "planning-workbench", tab: "pieces" },
-  "planning-reservations": { view: "planning-workbench", tab: "reservations" },
+  // The legacy Planning Workbench, its tabs and the Approval Queue ran on seed data only and
+  // are retired. Plan selection will be built on stored Sarin output.
+  "planning-workbench": OUT_OF_SCOPE,
+  "planning-comparison": OUT_OF_SCOPE,
+  "planning-cases": OUT_OF_SCOPE,
+  "planning-planned-pieces": OUT_OF_SCOPE,
+  "planning-reservations": OUT_OF_SCOPE,
+  "planning-approval-queue": OUT_OF_SCOPE,
+  // Hidden until an authoritative rough-stock source exists; the only rough records were seeded.
+  "planning-rough-availability": ROUGH_NOT_CONFIGURED,
   // Mappings
   "admin-rules-mappings": { view: "admin-mappings", tab: null },
   "admin-business-rules": { view: "admin-mappings", tab: null },

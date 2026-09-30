@@ -146,7 +146,7 @@ describe("orders-only access", () => {
 describe("page entry requires at least one section permission", () => {
   test("holding neither denies the page", () => {
     // PLANNER-style permissions: real, but unrelated to this page.
-    expect(isViewAuthorized(["plan.read", "rough.read"], "analysis-customers-orders")).toBe(false);
+    expect(isViewAuthorized(["config.read", "fantasy.read"], "analysis-customers-orders")).toBe(false);
     expect(isViewAuthorized([], "analysis-customers-orders")).toBe(false);
   });
 
@@ -157,7 +157,7 @@ describe("page entry requires at least one section permission", () => {
   });
 
   test("no tab is selected when none is authorized, so the host shows Access Restricted", () => {
-    expect(resolveActiveTab(TABS, null, "customers", ["plan.read"])).toBe(undefined);
+    expect(resolveActiveTab(TABS, null, "customers", ["config.read"])).toBe(undefined);
   });
 
   test("an unmapped view is still denied to everyone", () => {

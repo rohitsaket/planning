@@ -269,7 +269,8 @@ model RoughStone {
   fantasyStatus       String
   planningEligible    Boolean  @default(true)
   planningStatus      String   @default("AVAILABLE")
-  // AVAILABLE | SOFT_RESERVED | UNDER_PLANNING | PLAN_APPROVED | RESERVED | RELEASED | CANCELLED | RELEASED
+  // State written by the retired legacy planning workflow and its seed. Nothing writes it now;
+  // kept only as history of the rows that planning cases and reservations still reference.
   parentRoughId      String?
   lastMovement        DateTime?
   lastUpdated        DateTime @default(now())

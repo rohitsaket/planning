@@ -172,7 +172,7 @@ function PrioritySection({
   return (
     <Section
       title={`${title} Requirements (${rows.length})`}
-      description={`Top open requirement rows · ${totalRemaining} pcs remaining unplanned · ${overdueCount} overdue`}
+      description={`Top open requirement rows · ${totalRemaining} pcs still needed · ${overdueCount} overdue`}
       actions={
         <button
           type="button"
@@ -187,7 +187,7 @@ function PrioritySection({
         columns={columns}
         rows={rows}
         loading={loading}
-        emptyMessage={`No ${title.toLowerCase()} requirements with remaining unplanned pieces.`}
+        emptyMessage={`No ${title.toLowerCase()} requirements with pieces still needed.`}
         pagination
         pageSize={15}
         onRowClick={() => onOpenMatrix()}
@@ -212,8 +212,8 @@ export function PriorityQueueView() {
     return qs ? `&${qs}` : "";
   }, [globalFilter.country, globalFilter.branch, globalFilter.lab]);
 
-  // Three priority bands, each fetching requirements with priority filter & remainingUnplanned > 0
-  // The API does not directly filter remainingUnplanned > 0, so we filter client-side
+  // Three priority bands, each fetching requirements with a priority filter. remainingUnplanned is
+  // the need after stock and WIP (planned coverage is unavailable); rows with none are left out here.
   const { data: criticalData, isLoading: cLoading } = useApi<ApiResponse>(
     `/api/requirements?pageSize=500&priority=CRITICAL${filterQs}`
   );
@@ -248,21 +248,21 @@ export function PriorityQueueView() {
     <div data-page-body className="flex flex-col gap-section px-page-x py-page-y">
       <PageHeader
         title="Priority Queue"
-        subtitle="Open requirements by priority — plan from the top"
+        subtitle="Open requirements by priority, most urgent first"
         meta={
           <span className="text-[10px] text-muted-foreground">
-            {totalAll.toLocaleString()} pcs total unplanned across {critical.length + high.length + normal.length} requirement rows
+            {totalAll.toLocaleString()} pcs still needed across {critical.length + high.length + normal.length} requirement rows
           </span>
         }
       />
 
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
         <KpiCard
           label="CRITICAL Rows"
           value={critical.length}
           unit="reqs"
           intent="critical"
-          hint={`${totalCritical} pcs unplanned`}
+          hint={`${totalCritical} pcs still needed`}
           onClick={openMatrix}
         />
         <KpiCard
@@ -270,7 +270,7 @@ export function PriorityQueueView() {
           value={high.length}
           unit="reqs"
           intent="warning"
-          hint={`${totalHigh} pcs unplanned`}
+          hint={`${totalHigh} pcs still needed`}
           onClick={openMatrix}
         />
         <KpiCard
@@ -278,7 +278,7 @@ export function PriorityQueueView() {
           value={normal.length}
           unit="reqs"
           intent="default"
-          hint={`${totalNormal} pcs unplanned`}
+          hint={`${totalNormal} pcs still needed`}
           onClick={openMatrix}
         />
         <KpiCard
@@ -290,26 +290,19 @@ export function PriorityQueueView() {
           onClick={openMatrix}
         />
         <KpiCard
-          label="Total Unplanned"
+          label="Total Still Needed"
           value={totalAll}
           unit="pcs"
           intent="critical"
-          hint="Still needed after approved plans"
+          hint="Still needed after stock and work in progress"
           onClick={openMatrix}
-        />
-        <KpiCard
-          label="Plan Now"
-          value="Open Workbench"
-          intent="success"
-          hint="Open the planning workbench"
-          onClick={() => setView("planning-workbench")}
         />
       </div>
 
       {totalAll === 0 && !cLoading && !hLoading && !nLoading && (
         <EmptyState
           title="No open requirements"
-          message="All requirement rows are fully planned or fully covered."
+          message="Every requirement row is covered by stock or work in progress."
           icon={<AlertTriangle className="h-6 w-6" />}
         />
       )}

@@ -13,21 +13,15 @@ import {
 } from "recharts";
 import { useMemo } from "react";
 import {
-  AlertTriangle, Gem, Boxes, ShoppingCart, FileWarning,
-  TrendingUp, TrendingDown, ShieldCheck, Clock, RefreshCw,
+  AlertTriangle, Gem, ShoppingCart, FileWarning, TrendingUp, TrendingDown, Clock, RefreshCw,
 } from "lucide-react";
 import { KpiGridSkeleton, PageSkeleton } from "@/components/diamond/shared/skeleton";
 
 interface DashboardKpi {
   physicalShortage: number;
   pipelineAdjusted: number;
-  approvedPlanCoverage: number;
-  remainingUnplanned: number;
   forecastRequirement: number;
   polishedStock: number;
-  roughAvailable: number;
-  roughReserved: number;
-  approvedPlanPieces: number;
   criticalRequirements: number;
   highRequirements: number;
   overdueRequirements: number;
@@ -197,13 +191,11 @@ export function DashboardView() {
           <h2 className="text-[11px] font-bold uppercase tracking-wide text-foreground">Planning Need</h2>
         </div>
         {isLoading ? (
-          <KpiGridSkeleton count={5} />
+          <KpiGridSkeleton count={3} />
         ) : (
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
             <KpiCard label="Physical Shortage" value={kpi?.physicalShortage ?? 0} unit="pcs" intent="critical" icon={AlertTriangle} hint="Quantity still needed" sparkline={shortageSparkline} onClick={() => setView("requirements-matrix")} />
             <KpiCard label="Pipeline-Adjusted" value={kpi?.pipelineAdjusted ?? 0} unit="pcs" intent="warning" icon={TrendingDown} hint="Still needed after work in progress" onClick={() => setView("requirements-matrix")} />
-            <KpiCard label="Approved Plan Coverage" value={kpi?.approvedPlanCoverage ?? 0} unit="pcs" intent="success" icon={ShieldCheck} hint="Coverage from approved plans" onClick={() => setView("planning-approval-queue")} />
-            <KpiCard label="Remaining Unplanned" value={kpi?.remainingUnplanned ?? 0} unit="pcs" intent="critical" icon={AlertTriangle} hint="Still needed after approved plans" onClick={() => setView("requirements-matrix")} />
             <KpiCard label="Forecast Signal" value={kpi?.forecastRequirement ?? 0} unit="pcs" intent="info" icon={TrendingUp} hint="Advisory. Not confirmed demand" sparkline={forecastSparkline} />
           </div>
         )}
@@ -217,13 +209,10 @@ export function DashboardView() {
           <span className="text-[10px] text-muted-foreground">— Stock and open commitments</span>
         </div>
         {isLoading ? (
-          <KpiGridSkeleton count={6} />
+          <KpiGridSkeleton count={4} />
         ) : (
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 xl:grid-cols-7 gap-2">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
             <KpiCard label="Polished Stock" value={kpi?.polishedStock ?? 0} unit="lots" intent="default" icon={Gem} hint="Polished lots in stock" onClick={() => setView("analysis-polished")} />
-            <KpiCard label="Rough Available" value={kpi?.roughAvailable ?? 0} unit="stones" intent="success" icon={Gem} onClick={() => setView("planning-rough-availability")} />
-            <KpiCard label="Rough Reserved" value={kpi?.roughReserved ?? 0} unit="stones" intent="warning" icon={ShieldCheck} onClick={() => setView("planning-reservations")} />
-            <KpiCard label="Approved Plan Pieces" value={kpi?.approvedPlanPieces ?? 0} unit="pcs" intent="info" icon={Boxes} hint="Pieces in approved plans" onClick={() => setView("planning-workbench", "pieces")} />
             <KpiCard label="Open Orders" value={kpi?.openOrders ?? 0} intent="default" icon={ShoppingCart} onClick={() => setView("analysis-orders")} />
             <KpiCard label="Backorders" value={kpi?.backorders ?? 0} unit="pcs" intent="critical" icon={FileWarning} onClick={() => setView("requirements-backorders")} />
             <KpiCard label="Memo Exposure" value={fmtMoney(kpi?.memoExposure ?? 0)} intent="warning" icon={FileWarning} hint="Open memo value" sparkline={memoSparkline} onClick={() => setView("analysis-memo")} />

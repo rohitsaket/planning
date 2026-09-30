@@ -64,8 +64,7 @@ interface RequirementRow {
   memoQty: number;
   transferCoverage: number;
   wipCoverage: number;
-  approvedPlanCoverage: number;
-  actualCoverage: number;
+  /** Need after stock and WIP; planned coverage is unavailable and never subtracted. */
   remainingUnplanned: number;
   forecastQty: number;
   requiredBy: string | null;
@@ -99,8 +98,7 @@ interface RequirementDetail {
   memoQty: number;
   transferCoverage: number;
   wipCoverage: number;
-  approvedPlanCoverage: number;
-  actualCoverage: number;
+  /** Need after stock and WIP; planned coverage is unavailable and never subtracted. */
   remainingUnplanned: number;
   forecastQty: number;
   requiredBy: string | null;
@@ -111,18 +109,12 @@ interface RequirementDetail {
   orderPriority: string | null;
   requirementPriority: string | null;
   priorityReason: string | null;
-  allocations: Array<{
-    id: string;
-    allocatedQty: number;
-    allocatedBy: string;
-    allocatedAt: string;
-    status: string;
-    planOptionCode: string | null;
-  }>;
+  planCoverage: { status: "UNAVAILABLE"; reason: string };
   fourNumbers: {
     physicalShortage: number;
     pipelineAdjusted: number;
-    planningAdjusted: number;
+    /** Null: needs a selected-plan source, which does not exist. */
+    planningAdjusted: number | null;
     forecastRequirement: number;
   };
 }
@@ -137,11 +129,9 @@ const TYPES = [
 ];
 const STATUSES = [
   "OPEN",
-  "PARTIALLY_COVERED",
-  "FULLY_PLANNED",
+  "ACTIVE",
   "PARTIALLY_FULFILLED",
   "FULFILLED",
-  "IN_MANUFACTURING",
   "EXPIRED",
   "CANCELLED",
 ];
@@ -450,22 +440,8 @@ export function RequirementsMatrixView() {
       cell: (r) => <NumberCell value={r.wipCoverage} intent="info" />,
     },
     {
-      key: "approvedPlanCoverage",
-      header: "Plan Cov",
-      width: "70px",
-      align: "right",
-      cell: (r) => <NumberCell value={r.approvedPlanCoverage} intent="success" />,
-    },
-    {
-      key: "actualCoverage",
-      header: "Act Cov",
-      width: "70px",
-      align: "right",
-      cell: (r) => <NumberCell value={r.actualCoverage} />,
-    },
-    {
       key: "remainingUnplanned",
-      header: "Rem Unpl",
+      header: "Rem Need",
       width: "75px",
       align: "right",
       sortable: true,
@@ -832,7 +808,7 @@ export function RequirementsMatrixView() {
               {detail && <Badge variant="info">{detail.type.replace(/_/g, " ")}</Badge>}
             </DialogTitle>
             <DialogDescription className="text-[11px]">
-              Requirement quantities, priority and allocations.
+              Requirement quantities and priority.
             </DialogDescription>
           </DialogHeader>
 
@@ -863,10 +839,9 @@ export function RequirementsMatrixView() {
                 />
                 <KpiCard
                   label="3 · Planning-Adjusted"
-                  value={detail.fourNumbers.planningAdjusted}
-                  unit="pcs"
-                  intent="info"
-                  hint="Still needed after approved plans"
+                  value="Unavailable"
+                  intent="default"
+                  hint={detail.planCoverage.reason}
                 />
                 <KpiCard
                   label="4 · Forecast Signal"
@@ -1004,8 +979,7 @@ export function RequirementsMatrixView() {
                 <DataPair label="Memo Qty" value={detail.memoQty} />
                 <DataPair label="Transfer Coverage" value={detail.transferCoverage} />
                 <DataPair label="WIP Coverage" value={detail.wipCoverage} />
-                <DataPair label="Approved Plan Coverage" value={detail.approvedPlanCoverage} />
-                <DataPair label="Actual Coverage" value={detail.actualCoverage} />
+                <DataPair label="Planned Coverage" value="Unavailable" />
               </div>
 
               {/* Context */}
@@ -1026,40 +1000,6 @@ export function RequirementsMatrixView() {
                 <DataPair label="Priority Reason" value={detail.priorityReason ?? "—"} />
               </div>
 
-              {/* Allocations */}
-              <div className="rounded-md border border-border overflow-clip">
-                <div className="px-2.5 py-1.5 border-b border-border bg-muted/40 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  Plan Allocations ({detail.allocations.length})
-                </div>
-                {detail.allocations.length === 0 ? (
-                  <div className="px-3 py-3 text-[11px] text-muted-foreground">No allocations yet.</div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-[11px] border-collapse">
-                      <thead className="bg-muted text-[10px] uppercase text-muted-foreground border-b border-border">
-                        <tr>
-                          <th className="px-2 py-1 text-left border-r border-border/40">Option Code</th>
-                          <th className="px-2 py-1 text-right border-r border-border/40">Allocated Qty</th>
-                          <th className="px-2 py-1 text-left border-r border-border/40">By</th>
-                          <th className="px-2 py-1 text-left border-r border-border/40">At</th>
-                          <th className="px-2 py-1 text-center">Status</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {detail.allocations.map((a) => (
-                          <tr key={a.id} className="border-b border-border/40 last:border-b-0 hover:bg-muted/30">
-                            <td className="px-2 py-1 font-medium border-r border-border/40">{a.planOptionCode ?? "—"}</td>
-                            <td className="px-2 py-1 text-right tabular-nums font-semibold border-r border-border/40">{a.allocatedQty}</td>
-                            <td className="px-2 py-1 border-r border-border/40">{a.allocatedBy}</td>
-                            <td className="px-2 py-1 border-r border-border/40">{fmtDate(a.allocatedAt)}</td>
-                            <td className="px-2 py-1 text-center"><StatusBadge status={a.status} /></td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
 
             </div>
           )}

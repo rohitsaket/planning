@@ -14,7 +14,7 @@ import { GET as listRoles, POST as rolesPost } from "@/app/api/admin/roles/route
 import { GET as listUsers, POST as usersPost } from "@/app/api/admin/users/route";
 import { GET as userHistory } from "@/app/api/admin/users/[id]/history/route";
 import { POST as decideRequest } from "@/app/api/admin/access-requests/route";
-import { EXPLICIT_GRANT_PERMISSIONS, PERMISSIONS, permissionsFor } from "@/lib/auth/permissions";
+import { PERMISSIONS, permissionsFor } from "@/lib/auth/permissions";
 import { catalogCoverage, PERMISSION_CATALOG } from "@/lib/auth/permission-catalog";
 import { UsersAccessView, USERS_ACCESS_TABS } from "@/components/diamond/views/consolidated/users-access-view";
 import { PermissionEditor } from "@/components/diamond/views/users-access/permission-editor";
@@ -77,12 +77,13 @@ describe("users and access: the permission catalogue", () => {
     expect(res.json.catalog.areas.every((a: string) => served.some((p) => p.area === a))).toBe(true);
   });
 
-  test("2. approvals, exports, overrides and unlocks are sensitive; approvals never come with Super Admin", () => {
+  test("2. approvals, exports, overrides and unlocks are sensitive; no plan-approval permission exists", () => {
     const risky = PERMISSION_CATALOG.filter((p) => ["Approve", "Export", "Override", "Unlock"].includes(p.capability));
     expect(risky.length).toBeGreaterThan(0);
     expect(risky.filter((p) => !p.sensitive).map((p) => p.id)).toEqual([]);
-    expect(PERMISSION_CATALOG.find((p) => p.id === "plan.approve")?.sensitive).toBe(true);
-    for (const p of EXPLICIT_GRANT_PERMISSIONS) expect(permissionsFor("SUPER_ADMIN").includes(p)).toBe(false);
+    expect(PERMISSION_CATALOG.find((p) => p.id === "access_request.review")?.sensitive).toBe(true);
+    // The legacy planning and Sarin approval permissions are retired: none is assignable.
+    for (const retired of ["plan.approve", "sarin.output.approve", "approval_policy.manage"]) expect([retired, (PERMISSIONS as readonly string[]).includes(retired)]).toEqual([retired, false]);
   });
 
   test("3. reading roles needs role.read; the page is told who may edit permissions", async () => {
@@ -100,7 +101,7 @@ describe("users and access: role permissions are chosen by a Super Admin", () =>
     const roles = (await get(listRoles, root.cookie, "/api/admin/roles")).json.roles as Array<Record<string, unknown>>;
     expect(roles.some((r) => r.code === "SUPER_ADMIN")).toBe(false);
     expect(roles.every((r) => !("isSystem" in r) && !("isProtected" in r))).toBe(true);
-    for (const change of [{ permissions: ["plan.read"] }, { status: "INACTIVE" }, { name: "Renamed" }]) {
+    for (const change of [{ permissions: ["config.read"] }, { status: "INACTIVE" }, { name: "Renamed" }]) {
       const res = await post(rolesPost, root.cookie, { op: "updateRole", id: sa.id, version: sa.version, ...change });
       expect(res.status).toBe(400);
     }
@@ -108,16 +109,16 @@ describe("users and access: role permissions are chosen by a Super Admin", () =>
   });
 
   test("5. a Super Admin chooses permissions; the save reports and audits exactly what changed", async () => {
-    const role = await customRole("EDIT", ["plan.read", "analysis.read"]);
+    const role = await customRole("EDIT", ["config.read", "analysis.read"]);
     const holder = await userWithRole("uar.holder.edit", role.code);
     const res = await post(rolesPost, root.cookie, { op: "updateRole", id: role.id, version: role.version, permissions: ["analysis.read", "requirement.read", "audit.read"] });
     expect(res.status).toBe(200);
-    expect([res.json.changed, [...res.json.added].sort(), res.json.removed, res.json.affectedUsers, res.json.role.version]).toEqual([true, ["audit.read", "requirement.read"], ["plan.read"], 1, role.version + 1]);
+    expect([res.json.changed, [...res.json.added].sort(), res.json.removed, res.json.affectedUsers, res.json.role.version]).toEqual([true, ["audit.read", "requirement.read"], ["config.read"], 1, role.version + 1]);
     const rows = await db.rolePermission.findMany({ where: { roleId: role.id }, select: { permissionCode: true } });
     expect(rows.map((r) => r.permissionCode).sort()).toEqual(["analysis.read", "audit.read", "requirement.read"]);
     const [audit] = await auditRows(role.id, "ROLE_PERMISSIONS_CHANGED");
     const after = JSON.parse(audit.after!);
-    expect([audit.actorUserId, JSON.parse(audit.before!).permissions, after.affectedUsers, after.version, after.removed]).toEqual([root.user.id, ["analysis.read", "plan.read"], 1, role.version + 1, ["plan.read"]]);
+    expect([audit.actorUserId, JSON.parse(audit.before!).permissions, after.affectedUsers, after.version, after.removed]).toEqual([root.user.id, ["analysis.read", "config.read"], 1, role.version + 1, ["config.read"]]);
     expect(holder.user.id.length).toBeGreaterThan(0);
   });
 
@@ -137,9 +138,9 @@ describe("users and access: role permissions are chosen by a Super Admin", () =>
   test("7. nobody but a Super Admin can choose permissions — not even a holder of role.manage and role.permissions.assign", async () => {
     const role = await customRole("TARGET", ["analysis.read"]);
     const manager = await userWithRole("uar.rolemgr", (await customRole("ROLEMGR", ["role.read", "role.manage", "role.permissions.assign", "analysis.read"])).code);
-    const denied = await post(rolesPost, manager.cookie, { op: "updateRole", id: role.id, version: role.version, permissions: ["analysis.read", "plan.read"] });
+    const denied = await post(rolesPost, manager.cookie, { op: "updateRole", id: role.id, version: role.version, permissions: ["analysis.read", "config.read"] });
     expect(denied.status).toBe(403);
-    expect((await post(rolesPost, manager.cookie, { op: "createRole", code: code("SNEAK"), name: "Sneak", permissions: ["plan.read"] })).status).toBe(403);
+    expect((await post(rolesPost, manager.cookie, { op: "createRole", code: code("SNEAK"), name: "Sneak", permissions: ["config.read"] })).status).toBe(403);
     expect((await post(rolesPost, admin.cookie, { op: "updateRole", id: role.id, version: role.version, permissions: [] })).status).toBe(403);
     // Renaming is role management, not a permission choice.
     const renamed = await post(rolesPost, manager.cookie, { op: "updateRole", id: role.id, version: role.version, name: "Renamed Target", description: "Clearer" });
@@ -149,7 +150,7 @@ describe("users and access: role permissions are chosen by a Super Admin", () =>
   test("8. a stale version is refused and changes nothing", async () => {
     const role = await customRole("STALE", ["analysis.read"]);
     await post(rolesPost, root.cookie, { op: "updateRole", id: role.id, version: role.version, name: "First writer" });
-    const stale = await post(rolesPost, root.cookie, { op: "updateRole", id: role.id, version: role.version, permissions: ["plan.read"] });
+    const stale = await post(rolesPost, root.cookie, { op: "updateRole", id: role.id, version: role.version, permissions: ["config.read"] });
     expect([stale.status, stale.json.error.code]).toEqual([409, "STALE_ROLE"]);
     const rows = await db.rolePermission.findMany({ where: { roleId: role.id }, select: { permissionCode: true } });
     expect(rows.map((r) => r.permissionCode)).toEqual(["analysis.read"]);
@@ -159,8 +160,8 @@ describe("users and access: role permissions are chosen by a Super Admin", () =>
     const role = await customRole("RACE", ["analysis.read"]);
     resetRateLimits();
     const [a, b] = await Promise.all([
-      call(rolesPost, { method: "POST", cookie: root.cookie, body: { op: "updateRole", id: role.id, version: role.version, permissions: ["analysis.read", "plan.read"] } }),
-      call(rolesPost, { method: "POST", cookie: root.cookie, body: { op: "updateRole", id: role.id, version: role.version, permissions: ["analysis.read", "rough.read"] } }),
+      call(rolesPost, { method: "POST", cookie: root.cookie, body: { op: "updateRole", id: role.id, version: role.version, permissions: ["analysis.read", "config.read"] } }),
+      call(rolesPost, { method: "POST", cookie: root.cookie, body: { op: "updateRole", id: role.id, version: role.version, permissions: ["analysis.read", "fantasy.read"] } }),
     ]);
     expect([a.status, b.status].sort()).toEqual([200, 409]);
     const after = await db.role.findUniqueOrThrow({ where: { id: role.id }, include: { permissions: true } });
@@ -170,15 +171,15 @@ describe("users and access: role permissions are chosen by a Super Admin", () =>
   });
 
   test("10. saving what is already stored is a no-op: no version, no audit", async () => {
-    const role = await customRole("SAME", ["analysis.read", "plan.read"]);
-    const res = await post(rolesPost, root.cookie, { op: "updateRole", id: role.id, version: role.version, permissions: ["plan.read", "analysis.read"] });
+    const role = await customRole("SAME", ["analysis.read", "config.read"]);
+    const res = await post(rolesPost, root.cookie, { op: "updateRole", id: role.id, version: role.version, permissions: ["config.read", "analysis.read"] });
     expect([res.status, res.json.changed]).toEqual([200, false]);
     expect((await db.role.findUniqueOrThrow({ where: { id: role.id } })).version).toBe(role.version);
     expect((await auditRows(role.id, "ROLE_PERMISSIONS_CHANGED")).length).toBe(0);
   });
 
   test("11. a failure inside the save rolls everything back", async () => {
-    const role = await customRole("ROLLBACK", ["analysis.read", "plan.read"]);
+    const role = await customRole("ROLLBACK", ["analysis.read", "config.read"]);
     // A real failure inside the transaction: this test database refuses one insert.
     await db.$executeRawUnsafe(`CREATE OR REPLACE FUNCTION uar_refuse_insert() RETURNS trigger AS $$ BEGIN IF NEW."permissionCode" = 'audit.export' THEN RAISE EXCEPTION 'injected failure'; END IF; RETURN NEW; END $$ LANGUAGE plpgsql`);
     await db.$executeRawUnsafe(`CREATE TRIGGER uar_refuse BEFORE INSERT ON "RolePermission" FOR EACH ROW EXECUTE FUNCTION uar_refuse_insert()`);
@@ -191,7 +192,7 @@ describe("users and access: role permissions are chosen by a Super Admin", () =>
       await db.$executeRawUnsafe(`DROP FUNCTION IF EXISTS uar_refuse_insert()`);
     }
     const after = await db.role.findUniqueOrThrow({ where: { id: role.id }, include: { permissions: true } });
-    expect([after.version, after.name, after.permissions.map((p) => p.permissionCode).sort()]).toEqual([role.version, role.name, ["analysis.read", "plan.read"]]);
+    expect([after.version, after.name, after.permissions.map((p) => p.permissionCode).sort()]).toEqual([role.version, role.name, ["analysis.read", "config.read"]]);
     expect((await auditRows(role.id, "ROLE_PERMISSIONS_CHANGED")).length).toBe(0);
   });
 
@@ -210,8 +211,8 @@ describe("users and access: role permissions are chosen by a Super Admin", () =>
   });
 
   test("13. an unknown permission is rejected; a copy carries exactly the source's permissions", async () => {
-    expect((await post(rolesPost, root.cookie, { op: "createRole", code: code("BAD"), name: "Bad", permissions: ["plan.read", "everything.all"] })).status).toBe(400);
-    const source = await customRole("SOURCE", ["analysis.read", "plan.read", "rough.read"]);
+    expect((await post(rolesPost, root.cookie, { op: "createRole", code: code("BAD"), name: "Bad", permissions: ["config.read", "everything.all"] })).status).toBe(400);
+    const source = await customRole("SOURCE", ["analysis.read", "config.read", "fantasy.read"]);
     const copy = await customRole("COPY", source.permissions);
     expect(copy.permissions).toEqual(source.permissions);
   });
@@ -254,8 +255,9 @@ describe("users and access: accounts", () => {
   });
 
   test("17. a non-Super Admin cannot hand out a role carrying access they do not hold", async () => {
-    const approver = await customRole("APPROVER", ["plan.read", "plan.approve"]);
-    const reader = await customRole("READER", ["plan.read"]);
+    // demand.run is withheld from the ADMIN fixture, so ADMIN cannot hand it out.
+    const approver = await customRole("APPROVER", ["config.read", "demand.run"]);
+    const reader = await customRole("READER", ["config.read"]);
     const create = await post(usersPost, admin.cookie, { op: "create", username: "uar.escalate", displayName: "Escalate", roles: [approver.code] });
     expect([create.status, create.json.error.code]).toEqual([403, "NOT_DELEGABLE"]);
     expect(await db.user.count({ where: { username: "uar.escalate" } })).toBe(0);
@@ -283,7 +285,7 @@ describe("users and access: accounts", () => {
   });
 
   test("19. an access-request reviewer cannot approve into a role above their own access", async () => {
-    const approver = await customRole("REQAPPROVER", ["plan.read", "plan.approve"]);
+    const approver = await customRole("REQAPPROVER", ["config.read", "demand.run"]);
     const req = await db.accessRequest.create({ data: { username: `uar.req.${Date.now().toString(36)}`, displayName: "Applicant", justification: "Needs planning access for review", pendingKey: `uar-req-${Date.now()}` } });
     const denied = await post(decideRequest, admin.cookie, { op: "approve", id: req.id, role: approver.code });
     expect(denied.status).toBe(403);
@@ -378,7 +380,7 @@ describe("users and access: accounts", () => {
     expect(await db.userRole.count({ where: { userId: u.user.id } })).toBe(before);
   });
 
-  test("27. an administrator never receives planning or Sarin approval by default", async () => {
+  test("27. an administrator never receives retired approvals or permission assignment", async () => {
     const perms = (await get(me, admin.cookie, "/api/auth/me")).json.user.permissions as string[];
     expect([perms.includes("plan.approve"), perms.includes("sarin.output.approve"), perms.includes("role.permissions.assign")]).toEqual([false, false, false]);
   });
@@ -441,32 +443,32 @@ describe("users and access: the page", () => {
   test("33. the permission editor shows plain-language labels grouped by area, never codes", () => {
     const html = renderToStaticMarkup(
       createElement(PermissionEditor, {
-        areas: ["Planning", "Workbook Import"],
-        catalog: PERMISSION_CATALOG.filter((p) => p.area === "Planning" || p.area === "Workbook Import"),
-        selected: new Set(["plan.read", "plan.approve"]),
-        baseline: new Set(["plan.read"]),
+        areas: ["Requirements", "Workbook Import"],
+        catalog: PERMISSION_CATALOG.filter((p) => p.area === "Requirements" || p.area === "Workbook Import"),
+        selected: new Set(["requirement.read", "requirement.override"]),
+        baseline: new Set(["requirement.read"]),
         onChange: () => {},
         readOnly: false,
       }),
     );
     const text = html.replace(/<[^>]+>/g, " ");
-    for (const label of ["Approve plans", "View plans", "Approve Sarin output for planning", "Select safe read-only", "Clear group", "Added"]) expect([label, text.includes(label)]).toEqual([label, true]);
-    expect(/plan\.approve|sarin\.output\.approve|plan\.read/.test(text)).toBe(false);
+    for (const label of ["Override requirement priority", "View requirements", "Export Sarin output", "Select safe read-only", "Clear group", "Added"]) expect([label, text.includes(label)]).toEqual([label, true]);
+    expect(/requirement\.override|sarin\.output\.export|requirement\.read/.test(text)).toBe(false);
   });
 
   test("34. the access inspector explains each permission by the role that grants it", () => {
     const html = renderToStaticMarkup(
       createElement(UserAccessInspector, {
-        user: { id: "u-internal-id", name: "Asha", username: "asha", email: "", roles: ["R1"], status: "ACTIVE", displayStatus: "ACTIVE", lastActive: null, permissionCount: 2, permissions: ["plan.read", "analysis.read"], createdAt: new Date(0).toISOString(), mustChangePassword: false, accessScope: { countries: ["ZS"], labs: [], unrestricted: false } },
-        roles: [{ id: "r-internal-id", code: "R1", name: "Planning Reader", description: null, status: "ACTIVE", version: 1, permissions: ["plan.read", "analysis.read"], userCount: 1, createdAt: new Date(0).toISOString() }],
+        user: { id: "u-internal-id", name: "Asha", username: "asha", email: "", roles: ["R1"], status: "ACTIVE", displayStatus: "ACTIVE", lastActive: null, permissionCount: 2, permissions: ["config.read", "analysis.read"], createdAt: new Date(0).toISOString(), mustChangePassword: false, accessScope: { countries: ["ZS"], labs: [], unrestricted: false } },
+        roles: [{ id: "r-internal-id", code: "R1", name: "Mappings Reader", description: null, status: "ACTIVE", version: 1, permissions: ["config.read", "analysis.read"], userCount: 1, createdAt: new Date(0).toISOString() }],
         catalog: [...PERMISSION_CATALOG],
-        areas: ["Analysis", "Planning", "Workbook Import"],
+        areas: ["Analysis", "Mappings", "Workbook Import"],
         onClose: () => {},
         onSelectRole: () => {},
       }),
     );
     const text = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
-    expect([text.includes("Granted by: Planning Reader"), text.includes("Countries: ZS"), /Not held: .*Approve plans/.test(text)]).toEqual([true, true, true]);
+    expect([text.includes("Granted by: Mappings Reader"), text.includes("Countries: ZS"), /Not held: .*Review access requests/.test(text)]).toEqual([true, true, true]);
     expect([html.includes("u-internal-id"), html.includes("r-internal-id")]).toEqual([false, false]);
   });
 

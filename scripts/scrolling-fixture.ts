@@ -2,8 +2,9 @@
 // exceed the viewport, plus row-count boundary sets. Every write goes through the test helpers
 // or the real route handlers; the module refuses any database but planning_sectest.
 
-import { call, db, makeCase, makeUser } from "../tests/security/helpers";
+import { call, db, makeUser } from "../tests/security/helpers";
 import { SECTEST_DB } from "../tests/security/test-db";
+import { assertDisposableDatabase } from "@/lib/fantasy/database-environment";
 import { resetRateLimits } from "@/lib/api/rate-limit";
 import { POST as uploadImport } from "@/app/api/planning/sarin/imports/route";
 import { POST as validateImport } from "@/app/api/planning/sarin/imports/[batchId]/validate/route";
@@ -11,8 +12,6 @@ import { POST as generateOutput } from "@/app/api/planning/sarin/imports/[batchI
 
 /** Row counts around the old 50-row switch, and a count that needs server pagination. */
 export const BOUNDARY_COUNTS = [0, 1, 25, 49, 50, 51, 300] as const;
-/** The bounded Rough Availability table loads one page of up to 500 stones, so its sets stop below that. */
-export const BOUNDED_BOUNDARY_COUNTS = [0, 1, 25, 49, 50, 51] as const;
 /** Search token that selects exactly `n` seeded rows on a page. */
 export const boundaryToken = (n: number) => `zq${String(n).padStart(3, "0")}x`;
 
@@ -90,6 +89,9 @@ async function uploadPink(cookie: string, stone = "7201-333_M"): Promise<string>
 }
 
 export async function assertScrollingTestDatabase() {
+  // Loopback host, an approved isolated test database, no production or staging marker —
+  // proven from the URL before the connection is used.
+  assertDisposableDatabase(process.env.DATABASE_URL, "Scrolling fixture");
   const [{ name }] = await db.$queryRaw<{ name: string }[]>`SELECT current_database() AS name`;
   if (name !== SECTEST_DB) throw new Error(`Refusing to seed ${name}: the scrolling suite runs only against ${SECTEST_DB}.`);
 }
@@ -110,28 +112,17 @@ export async function seedScrollingFixture(): Promise<{ sessionToken: string }> 
   );
   await db.dataQualityIssue.createMany({ data: issues, skipDuplicates: true });
 
-  // Rough Availability (a bounded table): boundary sets selected by a stone-name token.
-  const roughs = BOUNDED_BOUNDARY_COUNTS.flatMap((n) =>
-    Array.from({ length: n }, (_, i) => ({
-      fantasyRoughId: `FR-${boundaryToken(n)}-${i}`, kapan: "K9", packet: "P9", stoneName: `${boundaryToken(n)}-${i}`, roughWeight: 2 + (i % 7) / 10,
-      country: "IN", branch: "SRT", fantasyStatus: "IN_STOCK", planningStatus: "AVAILABLE",
-    })),
-  );
-  await db.roughStone.createMany({ data: roughs, skipDuplicates: true });
 
   // Requirements for the matrix, queues, exceptions and replenishment tabs.
   const types = ["STOCK_REPLENISHMENT", "CUSTOMER_ORDER", "BACKORDER", "SPECIAL_REQUIREMENT"];
   await db.requirement.createMany({
     data: types.flatMap((type, t) => Array.from({ length: 80 }, (_, i) => ({
       requirementCode: `REQ-SCROLL-${t}-${i}`, type, groupCode: "G1", companyCode: "C1", country: "IN", branch: "SRT", requiredQty: 1 + (i % 5),
-      remainingUnplanned: 1 + (i % 5), requirementPriority: ["CRITICAL", "HIGH", "NORMAL"][i % 3],
+      requirementPriority: ["CRITICAL", "HIGH", "NORMAL"][i % 3],
       customerName: type === "STOCK_REPLENISHMENT" ? null : `Customer ${i % 17}`, orderNumber: type === "STOCK_REPLENISHMENT" ? null : `SO-${t}-${i}`,
     }))),
     skipDuplicates: true,
   });
-
-  // Planning cases awaiting approval, with versions and options.
-  for (let i = 0; i < 40; i++) await makeCase({ planner: "scroll.planner", status: i % 4 === 0 ? "READY_FOR_REVIEW" : "APPROVAL_PENDING" });
 
   // Audit history and mapping tables long enough to scroll.
   await db.auditLog.createMany({
@@ -141,10 +132,6 @@ export async function seedScrollingFixture(): Promise<{ sessionToken: string }> 
   await db.shapeMapping.createMany({ data: Array.from({ length: 60 }, (_, i) => ({ rawShape: `ZSHAPE-${i}`, normalizedShape: "ROUND" })), skipDuplicates: true });
 
   await db.fantasyStatusMapping.createMany({ data: Array.from({ length: 60 }, (_, i) => ({ fantasyStatus: `ZSTATUS-${i}`, planningClass: "OTHER" })), skipDuplicates: true });
-
-  // Rough reservations, each on a stone of its own.
-  const reserved = await db.roughStone.findMany({ where: { stoneName: { startsWith: boundaryToken(51) } }, select: { id: true } });
-  await db.roughReservation.createMany({ data: reserved.map((r) => ({ roughId: r.id, reservedBy: "scroll.planner", status: "SOFT_RESERVED" })) });
 
   // Workbook Import: the reopened Pink file plus enough further files to page Recent Files.
   await uploadPink(planner.cookie);

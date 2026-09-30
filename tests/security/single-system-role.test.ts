@@ -36,7 +36,7 @@ beforeAll(async () => {
   // An administrator profile without the separate Super Admin authority (fixture custom role).
   admin = await makeUser("ssr.admin", "ADMIN");
   customCode = `SSR_READER_${Date.now().toString(36).toUpperCase()}`;
-  const created = await post(rolesPost, root.cookie, { op: "createRole", code: customCode, name: "Planning Reader", permissions: ["plan.read", "analysis.read"] });
+  const created = await post(rolesPost, root.cookie, { op: "createRole", code: customCode, name: "Mappings Reader", permissions: ["config.read", "analysis.read"] });
   if (created.status !== 200) throw new Error(`createRole ${created.status}`);
 });
 
@@ -46,7 +46,7 @@ describe("single system role", () => {
     expect((await db.role.findMany({ where: { isSystem: true }, select: { code: true } })).map((r) => r.code)).toEqual(["SUPER_ADMIN"]);
     const roles = (await get(listRoles, root.cookie, "/api/admin/roles")).json.roles as Array<{ code: string }>;
     expect([roles.some((r) => r.code === "SUPER_ADMIN"), roles.some((r) => r.code === customCode)]).toEqual([false, true]);
-    const clash = await post(rolesPost, root.cookie, { op: "createRole", code: "SUPER_ADMIN", name: "Imposter", permissions: ["plan.read"] });
+    const clash = await post(rolesPost, root.cookie, { op: "createRole", code: "SUPER_ADMIN", name: "Imposter", permissions: ["config.read"] });
     expect(clash.status).toBe(409);
   });
 

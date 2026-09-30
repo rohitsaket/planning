@@ -11,88 +11,47 @@
 //   npm run build && npm run test:scrolling
 // Chrome is taken from CHROME_BIN or the usual install locations. `--viewports=1440x900,390x844`
 // limits the sizes; `--skip-seed` reuses data already seeded.
-import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import path from "node:path";
+import { click, consoleProblems, evaluate, eventCount, eventsSince, key, send, setViewport, sleep, startBrowser, touchScroll, signInAs, waitFor, wheel } from "./browser-harness";
 import { db } from "../tests/security/helpers";
-import { assertScrollingTestDatabase, BOUNDARY_COUNTS, BOUNDED_BOUNDARY_COUNTS, boundaryToken, seedScrollingFixture } from "./scrolling-fixture";
+import { assertScrollingTestDatabase, BOUNDARY_COUNTS, boundaryToken, seedScrollingFixture } from "./scrolling-fixture";
 
 const ALL_VIEWPORTS = ["1440x900", "1366x768", "1024x768", "768x1024", "390x844", "360x800"];
 const arg = (name: string) => process.argv.find((a) => a.startsWith(`--${name}=`))?.split("=")[1];
 const VIEWPORTS = (arg("viewports")?.split(",") ?? ALL_VIEWPORTS).map((v) => v.split("x").map(Number) as [number, number]);
 const PAGES = [
   "dashboard", "analysis-sales", "analysis-customers-orders", "analysis-inventory-position", "fantasy-data", "data-quality-issues",
-  "requirements-matrix", "requirements-priority-queue", "orders-exceptions", "replenishment-allocation", "planning-rough-availability",
-  "planning-workbook-import", "planning-workbench", "planning-approval-queue", "admin-users-access", "admin-mappings", "admin-audit-log",
+  "requirements-matrix", "requirements-priority-queue", "orders-exceptions", "replenishment-allocation",
+  "planning-workbook-import", "admin-users-access", "admin-mappings", "admin-audit-log",
+];
+/** The final sidebar, exactly: every page above, grouped, and nothing retired. */
+const FINAL_SIDEBAR: Array<[string, string[]]> = [
+  ["Dashboard", ["Overview"]],
+  ["Analysis", ["Sales & Trends", "Customers & Orders", "Inventory"]],
+  ["Data", ["Fantasy Data", "Import Issues"]],
+  ["Requirements", ["Requirement Matrix", "Priority Queue", "Order Exceptions", "Replenishment & Allocation"]],
+  ["Planning", ["Workbook Import"]],
+  ["Administration", ["Users & Access", "Mappings", "Audit Log"]],
+];
+/** Old links to the retired planning pages, and the reason each must state. */
+const RETIRED_LINKS: Array<[string, RegExp]> = [
+  ["#planning-workbench", /outside the current planning utility/],
+  ["#planning-workbench?tab=comparison", /outside the current planning utility/],
+  ["#planning-cases", /outside the current planning utility/],
+  ["#planning-comparison", /outside the current planning utility/],
+  ["#planning-planned-pieces", /outside the current planning utility/],
+  ["#planning-reservations", /outside the current planning utility/],
+  ["#planning-approval-queue", /outside the current planning utility/],
+  ["#planning-rough-availability", /No authoritative rough-stock source is configured\./],
+  ["#fantasy-rough", /No authoritative rough-stock source is configured\./],
+  ["#fantasy-live", /No authoritative rough-stock source is configured\./],
 ];
 const IMPORT_PAGE_SIZE = 50;
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const results: { check: string; ok: boolean; detail: string }[] = [];
 const notes: string[] = [];
 const record = (check: string, ok: boolean, detail = "") => {
   results.push({ check, ok, detail });
   if (!ok) console.log(`  FAIL ${check}${detail ? ` — ${detail}` : ""}`);
-};
-
-function findChrome(): string {
-  const candidates = [
-    process.env.CHROME_BIN,
-    "C:/Program Files/Google/Chrome/Application/chrome.exe",
-    "C:/Program Files (x86)/Google/Chrome/Application/chrome.exe",
-    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-    "/usr/bin/google-chrome",
-    "/usr/bin/chromium",
-  ].filter(Boolean) as string[];
-  const found = candidates.find((c) => existsSync(c));
-  if (!found) throw new Error("Chrome not found: set CHROME_BIN.");
-  return found;
-}
-
-// ---- Chrome DevTools Protocol --------------------------------------------------------------
-type Cdp = { send: (method: string, params?: object) => Promise<any>; events: { method: string; params: any }[]; close: () => void };
-
-async function connect(port: number): Promise<Cdp> {
-  let wsUrl = "";
-  for (let i = 0; i < 75 && !wsUrl; i++) {
-    await sleep(200);
-    try {
-      const targets = (await (await fetch(`http://127.0.0.1:${port}/json`)).json()) as { type: string; webSocketDebuggerUrl: string }[];
-      wsUrl = targets.find((t) => t.type === "page")?.webSocketDebuggerUrl ?? "";
-    } catch {}
-  }
-  if (!wsUrl) throw new Error("Chrome DevTools endpoint did not come up");
-  const ws = new WebSocket(wsUrl);
-  await new Promise((r) => (ws.onopen = r));
-  let id = 0;
-  const pending = new Map<number, (v: any) => void>();
-  const events: Cdp["events"] = [];
-  ws.onmessage = (m) => {
-    const msg = JSON.parse(String(m.data));
-    if (msg.id && pending.has(msg.id)) {
-      pending.get(msg.id)!(msg.result ?? msg);
-      pending.delete(msg.id);
-    } else if (msg.method) events.push(msg);
-  };
-  const send = (method: string, params: object = {}) =>
-    new Promise<any>((resolve) => {
-      const n = ++id;
-      pending.set(n, resolve);
-      ws.send(JSON.stringify({ id: n, method, params }));
-    });
-  return { send, events, close: () => ws.close() };
-}
-
-let cdp: Cdp;
-const evaluate = async <T = any>(expression: string): Promise<T> =>
-  (await cdp.send("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true })).result?.value as T;
-const waitFor = async (expression: string, ms = 12000) => {
-  for (let t = 0; t < ms; t += 200) {
-    if (await evaluate(expression)) return true;
-    await sleep(200);
-  }
-  return false;
 };
 
 // In-page helpers, installed after every navigation. Plain JavaScript: this runs in the page.
@@ -150,49 +109,12 @@ async function navigate(hash: string) {
   await sleep(400);
 }
 
-async function wheel(x: number, y: number, deltaX: number, deltaY: number, modifiers = 0) {
-  await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
-  await cdp.send("Input.dispatchMouseEvent", { type: "mouseWheel", x, y, deltaX, deltaY, modifiers });
-  await sleep(450);
-}
-async function key(keyName: string, code: number, modifiers = 0) {
-  await cdp.send("Input.dispatchKeyEvent", { type: "rawKeyDown", key: keyName, code: keyName, windowsVirtualKeyCode: code, nativeVirtualKeyCode: code, modifiers });
-  await cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key: keyName, code: keyName, windowsVirtualKeyCode: code, nativeVirtualKeyCode: code, modifiers });
-  await sleep(350);
-}
-async function click(x: number, y: number) {
-  await cdp.send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", clickCount: 1 });
-  await cdp.send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", clickCount: 1 });
-  await sleep(300);
-}
-// A finger drag: touchstart, twelve moves, touchend. Positive distance swipes up (scrolls down).
-// Real touch events, so the browser's own gesture handling decides what scrolls.
-async function touchScroll(x: number, y: number, distance: number) {
-  await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] });
-  for (let i = 1; i <= 12; i++) {
-    await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x, y: Math.round(y - (distance * i) / 12) }] });
-    await sleep(16);
-  }
-  await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
-  await sleep(600);
-}
 const mainState = () => evaluate<{ top: number; sh: number; ch: number; left: number; docH: number; docW: number; ih: number; iw: number }>("window.__sc.state()");
 const setMainTop = (top: number) => evaluate(`window.__sc.main().scrollTop = ${top}; true`);
 
-function consoleProblems(from: number): string[] {
-  return cdp.events.slice(from).flatMap((e) => {
-    if (e.method === "Runtime.exceptionThrown") return [String(e.params.exceptionDetails?.exception?.description ?? "exception").slice(0, 160)];
-    if (e.method === "Runtime.consoleAPICalled" && (e.params.type === "error" || /hydrat/i.test(JSON.stringify(e.params.args ?? [])))) {
-      return [(e.params.args ?? []).map((a: any) => a.value ?? a.description).join(" ").slice(0, 160)];
-    }
-    if (e.method === "Log.entryAdded" && e.params.entry.level === "error") return [String(e.params.entry.text).slice(0, 160)];
-    return [];
-  });
-}
-
 // ---- Checks for one rendered page ----------------------------------------------------------
 async function checkPage(label: string, touch: boolean) {
-  const from = cdp.events.length;
+  const from = eventCount();
   await setMainTop(0);
   await sleep(150);
   const s = await mainState();
@@ -455,25 +377,47 @@ async function boundaryChecks(tag: string, touch: boolean) {
     if (n === 51 || n === 300) await checkPage(`${tag} Import Issues (${n} rows)`, touch);
   }
   record(`${tag}: Import Issues scrolling is the same at every row count`, new Set(flowShapes).size === 1, [...new Set(flowShapes)].join(", "));
+}
 
-  const boundedShapes: string[] = [];
-  for (const n of BOUNDED_BOUNDARY_COUNTS) {
-    await navigate("#planning-rough-availability");
-    await setInput("Search by stone name", boundaryToken(n));
-    await sleep(500);
-    const t = (await evaluate<Array<{ mode: string; sh: number; ch: number; overflowY: string; maxHeight: string; rows: number }>>("window.__sc.tables()"))[0];
-    const expected = n === 0 ? 1 : n;
-    record(`${tag}: Rough Availability with ${n} rows shows them all in its bounded table`, !!t && t.mode === "bounded" && t.rows === expected, JSON.stringify(t));
-    if (t) boundedShapes.push(`${t.mode}/${t.overflowY}/${t.maxHeight}`);
-    if (n === 51) await checkPage(`${tag} Rough Availability (${n} rows)`, touch);
+/** The sidebar holds exactly the final pages, in order, with every group expanded. */
+async function sidebarChecks(tag: string) {
+  const open = await evaluate<boolean>(`!!document.querySelector('aside')`);
+  if (!open) {
+    await evaluate(`document.querySelector('button[aria-label="Open navigation menu"]')?.click(); true`);
+    await waitFor(`!!document.querySelector('aside')`);
   }
-  record(`${tag}: Rough Availability scrolling is the same at every row count`, new Set(boundedShapes).size === 1, [...new Set(boundedShapes)].join(", "));
+  await evaluate(`[...document.querySelectorAll('aside button[aria-label^="Expand "]')].forEach((b) => b.click()); true`);
+  await sleep(300);
+  const groups = await evaluate<Array<[string, string[]]>>(`[...document.querySelectorAll('aside button[aria-controls^="nav-group-"]')].map((g) => [
+    g.getAttribute('aria-label').replace(/^(Collapse|Expand) /, ''),
+    [...(document.getElementById(g.getAttribute('aria-controls'))?.querySelectorAll('li button') ?? [])].map((b) => b.title),
+  ])`);
+  record(`${tag}: the sidebar is exactly the final route set`, JSON.stringify(groups) === JSON.stringify(FINAL_SIDEBAR), JSON.stringify(groups));
+  const text = await evaluate<string>(`document.querySelector('aside')?.innerText ?? ''`);
+  record(`${tag}: no retired planning page is offered in the sidebar`, !/Planning Workbench|Approval Queue|Rough Availability|Reservations|Planned Pieces|Planning Cases/.test(text));
+}
+
+/** Every old link to a retired planning page shows Not available and asks the server for nothing. */
+async function retiredLinkChecks(tag: string, touch: boolean) {
+  for (const [hash, reason] of RETIRED_LINKS) {
+    await navigate("#dashboard");
+    const from = eventCount();
+    await navigate(hash);
+    await sleep(300);
+    const text = await evaluate<string>(`window.__sc.main().innerText`);
+    const apiCalls = eventsSince(from)
+      .filter((e) => e.method === "Network.requestWillBeSent")
+      .map((e) => new URL((e.params as { request: { url: string } }).request.url).pathname)
+      .filter((p) => p.startsWith("/api/") && p !== "/api/auth/me" && p !== "/api/notifications");
+    record(`${tag}: ${hash} shows Not available with its reason`, /Not available/.test(text) && reason.test(text), text.slice(0, 160));
+    record(`${tag}: ${hash} requests no page data`, apiCalls.length === 0, apiCalls.join(", "));
+  }
+  await checkPage(`${tag} retired link (Not available)`, touch);
 }
 
 // ---- Run ------------------------------------------------------------------------------------
 async function main() {
   await assertScrollingTestDatabase();
-  if (!existsSync(".next/BUILD_ID")) throw new Error("No production build: run `npm run build` first.");
   const sessionToken = process.argv.includes("--skip-seed")
     ? await (async () => {
         const { createSession } = await import("@/lib/auth/session");
@@ -482,30 +426,17 @@ async function main() {
       })()
     : (await seedScrollingFixture()).sessionToken;
 
-  const port = 3400 + Math.floor(Math.random() * 400);
-  const base = `http://localhost:${port}`;
-  const server: ChildProcess = spawn(process.execPath, [path.join("node_modules", "next", "dist", "bin", "next"), "start", "-p", String(port)], { env: process.env, stdio: "ignore" });
-  const profile = mkdtempSync(path.join(tmpdir(), "scroll-chrome-"));
-  const debugPort = 9500 + Math.floor(Math.random() * 400);
-  const chrome = spawn(findChrome(), ["--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check", "--hide-scrollbars=false", `--remote-debugging-port=${debugPort}`, `--user-data-dir=${profile}`, "about:blank"], { stdio: "ignore" });
+  const browser = await startBrowser();
+  const base = browser.base;
   try {
-    let up = false;
-    for (let i = 0; i < 90 && !up; i++) {
-      await sleep(500);
-      up = await fetch(`${base}/api/public/login-context`).then((r) => r.ok, () => false);
-    }
-    if (!up) throw new Error("The production server did not start.");
-    cdp = await connect(debugPort);
-    for (const domain of ["Page", "Runtime", "Log", "Network"]) await cdp.send(`${domain}.enable`);
-    await cdp.send("Network.setCookie", { name: "dp_session", value: sessionToken, domain: "localhost", path: "/", httpOnly: true, sameSite: "Lax" });
+    await signInAs(sessionToken);
 
     for (const [width, height] of VIEWPORTS) {
       const tag = `@${width}x${height}`;
       const touch = width <= 768;
       console.log(`\n=== ${tag}${touch ? " (touch)" : ""}`);
-      await cdp.send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: width < 768 });
-      await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: touch, maxTouchPoints: touch ? 5 : 0 });
-      await cdp.send("Page.navigate", { url: `${base}/#dashboard` });
+      await setViewport(width, height, touch);
+      await send("Page.navigate", { url: `${base}/#dashboard` });
       await waitFor(`!!document.querySelector('main[data-scroll-owner="page"]')`, 20000);
       await evaluate(PAGE_HELPERS);
 
@@ -525,15 +456,13 @@ async function main() {
         }
       }
       await interactionChecks(tag, width);
+      await retiredLinkChecks(tag, touch);
       if (width === 1440 || width === 390) await boundaryChecks(tag, touch);
+      await sidebarChecks(tag);
     }
   } finally {
-    cdp?.close();
-    chrome.kill();
-    server.kill();
+    await browser.stop();
     await db.$disconnect();
-    await sleep(500);
-    try { rmSync(profile, { recursive: true, force: true }); } catch {}
   }
 
   const failed = results.filter((r) => !r.ok);

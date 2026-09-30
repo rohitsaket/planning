@@ -200,7 +200,7 @@ export function TabbedHostView({
                   tabIndex={active ? 0 : -1}
                   onClick={() => handleTabClick(tab.id)}
                   className={cn(
-                    "relative z-10 flex h-7 items-center gap-1.5 whitespace-nowrap rounded-full px-3 text-xs transition-colors duration-200 cursor-pointer select-none",
+                    "relative z-10 flex h-tab items-center gap-1.5 whitespace-nowrap rounded-full px-3 text-xs transition-colors duration-200 cursor-pointer select-none",
                     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F9733E]/50",
                     active
                       ? "text-[#EA580C] font-bold dark:text-[#FFEDD5]"

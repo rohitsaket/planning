@@ -64,7 +64,7 @@ interface LotsResponse {
 
 interface ReconciliationResponse {
   sourceDisclosure: SourceDisclosure | null;
-  canonicalCurrent: number; polishedMirrorRows: number; roughMirrorRows: number; memoMirrorRows: number;
+  canonicalCurrent: number; polishedMirrorRows: number; memoMirrorRows: number;
   presentInBoth: number; canonicalOnly: number; mirrorOnlyLegacySeed: number;
   classificationDisagreements: number;
 }
@@ -379,7 +379,6 @@ export function InventoryReconciliationTab() {
     ? [
         { label: "Current inventory", value: data.canonicalCurrent, note: "Synchronized current lots.", intent: "default" },
         { label: "Polished records (operational)", value: data.polishedMirrorRows, note: "Operational polished records.", intent: "default" },
-        { label: "Rough records (operational)", value: data.roughMirrorRows, note: "Operational rough records.", intent: "default" },
         { label: "Memo records", value: data.memoMirrorRows, note: "Operational memo records.", intent: "default" },
         { label: "Matched records", value: data.presentInBoth, note: "Lots found in both.", intent: "default" },
         { label: "Inventory only", value: data.canonicalOnly, note: "Not in operational records.", intent: "default" },

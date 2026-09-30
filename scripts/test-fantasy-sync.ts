@@ -22,8 +22,9 @@ import {
 } from "../src/lib/fantasy/canonical";
 import { FixtureFantasyProvider } from "../src/lib/fantasy/provider";
 // Roles other than SUPER_ADMIN are test fixture custom roles (tests/security/fixture-roles.ts).
-import { testHasPermission, testPermissionsFor } from "../tests/security/fixture-roles";
-import { SECTEST_DB } from "../tests/security/test-db";
+import { TEST_ROLES, testHasPermission, testPermissionsFor } from "../tests/security/fixture-roles";
+import { PERMISSIONS } from "../src/lib/auth/permissions";
+import { proveDisposableDatabase } from "../src/lib/fantasy/database-environment";
 import { Prisma } from "@prisma/client";
 
 function assert(condition: boolean, message: string) {
@@ -42,16 +43,14 @@ async function main() {
   // =========================================================================
   // HARD DATABASE SAFETY GUARD
   // =========================================================================
-  const dbUrl = process.env.DATABASE_URL || "";
-  const isTestDb = dbUrl.includes(SECTEST_DB) || dbUrl.includes("planning_sectest") || dbUrl.includes("_test");
-  if (!isTestDb) {
-    console.error("❌ CRITICAL DATABASE SAFETY GUARD TRIGGERED:");
-    console.error(`Refusing to run destructive test setup on non-test database: ${dbUrl}`);
-    console.error(`Tests MUST only run against the isolated test database: ${SECTEST_DB}`);
+  // Loopback host, an approved isolated test database, no production or staging marker.
+  const proof = proveDisposableDatabase(process.env.DATABASE_URL);
+  if (!proof.proven) {
+    console.error(`Refusing to run destructive test setup (${proof.refusal}). ${proof.message}`);
     console.error("Run via: npm run test:fantasy");
     process.exit(1);
   }
-  console.log(`🔒 [Safety Guard] Confirmed isolated test database connection: ${SECTEST_DB}`);
+  console.log(`🔒 [Safety Guard] Confirmed isolated test database connection: ${proof.databaseName}`);
 
   // Step 0: Clean test slate for deterministic execution
   console.log("🧹 [0/16] Resetting test database state...");
@@ -573,16 +572,17 @@ async function main() {
   // TEST 13: RBAC Positive and Negative Authorization Cases
   // =========================================================================
   console.log("🚀 [13/16] TEST 13: RBAC Separation & Authority Matrix...");
-  // Case A: ADMIN must NOT automatically receive plan.approve
-  assert(testHasPermission("ADMIN", "plan.approve") === false, "CRITICAL RBAC: ADMIN does NOT have plan.approve");
-  assert(testHasPermission("ADMIN", "approval_policy.manage") === false, "ADMIN does NOT have approval_policy.manage");
+  // Case A: ADMIN administers users but does not run operational work
+  assert(testHasPermission("ADMIN", "demand.run") === false, "CRITICAL RBAC: ADMIN does NOT have demand.run");
   assert(testHasPermission("ADMIN", "user.read") === true, "ADMIN has user.read");
   assert(testHasPermission("ADMIN", "user.super_admin.assign") === false, "ADMIN does NOT hold protected-role assignment authority");
 
-  // Case B: Explicit Planning Approval roles
-  assert(testHasPermission("SUPER_ADMIN", "plan.approve") === true, "SUPER_ADMIN has plan.approve");
-  assert(testHasPermission("PLANNING_MANAGER", "plan.approve") === true, "PLANNING_MANAGER has plan.approve");
-  assert(testHasPermission("PLANNER", "plan.approve") === false, "PLANNER does NOT have plan.approve");
+  // Case B: the legacy plan-approval workflow is retired; no role holds any of its permissions
+  const retiredApprovals = ["plan.approve", "plan.replan", "approval_policy.manage", "sarin.output.approve"];
+  for (const code of retiredApprovals) {
+    assert(!(PERMISSIONS as readonly string[]).includes(code), `${code} is no longer a defined permission`);
+    assert(TEST_ROLES.every((role) => !(testPermissionsFor(role) as string[]).includes(code)), `no role holds ${code}`);
+  }
 
   // Case C: VIEWER cannot trigger or retry sync
   assert(testHasPermission("VIEWER", "fantasy.sync.run") === false, "VIEWER does NOT have fantasy.sync.run");
@@ -592,7 +592,7 @@ async function main() {
   // Case D: Fantasy Integration role cannot approve plans
   assert(testHasPermission("FANTASY_INTEGRATION", "fantasy.sync.run") === true, "FANTASY_INTEGRATION has fantasy.sync.run");
   assert(testHasPermission("FANTASY_INTEGRATION", "fantasy.sync.unlock") === false, "FANTASY_INTEGRATION cannot unlock a stuck sync: running one does not imply it");
-  assert(testHasPermission("FANTASY_INTEGRATION", "plan.approve") === false, "FANTASY_INTEGRATION cannot approve plans");
+  assert(testHasPermission("FANTASY_INTEGRATION", "requirement.override") === false, "FANTASY_INTEGRATION cannot override requirement priority");
 
 
   // Case F: Export permission separation
