@@ -13,6 +13,7 @@ import {
   normalizeShape,
   normalizeLab,
 } from "./canonical";
+import { mapFantasyRows } from "./live-mapper";
 
 export interface FantasyBatchPayload {
   batchId: string;
@@ -920,22 +921,82 @@ export class FixtureFantasyProvider implements FantasyDataProvider {
 }
 
 // ---------------------------------------------------------------------------
-// LIVE FANTASY PROVIDER (FUTURE EXTENSION POINT)
+// LIVE FANTASY PROVIDER — skylab.fantasy.mn Web API
 // ---------------------------------------------------------------------------
 
+export interface LiveProviderDeps {
+  /** Fetches the raw lot listing (default: src/lib/fantasy/live-api.ts). */
+  fetchLots: () => Promise<Record<string, unknown>[]>;
+  /** Lot ids the app currently holds as live for this source (default: LotMasterRecord). */
+  listCurrentLotIds: () => Promise<string[]>;
+  defaultCountry: string;
+  defaultBranch: string;
+  now?: () => Date;
+}
+
+async function defaultLiveDeps(): Promise<LiveProviderDeps> {
+  // The Live Data sync (live-sync.ts) is the only caller of the Fantasy API; the planning sync
+  // reads the raw payloads it stored, so one fetch per cycle feeds both stores.
+  const [{ loadActivePayloads }, { getLiveFantasyConfig }, { db }] = await Promise.all([import("./live-repository"), import("./config"), import("@/lib/db")]);
+  const cfg = getLiveFantasyConfig();
+  return {
+    fetchLots: loadActivePayloads,
+    listCurrentLotIds: async () =>
+      (await db.lotMasterRecord.findMany({ where: { isCurrent: true, sourceType: "FANTASY_API" }, select: { lotId: true } })).map((r) => r.lotId),
+    defaultCountry: cfg.defaultCountry,
+    defaultBranch: cfg.defaultBranch,
+  };
+}
+
+/**
+ * Every batch is a full snapshot of the live listing (as stored by the Live Data sync): rows become canonical records, and any
+ * lot the app still holds as live that is absent from the snapshot becomes a
+ * SOURCE_DISAPPEARANCE_UNKNOWN removal (never a sale — the engine records it as REMOVED_UNKNOWN
+ * with a data-quality issue). Checkpoints advance by exactly one per successful batch.
+ */
 export class LiveFantasyProvider implements FantasyDataProvider {
+  constructor(private deps?: LiveProviderDeps) {}
+
   getSourceMode(): CanonicalSourceMode {
     return "FANTASY_API";
   }
 
-  async getBatch(_checkpoint: number): Promise<FantasyBatchPayload | null> {
-    throw new Error(
-      "Live Fantasy API provider is not yet configured. The system is operating in simulated fixture mode."
-    );
+  async getBatch(checkpoint: number): Promise<FantasyBatchPayload | null> {
+    const deps = this.deps ?? (await defaultLiveDeps());
+    const cutoff = (deps.now ?? (() => new Date()))();
+    const batchId = `FANTASY-API-${cutoff.toISOString().replace(/[:.]/g, "-")}`;
+    const rows = await deps.fetchLots();
+    const { records, skipped } = mapFantasyRows(rows, {
+      batchId,
+      checkpoint: checkpoint + 1,
+      cutoff,
+      defaultCountry: deps.defaultCountry,
+      defaultBranch: deps.defaultBranch,
+    });
+    const listed = new Set(records.map((r) => r.lotId));
+    const removals: CanonicalRemovalEvent[] = (await deps.listCurrentLotIds())
+      .filter((lotId) => !listed.has(lotId))
+      .map((lotId) => ({
+        lotId,
+        removalReason: "SOURCE_DISAPPEARANCE_UNKNOWN" as const,
+        removedFromLiveAt: cutoff.toISOString(),
+        notes: `Lot absent from Fantasy listing in batch ${batchId} without an explicit sale/invoice event.`,
+      }));
+    return {
+      batchId,
+      sourceMode: "FANTASY_API",
+      startingCheckpoint: checkpoint,
+      endingCheckpoint: checkpoint + 1,
+      sourceCutoff: cutoff.toISOString(),
+      records,
+      removals,
+      isSimulated: false,
+      metadata: { fetchedRows: rows.length, mappedRecords: records.length, skippedRows: skipped.length, skipped: skipped.slice(0, 50) },
+    };
   }
 
   getTotalAvailableBatches(): number {
-    return 0;
+    return Number.POSITIVE_INFINITY;
   }
 }
 

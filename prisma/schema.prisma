@@ -868,6 +868,7 @@ model IntegrationSyncRun {
   @@index([batchId])
 }
 
+<<<<<<< Updated upstream
 /// Mutual exclusion over the canonical Fantasy records themselves.
 ///
 /// The sync lock and the demand lock each guard their own operation; neither knew about
@@ -894,6 +895,104 @@ model CanonicalStateClaim {
   lastForcedBy  String?
   lastForcedAt  DateTime?
   updatedAt     DateTime  @updatedAt
+=======
+// Cached bearer token for a live integration (Fantasy OAuth2 password grant). Stored encrypted
+// under SECRETS_KEY so a database read never yields a usable token. Re-used across server
+// restarts because every fresh login signs the integration user out elsewhere.
+model IntegrationApiToken {
+  id          String   @id @default(cuid())
+  source      String   @unique // FANTASY
+  tokenEnc    String
+  tokenType   String   @default("bearer")
+  issuedTo    String?
+  issuedAt    DateTime @default(now())
+  expiresAt   DateTime
+  updatedAt   DateTime @updatedAt
+}
+
+// ---------------------------------------------------------------------------
+// FANTASY LIVE DATA — one row per Fantasy lot listing record, typed columns in the
+// Live Data header order plus the untouched source payload. Fed only by the live sync
+// (never by users); rows are upserted by sourceRecordKey and marked stale, never deleted,
+// when absent from a later snapshot.
+// ---------------------------------------------------------------------------
+model FantasyLiveLot {
+  id                            String    @id @default(cuid())
+  sourceRecordKey               String    @unique // see live-mapper.ts: stableRecordKey()
+
+  metalId                       String?
+  metalWeight                   Decimal?  @db.Decimal(18, 6)
+  previousDepartmentAccountName String?
+  processName                   String?
+  remark                        String?
+  qty                           Decimal?  @db.Decimal(18, 6)
+  lotId                         String?
+  lotName                       String?
+  onHold                        Boolean?
+  lotStatusDb                   String?
+  shape                         String?
+  color                         String?
+  clarity                       String?
+  size                          String?
+  weight                        Decimal?  @db.Decimal(18, 6)
+  labName                       String?
+  certificateNo                 String?
+  cut                           String?
+  polish                        String?
+  symmetry                      String?
+  fluorescence                  String?
+  m1                            Decimal?  @db.Decimal(12, 4)
+  m2                            Decimal?  @db.Decimal(12, 4)
+  m3                            Decimal?  @db.Decimal(12, 4)
+  tablePercent                  Decimal?  @db.Decimal(10, 4)
+  depthPercent                  Decimal?  @db.Decimal(10, 4)
+  ratio                         Decimal?  @db.Decimal(10, 4)
+  tone                          String?
+  departmentAccountName         String?
+  estimatedClarityId            String?
+  estimatedColorId              String?
+  averageWeight                 Decimal?  @db.Decimal(18, 6)
+  allocationDate                DateTime?
+  allocationAccountId           String?
+  certificateId                 String?
+  companyId                     String?
+  docId                         String?
+  estimatedShapeId              String?
+  estimatedWeight               Decimal?  @db.Decimal(18, 6)
+  fancyColor                    String?
+  metalColor                    String?
+  metalWgt                      Decimal?  @db.Decimal(18, 6)
+  originalWeight                Decimal?  @db.Decimal(18, 6)
+  totalDiamondWeight            Decimal?  @db.Decimal(18, 6)
+  docDate                       DateTime?
+  itemName                      String?
+
+  sourcePayload                 Json
+  contentHash                   String   // sha-256 of the mapped fields; unchanged rows only touch lastSeenAt
+  mappingWarnings               String[] @default([])
+
+  sourceActive                  Boolean   @default(true)
+  staleSince                    DateTime?
+  firstSeenAt                   DateTime  @default(now())
+  lastSeenAt                    DateTime  @default(now())
+  syncRunId                     String?
+  createdAt                     DateTime  @default(now())
+  updatedAt                     DateTime  @updatedAt
+
+  @@index([lotId])
+  @@index([certificateNo])
+  @@index([docId])
+  @@index([metalId])
+  @@index([companyId])
+  @@index([processName])
+  @@index([departmentAccountName])
+  @@index([lotStatusDb])
+  @@index([shape])
+  @@index([labName])
+  @@index([docDate])
+  @@index([lastSeenAt])
+  @@index([sourceActive])
+>>>>>>> Stashed changes
 }
 
 model SyncCheckpoint {

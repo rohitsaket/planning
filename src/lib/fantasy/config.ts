@@ -1,4 +1,5 @@
 /**
+<<<<<<< Updated upstream
  * Server configuration for the Fantasy data source — server-only.
  *
  * This module is the only place that reads the source-mode environment variable. It
@@ -27,6 +28,16 @@ import {
   isProviderHistoryTrusted,
   type SourceEnvironment,
 } from "./provider-registry.server";
+=======
+ * Central, server-only Fantasy integration configuration. The ONLY module that reads the
+ * FANTASY_* / SECRETS_KEY environment. Exposes settings and a validation summary that names
+ * which variables are missing but never their values; the password itself is only ever read
+ * (and decrypted) by the login call in live-api.ts.
+ */
+
+import { CanonicalSourceMode } from "./canonical";
+import { describeSecretEnv } from "@/lib/security/secrets";
+>>>>>>> Stashed changes
 
 if (typeof window !== "undefined") {
   throw new Error("fantasy/config is server-only and must not be imported by client code.");
@@ -74,6 +85,7 @@ export function getFantasySourceConfiguration(env: SourceEnvironment = process.e
   };
 }
 
+<<<<<<< Updated upstream
 export interface SourceStateDeps {
   /** Health the installed live provider reports. Fixtures have no live health. */
   readonly providerHealth?: FantasyRuntimeHealth;
@@ -203,4 +215,111 @@ export async function resolveFantasySourceStateWithHistory(
     lastSuccessAt: deps.lastSuccessAt ?? success?.finishedAt ?? success?.startedAt ?? null,
     lastFailureAt: deps.lastFailureAt ?? failure?.finishedAt ?? failure?.startedAt ?? null,
   });
+=======
+const int = (name: string, def: number, min: number, max: number) => {
+  const n = Number(process.env[name]);
+  if (!Number.isFinite(n)) return def;
+  return Math.min(max, Math.max(min, Math.trunc(n)));
+};
+const flag = (name: string, def: boolean) => {
+  const v = (process.env[name] ?? "").trim().toLowerCase();
+  if (v === "") return def;
+  return v === "true" || v === "1" || v === "yes" || v === "on";
+};
+
+export interface LiveFantasyConfig {
+  configured: boolean;
+  /** Names of missing/invalid variables. Values are never included. */
+  missing: string[];
+  baseUrl: string;
+  username: string;
+  usernameConfigured: boolean;
+  passwordConfigured: boolean;
+  passwordStorage: "missing" | "plaintext" | "encrypted";
+  lotsPath: string;
+  timeoutMs: number;
+  maxRetries: number;
+  pageSize: number;
+  /** Query-string names for page number / page size; both unset = the listing is one response. */
+  pageParam: string | null;
+  pageSizeParam: string | null;
+  syncEnabled: boolean;
+  syncIntervalMinutes: number;
+  syncInitialDelaySeconds: number;
+  /** Above this share of previously-active rows missing from a snapshot, the sync refuses to mark them stale. */
+  staleGuardPercent: number;
+  upsertBatchSize: number;
+  /** After a successful live sync, also refresh the planning engine's canonical lot store. */
+  chainPlanningSync: boolean;
+  defaultCountry: string;
+  defaultBranch: string;
+}
+
+export function getLiveFantasyConfig(): LiveFantasyConfig {
+  const baseUrl = (process.env.FANTASY_API_BASE_URL || "").trim().replace(/\/+$/, "");
+  const username = (process.env.FANTASY_API_USERNAME || "").trim();
+  const passwordStorage = describeSecretEnv("FANTASY_API_PASSWORD");
+  const missing: string[] = [];
+  if (!baseUrl) missing.push("FANTASY_API_BASE_URL");
+  else {
+    try {
+      const u = new URL(baseUrl);
+      if (u.protocol !== "https:") missing.push("FANTASY_API_BASE_URL (must be https)");
+    } catch {
+      missing.push("FANTASY_API_BASE_URL (invalid URL)");
+    }
+  }
+  if (!username) missing.push("FANTASY_API_USERNAME");
+  if (passwordStorage === "missing") missing.push("FANTASY_API_PASSWORD");
+  if (passwordStorage === "encrypted" && !process.env.SECRETS_KEY) missing.push("SECRETS_KEY");
+  const lotsPathRaw = (process.env.FANTASY_API_LOTS_PATH || "/api/lots").trim();
+  const pageParam = (process.env.FANTASY_API_PAGE_PARAM || "").trim() || null;
+  const pageSizeParam = (process.env.FANTASY_API_PAGE_SIZE_PARAM || "").trim() || null;
+  return {
+    configured: missing.length === 0,
+    missing,
+    baseUrl,
+    username,
+    usernameConfigured: !!username,
+    passwordConfigured: passwordStorage !== "missing",
+    passwordStorage,
+    lotsPath: lotsPathRaw.startsWith("/") ? lotsPathRaw : `/${lotsPathRaw}`,
+    timeoutMs: int("FANTASY_API_TIMEOUT_MS", 30_000, 5_000, 300_000),
+    maxRetries: int("FANTASY_SYNC_MAX_RETRIES", 3, 0, 10),
+    pageSize: int("FANTASY_SYNC_PAGE_SIZE", 500, 1, 10_000),
+    pageParam,
+    pageSizeParam,
+    syncEnabled: flag("FANTASY_SYNC_ENABLED", true),
+    syncIntervalMinutes: int("FANTASY_SYNC_INTERVAL_MINUTES", 5, 1, 24 * 60),
+    syncInitialDelaySeconds: int("FANTASY_SYNC_INITIAL_DELAY_SECONDS", 20, 0, 3600),
+    staleGuardPercent: int("FANTASY_SYNC_STALE_GUARD_PERCENT", 25, 0, 100),
+    upsertBatchSize: int("FANTASY_SYNC_UPSERT_BATCH", 500, 50, 5_000),
+    chainPlanningSync: flag("FANTASY_SYNC_CHAIN_PLANNING", true),
+    defaultCountry: (process.env.FANTASY_API_DEFAULT_COUNTRY || "IN").trim(),
+    defaultBranch: (process.env.FANTASY_API_DEFAULT_BRANCH || "SURAT").trim(),
+  };
+}
+
+/** Host only, safe to show in the UI. */
+export function describeBaseUrl(baseUrl: string): string {
+  try {
+    return new URL(baseUrl).host;
+  } catch {
+    return baseUrl ? "invalid URL" : "not set";
+  }
+}
+
+/** Startup validation: logs configured=true/false per variable, never a value. */
+export function validateFantasyConfigForLog(): { integration: "live" | "fixture"; configured: boolean; missing: string[]; usernameConfigured: boolean; passwordConfigured: boolean; passwordStorage: string } {
+  const mode = getFantasyConfig();
+  const live = getLiveFantasyConfig();
+  return {
+    integration: mode.sourceMode === "FANTASY_API" ? "live" : "fixture",
+    configured: live.configured,
+    missing: live.missing,
+    usernameConfigured: live.usernameConfigured,
+    passwordConfigured: live.passwordConfigured,
+    passwordStorage: live.passwordStorage,
+  };
+>>>>>>> Stashed changes
 }

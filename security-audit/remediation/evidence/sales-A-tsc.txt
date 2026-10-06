@@ -1,0 +1,7 @@
+tests/security/sales-analysis.test.ts(112,18): error TS2339: Property 'pieces' does not exist on type '{ dimension: string; }'.
+tests/security/sales-analysis.test.ts(112,31): error TS2339: Property 'carats' does not exist on type '{ dimension: string; }'.
+tests/security/sales-analysis.test.ts(112,44): error TS2339: Property 'value' does not exist on type '{ dimension: string; }'.
+tests/security/sales-analysis.test.ts(113,17): error TS2339: Property 'avgPerCt' does not exist on type '{ dimension: string; }'.
+tests/security/sales-analysis.test.ts(114,17): error TS2339: Property 'pct' does not exist on type '{ dimension: string; }'.
+tests/security/sales-analysis.test.ts(116,19): error TS2339: Property 'pieces' does not exist on type '{ dimension: string; }'.
+tests/security/sales-analysis.test.ts(116,33): error TS2339: Property 'value' does not exist on type '{ dimension: string; }'.

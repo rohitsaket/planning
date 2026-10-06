@@ -1,0 +1,30 @@
+$ bun scripts/sectest-db.ts --recreate && bun scripts/with-sectest-db.ts bunx prisma migrate deploy && bun scripts/with-sectest-db.ts bun test tests/security
+116 | 
+117 | Example:
+118 |   await prisma.$executeRawUnsafe(\`ALTER USER prisma WITH PASSWORD '\${password}'\`)
+119 | 
+120 | More Information: https://pris.ly/d/execute-raw
+121 | `)}var So=({clientMethod:e,activeProvider:r})=>t=>{let n="",i;if(Vn(t))n=t.sql,i={values:Wr(t.values),__prismaRawParameters__:!0};else if(Array.isArray(t)){let[o,...s]=t;n=o,i={values:Wr(s||[]),__prismaRawParameters__:!0}}else switch(r){case"sqlite":case"mysql":{n=t.sql,i={values:Wr(t.values),__prismaRawParameters__:!0};break}case"cockroachdb":case"postgresql":case"postgres":{n=t.text,i={values:Wr(t.values),__prismaRawParameters__:!0};break}case"sqlserver":{n=Vl(t),i={values:Wr(t.values),__prismaRawParameters__:!0};break}default:throw new Error(`The ${r} provider does not support ${e}`)}return i?.values?Ql(`prisma.${e}(${n}, ${i.values})`):Ql(`prisma.${e}(${n})`),{query:n,parameters:i}},Wl={requestArgsToMiddlewareArgs(e){return[e.strings,...e.values]},middlewareArgsToRequestArgs(e){let[r,...t]=e;return new ie(r,t)}},Jl={requestArgsToMiddlewareArgs(e){return[e]},middlewareArgsToRequestArgs(e){return e[0]}};function Ro(e){return function(t,n){let i,o=(s=e)=>{try{return s===void 0||s?.kind==="itx"?i??=Kl(t(s)):K
+
+PrismaClientInitializationError: 
+Invalid `prisma.$queryRawUnsafe()` invocation:
+
+
+error: Environment variable not found: DATABASE_URL.
+  -->  schema.prisma:12
+   | 
+11 |   provider = "postgresql"
+12 |   url      = env("DATABASE_URL")
+   | 
+
+Validation Error Count: 1
+ clientVersion: "6.19.2",
+  errorCode: undefined,
+  retryable: undefined,
+
+      at handleRequestError (/Users/rohitsaket/Downloads/Planning/node_modules/@prisma/client/runtime/library.js:121:7568)
+      at handleAndLogRequestError (/Users/rohitsaket/Downloads/Planning/node_modules/@prisma/client/runtime/library.js:121:6593)
+      at request (/Users/rohitsaket/Downloads/Planning/node_modules/@prisma/client/runtime/library.js:121:6300)
+
+Bun v1.4.2 (macOS arm64)
+error: script "test:security" exited with code 1

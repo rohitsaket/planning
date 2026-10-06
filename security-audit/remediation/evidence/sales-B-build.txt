@@ -1,0 +1,82 @@
+▲ Next.js 16.3.5 (Turbopack)
+✓ Running next.config.ts took 10ms
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 594ms
+  Skipping validation of types
+  Finished TypeScript config validation in 2ms ...
+  Collecting page data using 9 workers ...
+  Generating static pages using 9 workers (0/53) ...
+  Generating static pages using 9 workers (13/53) 
+  Generating static pages using 9 workers (26/53) 
+  Generating static pages using 9 workers (39/53) 
+✓ Generating static pages using 9 workers (53/53) in 141ms
+  Finalizing page optimization ...
+
+Route (app)
+┌ ƒ /
+├ ƒ /_not-found
+├ ƒ /api
+├ ƒ /api/admin/audit
+├ ƒ /api/admin/business-rules
+├ ƒ /api/admin/feature-flags
+├ ƒ /api/admin/lab-mappings
+├ ƒ /api/admin/shape-mappings
+├ ƒ /api/admin/users
+├ ƒ /api/admin/weight-bands
+├ ƒ /api/analysis/aging
+├ ƒ /api/analysis/aging-dashboard
+├ ƒ /api/analysis/anomalies
+├ ƒ /api/analysis/countries
+├ ƒ /api/analysis/customers
+├ ƒ /api/analysis/customers/[id]/timeline
+├ ƒ /api/analysis/demand-trace
+├ ƒ /api/analysis/excess
+├ ƒ /api/analysis/forecast
+├ ƒ /api/analysis/memo
+├ ƒ /api/analysis/orders
+├ ƒ /api/analysis/polished
+├ ƒ /api/analysis/reorder-signals
+├ ƒ /api/analysis/sales
+├ ƒ /api/analysis/sales/trend
+├ ƒ /api/analysis/stockout
+├ ƒ /api/analysis/transfer-candidates
+├ ƒ /api/analysis/wip
+├ ƒ /api/analysis/yield-prediction
+├ ƒ /api/audit/recent
+├ ƒ /api/auth/login
+├ ƒ /api/auth/logout
+├ ƒ /api/auth/me
+├ ƒ /api/dashboard
+├ ƒ /api/data-quality
+├ ƒ /api/demand/history
+├ ƒ /api/demand/run
+├ ƒ /api/fantasy/departments
+├ ƒ /api/fantasy/locations
+├ ƒ /api/fantasy/polished
+├ ƒ /api/fantasy/rough
+├ ƒ /api/fantasy/sync
+├ ƒ /api/forecast
+├ ƒ /api/notifications
+├ ƒ /api/notifications/broadcast
+├ ƒ /api/planning/approvals
+├ ƒ /api/planning/cases
+├ ƒ /api/planning/cases/[id]
+├ ƒ /api/planning/cases/[id]/replan
+├ ƒ /api/planning/compare/[caseId]
+├ ƒ /api/planning/pieces
+├ ƒ /api/planning/reservations
+├ ƒ /api/planning/rough
+├ ƒ /api/planning/workbench
+├ ƒ /api/planning/workbook/parse
+├ ƒ /api/reports
+├ ƒ /api/requirements
+├ ƒ /api/requirements/[id]
+├ ƒ /api/requirements/[id]/priority
+└ ƒ /api/traceability/[query]
+
+
+ƒ Proxy (Middleware)
+
+ƒ  (Dynamic)  server-rendered on demand
+
