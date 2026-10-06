@@ -1,39 +1,26 @@
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
-import { withApi, qStr, qInt } from "@/lib/api/with-api";
-import { describeScope, scopePredicates, scopeWhere } from "@/lib/auth/access-scope";
+import { withApi, qInt } from "@/lib/api/with-api";
+import { describeScope } from "@/lib/auth/access-scope";
+import { memoPredicates, memoWhere, readMemoFilters } from "@/lib/analysis/memo";
 
 // Memo Analysis — memo is a separate decision context and never reduces physical
 // shortage (BR-MEMO-001). Aggregates are computed in PostgreSQL over the whole
-// filtered set; the detail list is paginated on the server.
+// filtered set; the detail list is paginated on the server. Every figure — totals,
+// groupings, age buckets and the page of lots — is read through one memo filter, so they
+// always describe the same records.
 export const GET = withApi(
-  { permission: "sales.read", scoped: true },
+  { permission: "sales.read", scoped: true, query: ["country", "branch", "lab", "status", "page", "pageSize"] },
   async (req: Request, _ctx, { scope }) => {
   const url = new URL(req.url);
-  const country = qStr(url, "country");
-  const branch = qStr(url, "branch");
-  const lab = qStr(url, "lab");
-  const status = qStr(url, "status", 40);
+  const filters = readMemoFilters(url, scope);
   const page = qInt(url, "page", { def: 1, min: 1, max: 1_000_000 });
   const pageSize = qInt(url, "pageSize", { def: 50, min: 1, max: 500 });
 
-  // Merged before the request filters, so a filter can only narrow within the
-  // caller's scope and an unfiltered request returns their scope rather than everything.
-  const where: Prisma.MemoRecordWhereInput = {
-    ...scopeWhere(scope, { country: "country", lab: "labNormalized" }),
-  };
-  if (country) where.country = country;
-  if (branch) where.branch = branch;
-  if (lab) where.labNormalized = lab;
-  if (status) where.status = status;
-
-  const filters: Prisma.Sql[] = [...scopePredicates(scope, { country: '"country"', lab: '"labNormalized"' })];
-  if (country) filters.push(Prisma.sql`country = ${country}`);
-  if (branch) filters.push(Prisma.sql`branch = ${branch}`);
-  if (lab) filters.push(Prisma.sql`"labNormalized" = ${lab}`);
-  if (status) filters.push(Prisma.sql`status = ${status}`);
-  const whereSql = filters.length ? Prisma.sql`WHERE ${Prisma.join(filters, " AND ")}` : Prisma.empty;
+  const where = memoWhere(filters);
+  const predicates = memoPredicates(filters);
+  const whereSql = predicates.length ? Prisma.sql`WHERE ${Prisma.join(predicates, " AND ")}` : Prisma.empty;
 
   const [totals, countryGroups, customerGroups, ageRows, total, rows] = await Promise.all([
     db.memoRecord.aggregate({ where, _count: { _all: true }, _sum: { memoValueUsd: true } }),

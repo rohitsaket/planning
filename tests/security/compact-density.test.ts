@@ -21,7 +21,6 @@ import { HostTabContext } from "@/components/diamond/shared/density";
 import { InventoryPositionView } from "@/components/diamond/views/consolidated/inventory-position-view";
 import { FantasyDataView } from "@/components/diamond/views/consolidated/fantasy-data-view";
 import { DataQualityView } from "@/components/diamond/views/data-quality-view";
-import { RequirementsMatrixView } from "@/components/diamond/views/requirements-matrix-view";
 import { AuditLogView } from "@/components/diamond/views/audit-log-view";
 import { WorkbookImportView } from "@/components/diamond/views/workbook-import-view";
 
@@ -86,8 +85,8 @@ describe("compact density: one shared token set", () => {
     const PAGES = [
       "aging-view.tsx", "audit-log-view.tsx", "country-view.tsx", "customers-orders/customer-sales-view.tsx", "customers-view.tsx",
       "dashboard-view.tsx", "data-quality-view.tsx", "excess-view.tsx", "fantasy-polished-view.tsx",
-      "fantasy-sync-view.tsx", "inventory/inventory-tabs.tsx", "lab-mappings-view.tsx", "memo-view.tsx", "orders-view.tsx",
-      "overall-data-view.tsx", "polished-view.tsx", "priority-queue-view.tsx", "requirements-matrix-view.tsx", "sales-analysis-view.tsx",
+      "fantasy-sync-view.tsx", "inventory/inventory-tabs.tsx", "lab-mappings-view.tsx", "memo-view.tsx",
+      "overall-data-view.tsx", "polished-view.tsx", "sales-analysis-view.tsx",
       "sales-trends-view.tsx", "sarin/sarin-shape-mappings-view.tsx", "shape-mappings-view.tsx", "status-mappings-view.tsx", "stockout-view.tsx",
       "users-access/permissions-tab.tsx", "users-access/users-tab.tsx", "weight-bands-view.tsx", "workbook-import-view.tsx",
     ];
@@ -181,11 +180,9 @@ describe("compact density: rendered pages", () => {
     expect([page.text.includes("Historical Data"), /role="tab"/.test(page.html)]).toEqual([true, false]);
   });
 
-  test("Requirements, Audit Log and Data Quality use the one-row filter toolbar", async () => {
-    for (const view of [RequirementsMatrixView, AuditLogView]) {
-      const page = await renderAs(view as ComponentType<object>, root);
-      expect([page.html.includes("data-filter-bar"), page.html.includes('aria-label="Filters"')]).toEqual([true, true]);
-    }
+  test("the Audit Log uses the one-row filter toolbar", async () => {
+    const page = await renderAs(AuditLogView as ComponentType<object>, root);
+    expect([page.html.includes("data-filter-bar"), page.html.includes('aria-label="Filters"')]).toEqual([true, true]);
   });
 
   test("Workbook Import keeps its simple form: file, Packet Type, planning date, lab, Process File — no country", async () => {

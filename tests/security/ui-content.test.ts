@@ -32,7 +32,6 @@ import { AdvisoryList, SarinFileResult } from "@/components/diamond/views/sarin/
 import { SarinOutputPreview } from "@/components/diamond/views/sarin/sarin-output-preview";
 import { rightsOf } from "@/components/diamond/views/sarin/sarin-processing";
 import { SarinShapeMappingsView } from "@/components/diamond/views/sarin/sarin-shape-mappings-view";
-import { RequirementsMatrixView } from "@/components/diamond/views/requirements-matrix-view";
 import { MappingsView } from "@/components/diamond/views/consolidated/mappings-view";
 import { StatusMappingsView } from "@/components/diamond/views/status-mappings-view";
 import { applyCatalog } from "./sarin-catalog";
@@ -218,14 +217,12 @@ describe("ui content: no technical detail reaches a rendered page", () => {
     expect([/rules version|profile|validation run|attempt|Run \d|mapping set|lineage|transform|immutable|record \d/i.test(shown), /Source:/.test(pages[0].text)]).toEqual([false, false]);
   });
 
-  test("requirements and dashboard pages; no retired planning wording", async () => {
-    const pages = [
-      await render(RequirementsMatrixView, {}, root),
-      await render(DashboardView, {}, root),
-    ];
+  test("the dashboard; no retired planning, requirement or order wording", async () => {
+    const pages = [await render(DashboardView, {}, root)];
     expect(pages.map((p) => prohibited(p.text))).toEqual(pages.map(() => []));
     // The retired approval and plan-coverage workflow leaves no wording behind.
-    for (const text of pages.map((p) => p.text)) expect(/Approval Queue|Planning Workbench|Approved Plan|Plan Coverage|Rough Reserved|Pending Approvals?/i.test(text)).toBe(false);
+    for (const text of pages.map((p) => p.text)) expect(/Approval Queue|Planning Workbench|Approved Plan|Plan Coverage|Rough Reserved|Pending Approvals?|Critical Reqs|High Reqs|Overdue Reqs|Open Orders|Backorders|Unplanned by|not yet planned/i.test(text)).toBe(false);
+    expect(pages[0].requested.some((r) => /\/api\/(requirements|analysis\/orders)/.test(r))).toBe(false);
   });
 
   test("administration, sales, orders, Fantasy and inventory pages", async () => {

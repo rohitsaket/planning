@@ -78,6 +78,13 @@ interface Options<B> {
    * every route that declares this.
    */
   scoped?: true;
+  /**
+   * The complete list of query parameters this route reads. A request carrying any other
+   * parameter, or any parameter more than once, is refused with 400 before the handler
+   * runs, so a caller cannot pass a value the handler would silently ignore or read
+   * differently from the scope check.
+   */
+  query?: readonly string[];
 }
 
 // Re-exported for the route handlers that already import it from here. The definition
@@ -188,10 +195,16 @@ export function withApi<P = Record<string, never>, B = undefined>(opts: Options<
           throw forbidden("A password change is required before this account can be used.");
         }
         if (opts.permission && !principal.permissions.includes(opts.permission)) throw forbidden();
+        if (opts.query) assertQueryShape(url, opts.query);
         // A request for a country or lab outside the caller's scope is refused rather
         // than quietly narrowed: asking for data and receiving someone else's idea of
         // what you meant is worse than being told no.
         if (opts.scoped) {
+          // The check below and the handler must read the same value. A repeated country or
+          // lab leaves "which one" to each reader, so it is refused rather than resolved.
+          for (const name of ["country", "lab"]) {
+            if (url.searchParams.getAll(name).length > 1) throw badRequest(`Query parameter '${name}' may be given only once.`);
+          }
           assertWithinScope(principal.scope, {
             country: url.searchParams.get("country"),
             lab: url.searchParams.get("lab"),
@@ -259,6 +272,16 @@ export function withApi<P = Record<string, never>, B = undefined>(opts: Options<
 }
 
 // ---------- query-string validation helpers ----------
+function assertQueryShape(url: URL, allowed: readonly string[]): void {
+  const seen = new Set<string>();
+  for (const name of url.searchParams.keys()) {
+    // The name is not echoed: it is caller-supplied text.
+    if (!allowed.includes(name)) throw badRequest("The request has a query parameter this endpoint does not accept.");
+    if (seen.has(name)) throw badRequest(`Query parameter '${name}' may be given only once.`);
+    seen.add(name);
+  }
+}
+
 export function qInt(url: URL, name: string, o: { def: number; min: number; max: number }): number {
   const raw = url.searchParams.get(name);
   if (raw === null || raw === "") return o.def;

@@ -2,13 +2,13 @@
  * ANALYSIS REVIEW FIXTURE DATASET LOADER CLI
  *
  * Usage:
- *   npm run fixture:analysis-review -- --profile=ANALYSIS_REVIEW_V1 --business-date=2026-09-24 --confirm-local
+ *   npm run db:test:fixture:analysis-review -- --profile=ANALYSIS_REVIEW_V1 --business-date=2026-09-24 --confirm-local
  *
  * Repair an existing dataset in place (rebuilds missing derived projections):
- *   npm run fixture:analysis-review -- --repair
+ *   npm run db:test:fixture:analysis-review -- --repair
  *
  * Cleanup (profile-targeted, isolated review databases only):
- *   npm run fixture:analysis-review -- --clean-profile=ANALYSIS_REVIEW_V1 --confirm-destructive-clean
+ *   npm run db:test:fixture:analysis-review -- --clean-profile=ANALYSIS_REVIEW_V1 --confirm-destructive-clean
  *
  * The exit code is non-zero whenever the dataset is not ready. The success banner is
  * earned by the manifest, never printed unconditionally.

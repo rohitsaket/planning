@@ -126,5 +126,5 @@ describe("runtime 401/403 sweep over every handler", () => {
         `| Handler | Guard | Anonymous | ${SWEEP_ROLES.map((r) => `${r.label} (${r.role})`).join(" | ")} |\n|---|---|---|${SWEEP_ROLES.map(() => "---").join("|")}|\n${rows.join("\n")}\n\nHandlers: ${entries.length}\n`,
     );
     expect(entries.length).toBeGreaterThanOrEqual(58);
-  }, 120_000);
+  });
 });

@@ -102,12 +102,20 @@ const RETIRED_LINKS: Array<[string, RegExp]> = [
   ["#planning-rough-availability", /No authoritative rough-stock source is configured\./],
   ["#fantasy-rough", /No authoritative rough-stock source is configured\./],
   ["#fantasy-live", /No authoritative rough-stock source is configured\./],
+  ["#requirements-matrix", /Requirements and order workflows are not configured for this planning utility\./],
+  ["#requirements-priority-queue", /Requirements and order workflows are not configured for this planning utility\./],
+  ["#orders-exceptions", /Requirements and order workflows are not configured for this planning utility\./],
+  ["#replenishment-allocation", /Requirements and order workflows are not configured for this planning utility\./],
+  ["#requirements-orders", /Requirements and order workflows are not configured for this planning utility\./],
+  ["#requirements-special", /Requirements and order workflows are not configured for this planning utility\./],
+  ["#analysis-orders", /Requirements and order workflows are not configured for this planning utility\./],
 ];
 /** The retired legacy planning APIs; the production build must not serve any of them. */
 const RETIRED_APIS = [
   "/api/planning/cases", "/api/planning/cases/x", "/api/planning/cases/x/replan", "/api/planning/compare/x", "/api/planning/pieces",
   "/api/planning/workbench", "/api/planning/reservations", "/api/planning/approvals", "/api/planning/rough", "/api/admin/approval-policy",
   "/api/fantasy/rough",
+  "/api/requirements", "/api/requirements/x", "/api/requirements/x/priority", "/api/analysis/orders",
 ];
 
 /** Requests to the application's API since `from`, by path. */
@@ -152,16 +160,16 @@ async function retiredPlanning(tag: string, rootToken: string, desktop: boolean)
     await open("#dashboard");
     from = eventCount();
     await evaluate(`(() => {
-      const el = document.querySelector('input[placeholder^="Search lot ID"]');
+      const el = document.querySelector('input[placeholder^="Search polished lot"]');
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, 'GIA');
       el.dispatchEvent(new Event('input', { bubbles: true }));
       el.focus();
       return true;
     })()`);
-    await waitFor(`!!document.querySelector('input[placeholder^="Search lot ID"]')`);
+    await waitFor(`!!document.querySelector('input[placeholder^="Search polished lot"]')`);
     await sleep(1500);
     requested = apiRequestsSince(from);
-    record(`${tag}: global search queries polished lots and requirements, and never the retired rough route`, requested.includes("/api/fantasy/polished") && requested.includes("/api/requirements") && !requested.some((p) => p.startsWith("/api/fantasy/rough")), requested.join(", "));
+    record(`${tag}: global search queries polished lots only, never a retired requirement or rough route`, requested.includes("/api/fantasy/polished") && !requested.some((p) => p.startsWith("/api/fantasy/rough") || p.startsWith("/api/requirements")), requested.join(", "));
   }
 }
 
@@ -173,12 +181,15 @@ function bundleChecks() {
     "/api/planning/cases", "/api/planning/compare", "/api/planning/pieces", "/api/planning/workbench", "/api/planning/reservations",
     "/api/planning/approvals", "/api/planning/rough", "/api/admin/approval-policy", "Approve this plan", "Request replanning", "Rough Reservations",
     "/api/fantasy/rough", "fantasyRoughCount", "Current Rough",
+    "/api/requirements", "/api/analysis/orders", "Requirement Matrix", "Priority Queue", "Order Exceptions", "Replenishment & Allocation", "Critical Reqs", "Overdue Reqs",
+    // Customer 360's seeded order count and the sign-in page's retired module.
+    "Open Orders", "Open and partly filled orders", "Traceability",
   ];
   const found = files.flatMap((f) => {
     const js = readFileSync(path.join(dir, f), "utf8");
     return MARKERS.filter((m) => js.includes(m)).map((m) => `${f}: ${m}`);
   });
-  record(`production bundle: none of ${files.length} client chunks carries a retired planning page or API`, files.length > 0 && found.length === 0, found.slice(0, 5).join(" | "));
+  record(`production bundle: none of ${files.length} client chunks carries a retired page, API, order figure or module`, files.length > 0 && found.length === 0, found.slice(0, 5).join(" | "));
 }
 
 async function main() {

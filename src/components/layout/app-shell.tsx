@@ -6,7 +6,7 @@ import { isViewAuthorized } from "@/lib/auth/view-permissions";
 import { useNavStore, ViewId } from "@/stores/nav-store";
 import { cn } from "@/lib/utils";
 import {
-  LayoutDashboard, BarChart3, TrendingUp, Users, FileText, Package, Boxes, AlertTriangle, Settings, ChevronDown, ChevronRight, Search, Bell, Database, Activity, Workflow, Hash, ClipboardList, Diamond, Moon, Sun, X, Shapes,
+  LayoutDashboard, BarChart3, TrendingUp, Users, FileText, Package, Boxes, AlertTriangle, Settings, ChevronDown, ChevronRight, Search, Bell, Database, ClipboardList, Diamond, Moon, Sun, X, Shapes,
 } from "lucide-react";
 import { ReactNode, useState, useEffect, useRef, useSyncExternalStore } from "react";
 import { Button } from "@/components/ui/button";
@@ -62,17 +62,6 @@ export const NAV: NavGroup[] = [
     items: [
       { id: "fantasy-data", label: "Fantasy Data", icon: <Boxes className="h-3.5 w-3.5" /> },
       { id: "data-quality-issues", label: "Import Issues", icon: <AlertTriangle className="h-3.5 w-3.5" /> },
-    ],
-  },
-  {
-    id: "requirements-group",
-    label: "Requirements",
-    icon: <ClipboardList className="h-4 w-4" />,
-    items: [
-      { id: "requirements-matrix", label: "Requirement Matrix", icon: <Hash className="h-3.5 w-3.5" /> },
-      { id: "requirements-priority-queue", label: "Priority Queue", icon: <AlertTriangle className="h-3.5 w-3.5" /> },
-      { id: "orders-exceptions", label: "Order Exceptions", icon: <FileText className="h-3.5 w-3.5" /> },
-      { id: "replenishment-allocation", label: "Replenishment & Allocation", icon: <Workflow className="h-3.5 w-3.5" /> },
     ],
   },
   {
@@ -273,14 +262,8 @@ function GlobalSearch() {
       if (!query || query.trim().length < 2) return null;
       try {
         const q = encodeURIComponent(query.trim());
-        const [polishedRes, reqRes] = await Promise.all([
-          apiFetch<{ rows: Array<{ id: string; fantasyLotId: string; shape: string; weight: number; country: string }> }>(`/api/fantasy/polished?q=${q}&take=5`).catch(() => null),
-          apiFetch<{ data: Array<{ id: string; requirementCode: string; customerName: string | null }> }>(`/api/requirements?q=${q}&pageSize=5`).catch(() => null),
-        ]);
-        return {
-          polished: polishedRes?.rows?.slice(0, 5) ?? [],
-          requirements: reqRes?.data?.slice(0, 5) ?? [],
-        };
+        const polishedRes = await apiFetch<{ rows: Array<{ id: string; fantasyLotId: string; shape: string; weight: number; country: string }> }>(`/api/fantasy/polished?q=${q}&take=5`).catch(() => null);
+        return { polished: polishedRes?.rows?.slice(0, 5) ?? [] };
       } catch {
         return null;
       }
@@ -291,17 +274,12 @@ function GlobalSearch() {
 
   const hasResults =
     searchResults &&
-    (searchResults.polished.length > 0 || searchResults.requirements.length > 0);
+    searchResults.polished.length > 0;
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && hasResults) {
-      if (searchResults.polished.length > 0) {
-        setView("fantasy-data", "current");
-        setOpen(false);
-      } else if (searchResults.requirements.length > 0) {
-        setView("requirements-matrix");
-        setOpen(false);
-      }
+      setView("fantasy-data", "current");
+      setOpen(false);
     } else if (e.key === "Escape") {
       setOpen(false);
     }
@@ -315,7 +293,7 @@ function GlobalSearch() {
         onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
         onFocus={() => setOpen(true)}
         onKeyDown={handleKeyDown}
-        placeholder="Search lot ID or requirement..."
+        placeholder="Search polished lot ID..."
         className="h-8 pl-8 pr-7 text-xs bg-muted/40 hover:bg-muted/60 focus:bg-card border-border/70 focus:border-[#F9733E]/60 rounded-xl transition-all shadow-2xs"
       />
       {query && (
@@ -353,24 +331,6 @@ function GlobalSearch() {
                         <span className="text-muted-foreground">{p.shape} {p.weight}ct</span>
                       </div>
                       <span className="text-[10px] text-muted-foreground uppercase font-mono ml-2 shrink-0">{p.country}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-              {searchResults.requirements.length > 0 && (
-                <div className="p-1.5 border-t border-border">
-                  <p className="text-[10px] uppercase font-semibold tracking-wide text-muted-foreground px-2 py-0.5">Requirements</p>
-                  {searchResults.requirements.map((r) => (
-                    <button
-                      key={r.id}
-                      onClick={() => { setView("requirements-matrix"); setOpen(false); }}
-                      className="w-full flex items-center justify-between px-2 py-1 text-xs hover:bg-muted rounded text-left transition-colors cursor-pointer"
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <ClipboardList className="h-3.5 w-3.5 text-amber-500 shrink-0" />
-                        <span className="font-semibold">{r.requirementCode}</span>
-                        <span className="text-muted-foreground truncate">{r.customerName ?? "Stock Requirement"}</span>
-                      </div>
                     </button>
                   ))}
                 </div>
@@ -648,7 +608,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         {/* Center Main Workspace */}
         {/* scroll-pt keeps anything scrolled into view (keyboard focus, a table's first row) clear of
             the sticky page or tab header. */}
-        <main ref={mainRef} data-scroll-owner="page" className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden scroll-pt-16 bg-white dark:bg-[#0E1117]">
+        <main ref={mainRef} data-scroll-owner="page" className="min-h-0 min-w-0 flex-1 flex flex-col overflow-y-auto overflow-x-hidden scroll-pt-16 bg-white dark:bg-[#0E1117]">
           {children}
         </main>
 

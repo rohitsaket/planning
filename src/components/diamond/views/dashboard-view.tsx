@@ -8,12 +8,11 @@ import { useNavStore } from "@/stores/nav-store";
 import { useGlobalFilter } from "@/stores/global-filter";
 import { useQuery } from "@tanstack/react-query";
 import {
-  ResponsiveContainer, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  PieChart, Pie, Cell, Legend, ComposedChart,
+  ResponsiveContainer, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ComposedChart,
 } from "recharts";
 import { useMemo } from "react";
 import {
-  AlertTriangle, Gem, ShoppingCart, FileWarning, TrendingUp, TrendingDown, Clock, RefreshCw,
+  AlertTriangle, Gem, FileWarning, TrendingUp, TrendingDown, RefreshCw,
 } from "lucide-react";
 import { KpiGridSkeleton, PageSkeleton } from "@/components/diamond/shared/skeleton";
 
@@ -22,17 +21,12 @@ interface DashboardKpi {
   pipelineAdjusted: number;
   forecastRequirement: number;
   polishedStock: number;
-  criticalRequirements: number;
-  highRequirements: number;
-  overdueRequirements: number;
-  openOrders: number;
-  backorders: number;
   memoExposure: number;
   fantasySyncHealth: "HEALTHY" | "PARTIAL" | "FAILED" | "NOT_RUN";
+  demandRunId: string | null;
   demandRunDate?: string | null;
 }
 
-const PIE_COLORS = ["#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#ec4899", "#84cc16", "#f97316"];
 
 // Compact USD formatter — keeps KPI values short enough to fit alongside sparklines
 function fmtMoney(v: number): string {
@@ -52,10 +46,9 @@ export function DashboardView() {
     if (globalFilter.country) params.set("country", globalFilter.country);
     if (globalFilter.branch) params.set("branch", globalFilter.branch);
     if (globalFilter.lab) params.set("lab", globalFilter.lab);
-    if (globalFilter.windowDays !== 90) params.set("windowDays", String(globalFilter.windowDays));
     const qs = params.toString();
     return qs ? `?${qs}` : "";
-  }, [globalFilter.country, globalFilter.branch, globalFilter.lab, globalFilter.windowDays]);
+  }, [globalFilter.country, globalFilter.branch, globalFilter.lab]);
 
   const { data: kpi, isLoading } = useApi<DashboardKpi>(`/api/dashboard${filterQs}`);
   // Widgets are fetched only when the role may read them (UX only — the API enforces it anyway).
@@ -74,30 +67,6 @@ export function DashboardView() {
       if (globalFilter.windowDays) params.set("windowDays", String(globalFilter.windowDays));
       const tr = await apiFetch<{ rows: Array<{ key: string; prev30: number; mid30: number; latest30: number; total90: number; trend: string }> }>(`/api/analysis/sales/trend?${params.toString()}`);
       return tr.rows.slice(0, 8).map((r) => ({ name: r.key, prev30: r.prev30, mid30: r.mid30, latest30: r.latest30, total90: r.total90 }));
-    },
-  });
-
-  const { data: priorityBreakdown } = useQuery({
-    queryKey: ["dashboard-priority", globalFilter.country, globalFilter.branch, globalFilter.lab],
-    queryFn: async () => {
-      const params = new URLSearchParams({ pageSize: "500" });
-      if (globalFilter.country) params.set("country", globalFilter.country);
-      if (globalFilter.branch) params.set("branch", globalFilter.branch);
-      if (globalFilter.lab) params.set("lab", globalFilter.lab);
-      const r = await apiFetch<{ data: Array<{ requirementPriority: string | null; remainingUnplanned: number; type: string }> }>(`/api/requirements?${params.toString()}`);
-      const byPriority = new Map<string, number>();
-      const byType = new Map<string, number>();
-      for (const row of r.data) {
-        if (row.remainingUnplanned > 0) {
-          const p = row.requirementPriority ?? "NORMAL";
-          byPriority.set(p, (byPriority.get(p) ?? 0) + row.remainingUnplanned);
-          byType.set(row.type, (byType.get(row.type) ?? 0) + row.remainingUnplanned);
-        }
-      }
-      return {
-        priority: Array.from(byPriority.entries()).map(([name, value]) => ({ name, value })),
-        type: Array.from(byType.entries()).map(([name, value]) => ({ name, value })),
-      };
     },
   });
 
@@ -180,60 +149,41 @@ export function DashboardView() {
   return (
     <div data-page-body className="flex flex-col gap-section px-page-x py-page-y">
       {isLoading && !kpi ? (
-        <PageSkeleton kpiCount={18} sections={4} />
+        <PageSkeleton kpiCount={6} sections={2} />
       ) : (
         <>
 
-      {/* GROUP 1: Planning Need — the confirmed requirement numbers */}
+      {/* GROUP 1: Planning Need — from the latest demand calculation */}
       <div>
         <div className="flex items-center gap-2 mb-2 px-1">
           <div className="h-4 w-1 rounded-full bg-rose-500" />
           <h2 className="text-[11px] font-bold uppercase tracking-wide text-foreground">Planning Need</h2>
+          <span className="text-[10px] text-muted-foreground">— {kpi?.demandRunId ? "Latest demand calculation" : "No demand calculation has run"}</span>
         </div>
         {isLoading ? (
           <KpiGridSkeleton count={3} />
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-            <KpiCard label="Physical Shortage" value={kpi?.physicalShortage ?? 0} unit="pcs" intent="critical" icon={AlertTriangle} hint="Quantity still needed" sparkline={shortageSparkline} onClick={() => setView("requirements-matrix")} />
-            <KpiCard label="Pipeline-Adjusted" value={kpi?.pipelineAdjusted ?? 0} unit="pcs" intent="warning" icon={TrendingDown} hint="Still needed after work in progress" onClick={() => setView("requirements-matrix")} />
-            <KpiCard label="Forecast Signal" value={kpi?.forecastRequirement ?? 0} unit="pcs" intent="info" icon={TrendingUp} hint="Advisory. Not confirmed demand" sparkline={forecastSparkline} />
+            <KpiCard label="Physical Shortage" value={kpi?.demandRunId ? kpi.physicalShortage : "—"} unit={kpi?.demandRunId ? "pcs" : undefined} intent="critical" icon={AlertTriangle} hint="Quantity still needed" sparkline={shortageSparkline} onClick={() => setView("analysis-inventory-position", "stockout")} />
+            <KpiCard label="Pipeline-Adjusted" value={kpi?.demandRunId ? kpi.pipelineAdjusted : "—"} unit={kpi?.demandRunId ? "pcs" : undefined} intent="warning" icon={TrendingDown} hint="Still needed after work in progress" onClick={() => setView("analysis-inventory-position", "stockout")} />
+            <KpiCard label="Forecast Signal" value={kpi?.demandRunId ? kpi.forecastRequirement : "—"} unit={kpi?.demandRunId ? "pcs" : undefined} intent="info" icon={TrendingUp} hint="Advisory. Not confirmed demand" sparkline={forecastSparkline} />
           </div>
         )}
       </div>
 
-      {/* GROUP 2: Inventory & Operations */}
+      {/* GROUP 2: Stock & Sync */}
       <div>
         <div className="flex items-center gap-2 mb-2 px-1">
           <div className="h-4 w-1 rounded-full bg-sky-500" />
-          <h2 className="text-[11px] font-bold uppercase tracking-wide text-foreground">Inventory & Operations</h2>
-          <span className="text-[10px] text-muted-foreground">— Stock and open commitments</span>
+          <h2 className="text-[11px] font-bold uppercase tracking-wide text-foreground">Stock & Sync</h2>
+          <span className="text-[10px] text-muted-foreground">— Polished stock, open memo and synchronization</span>
         </div>
         {isLoading ? (
-          <KpiGridSkeleton count={4} />
+          <KpiGridSkeleton count={3} />
         ) : (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
             <KpiCard label="Polished Stock" value={kpi?.polishedStock ?? 0} unit="lots" intent="default" icon={Gem} hint="Polished lots in stock" onClick={() => setView("analysis-polished")} />
-            <KpiCard label="Open Orders" value={kpi?.openOrders ?? 0} intent="default" icon={ShoppingCart} onClick={() => setView("analysis-orders")} />
-            <KpiCard label="Backorders" value={kpi?.backorders ?? 0} unit="pcs" intent="critical" icon={FileWarning} onClick={() => setView("requirements-backorders")} />
             <KpiCard label="Memo Exposure" value={fmtMoney(kpi?.memoExposure ?? 0)} intent="warning" icon={FileWarning} hint="Open memo value" sparkline={memoSparkline} onClick={() => setView("analysis-memo")} />
-          </div>
-        )}
-      </div>
-
-      {/* GROUP 3: Priority & Sync Health */}
-      <div>
-        <div className="flex items-center gap-2 mb-2 px-1">
-          <div className="h-4 w-1 rounded-full bg-emerald-500" />
-          <h2 className="text-[11px] font-bold uppercase tracking-wide text-foreground">Priority & Sync Health</h2>
-          <span className="text-[10px] text-muted-foreground">— Requirements and sync status</span>
-        </div>
-        {isLoading ? (
-          <KpiGridSkeleton count={6} />
-        ) : (
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
-            <KpiCard label="Critical Reqs" value={kpi?.criticalRequirements ?? 0} intent="critical" icon={AlertTriangle} hint="Critical, not yet planned" onClick={() => setView("requirements-priority-queue")} />
-            <KpiCard label="High Reqs" value={kpi?.highRequirements ?? 0} intent="warning" icon={AlertTriangle} hint="High priority, not yet planned" onClick={() => setView("requirements-priority-queue")} />
-            <KpiCard label="Overdue Reqs" value={kpi?.overdueRequirements ?? 0} intent="critical" icon={Clock} hint="Past required date" onClick={() => setView("requirements-priority-queue")} />
             <KpiCard label="Fantasy Sync" value={kpi?.fantasySyncHealth ? SYNC_HEALTH_LABEL[kpi.fantasySyncHealth] ?? kpi.fantasySyncHealth : "—"} intent={kpi?.fantasySyncHealth === "HEALTHY" ? "success" : kpi?.fantasySyncHealth === "NOT_RUN" ? "default" : kpi?.fantasySyncHealth === "PARTIAL" ? "warning" : "critical"} icon={RefreshCw} onClick={() => setView("fantasy-sync")} />
           </div>
         )}
@@ -266,34 +216,6 @@ export function DashboardView() {
 
       </div>
 
-      {/* Lower row: priority pies */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-        <Section title="Unplanned by Priority" description="Open requirement pieces by priority class">
-          <div className="h-48 flex items-center justify-center">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie data={priorityBreakdown?.priority ?? []} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={70} label={(e) => `${e.name}: ${e.value}`} labelLine={false} fontSize={9}>
-                  {PIE_COLORS.map((c, i) => <Cell key={i} fill={c} />)}
-                </Pie>
-                <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8 }} />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-        </Section>
-
-        <Section title="Unplanned by Type" description="Open requirement pieces by source type">
-          <div className="h-48 flex items-center justify-center">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie data={priorityBreakdown?.type ?? []} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={70} label={(e) => `${e.name}: ${e.value}`} labelLine={false} fontSize={9}>
-                  {PIE_COLORS.map((c, i) => <Cell key={i} fill={c} />)}
-                </Pie>
-                <Tooltip contentStyle={{ fontSize: 11, borderRadius: 8 }} />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-        </Section>
-      </div>
         </>
       )}
     </div>

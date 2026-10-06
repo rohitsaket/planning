@@ -16,7 +16,7 @@
  * 10. Real Analysis APIs and endpoints query the generated dataset with pagination and filtering.
  *
  * Usage:
- *   npx tsx scripts/sectest-db.ts && npx tsx scripts/with-sectest-db.ts npx prisma migrate deploy && npx tsx scripts/with-sectest-db.ts npx tsx scripts/test-analysis-review-fixture.ts
+ *   npm run test:analysis-fixture
  */
 
 import { db } from "../src/lib/db";

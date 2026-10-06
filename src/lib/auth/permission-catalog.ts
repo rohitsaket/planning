@@ -16,7 +16,6 @@ export const PERMISSION_AREAS = [
   "Fantasy Data",
   "Overall Data",
   "Import Issues",
-  "Requirements",
   "Workbook Import",
   "Mappings",
   "Users & Access",
@@ -51,7 +50,6 @@ export const PERMISSION_CATALOG: readonly PermissionMeta[] = [
   m("customers.read", "Analysis", "View", "View customer information"),
   m("customers.export", "Analysis", "Export", "Export customer data", true),
   m("orders.read", "Analysis", "View", "View customer orders"),
-  m("orders.export", "Analysis", "Export", "Export customer orders", true),
   // Demand
   m("demand.run", "Demand", "Process/Run", "Run the demand calculation"),
   m("demand.trace", "Demand", "View", "View record-level demand detail"),
@@ -69,10 +67,6 @@ export const PERMISSION_CATALOG: readonly PermissionMeta[] = [
   m("data_quality.read", "Import Issues", "View", "View import issues"),
   m("data_quality.export", "Import Issues", "Export", "Export import issues", true),
   // Requirements
-  m("requirement.read", "Requirements", "View", "View requirements"),
-  m("requirement.create", "Requirements", "Create", "Create requirements"),
-  m("requirement.override", "Requirements", "Override", "Override requirement priority", true),
-  m("requirement.export", "Requirements", "Export", "Export requirements", true),
   // Workbook Import
   m("sarin.import.read", "Workbook Import", "View", "View Sarin files and outputs"),
   m("sarin.import.upload", "Workbook Import", "Create", "Upload Sarin files"),

@@ -92,10 +92,12 @@ export function CustomerSalesView() {
   const setView = useNavStore((s) => s.setView);
   const globalFilter = useGlobalFilter();
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(PAGE_SIZE);
   const [search, setSearch] = useState("");
   const [appliedSearch, setAppliedSearch] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
   const [detailPage, setDetailPage] = useState(1);
+  const [detailPageSize, setDetailPageSize] = useState(PAGE_SIZE);
   const [activeDetailTab, setActiveDetailTab] = useState<"categories" | "records">("categories");
 
   const scope = useMemo(() => {
@@ -113,9 +115,9 @@ export function CustomerSalesView() {
     return `/api/analysis/customers-orders?${p.toString()}`;
   };
 
-  const customers = useApi<CustomersResponse>(qs({ section: "customers", page, pageSize: PAGE_SIZE }));
+  const customers = useApi<CustomersResponse>(qs({ section: "customers", page, pageSize }));
   const detail = useApi<DetailResponse>(
-    selected ? qs({ section: "customer-detail", customerKey: selected, page: detailPage, pageSize: PAGE_SIZE }) : "",
+    selected ? qs({ section: "customer-detail", customerKey: selected, page: detailPage, pageSize: detailPageSize }) : "",
   );
 
   const applySearch = () => { setAppliedSearch(search.trim()); setPage(1); };
@@ -241,6 +243,7 @@ export function CustomerSalesView() {
                   total={customers.data?.paging.total ?? 0}
                   hasMore={customers.data?.paging.hasMore ?? false}
                   onPageChange={setPage}
+                  onPageSizeChange={(s) => { setPageSize(s); setPage(1); }}
                   loading={customers.isLoading}
                   label="customers"
                 />
@@ -335,6 +338,7 @@ export function CustomerSalesView() {
                       total={detail.data?.recordPaging.total ?? 0}
                       hasMore={detail.data?.recordPaging.hasMore ?? false}
                       onPageChange={setDetailPage}
+                      onPageSizeChange={(s) => { setDetailPageSize(s); setDetailPage(1); }}
                       loading={detail.isLoading}
                       label="sale records"
                     />

@@ -9,14 +9,14 @@
  * written: the configured database is used only as the server connection that creates
  * and drops the throwaway one, as scripts/sectest-db.ts does.
  *
- * Usage: npx tsx --env-file-if-exists=.env scripts/run-sarin-no-catalog-test.ts
+ * Usage: npm run test:sarin-no-catalog
  */
 
-import { spawnSync } from "node:child_process";
 import { readdirSync } from "node:fs";
 import path from "node:path";
 import { PrismaClient } from "@prisma/client";
 import { assertDisposableDatabase } from "../src/lib/fantasy/database-environment";
+import { launch, prismaInvocation } from "./process-launch";
 
 const DB_NAME = "planning_sectest_nocatalog";
 const CATALOG_MIGRATION = "20260929090000_sarin_effective_mapping_catalog";
@@ -41,9 +41,10 @@ function targets(): { serverUrl: string; url: string } {
 
 /** Runs one migration file against the throwaway database; the URL travels in the environment only. */
 function execute(url: string, file: string) {
-  // Quoted: the command runs through the shell (npx on Windows) and the path may hold spaces.
-  const r = spawnSync("npx", ["prisma", "db", "execute", "--schema", "prisma/schema.prisma", "--file", JSON.stringify(file)], { stdio: "pipe", shell: true, env: { ...process.env, DATABASE_URL: url } });
-  if (r.status !== 0) throw new Error(`migration ${path.basename(path.dirname(file))} failed: ${r.stderr.toString().slice(0, 2000)}`);
+  // No shell: the path is one argument however many spaces it holds.
+  const inv = prismaInvocation(["db", "execute", "--schema", "prisma/schema.prisma", "--file", file], { env: { ...process.env, DATABASE_URL: url }, stdio: "pipe", encoding: "utf8" });
+  const r = launch(inv);
+  if (r.status !== 0) throw new Error(`migration ${path.basename(path.dirname(file))} failed: ${r.stderr.replace(/postgres(ql)?:\/\/\S+/g, "<database url>").slice(0, 2000)}`);
 }
 
 /** Drops the throwaway database, if present, and confirms it is gone. */

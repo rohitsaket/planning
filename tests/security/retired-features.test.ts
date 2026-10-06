@@ -2,7 +2,8 @@
 // and predictive models, the reports library, realtime broadcasts, the generic settings page
 // with its feature flags, the shadow projection of raw Fantasy batches, the legacy Planning
 // Workbench, Approval Queue, Rough Availability and Rough Reservations with the approval
-// policy, the seeded Fantasy Rough stock page, and the pages that fronted them. Their routes and modules do not exist, no page requests them, their permissions
+// policy, the seeded Fantasy Rough stock page, the Requirements section with its seeded
+// requirement and order views, and the pages that fronted them. Their routes and modules do not exist, no page requests them, their permissions
 // cannot be granted or take effect, and the history that mentions them is still readable.
 // Pages are rendered from their real components and every request is answered by the real
 // route handler in the isolated planning_sectest database.
@@ -29,6 +30,11 @@ import { resolveViewAlias, useNavStore, type ViewId } from "@/stores/nav-store";
 import { MappingsView, MAPPINGS_TABS } from "@/components/diamond/views/consolidated/mappings-view";
 import { AuditLogView } from "@/components/diamond/views/audit-log-view";
 import { OutOfScopeView } from "@/components/diamond/shared/out-of-scope";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { GET as loginContext } from "@/app/api/public/login-context/route";
+import { BrandingPanel } from "@/components/auth/login/branding-panel";
+import { visibleText } from "./ui-render";
 
 const RETIRED_PERMISSIONS = [
   "forecast.run", "forecast.publish", "forecast.methodology.read", "notification.broadcast",
@@ -42,7 +48,11 @@ const LEGACY_PLANNING_PERMISSIONS = [
 ];
 /** Fantasy rough stock: no authoritative source, only seeded records. */
 const ROUGH_STOCK_PERMISSIONS = ["rough.read"];
-const ALL_RETIRED = [...RETIRED_PERMISSIONS, ...LEGACY_PLANNING_PERMISSIONS, ...ROUGH_STOCK_PERMISSIONS];
+/** The Requirements section and the export of its seeded customer orders. */
+const REQUIREMENT_PERMISSIONS = ["requirement.read", "requirement.create", "requirement.override", "requirement.export", "orders.export"];
+const ALL_RETIRED = [...RETIRED_PERMISSIONS, ...LEGACY_PLANNING_PERMISSIONS, ...ROUGH_STOCK_PERMISSIONS, ...REQUIREMENT_PERMISSIONS];
+/** Pages of the retired Requirements section and its hidden order views. */
+const REQUIREMENT_VIEWS = ["requirements-matrix", "requirements-priority-queue", "orders-exceptions", "replenishment-allocation", "requirements-orders", "requirements-replenishment", "requirements-backorders", "requirements-special", "requirements-forecast-signals", "requirements-allocation", "analysis-orders"];
 const RETIRED_API_DIRS = [
   "analysis/reorder-signals",
   "analysis/transfer-candidates",
@@ -66,6 +76,8 @@ const RETIRED_API_DIRS = [
   "planning/approvals",
   "planning/rough",
   "fantasy/rough",
+  "requirements",
+  "analysis/orders",
   "admin/approval-policy",
 ];
 // Modules that served only a retired feature.
@@ -87,6 +99,13 @@ const RETIRED_MODULES = [
   "src/components/diamond/views/rough-availability-view.tsx",
   "src/components/diamond/views/fantasy-rough-view.tsx",
   "prisma/seed.ts",
+  "src/components/diamond/views/requirements-matrix-view.tsx",
+  "src/components/diamond/views/priority-queue-view.tsx",
+  "src/components/diamond/views/orders-view.tsx",
+  "src/components/diamond/views/consolidated/orders-exceptions-view.tsx",
+  "src/components/diamond/views/consolidated/replenishment-allocation-view.tsx",
+  "src/stores/saved-views.ts",
+  "src/lib/domain/requirement-need.ts",
   "src/components/diamond/views/consolidated/planning-workbench-host-view.tsx",
   "src/components/diamond/views/users-access/approval-policy-section.tsx",
   "src/lib/planning/approval-policy.ts",
@@ -125,6 +144,8 @@ const RETIRE_PLANNING = "prisma/migrations/20261003090000_retire_legacy_planning
 const RESTORE_PLANNING = "prisma/migrations/20261003090000_retire_legacy_planning_permissions/down.sql";
 const RETIRE_ROUGH = "prisma/migrations/20261004090000_withdraw_rough_read_permission/migration.sql";
 const RESTORE_ROUGH = "prisma/migrations/20261004090000_withdraw_rough_read_permission/down.sql";
+const RETIRE_REQUIREMENTS = "prisma/migrations/20261005090000_withdraw_requirement_permissions/migration.sql";
+const RESTORE_REQUIREMENTS = "prisma/migrations/20261005090000_withdraw_requirement_permissions/down.sql";
 
 type User = Awaited<ReturnType<typeof makeUser>>;
 let root: User;
@@ -203,6 +224,16 @@ describe("retired routes and pages are gone", () => {
     expect(page.requested).toEqual([]);
   });
 
+  test("old Requirements links — its four pages and every hidden order view — say requirement and order workflows are not configured, and request nothing", async () => {
+    const TARGET = { view: "out-of-scope", tab: "requirements" };
+    for (const id of REQUIREMENT_VIEWS) expect([id, resolveViewAlias(id as ViewId)]).toEqual([id, TARGET]);
+    const page = await renderAs(OutOfScopeView as ComponentType<object>, root, TARGET.tab);
+    expect([page.text.includes("Not available"), page.text.includes("Requirements and order workflows are not configured for this planning utility.")]).toEqual([true, true]);
+    expect(page.requested).toEqual([]);
+    // No retained view permission, palette entry or page still names them.
+    for (const id of REQUIREMENT_VIEWS) expect([id, isViewAuthorized(permissionsFor("SUPER_ADMIN") as string[], id)]).toEqual([id, false]);
+  });
+
   test("Fantasy Data offers no rough stock, and synchronization presents no rough mirror as live stock", async () => {
     expect(FANTASY_DATA_TABS.map((t) => [t.id, t.permission])).toEqual([["current", "fantasy.read"], ["integration", "fantasy.read"], ["history", "overall.read"]]);
     resetRateLimits();
@@ -229,7 +260,7 @@ describe("retired permissions cannot be granted or take effect", () => {
   });
 
   test("the permissions that stay are unchanged: Sarin work and Fantasy polished and historical data", () => {
-    for (const code of ["fantasy.read", "overall.read", "fantasy.export", "sarin.import.read", "sarin.import.upload", "sarin.import.validate", "sarin.issue.review", "sarin.issue.override", "sarin.output.generate", "sarin.output.export", "sarin.mapping.read", "sarin.mapping.manage"]) {
+    for (const code of ["fantasy.read", "overall.read", "fantasy.export", "orders.read", "sarin.import.read", "sarin.import.upload", "sarin.import.validate", "sarin.issue.review", "sarin.issue.override", "sarin.output.generate", "sarin.output.export", "sarin.mapping.read", "sarin.mapping.manage"]) {
       expect([code, (PERMISSIONS as readonly string[]).includes(code)]).toEqual([code, true]);
     }
   });
@@ -268,7 +299,7 @@ describe("retired permissions cannot be granted or take effect", () => {
 
     // Running the withdrawals twice is safe: they touch only the retired grants. Viewing the old
     // settings once carried over as viewing the approval policy, which is itself now retired.
-    for (let run = 0; run < 2; run++) for (const file of [WITHDRAW_FEATURES, APPROVAL_POLICY, WITHDRAW_PROJECTION, RETIRE_PLANNING, RETIRE_ROUGH]) await runMigration(file);
+    for (let run = 0; run < 2; run++) for (const file of [WITHDRAW_FEATURES, APPROVAL_POLICY, WITHDRAW_PROJECTION, RETIRE_PLANNING, RETIRE_ROUGH, RETIRE_REQUIREMENTS]) await runMigration(file);
     const left = await db.rolePermission.findMany({ where: { roleId: role.id }, select: { permissionCode: true } });
     expect(left.map((p) => p.permissionCode).sort()).toEqual(["analysis.read"]);
   });
@@ -297,6 +328,33 @@ describe("retired permissions cannot be granted or take effect", () => {
 
     await runMigration(RETIRE_PLANNING);
     expect([await codes(), await withdrawals()]).toEqual([["analysis.read", "fantasy.read"], 4]);
+  });
+
+  test("the requirement and order-export withdrawal records each grant in UTC, keeps orders.read, rolls back exactly and reapplies", async () => {
+    const code = `RETIRED_REQ_${Date.now().toString(36).toUpperCase()}`;
+    expect((await createRole(code, ["analysis.read", "orders.read"])).status).toBe(200);
+    const role = await db.role.findUniqueOrThrow({ where: { code } });
+    const assignedAt = new Date("2026-03-01T09:15:00.000Z");
+    await db.rolePermission.createMany({ data: REQUIREMENT_PERMISSIONS.map((permissionCode) => ({ roleId: role.id, permissionCode, assignedAt, assignedByUserId: "historical-admin", reason: `granted ${permissionCode}` })) });
+    const grants = () => db.rolePermission.findMany({ where: { roleId: role.id }, orderBy: { permissionCode: "asc" } });
+    const original = await grants();
+    const withdrawn = () => db.auditLog.findMany({ where: { action: "ROLE_PERMISSION_WITHDRAWN", correlationId: "20261005090000_withdraw_requirement_permissions", entityId: role.id } });
+
+    const startedAt = Date.now();
+    await runMigration(RETIRE_REQUIREMENTS);
+    expect((await grants()).map((g) => g.permissionCode)).toEqual(["analysis.read", "orders.read"]);
+    const records = await withdrawn();
+    expect(records.map((r) => JSON.parse(r.before!).permissionCode).sort()).toEqual([...REQUIREMENT_PERMISSIONS].sort());
+    for (const r of records) expect(Math.abs(r.timestamp.getTime() - startedAt) < 60_000).toBe(true);
+
+    await runMigration(RETIRE_REQUIREMENTS); // idempotent
+    expect([(await grants()).length, (await withdrawn()).length]).toEqual([2, 5]);
+    await runMigration(RESTORE_REQUIREMENTS);
+    expect(await grants()).toEqual(original);
+    await runMigration(RESTORE_REQUIREMENTS); // restoring twice adds nothing
+    expect((await grants()).length).toBe(original.length);
+    await runMigration(RETIRE_REQUIREMENTS);
+    expect([(await grants()).map((g) => g.permissionCode), (await withdrawn()).length]).toEqual([["analysis.read", "orders.read"], 10]);
   });
 
   test("the rough.read withdrawal records each grant in UTC, touches no other grant, rolls back exactly and reapplies", async () => {
@@ -423,7 +481,7 @@ describe("legacy planning notifications are history, not work", () => {
     const retired = await Promise.all(["PLAN_APPROVAL_PENDING", "REPLAN_REQUIRED"].map((type) =>
       db.notification.create({ data: { type, title: `Legacy ${type} ${stamp}`, message: "Plan awaiting approval", severity: "INFO", read: false } }),
     ));
-    const live = await db.notification.create({ data: { type: "CRITICAL_REQUIREMENT", title: `Live ${stamp}`, message: "Critical requirement", severity: "CRITICAL", read: false } });
+    const live = await db.notification.create({ data: { type: "FANTASY_SYNC_FAILURE", title: `Live ${stamp}`, message: "Synchronization failed", severity: "ERROR", read: false } });
 
     resetRateLimits();
     const listed = (await call(notificationsGet, { cookie: root.cookie, path: "/api/notifications" })).json.rows as Array<{ id: string; type: string }>;
@@ -472,5 +530,49 @@ describe("legacy planning history stays readable", () => {
     expect([page.text.includes("Soft reservation for the historical case"), page.text.includes("Historical rough stone status change"), page.text.includes("Rough Inventory")]).toEqual([true, true, true]);
 
     expect([await db.planningCase.count({ where: { id: c.caseId } }), await db.planOption.count({ where: { id: { in: c.optionIds } } }), await db.roughReservation.count({ where: { roughId: c.roughId } }), await db.roughStone.count({ where: { id: c.roughId } })]).toEqual([1, 2, 1, 1]);
+  });
+});
+
+describe("Requirements history stays in place and readable", () => {
+  test("requirement, allocation, order, line and customer rows survive the permission withdrawal; a past priority override still lists and renders", async () => {
+    const stamp = Date.now().toString(36).toUpperCase();
+    const requirement = await db.requirement.create({ data: { requirementCode: `REQ-HIST-${stamp}`, type: "CUSTOMER_ORDER", groupCode: "G", companyCode: "C", country: "IN", branch: "SRT", requiredQty: 3, requirementPriority: "HIGH" } });
+    const customer = await db.customer.create({ data: { customerCode: `CUST-HIST-${stamp}`, name: "Historical Customer", country: "IN", branch: "SRT" } });
+    const order = await db.salesOrder.create({ data: { orderNumber: `SO-HIST-${stamp}`, customerId: customer.id, country: "IN", branch: "SRT", orderDate: new Date() } });
+    await db.salesOrderLine.create({ data: { orderId: order.id, lineNo: 1, shape: "ROUND", qtyOrdered: 2 } });
+    const counts = async () => [await db.requirement.count(), await db.requirementAllocation.count(), await db.salesOrder.count(), await db.salesOrderLine.count(), await db.customer.count()];
+    const before = await counts();
+    await runMigration(RETIRE_REQUIREMENTS);
+    expect(await counts()).toEqual(before);
+
+    const override = await db.auditLog.create({ data: { actor: "historical.manager", action: "REQUIREMENT_PRIORITY_OVERRIDE", entity: "Requirement", entityId: requirement.id, reason: "Historical priority override", before: JSON.stringify({ priority: "NORMAL" }), after: JSON.stringify({ priority: "HIGH" }) } });
+    resetRateLimits();
+    const res = await call(auditGet, { cookie: root.cookie, path: "/api/admin/audit?entity=Requirement" });
+    expect([res.status, (res.json.rows as Array<{ id: string }>).some((r) => r.id === override.id)]).toEqual([200, true]);
+    const page = await renderAs(AuditLogView as ComponentType<object>, root, null);
+    expect([page.text.includes("Historical priority override"), page.text.includes("Requirements")]).toEqual([true, true]);
+  });
+});
+
+describe("the public sign-in page advertises only what exists", () => {
+  test("the anonymous login context and the rendered branding panel list Analysis and Planning, and no Traceability or Requirements", async () => {
+    resetRateLimits();
+    const res = await call(loginContext, { path: "/api/public/login-context" });
+    expect([res.status, res.json.modules]).toEqual([200, ["Analysis", "Planning"]]);
+    const html = renderToStaticMarkup(createElement(BrandingPanel, {
+      brand: res.json.branding,
+      modules: res.json.modules,
+      motivation: { title: "Daily motivation", quote: "Measure twice, cut once." },
+      version: res.json.version,
+    }));
+    const text = visibleText(html);
+    expect([text.includes("Analysis"), text.includes("Planning")]).toEqual([true, true]);
+    expect(/traceab|requirement/i.test(text)).toBe(false);
+  });
+
+  test("the page metadata and branding source name no retired module (static)", () => {
+    for (const file of ["src/app/layout.tsx", "src/lib/branding.ts", "src/components/auth/login/branding-panel.tsx"]) {
+      expect([file, /Traceab|traceab|Requirement|requirement engine|rough planning/.test(readFileSync(file, "utf8"))]).toEqual([file, false]);
+    }
   });
 });

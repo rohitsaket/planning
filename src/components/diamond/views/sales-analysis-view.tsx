@@ -98,16 +98,18 @@ export function SalesAnalysisView() {
   const query = params.toString();
   // Any change to the filters or the ordering invalidates the page cursor: staying on
   // page 7 of a different result set would show rows that do not belong to the request.
+  const [pageSize, setPageSize] = useState(PAGE_SIZE);
+  const [recordPageSize, setRecordPageSize] = useState(PAGE_SIZE);
   const [page, setPage] = useServerPage(`${query}|${sort.key}|${sort.dir}`);
-  const [recordPage, setRecordPage] = useServerPage(`${query}|${recordSort.key}|${recordSort.dir}`);
+  const [recordPage, setRecordPage] = useServerPage(`${query}|${recordSort.key}|${recordSort.dir}|${recordPageSize}`);
 
   const summaryUrl = useMemo(
-    () => salesUrl("/api/analysis/sales", params, { sortKey: sort.key, sortDir: sort.dir, page, pageSize: PAGE_SIZE }),
-    [params, sort.key, sort.dir, page],
+    () => salesUrl("/api/analysis/sales", params, { sortKey: sort.key, sortDir: sort.dir, page, pageSize }),
+    [params, sort.key, sort.dir, page, pageSize],
   );
   const recordsUrl = useMemo(
-    () => salesUrl("/api/analysis/sales/records", params, { sortKey: recordSort.key, sortDir: recordSort.dir, page: recordPage, pageSize: PAGE_SIZE }),
-    [params, recordSort.key, recordSort.dir, recordPage],
+    () => salesUrl("/api/analysis/sales/records", params, { sortKey: recordSort.key, sortDir: recordSort.dir, page: recordPage, pageSize: recordPageSize }),
+    [params, recordSort.key, recordSort.dir, recordPage, recordPageSize],
   );
 
   const { data, isLoading, error } = useApi<SummaryResponse>(summaryUrl);
@@ -120,10 +122,10 @@ export function SalesAnalysisView() {
   const showCustomer = permissions.includes("customers.read");
 
   const columns: Column<CategorySalesRow>[] = [
-    { key: "categoryId", header: "Category", sticky: "left", cell: (r) => <span className="font-medium">{r.categoryId}</span> },
-    { key: "lab", header: "Lab", cell: (r) => r.lab || "—" },
-    { key: "shape", header: "Shape", cell: (r) => r.shape || "—" },
-    { key: "weightBand", header: "Weight Band", cell: (r) => r.weightBand || "—" },
+    { key: "categoryId", header: "Category", sticky: "left", width: "200px", cell: (r) => <span className="font-medium">{r.categoryId}</span> },
+    { key: "lab", header: "Lab", width: "80px", cell: (r) => r.lab || "—" },
+    { key: "shape", header: "Shape", width: "100px", cell: (r) => r.shape || "—" },
+    { key: "weightBand", header: "Weight Band", width: "110px", cell: (r) => r.weightBand || "—" },
     ...(approved
       ? ([
           { key: "previous30Quantity", header: "Prev 30D Qty", align: "right", cell: (r) => <NumberCell value={r.previous30Quantity} /> },
@@ -293,6 +295,7 @@ export function SalesAnalysisView() {
                 total={data?.paging.total ?? 0}
                 hasMore={data?.paging.hasMore ?? false}
                 onPageChange={setPage}
+                onPageSizeChange={(s) => { setPageSize(s); setPage(1); }}
                 loading={isLoading}
                 label="categories"
               />
@@ -326,6 +329,7 @@ export function SalesAnalysisView() {
                 total={records.data?.paging.total ?? 0}
                 hasMore={records.data?.paging.hasMore ?? false}
                 onPageChange={setRecordPage}
+                onPageSizeChange={(s) => { setRecordPageSize(s); setRecordPage(1); }}
                 loading={records.isLoading}
                 label="sale records"
               />

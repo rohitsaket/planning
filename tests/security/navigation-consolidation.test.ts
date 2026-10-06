@@ -201,10 +201,10 @@ describe("planning-only sidebar: every group expands and collapses", () => {
     const page = await renderShell(root);
     expect(groupButtons(page.html)).toEqual([
       ["Collapse Dashboard", "true"], ["Collapse Analysis", "true"], ["Collapse Data", "true"],
-      ["Collapse Requirements", "true"], ["Collapse Planning", "true"], ["Collapse Administration", "true"],
+      ["Collapse Planning", "true"], ["Collapse Administration", "true"],
     ]);
     expect(page.text).toContain("Import Issues");
-    expect(/Execution|Manufacturing|Traceability|Plan vs Actual|Quality Assurance|Data Quality Issues/.test(page.text)).toBe(false);
+    expect(/Execution|Manufacturing|Traceability|Plan vs Actual|Quality Assurance|Data Quality Issues|Requirement Matrix|Priority Queue|Order Exceptions|Replenishment/.test(page.text)).toBe(false);
   });
 
   test("Dashboard, with only Overview, collapses and expands like any other group", async () => {
@@ -225,12 +225,12 @@ describe("planning-only sidebar: every group expands and collapses", () => {
   test("pages a reader may not open are never rendered, not even locked", async () => {
     const importReader = await userWith("importonly", ["sarin.import.read"]);
     const page = await renderShell(importReader);
-    expect([page.text.includes("Workbook Import"), page.text.includes("Requirement Matrix"), page.text.includes("Planning Workbench"), page.text.includes("Approval Queue"), page.text.includes("Rough Availability")]).toEqual([true, false, false, false, false]);
+    expect([page.text.includes("Workbook Import"), page.text.includes("Import Issues"), page.text.includes("Planning Workbench"), page.text.includes("Approval Queue"), page.text.includes("Rough Availability")]).toEqual([true, false, false, false, false]);
     expect(/Restricted/.test(page.html)).toBe(false);
   });
 
   test("stored state naming the retired Execution group does not break the sidebar", async () => {
     const page = await renderShell(root, { "execution-group": true, "manufacturing-group": false });
-    expect(groupButtons(page.html).length).toBe(6);
+    expect(groupButtons(page.html).length).toBe(5);
   });
 });

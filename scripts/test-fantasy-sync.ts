@@ -592,7 +592,7 @@ async function main() {
   // Case D: Fantasy Integration role cannot approve plans
   assert(testHasPermission("FANTASY_INTEGRATION", "fantasy.sync.run") === true, "FANTASY_INTEGRATION has fantasy.sync.run");
   assert(testHasPermission("FANTASY_INTEGRATION", "fantasy.sync.unlock") === false, "FANTASY_INTEGRATION cannot unlock a stuck sync: running one does not imply it");
-  assert(testHasPermission("FANTASY_INTEGRATION", "requirement.override") === false, "FANTASY_INTEGRATION cannot override requirement priority");
+  assert(testHasPermission("FANTASY_INTEGRATION", "sarin.mapping.manage") === false, "FANTASY_INTEGRATION cannot change Sarin shape mappings");
 
 
   // Case F: Export permission separation

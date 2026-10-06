@@ -11,6 +11,7 @@
  * would prove nothing about either.
  */
 
+import type { Prisma } from "@prisma/client";
 import { db } from "./helpers";
 import { runDemandCalculation } from "@/lib/demand/demand-service";
 import { getISTDateString, parseISTDateToUTC } from "@/lib/fantasy/time";
@@ -317,8 +318,8 @@ async function buildBulkWorld() {
   const shapes = ["RD", "OV", "PR"];
   const weights = [0.35, 0.6, 1.1];
   const labs = ["GIA", "IGI", "NONE"];
-  const masters: Parameters<typeof db.lotMasterRecord.createMany>[0]["data"] = [];
-  const history: Parameters<typeof db.lotHistoryRecord.createMany>[0]["data"] = [];
+  const masters: Prisma.LotMasterRecordCreateManyInput[] = [];
+  const history: Prisma.LotHistoryRecordCreateManyInput[] = [];
   for (let i = 0; i < BULK_LOT_COUNT; i++) {
     const lotId = `SA-BULK-${i}`;
     const at = istDaysBack(i % 89, 6);

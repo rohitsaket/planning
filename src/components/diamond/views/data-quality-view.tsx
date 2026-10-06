@@ -62,6 +62,7 @@ export function DataQualityView() {
   const [status, setStatus] = useState(ALL);
   const [search, setSearch] = useState("");
   const [appliedSearch, setAppliedSearch] = useState("");
+  const [pageSize, setPageSize] = useState(PAGE_SIZE);
   const [page, setPage] = useState(1);
 
   const url = useMemo(() => {
@@ -71,9 +72,9 @@ export function DataQualityView() {
     if (status !== ALL) p.set("status", status);
     if (appliedSearch) p.set("search", appliedSearch);
     p.set("page", String(page));
-    p.set("pageSize", String(PAGE_SIZE));
+    p.set("pageSize", String(pageSize));
     return `/api/data-quality?${p.toString()}`;
-  }, [type, severity, status, appliedSearch, page]);
+  }, [type, severity, status, appliedSearch, page, pageSize]);
   const { data, isLoading } = useApi<IssuesResponse>(url);
 
   const filter = (setter: (v: string) => void) => (v: string) => {
@@ -169,6 +170,7 @@ export function DataQualityView() {
           total={data?.paging.total ?? 0}
           hasMore={data?.paging.hasMore ?? false}
           onPageChange={setPage}
+          onPageSizeChange={(s) => { setPageSize(s); setPage(1); }}
           loading={isLoading}
           label="issues"
         />

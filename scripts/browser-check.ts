@@ -1,7 +1,7 @@
 // Real-browser check over the Chrome DevTools Protocol (no extra dependencies):
 // loads the app, confirms the sign-in gate renders under the CSP, signs in through the form,
 // opens views, and records console errors, CSP violations and failed requests.
-// Usage: CHROME_BIN=... BROWSER_BASE=http://127.0.0.1:3187 BROWSER_USER=u BROWSER_PASS=p bun scripts/browser-check.ts
+// Usage: CHROME_BIN=... BROWSER_BASE=http://127.0.0.1:3187 BROWSER_USER=u BROWSER_PASS=p node scripts/browser-check.ts
 import { spawn } from "node:child_process";
 import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -10,7 +10,7 @@ import path from "node:path";
 const BASE = process.env.BROWSER_BASE || "http://127.0.0.1:3187";
 const CHROME = process.env.CHROME_BIN || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const PORT = 9333 + Math.floor(Math.random() * 500);
-const VIEWS = (process.env.BROWSER_VIEWS || "dashboard,analysis-sales,analysis-customers-orders,analysis-inventory-position,fantasy-data,data-quality-issues,requirements-matrix,planning-workbook-import,admin-users-access,admin-mappings,admin-audit-log").split(",");
+const VIEWS = (process.env.BROWSER_VIEWS || "dashboard,analysis-sales,analysis-customers-orders,analysis-inventory-position,fantasy-data,data-quality-issues,planning-workbook-import,admin-users-access,admin-mappings,admin-audit-log").split(",");
 
 const profile = mkdtempSync(path.join(tmpdir(), "sec-chrome-"));
 const chrome = spawn(CHROME, ["--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check", `--remote-debugging-port=${PORT}`, `--user-data-dir=${profile}`, "about:blank"], { stdio: "ignore" });
@@ -64,6 +64,9 @@ const record = (check: string, ok: boolean, detail = "") => results.push({ check
 await send("Page.navigate", { url: `${BASE}/` });
 const gate = await waitFor(`!!document.querySelector('input[autocomplete="current-password"]')`);
 record("sign-in gate renders and hydrates under the production CSP", gate);
+// The module list is the one public product claim: only modules that exist are advertised.
+const gateText = String(await evaluate(`document.body.textContent`));
+record("sign-in page lists Analysis and Planning and no retired module", gateText.includes("Analysis") && gateText.includes("Planning") && !/Traceability|Requirements/.test(gateText));
 
 const setValue = (sel: string, v: string) =>
   evaluate(`(() => { const el = document.querySelector('${sel}'); const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; set.call(el, ${JSON.stringify(v)}); el.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);

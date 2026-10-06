@@ -20,7 +20,6 @@ const arg = (name: string) => process.argv.find((a) => a.startsWith(`--${name}=`
 const VIEWPORTS = (arg("viewports")?.split(",") ?? ALL_VIEWPORTS).map((v) => v.split("x").map(Number) as [number, number]);
 const PAGES = [
   "dashboard", "analysis-sales", "analysis-customers-orders", "analysis-inventory-position", "fantasy-data", "data-quality-issues",
-  "requirements-matrix", "requirements-priority-queue", "orders-exceptions", "replenishment-allocation",
   "planning-workbook-import", "admin-users-access", "admin-mappings", "admin-audit-log",
 ];
 /** The final sidebar, exactly: every page above, grouped, and nothing retired. */
@@ -28,7 +27,6 @@ const FINAL_SIDEBAR: Array<[string, string[]]> = [
   ["Dashboard", ["Overview"]],
   ["Analysis", ["Sales & Trends", "Customers & Orders", "Inventory"]],
   ["Data", ["Fantasy Data", "Import Issues"]],
-  ["Requirements", ["Requirement Matrix", "Priority Queue", "Order Exceptions", "Replenishment & Allocation"]],
   ["Planning", ["Workbook Import"]],
   ["Administration", ["Users & Access", "Mappings", "Audit Log"]],
 ];
@@ -44,6 +42,12 @@ const RETIRED_LINKS: Array<[string, RegExp]> = [
   ["#planning-rough-availability", /No authoritative rough-stock source is configured\./],
   ["#fantasy-rough", /No authoritative rough-stock source is configured\./],
   ["#fantasy-live", /No authoritative rough-stock source is configured\./],
+  ["#requirements-matrix", /Requirements and order workflows are not configured for this planning utility\./],
+  ["#requirements-priority-queue", /Requirements and order workflows are not configured for this planning utility\./],
+  ["#orders-exceptions", /Requirements and order workflows are not configured for this planning utility\./],
+  ["#replenishment-allocation", /Requirements and order workflows are not configured for this planning utility\./],
+  ["#requirements-backorders", /Requirements and order workflows are not configured for this planning utility\./],
+  ["#analysis-orders", /Requirements and order workflows are not configured for this planning utility\./],
 ];
 const IMPORT_PAGE_SIZE = 50;
 
@@ -394,7 +398,7 @@ async function sidebarChecks(tag: string) {
   ])`);
   record(`${tag}: the sidebar is exactly the final route set`, JSON.stringify(groups) === JSON.stringify(FINAL_SIDEBAR), JSON.stringify(groups));
   const text = await evaluate<string>(`document.querySelector('aside')?.innerText ?? ''`);
-  record(`${tag}: no retired planning page is offered in the sidebar`, !/Planning Workbench|Approval Queue|Rough Availability|Reservations|Planned Pieces|Planning Cases/.test(text));
+  record(`${tag}: no retired planning page is offered in the sidebar`, !/Planning Workbench|Approval Queue|Rough Availability|Reservations|Planned Pieces|Planning Cases|Requirement Matrix|Priority Queue|Order Exceptions|Replenishment/.test(text));
 }
 
 /** Every old link to a retired planning page shows Not available and asks the server for nothing. */

@@ -6,7 +6,7 @@
  * that rows normalize without inventing business meaning, and that diagnostics carry
  * no source values.
  *
- * Usage: npx tsx scripts/test-fantasy-row-contract.ts
+ * Usage: npm run test:fantasy-contract
  */
 
 import { readdirSync, readFileSync } from "node:fs";

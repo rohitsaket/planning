@@ -363,7 +363,7 @@ describe("analysis availability and the refresh workflow", () => {
     await makeCanonicalLot({ lotId: `${BATCH}-ZERO`, status: "STOCK", docDate: new Date() });
 
     const run = await runDemandCalculation({
-      actor: "pipe-test", actorUserId: null, windowDays: 90, sourcePolicy: "CANONICAL_FANTASY",
+      actor: "pipe-test", windowDays: 90, sourcePolicy: "CANONICAL_FANTASY",
     });
     expect(run.salesCount).toBe(0);
 

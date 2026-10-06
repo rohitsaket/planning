@@ -11,14 +11,20 @@ import { describeScope, scopePredicates, scopeWhere } from "@/lib/auth/access-sc
 // Monthly buckets and preferences are aggregated in PostgreSQL; the transaction
 // list is cut with skip/take and reports a real total.
 export const GET = withApi(
-  { permission: "customers.read", scoped: true },
+  { permission: "customers.read", scoped: true, query: ["page", "pageSize"] },
   async (req: Request, { params }: { params: Promise<{ id: string }> }, { scope }) => {
     const id = idSchema.parse((await params).id);
     const url = new URL(req.url);
     const page = qInt(url, "page", { def: 1, min: 1, max: 1_000_000 });
     const pageSize = qInt(url, "pageSize", { def: 50, min: 1, max: 500 });
 
-    const customer = await db.customer.findUnique({ where: { id } });
+    // A customer outside the caller's countries is answered exactly as one that does not
+    // exist, so the response never confirms the id or discloses the name. A customer has a
+    // country but no lab; the lab half of the scope applies to its records below.
+    const customer = await db.customer.findFirst({
+      where: { id, ...scopeWhere(scope, { country: "country", lab: null }) },
+      select: { name: true, customerCode: true },
+    });
     if (!customer) throw notFound("Customer");
 
     const now = new Date();

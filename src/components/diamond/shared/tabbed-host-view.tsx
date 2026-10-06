@@ -145,7 +145,7 @@ export function TabbedHostView({
   const ActiveComponent = currentTab?.component;
 
   return (
-    <div className="flex flex-col">
+    <div className="flex flex-col flex-1 min-h-0 w-full">
       {/* Sleek Compact Tab Header with Frosted Glass */}
       {/* Stays at the top of <main>, the page scroller, while the tab content scrolls under it. */}
       <div className="sticky top-0 z-30 flex flex-shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-border/70 bg-card/85 px-page-x py-1 backdrop-blur-md">
@@ -249,7 +249,7 @@ export function TabbedHostView({
         id={currentTab ? panelId(currentTab.id) : undefined}
         aria-labelledby={currentTab && visibleTabs.length > 1 ? tabId(currentTab.id) : undefined}
         aria-label={visibleTabs.length > 1 ? undefined : title}
-        className="min-w-0"
+        className="min-w-0 flex-1 flex flex-col"
       >
         {!isTabAuthorized ? (
           <AccessRestricted

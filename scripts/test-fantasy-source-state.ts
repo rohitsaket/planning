@@ -14,7 +14,7 @@
  *
  * All provider data here is synthetic and confined to this file.
  *
- * Usage: npx tsx scripts/with-sectest-db.ts npx tsx scripts/test-fantasy-source-state.ts
+ * Usage: npm run test:fantasy-source
  */
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";

@@ -1,13 +1,41 @@
-// Live HTTP security sweep against a RUNNING instance (never in-process).
-// Usage: SWEEP_BASE=http://127.0.0.1:3100 SWEEP_CREDS=/path/creds.txt bun scripts/runtime-sweep.ts
-// creds file: one "<username> <password>" per line for roles VIEWER, DATA_ANALYST, PLANNER, PLANNING_MANAGER, ADMIN, SUPER_ADMIN.
-import { readFileSync, writeFileSync, mkdirSync, readdirSync } from "node:fs";
+// Manual pre-release API sweep: live HTTP security checks against a RUNNING local production
+// build (never in-process), signed in as the test-fixture roles.
+//
+// Usage: SWEEP_BASE=http://127.0.0.1:3100 SWEEP_CREDS=<path outside the repository> npm run test:runtime-sweep:manual
+//
+// SWEEP_CREDS names a file, kept outside the repository, with one "<username> <password>"
+// line per test role: VIEWER, DATA_ANALYST, PLANNER, PLANNING_MANAGER, ADMIN, SUPER_ADMIN.
+// Those accounts exist only in a test database (the non-Super-Admin roles are the fixture
+// custom roles of tests/security/fixture-roles.ts). The sweep refuses to start without that
+// file, against a non-loopback server, or under a production or staging marker. It never
+// prints a password or username; evidence goes to the system temp directory.
+import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { tmpdir } from "node:os";
-// Roles other than SUPER_ADMIN are test fixture custom roles (tests/security/fixture-roles.ts).
 import { testHasPermission } from "../tests/security/fixture-roles";
+import { deploymentMarker } from "../src/lib/fantasy/database-environment";
+
+const REQUIRED_ROLES = ["VIEWER", "DATA_ANALYST", "PLANNER", "PLANNING_MANAGER", "ADMIN", "SUPER_ADMIN"];
+const LOOPBACK = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
+function refuse(reason: string): never {
+  console.error(`Runtime sweep refused: ${reason}`);
+  process.exit(2);
+}
 
 const BASE = process.env.SWEEP_BASE || "http://127.0.0.1:3100";
+{
+  const marker = deploymentMarker(process.env);
+  if (marker) refuse(`${marker} names a production or staging environment.`);
+  let target: URL;
+  try {
+    target = new URL(BASE);
+  } catch {
+    refuse("SWEEP_BASE is not a URL.");
+  }
+  if (!/^https?:$/.test(target.protocol) || !LOOPBACK.has(target.hostname)) refuse("SWEEP_BASE must be an http(s) server on this machine (loopback).");
+  const credsPath = process.env.SWEEP_CREDS;
+  if (!credsPath || !existsSync(credsPath)) refuse("SWEEP_CREDS must name the test-role credentials file.");
+}
 const scriptDir = import.meta.dirname || (import.meta as any).dir || path.dirname(new URL(import.meta.url).pathname);
 const ROOT = path.resolve(scriptDir, "..");
 // Generated evidence, not source: it goes to the system temp directory, never the repository.
@@ -21,7 +49,8 @@ const check = (name: string, ok: boolean, detail = "") => {
 };
 
 // ---- sessions ----
-const creds = readFileSync(process.env.SWEEP_CREDS!, "utf8").trim().split("\n").map((l) => l.split(" "));
+const creds = readFileSync(process.env.SWEEP_CREDS!, "utf8").split(/\r?\n/).map((l) => l.trim()).filter(Boolean).map((l) => l.split(/\s+/));
+if (creds.length === 0 || creds.some((c) => c.length !== 2)) refuse("the credentials file must hold one \"<username> <password>\" line per test role.");
 const sessions: { username: string; role: string; cookie: string }[] = [];
 for (const [username, password] of creds) {
   const r = await fetch(`${BASE}/api/auth/login`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ username, password }) });
@@ -32,8 +61,10 @@ for (const [username, password] of creds) {
     check("login sets HttpOnly cookie", /HttpOnly/i.test(setCookie), setCookie.replace(/=[^;]+/, "=<redacted>"));
     check("login cookie SameSite=Lax, Path=/", /SameSite=Lax/i.test(setCookie) && /Path=\//.test(setCookie));
   }
-  check(`login ${username}`, r.status === 200, `status ${r.status}`);
+  check(`login as ${role}`, r.status === 200, `status ${r.status}`);
 }
+const missingRoles = REQUIRED_ROLES.filter((role) => !sessions.some((s) => s.role === role));
+if (missingRoles.length) refuse(`no signed-in test account for ${missingRoles.join(", ")}.`);
 
 // ---- route inventory from source ----
 function findRouteFiles(dir: string, base = ""): string[] {
@@ -93,15 +124,16 @@ check(`route sweep: ${entries.length} handlers × (anonymous + ${sessions.length
 
 // ---- targeted runtime checks ----
 const admin = sessions.find((s) => s.role === "ADMIN")!;
-// Any signed-in role that may override a requirement's priority: the live mutation used below.
-const overrider = sessions.find((s) => testHasPermission(s.role, "requirement.override"))!;
+// Any signed-in role that may change Sarin shape mappings: the live write used below. Every
+// mapping it adds is removed again, so the catalog's content is unchanged afterwards.
+const mapper = sessions.find((s) => testHasPermission(s.role, "sarin.mapping.manage"))!;
+const SWEEP_SHAPE = `RUNTIME SWEEP ${Date.now().toString(36).toUpperCase()}`;
+const MAPPINGS = "/api/planning/sarin/shape-mappings";
 const j = (cookie: string, url: string, init: RequestInit = {}) => fetch(BASE + url, { ...init, headers: { cookie, "content-type": "application/json", ...(init.headers ?? {}) } });
 
 let r = await fetch(`${BASE}/api/analysis/customers`, { headers: { cookie: "dp_session=forged", "x-user": "admin", "x-role": "SUPER_ADMIN" } });
 check("forged cookie + X-User/X-Role headers → 401", r.status === 401, `status ${r.status}`);
-const requirement = ((await (await j(overrider.cookie, "/api/requirements?pageSize=1")).json()) as { rows: { id: string }[] }).rows[0];
-const priorityUrl = `/api/requirements/${requirement?.id ?? "zzz-nonexistent"}/priority`;
-r = await j(overrider.cookie, priorityUrl, { method: "POST", body: "{not json" });
+r = await j(mapper.cookie, MAPPINGS, { method: "POST", body: "{not json" });
 check("malformed JSON → 400", r.status === 400, `status ${r.status}`);
 r = await j(admin.cookie, "/api/analysis/sales?windowDays=abc");
 check("windowDays=abc → 400", r.status === 400, `status ${r.status}`);
@@ -111,18 +143,20 @@ r = await j(admin.cookie, "/api/data-quality?pageSize=1");
 const paged = (await r.json()) as { rows: unknown[]; paging: { total: number; hasMore: boolean } };
 check("pageSize=1 → at most 1 row, hasMore matches the total", paged.rows.length <= 1 && paged.paging.hasMore === paged.paging.total > 1);
 
-// forged actor over real HTTP
-if (requirement) {
-  r = await j(overrider.cookie, priorityUrl, { method: "POST", body: JSON.stringify({ priority: "HIGH", reason: "runtime sweep identity check", actor: "ceo", updatedBy: "ceo" }) });
-  const audit = (await (await j(admin.cookie, "/api/admin/audit?action=REQUIREMENT_PRIORITY_OVERRIDE&pageSize=5")).json()) as { rows: { actor: string; action: string; entityId: string }[] };
-  const row = audit.rows.find((a) => a.entityId === requirement.id);
-  check("forged actor 'ceo' over HTTP → audit actor is the session user", r.status === 200 && row?.actor === overrider.username, `status ${r.status}, actor ${row?.actor}`);
-}
-r = await fetch(BASE + priorityUrl, { method: "POST", headers: { cookie: overrider.cookie, "content-type": "application/json", origin: "https://evil.example" }, body: "{}" });
+// forged actor over real HTTP: identity fields in the body are refused, and a real save is
+// attributed to the session user.
+r = await j(mapper.cookie, MAPPINGS, { method: "POST", body: JSON.stringify({ sarinShape: SWEEP_SHAPE, fantasyShape: "Round", applyTo: "ALL_RATIOS", actor: "ceo", changedByUserId: "ceo" }) });
+check("forged identity fields in a write body → 400", r.status === 400, `status ${r.status}`);
+r = await j(mapper.cookie, MAPPINGS, { method: "POST", body: JSON.stringify({ sarinShape: SWEEP_SHAPE, fantasyShape: "Round", applyTo: "ALL_RATIOS" }) });
+const audit = (await (await j(mapper.cookie, "/api/admin/audit?action=SARIN_MAPPING_SAVED&pageSize=5")).json()) as { rows: { actor: string; action: string }[] };
+check("a real write over HTTP → audit actor is the session user", r.status === 200 && audit.rows[0]?.actor === mapper.username, `status ${r.status}, actor ${audit.rows[0]?.actor}`);
+const added = ((await (await j(mapper.cookie, MAPPINGS)).json()) as { mappings: { id: string; sarinShape: string }[] }).mappings.filter((m) => m.sarinShape === SWEEP_SHAPE);
+for (const m of added) await j(mapper.cookie, `${MAPPINGS}/${m.id}`, { method: "DELETE" });
+r = await fetch(BASE + MAPPINGS, { method: "POST", headers: { cookie: mapper.cookie, "content-type": "application/json", origin: "https://evil.example" }, body: "{}" });
 check("cross-origin POST with a valid cookie → 403", r.status === 403, `status ${r.status}`);
 
 // The retired legacy planning APIs are not served, whoever asks.
-for (const url of ["/api/planning/cases", "/api/planning/compare/x", "/api/planning/pieces", "/api/planning/workbench", "/api/planning/reservations", "/api/planning/approvals", "/api/planning/rough", "/api/admin/approval-policy", "/api/fantasy/rough"]) {
+for (const url of ["/api/planning/cases", "/api/planning/compare/x", "/api/planning/pieces", "/api/planning/workbench", "/api/planning/reservations", "/api/planning/approvals", "/api/planning/rough", "/api/admin/approval-policy", "/api/fantasy/rough", "/api/requirements", "/api/requirements/x", "/api/requirements/x/priority", "/api/analysis/orders"]) {
   const [get, post] = [await j(admin.cookie, url), await j(admin.cookie, url, { method: "POST", body: "{}" })];
   check(`retired ${url} → 404`, get.status === 404 && post.status === 404, `GET ${get.status}, POST ${post.status}`);
 }

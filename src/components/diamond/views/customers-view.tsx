@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import {
   Users, MapPin, Award, Activity, Package, Gem, DollarSign,
-  TrendingUp, FileText, FileWarning, Sparkles,
+  TrendingUp, FileWarning, Sparkles,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -35,7 +35,6 @@ interface CustomerRow {
   carats: number;
   totalValue: number;
   avgPerCt: number;
-  openOrders: number;
   memoExposure: number;
   lastPurchase: string | null;
 }
@@ -49,7 +48,6 @@ interface CustomersResponse {
     carats: number;
     totalValue: number;
     memoExposure: number;
-    openOrders: number;
   };
   sort: string;
   page: number;
@@ -216,8 +214,8 @@ function CustomerDetailDialog({
             </div>
           </div>
 
-          {/* 2. KPI grid (6 cards) */}
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
+          {/* 2. KPI grid (5 cards) */}
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2">
             <KpiCard
               label="Total Pieces"
               value={customer.pieces}
@@ -249,13 +247,6 @@ function CustomerDetailDialog({
               icon={TrendingUp}
               intent="info"
               hint="Average price per carat"
-            />
-            <KpiCard
-              label="Open Orders"
-              value={customer.openOrders}
-              intent={customer.openOrders > 0 ? "warning" : "default"}
-              icon={FileText}
-              hint="Open and partly filled orders"
             />
             <KpiCard
               label="Memo Exposure"
@@ -387,6 +378,7 @@ function CustomerDetailDialog({
 
 export function CustomersView() {
   const [selected, setSelected] = useState<CustomerRow | null>(null);
+  const [pageSize, setPageSize] = useState(50);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   // Filtering, ranking and paging all happen on the server; this page holds one page
@@ -399,7 +391,7 @@ export function CustomersView() {
     if (globalFilter.lab) params.set("lab", globalFilter.lab);
     if (search.trim()) params.set("q", search.trim());
     params.set("page", String(page));
-    params.set("pageSize", "50");
+    params.set("pageSize", String(pageSize));
     return `/api/analysis/customers?${params.toString()}`;
   }, [globalFilter.country, globalFilter.branch, globalFilter.lab, search, page]);
   const { data, isLoading } = useApi<CustomersResponse>(url);
@@ -440,8 +432,6 @@ export function CustomersView() {
       cell: (r) => <Money value={r.totalValue} /> },
     { key: "avgPerCt", header: "Avg $/ct", sortable: true, sortValue: (r) => r.avgPerCt, align: "right", width: "90px",
       cell: (r) => <Money value={r.avgPerCt} /> },
-    { key: "openOrders", header: "Open Orders", sortable: true, sortValue: (r) => r.openOrders, align: "right", width: "90px",
-      cell: (r) => <NumberCell value={r.openOrders} intent={r.openOrders > 0 ? "info" : undefined} /> },
     { key: "memoExposure", header: "Memo Exposure", sortable: true, sortValue: (r) => r.memoExposure, align: "right", width: "110px",
       cell: (r) => <Money value={r.memoExposure} /> },
     { key: "lastPurchase", header: "Last Purchase", align: "center", sortable: true, sortValue: (r) => r.lastPurchase ?? "", width: "110px",
@@ -495,7 +485,7 @@ export function CustomersView() {
     <div data-page-body className="flex flex-col gap-section px-page-x py-page-y">
       <PageHeader
         title="Customer 360"
-        subtitle="Sales, memo exposure, open orders & priority classification over the trailing 365 days"
+        subtitle="Sales, memo exposure & priority classification over the trailing 365 days"
         meta={
           <div className="flex items-center gap-2 flex-wrap">
             {globalFilter.hasActiveFilters() && (
@@ -557,7 +547,6 @@ export function CustomersView() {
           loading={isLoading}
           emptyMessage="No customer data available."
           onRowClick={(r) => setSelected(r)}
-          rowClassName={(r) => r.openOrders > 0 ? "bg-sky-50/40 dark:bg-sky-950/20" : ""}
           initialSortKey="totalValue"
           initialSortDir="desc"
           exportable
@@ -581,6 +570,7 @@ export function CustomersView() {
           total={data?.total ?? 0}
           hasMore={data?.hasMore ?? false}
           onPageChange={setPage}
+          onPageSizeChange={(s) => { setPageSize(s); setPage(1); }}
           loading={isLoading}
           label="customers"
         />

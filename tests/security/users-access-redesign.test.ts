@@ -111,11 +111,11 @@ describe("users and access: role permissions are chosen by a Super Admin", () =>
   test("5. a Super Admin chooses permissions; the save reports and audits exactly what changed", async () => {
     const role = await customRole("EDIT", ["config.read", "analysis.read"]);
     const holder = await userWithRole("uar.holder.edit", role.code);
-    const res = await post(rolesPost, root.cookie, { op: "updateRole", id: role.id, version: role.version, permissions: ["analysis.read", "requirement.read", "audit.read"] });
+    const res = await post(rolesPost, root.cookie, { op: "updateRole", id: role.id, version: role.version, permissions: ["analysis.read", "data_quality.read", "audit.read"] });
     expect(res.status).toBe(200);
-    expect([res.json.changed, [...res.json.added].sort(), res.json.removed, res.json.affectedUsers, res.json.role.version]).toEqual([true, ["audit.read", "requirement.read"], ["config.read"], 1, role.version + 1]);
+    expect([res.json.changed, [...res.json.added].sort(), res.json.removed, res.json.affectedUsers, res.json.role.version]).toEqual([true, ["audit.read", "data_quality.read"], ["config.read"], 1, role.version + 1]);
     const rows = await db.rolePermission.findMany({ where: { roleId: role.id }, select: { permissionCode: true } });
-    expect(rows.map((r) => r.permissionCode).sort()).toEqual(["analysis.read", "audit.read", "requirement.read"]);
+    expect(rows.map((r) => r.permissionCode).sort()).toEqual(["analysis.read", "audit.read", "data_quality.read"]);
     const [audit] = await auditRows(role.id, "ROLE_PERMISSIONS_CHANGED");
     const after = JSON.parse(audit.after!);
     expect([audit.actorUserId, JSON.parse(audit.before!).permissions, after.affectedUsers, after.version, after.removed]).toEqual([root.user.id, ["analysis.read", "config.read"], 1, role.version + 1, ["config.read"]]);
@@ -443,17 +443,17 @@ describe("users and access: the page", () => {
   test("33. the permission editor shows plain-language labels grouped by area, never codes", () => {
     const html = renderToStaticMarkup(
       createElement(PermissionEditor, {
-        areas: ["Requirements", "Workbook Import"],
-        catalog: PERMISSION_CATALOG.filter((p) => p.area === "Requirements" || p.area === "Workbook Import"),
-        selected: new Set(["requirement.read", "requirement.override"]),
-        baseline: new Set(["requirement.read"]),
+        areas: ["Mappings", "Workbook Import"],
+        catalog: PERMISSION_CATALOG.filter((p) => p.area === "Mappings" || p.area === "Workbook Import"),
+        selected: new Set(["sarin.mapping.read", "sarin.mapping.manage"]),
+        baseline: new Set(["sarin.mapping.read"]),
         onChange: () => {},
         readOnly: false,
       }),
     );
     const text = html.replace(/<[^>]+>/g, " ");
-    for (const label of ["Override requirement priority", "View requirements", "Export Sarin output", "Select safe read-only", "Clear group", "Added"]) expect([label, text.includes(label)]).toEqual([label, true]);
-    expect(/requirement\.override|sarin\.output\.export|requirement\.read/.test(text)).toBe(false);
+    for (const label of ["Manage Sarin shape mappings", "View Sarin shape mappings", "Export Sarin output", "Select safe read-only", "Clear group", "Added"]) expect([label, text.includes(label)]).toEqual([label, true]);
+    expect(/sarin\.mapping\.manage|sarin\.output\.export|sarin\.mapping\.read/.test(text)).toBe(false);
   });
 
   test("34. the access inspector explains each permission by the role that grants it", () => {

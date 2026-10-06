@@ -153,11 +153,12 @@ function WindowCount({ value }: { value: number | null }) {
  * only what it does not carry: the exact filters that produced these totals.
  */
 function TableFooter({
-  meta, filters, onPage, loading, label,
+  meta, filters, onPage, onPageSizeChange, loading, label,
 }: {
   meta: PageMeta | undefined;
   filters: ActiveFilter[] | undefined;
   onPage: (page: number) => void;
+  onPageSizeChange?: (pageSize: number) => void;
   loading: boolean;
   label: string;
 }) {
@@ -170,6 +171,7 @@ function TableFooter({
         total={meta.total}
         hasMore={meta.hasMore}
         onPageChange={onPage}
+        onPageSizeChange={onPageSizeChange}
         loading={loading}
         label={label}
       />
@@ -229,9 +231,13 @@ export function ExecutiveAnalysisView() {
 
   const [activeTab, setActiveTab] = useState<ExecutiveTab>("sales-demand");
   const [salesPage, setSalesPage] = useState(1);
+  const [salesPageSize, setSalesPageSize] = useState(PAGE_SIZE);
   const [inventoryPage, setInventoryPage] = useState(1);
+  const [inventoryPageSize, setInventoryPageSize] = useState(PAGE_SIZE);
   const [gapPage, setGapPage] = useState(1);
+  const [gapPageSize, setGapPageSize] = useState(PAGE_SIZE);
   const [attentionPage, setAttentionPage] = useState(1);
+  const [attentionPageSize, setAttentionPageSize] = useState(PAGE_SIZE);
   const [gapMode, setGapMode] = useState<"ALL" | "SHORTAGE_ONLY" | "EXCESS_ONLY">("ALL");
   const [search, setSearch] = useState("");
   const [appliedSearch, setAppliedSearch] = useState("");
@@ -254,16 +260,16 @@ export function ExecutiveAnalysisView() {
 
   const readiness = useApi<ReadinessResponse>(qs({ section: "readiness" }));
   const salesDemand = useApi<SalesDemandResponse>(
-    qs({ section: "sales-demand", page: salesPage, pageSize: PAGE_SIZE, sort: "sales" }),
+    qs({ section: "sales-demand", page: salesPage, pageSize: salesPageSize, sort: "sales" }),
   );
   const inventory = useApi<InventoryResponse>(
-    qs({ section: "inventory", page: inventoryPage, pageSize: PAGE_SIZE }),
+    qs({ section: "inventory", page: inventoryPage, pageSize: inventoryPageSize }),
   );
   const gaps = useApi<ShortageExcessResponse>(
-    qs({ section: "shortage-excess", page: gapPage, pageSize: PAGE_SIZE, mode: gapMode, sort: "shortage" }),
+    qs({ section: "shortage-excess", page: gapPage, pageSize: gapPageSize, mode: gapMode, sort: "shortage" }),
   );
   const attention = useApi<AttentionResponse>(
-    qs({ section: "attention", page: attentionPage, pageSize: PAGE_SIZE }),
+    qs({ section: "attention", page: attentionPage, pageSize: attentionPageSize }),
   );
 
   const applySearch = () => {
@@ -487,6 +493,7 @@ export function ExecutiveAnalysisView() {
                 meta={salesDemand.data?.meta}
                 filters={salesDemand.data?.activeFilters}
                 onPage={setSalesPage}
+                onPageSizeChange={(s) => { setSalesPageSize(s); setSalesPage(1); }}
                 loading={salesDemand.isLoading}
                 label="rows"
               />
@@ -521,6 +528,7 @@ export function ExecutiveAnalysisView() {
                 meta={inventory.data?.meta}
                 filters={inventory.data?.activeFilters}
                 onPage={setInventoryPage}
+                onPageSizeChange={(s) => { setInventoryPageSize(s); setInventoryPage(1); }}
                 loading={inventory.isLoading}
                 label="rows"
               />
@@ -589,6 +597,7 @@ export function ExecutiveAnalysisView() {
                 meta={gaps.data?.meta}
                 filters={gaps.data?.activeFilters}
                 onPage={setGapPage}
+                onPageSizeChange={(s) => { setGapPageSize(s); setGapPage(1); }}
                 loading={gaps.isLoading}
                 label="rows"
               />
@@ -614,6 +623,7 @@ export function ExecutiveAnalysisView() {
             meta={attention.data?.meta}
             filters={attention.data?.activeFilters}
             onPage={setAttentionPage}
+            onPageSizeChange={(s) => { setAttentionPageSize(s); setAttentionPage(1); }}
             loading={attention.isLoading}
             label="rows"
           />

@@ -7,12 +7,14 @@ import { useNavStore } from "@/stores/nav-store";
 /**
  * Where a link to a retired page lands — manufacturing execution, traceability, plan versus
  * actual, forecasting and predictive models, reports, stock strategy, reorder or transfer
- * analysis, the legacy planning workbench and approvals, and rough stock. This says so
+ * analysis, the legacy planning workbench and approvals, rough stock, and requirements and
+ * orders. This says so
  * plainly instead of showing old or demonstration records or silently sending the reader
  * elsewhere. It shows no data and requests none.
  */
 const REASONS: Record<string, string> = {
   "rough-stock": "No authoritative rough-stock source is configured.",
+  requirements: "Requirements and order workflows are not configured for this planning utility.",
 };
 const DEFAULT_REASON =
   "This page is outside the current planning utility. Manufacturing execution, production tracking, plan-versus-actual " +

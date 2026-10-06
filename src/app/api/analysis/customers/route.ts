@@ -3,8 +3,10 @@ import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
 import { withApi, qStr, qEnum, qInt } from "@/lib/api/with-api";
 import { describeScope, scopePredicates } from "@/lib/auth/access-scope";
+import { memoPredicates, readMemoFilters } from "@/lib/analysis/memo";
 
-// Customer 360 list — sales, memo exposure and open orders per customer.
+// Customer 360 list — sales and memo exposure per customer. There is no order figure: the
+// only stored orders are seeded records, not a source anyone can act on.
 //
 // Aggregation and ordering happen in PostgreSQL and the page is cut with
 // LIMIT/OFFSET, so the browser never receives the whole customer book. Filters are
@@ -32,18 +34,16 @@ interface CustomerAggregateRow {
   pieces: number;
   carats: number;
   total_value: number;
-  open_orders: number;
   memo_exposure: number;
   last_purchase: Date | null;
 }
 
 export const GET = withApi(
-  { permission: "customers.read", scoped: true },
+  { permission: "customers.read", scoped: true, query: ["country", "branch", "lab", "q", "sort", "page", "pageSize"] },
   async (req: Request, _ctx, { scope }) => {
   const url = new URL(req.url);
-  const country = qStr(url, "country");
-  const branch = qStr(url, "branch");
-  const lab = qStr(url, "lab");
+  const locationFilters = readMemoFilters(url, scope);
+  const { country, branch, lab } = locationFilters;
   const search = qStr(url, "q", 100);
   const sort: Sort = qEnum(url, "sort", SORTS, "value");
   const page = qInt(url, "page", { def: 1, min: 1, max: 1_000_000 });
@@ -76,33 +76,19 @@ export const GET = withApi(
   if (lab) salesFilters.push(Prisma.sql`s."labNormalized" = ${lab}`);
   const salesWhere = Prisma.join(salesFilters, " AND ");
 
-  const memoFilters: Prisma.Sql[] = [
-    Prisma.sql`m.status = 'OPEN'`,
-    ...scopePredicates(scope, { country: 'm."country"', lab: 'm."labNormalized"' }),
-  ];
-  if (country) memoFilters.push(Prisma.sql`m.country = ${country}`);
-  if (branch) memoFilters.push(Prisma.sql`m.branch = ${branch}`);
-  const memoWhere = Prisma.join(memoFilters, " AND ");
-
-  const orderFilters: Prisma.Sql[] = [
-    Prisma.sql`o.status IN ('OPEN', 'PARTIAL')`,
-    ...scopePredicates(scope, { country: 'o."country"', lab: null }),
-  ];
-  if (country) orderFilters.push(Prisma.sql`o.country = ${country}`);
-  if (branch) orderFilters.push(Prisma.sql`o.branch = ${branch}`);
-  const orderWhere = Prisma.join(orderFilters, " AND ");
+  // Open memo exposure through the same filter as Memo Analysis, so both pages agree.
+  const memoWhere = Prisma.join(memoPredicates({ ...locationFilters, status: "OPEN" }, "m"), " AND ");
 
   const [countRows, summaryRows, rows] = await Promise.all([
     db.$queryRaw<Array<{ total: number }>>(Prisma.sql`
       SELECT COUNT(*)::int AS total FROM "Customer" c ${customerWhere}
     `),
     // Totals across every matching customer, not only the visible page.
-    db.$queryRaw<Array<{ pieces: number; carats: number; total_value: number; memo_exposure: number; open_orders: number }>>(Prisma.sql`
+    db.$queryRaw<Array<{ pieces: number; carats: number; total_value: number; memo_exposure: number }>>(Prisma.sql`
       SELECT COALESCE(SUM(sales.pieces), 0)::int AS pieces,
              COALESCE(SUM(sales.carats), 0)::float8 AS carats,
              COALESCE(SUM(sales.total_value), 0)::float8 AS total_value,
-             COALESCE(SUM(memo.memo_exposure), 0)::float8 AS memo_exposure,
-             COALESCE(SUM(orders.open_orders), 0)::int AS open_orders
+             COALESCE(SUM(memo.memo_exposure), 0)::float8 AS memo_exposure
       FROM "Customer" c
       LEFT JOIN LATERAL (
         SELECT COUNT(*) AS pieces, SUM(s.weight) AS carats, SUM(s."saleTotalUsd") AS total_value
@@ -112,10 +98,6 @@ export const GET = withApi(
         SELECT SUM(m."memoValueUsd") AS memo_exposure
         FROM "MemoRecord" m WHERE m."customerId" = c.id AND ${memoWhere}
       ) memo ON TRUE
-      LEFT JOIN LATERAL (
-        SELECT COUNT(*) AS open_orders
-        FROM "SalesOrder" o WHERE o."customerId" = c.id AND ${orderWhere}
-      ) orders ON TRUE
       ${customerWhere}
     `),
     db.$queryRaw<CustomerAggregateRow[]>(Prisma.sql`
@@ -130,7 +112,6 @@ export const GET = withApi(
              COALESCE(sales.pieces, 0)::int AS pieces,
              COALESCE(sales.carats, 0)::float8 AS carats,
              COALESCE(sales.total_value, 0)::float8 AS total_value,
-             COALESCE(orders.open_orders, 0)::int AS open_orders,
              COALESCE(memo.memo_exposure, 0)::float8 AS memo_exposure,
              sales.last_purchase AS last_purchase
       FROM "Customer" c
@@ -147,11 +128,6 @@ export const GET = withApi(
         FROM "MemoRecord" m
         WHERE m."customerId" = c.id AND ${memoWhere}
       ) memo ON TRUE
-      LEFT JOIN LATERAL (
-        SELECT COUNT(*) AS open_orders
-        FROM "SalesOrder" o
-        WHERE o."customerId" = c.id AND ${orderWhere}
-      ) orders ON TRUE
       ${customerWhere}
       ORDER BY ${ORDER_BY[sort]}
       LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}
@@ -159,7 +135,7 @@ export const GET = withApi(
   ]);
 
   const total = countRows[0]?.total ?? 0;
-  const totals = summaryRows[0] ?? { pieces: 0, carats: 0, total_value: 0, memo_exposure: 0, open_orders: 0 };
+  const totals = summaryRows[0] ?? { pieces: 0, carats: 0, total_value: 0, memo_exposure: 0 };
 
   return ok({
     summary: {
@@ -168,7 +144,6 @@ export const GET = withApi(
       carats: num(totals.carats),
       totalValue: num(totals.total_value),
       memoExposure: num(totals.memo_exposure),
-      openOrders: totals.open_orders,
     },
     rows: rows.map((r) => ({
       id: r.id,
@@ -183,7 +158,6 @@ export const GET = withApi(
       carats: num(r.carats),
       totalValue: num(r.total_value),
       avgPerCt: r.carats > 0 ? num(r.total_value / r.carats) : 0,
-      openOrders: r.open_orders,
       memoExposure: num(r.memo_exposure),
       lastPurchase: r.last_purchase ? new Date(r.last_purchase).toISOString() : null,
     })),

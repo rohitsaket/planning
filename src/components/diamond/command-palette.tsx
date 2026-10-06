@@ -16,7 +16,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import {
-  LayoutDashboard, BarChart3, TrendingUp, Users, FileText, Package, Boxes, AlertTriangle, Search, Activity, FileWarning, Workflow, CalendarClock, Hash, RefreshCw, ClipboardList, CornerDownLeft, HardDrive, Shapes,
+  LayoutDashboard, BarChart3, TrendingUp, Users, FileText, Package, Boxes, AlertTriangle, Search, Activity, FileWarning, CalendarClock, RefreshCw, ClipboardList, CornerDownLeft, HardDrive, Shapes,
 } from "lucide-react";
 import { ReactNode } from "react";
 
@@ -66,11 +66,6 @@ export const PALETTE_ITEMS: PaletteItem[] = [
   { id: "fantasy-data", tab: "integration", label: "Fantasy Data → Integration Status", group: "Data", icon: <RefreshCw className="h-4 w-4" />, keywords: ["sync", "synchronization", "integration", "freshness", "retry"] },
   { id: "fantasy-data", tab: "history", label: "Fantasy Data → Historical Data", group: "Data", icon: <HardDrive className="h-4 w-4" />, keywords: ["historical", "archive", "lots", "overall data"] },
   { id: "data-quality-issues", label: "Import Issues", group: "Data", icon: <FileWarning className="h-4 w-4" />, keywords: ["import issues", "invalid records", "unmapped", "reconciliation", "rejected records", "data quality"] },
-  // Requirements
-  { id: "requirements-matrix", label: "Requirement Matrix", group: "Requirements", icon: <Hash className="h-4 w-4" />, keywords: ["requirement", "matrix", "demand", "target"] },
-  { id: "requirements-priority-queue", label: "Priority Queue", group: "Requirements", icon: <AlertTriangle className="h-4 w-4" />, keywords: ["priority", "critical", "urgent"] },
-  { id: "orders-exceptions", label: "Order Exceptions", group: "Requirements", icon: <FileText className="h-4 w-4" />, keywords: ["customer orders", "backorders", "special requirements", "exceptions"] },
-  { id: "replenishment-allocation", label: "Replenishment & Allocation", group: "Requirements", icon: <Workflow className="h-4 w-4" />, keywords: ["replenishment", "allocation", "reserve"] },
   // Planning
   { id: "planning-workbook-import", label: "Workbook Import", group: "Planning", icon: <FileText className="h-4 w-4" />, keywords: ["workbook", "import", "sarin", "csv", "output", "export"] },
   // Administration

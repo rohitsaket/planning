@@ -97,7 +97,7 @@ export const GET = withApi(
       return ok({ section, sort, activeFilters, accessScope, sourceDisclosure, ...result });
     }
     case "reconciliation": {
-      const result = await reconcileWithMirrors();
+      const result = await reconcileWithMirrors(scope);
       return ok({ section, activeFilters, accessScope, sourceDisclosure, ...result });
     }
     default: {

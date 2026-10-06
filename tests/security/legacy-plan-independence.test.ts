@@ -1,104 +1,94 @@
-// Legacy plans do not change demand. The retired planning seed wrote fabricated plan coverage
-// into requirement rows (a lower stored remaining need and a plan-derived status) and created
-// approved plan cases, options and pieces. None of it may reduce a requirement's need, reorder
-// the Priority Queue, feed a dashboard figure or appear as planned coverage. Every check goes
-// through the real route handler in the isolated planning_sectest database.
+// Legacy records change no current figure. The retired planning seed wrote fabricated plan
+// coverage into requirement rows and created approved plan cases, options and pieces, and the
+// retired Requirements section showed seeded requirements and orders. Those rows are kept as
+// history, but no dashboard figure is derived from them, nothing reports them as planned
+// coverage, and the dashboard reads no requirement, allocation or order table. Every dashboard
+// check goes through the real route handler in the isolated planning_sectest database.
 
 import { readFileSync } from "node:fs";
 import { beforeAll, describe, expect, test } from "./harness";
 import { call, db, makeCase, makeUser, resetDb } from "./helpers";
 import { resetRateLimits } from "@/lib/api/rate-limit";
-import { GET as listRequirements } from "@/app/api/requirements/route";
-import { GET as requirementDetail } from "@/app/api/requirements/[id]/route";
 import { GET as dashboard } from "@/app/api/dashboard/route";
-import { PLAN_COVERAGE } from "@/lib/demand/plan-coverage";
 
 type User = Awaited<ReturnType<typeof makeUser>>;
 let root: User;
-let seededId = "";
-let plainId = "";
-
-// Factual quantities: 10 required, 2 available, 1 in eligible WIP, so 7 are still needed.
-const FACTS = { requiredQty: 10, planningAvailableQty: 2, wipCoverage: 1 };
-const base = { type: "STOCK_REPLENISHMENT", groupCode: "G", companyCode: "C", country: "IN", branch: "SRT", labNormalized: "GIA", shape: "ROUND", requirementPriority: "CRITICAL" };
+let indiaOnly: User;
+const STAMP = Date.now().toString(36).toUpperCase();
 
 beforeAll(async () => {
   await resetDb();
-  await db.requirement.deleteMany({});
   root = await makeUser("legacy.root", "SUPER_ADMIN");
-  // A requirement as the legacy seed left it: coverage from an "approved plan" hides the need.
-  seededId = (await db.requirement.create({
-    data: { ...base, ...FACTS, requirementCode: "REQ-LEGACY-SEEDED", status: "FULLY_PLANNED", approvedPlanCoverage: 7, remainingUnplanned: 0 },
-  })).id;
-  // The same facts without the fabricated coverage.
-  plainId = (await db.requirement.create({ data: { ...base, ...FACTS, requirementCode: "REQ-LEGACY-PLAIN", status: "ACTIVE", remainingUnplanned: 7 } })).id;
-  // An approved, selected legacy plan case with pieces, as the seed created.
+  indiaOnly = await makeUser("legacy.india", "ANALYSIS_MANAGER");
+  await db.userAccessScope.deleteMany({ where: { userId: indiaOnly.user.id } });
+  await db.userAccessScope.create({ data: { userId: indiaOnly.user.id, dimension: "COUNTRY", value: "IN", reason: "test fixture" } });
+
+  // Historical rows as the legacy seed left them: a requirement whose fabricated plan
+  // coverage hid its need, an open customer order with a backorder, and an approved plan.
+  await db.requirement.create({
+    data: { requirementCode: `REQ-LEGACY-${STAMP}`, type: "STOCK_REPLENISHMENT", groupCode: "G", companyCode: "C", country: "IN", branch: "SRT", labNormalized: "GIA", shape: "ROUND", requirementPriority: "CRITICAL", requiredQty: 10, planningAvailableQty: 2, wipCoverage: 1, status: "FULLY_PLANNED", approvedPlanCoverage: 7, daysOverdue: 5 },
+  });
+  const customer = await db.customer.create({ data: { customerCode: `CUST-LEGACY-${STAMP}`, name: "Legacy Customer", country: "IN", branch: "SRT" } });
+  const order = await db.salesOrder.create({ data: { orderNumber: `SO-LEGACY-${STAMP}`, customerId: customer.id, country: "IN", branch: "SRT", status: "OPEN", orderDate: new Date() } });
+  await db.salesOrderLine.create({ data: { orderId: order.id, lineNo: 1, shape: "ROUND", qtyOrdered: 4, qtyOutstanding: 4, backorderQty: 4 } });
   const c = await makeCase({ status: "APPROVED" });
   await db.planOption.update({ where: { id: c.optionIds[0] }, data: { selected: true, approvalStatus: "APPROVED", certificationIntent: "GIA" } });
-  await db.planOptionPiece.create({ data: { pieceCode: `PC-LEGACY-${Date.now()}`, planOptionId: c.optionIds[0], sequence: 1, expectedShape: "ROUND", expectedWeight: 1.05, certificationIntent: "GIA" } });
+
+  // Polished stock in and out of the scoped user's country.
+  await db.polishedStone.createMany({
+    data: [
+      ...[0, 1].map((i) => ({ fantasyLotId: `LEG-IN-${STAMP}-${i}`, fantasyStatus: "STOCK", shape: "ROUND", weight: 1.05, country: "IN", branch: "SRT", labNormalized: "GIA" })),
+      ...[0, 1, 2].map((i) => ({ fantasyLotId: `LEG-HK-${STAMP}-${i}`, fantasyStatus: "STOCK", shape: "ROUND", weight: 1.05, country: "HK", branch: "HKG", labNormalized: "GIA" })),
+    ],
+  });
 });
 
-const get = async (handler: Parameters<typeof call>[0], path: string, params?: Record<string, string>) => {
+const get = async (u: User, path: string) => {
   resetRateLimits();
-  return call(handler, { cookie: root.cookie, path, params });
+  return call(dashboard, { cookie: u.cookie, path });
 };
 
-describe("requirements: remaining need comes from facts only", () => {
-  test("stored legacy plan coverage does not reduce a requirement's remaining need", async () => {
-    const res = await get(listRequirements, "/api/requirements?pageSize=50");
+describe("dashboard: no seeded planning, requirement or order figures", () => {
+  test("no plan-coverage, rough, planning-case, requirement, priority or order figure is reported", async () => {
+    const res = await get(root, "/api/dashboard");
     expect(res.status).toBe(200);
-    const rows = res.json.data as Array<{ id: string; status: string; remainingUnplanned: number; approvedPlanCoverage?: unknown }>;
-    const seeded = rows.find((r) => r.id === seededId)!;
-    const plain = rows.find((r) => r.id === plainId)!;
-    expect([seeded.remainingUnplanned, plain.remainingUnplanned]).toEqual([7, 7]);
-    expect([seeded.status, "approvedPlanCoverage" in seeded]).toEqual(["ACTIVE", false]);
-    expect(res.json.planCoverage).toEqual(PLAN_COVERAGE);
+    for (const key of [
+      "approvedPlanCoverage", "remainingUnplanned", "roughAvailable", "roughReserved", "approvedPlanPieces", "planningCases", "pendingApprovals",
+      "criticalRequirements", "highRequirements", "overdueRequirements", "openOrders", "backorders",
+    ]) {
+      expect([key, key in res.json]).toEqual([key, false]);
+    }
+    expect(Object.keys(res.json).sort()).toEqual(["demandRunDate", "demandRunId", "fantasySyncHealth", "forecastRequirement", "memoExposure", "physicalShortage", "pipelineAdjusted", "polishedStock"]);
   });
 
-  test("the detail view reports planned coverage as unavailable, never as a number", async () => {
-    const res = await get(requirementDetail, `/api/requirements/${seededId}`, { id: seededId });
-    expect(res.status).toBe(200);
-    expect([res.json.remainingUnplanned, res.json.planCoverage.status, res.json.fourNumbers.planningAdjusted]).toEqual([7, "UNAVAILABLE", null]);
-    expect(JSON.stringify(res.json)).not.toMatch(/approvedPlanCoverage|allocations/);
-  });
-
-  test("plan-derived statuses cannot be filtered on; ACTIVE includes the rows that held them", async () => {
-    for (const status of ["FULLY_PLANNED", "PARTIALLY_COVERED"]) expect([status, (await get(listRequirements, `/api/requirements?status=${status}`)).status]).toEqual([status, 400]);
-    const active = (await get(listRequirements, "/api/requirements?status=ACTIVE")).json.data as Array<{ id: string }>;
-    expect([active.some((r) => r.id === seededId), active.some((r) => r.id === plainId)]).toEqual([true, true]);
-  });
-
-  test("the Priority Queue's source lists both requirements with the same need", async () => {
-    const critical = (await get(listRequirements, "/api/requirements?pageSize=500&priority=CRITICAL")).json.data as Array<{ id: string; remainingUnplanned: number }>;
-    const need = critical.filter((r) => r.remainingUnplanned > 0).map((r) => [r.id, r.remainingUnplanned]);
-    expect(need.sort()).toEqual([[plainId, 7], [seededId, 7]].sort());
+  test("the dashboard route reads no requirement, allocation or order table (static)", () => {
+    const code = readFileSync("src/app/api/dashboard/route.ts", "utf8").replace(/^\s*\/\/.*$/gm, "");
+    expect(/\b(requirement|requirementAllocation|salesOrder|salesOrderLine)\s*\.|"(Requirement|SalesOrder|SalesOrderLine|RequirementAllocation)"/.test(code)).toBe(false);
   });
 });
 
-describe("dashboard: no seeded planning figures", () => {
-  test("no plan-coverage, rough or planning-case figure is reported", async () => {
-    const res = await get(dashboard, "/api/dashboard");
-    expect(res.status).toBe(200);
-    for (const key of ["approvedPlanCoverage", "remainingUnplanned", "roughAvailable", "roughReserved", "approvedPlanPieces", "planningCases", "pendingApprovals"]) {
-      expect([key, key in res.json]).toEqual([key, false]);
-    }
-  });
-
-  test("critical requirements count the need the legacy coverage hid", async () => {
-    const res = await get(dashboard, "/api/dashboard");
-    expect(res.json.criticalRequirements).toBe(2);
+describe("dashboard: figures are narrowed to the caller's access scope", () => {
+  test("a user restricted to one country counts only that country's polished stock, and a filter cannot widen it", async () => {
+    const all = await get(root, "/api/dashboard");
+    const scoped = await get(indiaOnly, "/api/dashboard");
+    expect([all.status, scoped.status]).toEqual([200, 200]);
+    expect(all.json.polishedStock).toBe(await db.polishedStone.count());
+    expect(scoped.json.polishedStock).toBe(await db.polishedStone.count({ where: { country: "IN" } }));
+    expect(scoped.json.polishedStock < all.json.polishedStock).toBe(true);
+    // Asking for another country's figure through the filter is refused, not answered.
+    const widened = await get(indiaOnly, "/api/dashboard?country=HK");
+    expect([widened.status, "polishedStock" in (widened.json ?? {})]).toEqual([403, false]);
+    expect((await get(root, "/api/dashboard?country=HK")).json.polishedStock).toBe(await db.polishedStone.count({ where: { country: "HK" } }));
   });
 });
 
 describe("the demand path does not read the legacy plan hierarchy (static)", () => {
-  test("demand, requirement and dashboard sources never query cases, options, pieces, reservations or rough stock", () => {
+  test("demand and dashboard sources never query cases, options, pieces, reservations or rough stock", () => {
     const files = [
       "src/lib/demand/demand-service.ts",
       "src/lib/demand/wip-classification.ts",
       "src/app/api/analysis/demand-trace/route.ts",
       "src/app/api/demand/history/route.ts",
-      "src/app/api/requirements/route.ts",
-      "src/app/api/requirements/[id]/route.ts",
       "src/app/api/dashboard/route.ts",
     ];
     for (const file of files) {

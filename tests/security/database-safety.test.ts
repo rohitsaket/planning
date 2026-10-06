@@ -63,25 +63,30 @@ describe("database commands: destructive ones are named and guarded; the others 
   const scripts = JSON.parse(readFileSync("package.json", "utf8")).scripts as Record<string, string>;
 
   test("no ambiguous seed, reset or push command remains", () => {
-    for (const name of ["db:seed", "db:reset", "db:push", "test:seed"]) expect([name, name in scripts]).toEqual([name, false]);
+    for (const name of ["db:seed", "db:reset", "db:push", "test:seed", "db:migrate", "fixture:analysis-review"]) expect([name, name in scripts]).toEqual([name, false]);
     expect(Object.keys(scripts).filter((k) => k.startsWith("db:")).sort()).toEqual(
-      ["db:generate", "db:migrate", "db:migrate:deploy", "db:reference:sync", "db:setup:dev", "db:test:prisma-reset:destructive", "db:test:push:accept-data-loss", "db:test:reset"].sort(),
+      ["db:generate", "db:migrate:deploy", "db:reference:sync", "db:setup:dev", "db:test:fixture:analysis-review", "db:test:migrate:create", "db:test:prisma-reset:destructive", "db:test:push:accept-data-loss", "db:test:reset"].sort(),
     );
   });
 
   test("every command that resets, pushes with data loss or recreates a database proves the target first", () => {
     for (const [name, command] of Object.entries(scripts)) {
-      if (/migrate reset|db push|accept-data-loss/.test(command)) {
-        expect([name, name.startsWith("db:test:"), /with-sectest-db\.ts npx tsx scripts\/db-guard\.ts \S+ -- npx prisma (migrate reset|db push)/.test(command)]).toEqual([name, true, true]);
+      if (/migrate reset|db push|accept-data-loss|migrate dev/.test(command)) expect([name, name.startsWith("db:test:")]).toEqual([name, true]);
+      // Every Prisma migration or push step runs through the guard on the isolated test
+      // database — except the plain deployment command, which never resets.
+      if (name === "db:migrate:deploy") continue;
+      for (const step of command.split("&&").filter((s) => /(prisma|--) (migrate|db push)/.test(s))) {
+        expect([name, step.trim(), /^tsx --env-file-if-exists=\.env scripts\/with-sectest-db\.ts scripts\/db-guard\.ts \S+ -- (migrate|db push)/.test(step.trim())]).toEqual([name, step.trim(), true]);
       }
     }
+    expect(scripts["db:migrate:deploy"]).toBe("prisma migrate deploy");
     for (const file of ["scripts/test-demo-fixture.ts", "scripts/sectest-db.ts", "scripts/db-guard.ts"]) {
       const source = readFileSync(file, "utf8");
       const guardAt = source.search(/assertDisposableDatabase\(|proveDisposableDatabase\(/);
-      const connectAt = source.search(/new PrismaClient\(|spawnSync\(/);
+      const connectAt = source.search(/new PrismaClient\(|spawnSync\(|runPrisma\(|launch\(/);
       expect([file, guardAt > 0 && (connectAt < 0 || guardAt < connectAt)]).toEqual([file, true]);
     }
-    expect(scripts["db:test:reset"]).toMatch(/^npx tsx --env-file-if-exists=\.env scripts\/sectest-db\.ts --recreate && .*test-demo-fixture\.ts$/);
+    expect(scripts["db:test:reset"]).toMatch(/^tsx --env-file-if-exists=\.env scripts\/sectest-db\.ts --recreate && .*test-demo-fixture\.ts$/);
   });
 
   test("development setup and reference sync contain no delete, truncate, drop, reset or overwrite", () => {
@@ -89,9 +94,10 @@ describe("database commands: destructive ones are named and guarded; the others 
       const source = readFileSync(file, "utf8").replace(/^\s*(\/\/|\*).*$/gm, "");
       expect([file, /\.(delete|deleteMany|update|updateMany|upsert)\(|TRUNCATE|DROP |migrate reset|db push|executeRaw/i.test(source)]).toEqual([file, false]);
     }
-    expect(scripts["db:setup:dev"]).toBe("npx tsx --env-file-if-exists=.env scripts/db-setup-dev.ts");
-    // Setup applies committed migrations and nothing that resets.
-    expect(/"prisma", "migrate", "deploy"/.test(readFileSync("scripts/db-setup-dev.ts", "utf8"))).toBe(true);
+    expect(scripts["db:setup:dev"]).toBe("tsx --env-file-if-exists=.env scripts/db-setup-dev.ts");
+    // Setup applies committed migrations and nothing that resets, through the shell-free Prisma CLI.
+    const setup = readFileSync("scripts/db-setup-dev.ts", "utf8");
+    expect([/runPrisma\(\["migrate", "deploy"\]/.test(setup), /shell:|npx/.test(setup)]).toEqual([true, false]);
   });
 });
 

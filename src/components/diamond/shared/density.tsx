@@ -50,7 +50,7 @@ export const useInSection = () => useContext(SectionContext).inSection;
 
 /**
  * One compact filter toolbar: the page's selectors and search on a single wrapping row, with
- * reset or saved-view actions at the end. Replaces a titled "Filters" card.
+ * reset actions at the end. Replaces a titled "Filters" card.
  */
 export function FilterBar({ children, actions, className }: { children?: ReactNode; actions?: ReactNode; className?: string }) {
   return (

@@ -29,10 +29,6 @@ const EXACT: Record<string, string | readonly string[]> = {
   "analysis-inventory-position": "analysis.read", // Inventory, including Stockout, Excess and Aging
   "fantasy-data": ["fantasy.read", "overall.read"],
   "data-quality-issues": "data_quality.read",
-  "requirements-matrix": "requirement.read",
-  "requirements-priority-queue": "requirement.read",
-  "orders-exceptions": "orders.read",
-  "replenishment-allocation": "requirement.read",
   // Sarin file processing. Every action (upload, validate, generate, export) keeps its own
   // permission, enforced per control and per route.
   "planning-workbook-import": "sarin.import.read",
@@ -45,16 +41,9 @@ const EXACT: Record<string, string | readonly string[]> = {
 
   // Direct views opened from dashboard tiles and page links.
   "analysis-customers": "customers.read",
-  "analysis-orders": "orders.read",
   "analysis-country": "analysis.read",
   "analysis-polished": "analysis.read",
   "analysis-memo": "sales.read",
-  "requirements-orders": "orders.read",
-  "requirements-allocation": "requirement.read",
-  "requirements-backorders": "requirement.read",
-  "requirements-forecast-signals": "requirement.read",
-  "requirements-replenishment": "requirement.read",
-  "requirements-special": "requirement.read",
 };
 
 /**
@@ -107,14 +96,9 @@ export const PERMISSION_LABELS: Record<string, string> = {
   "customers.read": "Customer Information Access",
   "customers.export": "Customer Data Export",
   "orders.read": "Customer Orders Access",
-  "orders.export": "Customer Orders Export",
-  "requirement.read": "Manufacturing Requirements Access",
-  "requirement.export": "Requirements Export",
   "fantasy.export": "Fantasy ERP Data Export",
   "config.export": "Master Configuration Export",
   "audit.export": "Audit Trail Export",
-  "requirement.create": "Requirement Creation",
-  "requirement.override": "Priority Override Authority",
   "demand.run": "Demand Calculation Execution",
   "fantasy.read": "Fantasy ERP & Manufacturing Data Access",
   "overall.read": "Overall Historical Data Access",

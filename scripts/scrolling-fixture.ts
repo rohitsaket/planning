@@ -113,17 +113,6 @@ export async function seedScrollingFixture(): Promise<{ sessionToken: string }> 
   await db.dataQualityIssue.createMany({ data: issues, skipDuplicates: true });
 
 
-  // Requirements for the matrix, queues, exceptions and replenishment tabs.
-  const types = ["STOCK_REPLENISHMENT", "CUSTOMER_ORDER", "BACKORDER", "SPECIAL_REQUIREMENT"];
-  await db.requirement.createMany({
-    data: types.flatMap((type, t) => Array.from({ length: 80 }, (_, i) => ({
-      requirementCode: `REQ-SCROLL-${t}-${i}`, type, groupCode: "G1", companyCode: "C1", country: "IN", branch: "SRT", requiredQty: 1 + (i % 5),
-      requirementPriority: ["CRITICAL", "HIGH", "NORMAL"][i % 3],
-      customerName: type === "STOCK_REPLENISHMENT" ? null : `Customer ${i % 17}`, orderNumber: type === "STOCK_REPLENISHMENT" ? null : `SO-${t}-${i}`,
-    }))),
-    skipDuplicates: true,
-  });
-
   // Audit history and mapping tables long enough to scroll.
   await db.auditLog.createMany({
     data: Array.from({ length: 250 }, (_, i) => ({ actor: "scroll.root", action: "SCROLL_FIXTURE", entity: "Role", entityId: `scroll-${i}`, reason: `Fixture entry ${i}` })),

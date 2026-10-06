@@ -17,9 +17,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Diamond Planning Utility — Analysis · Requirement · Planning",
-  description: "Enterprise diamond manufacturing analysis, sales intelligence, requirement engine, rough planning and data science platform.",
-  keywords: ["diamond", "manufacturing", "ERP", "planning", "requirement", "yield"],
+  title: "Diamond Planning Utility — Analysis · Planning",
+  description: "Diamond inventory and sales analysis with Sarin planning.",
+  keywords: ["diamond", "manufacturing", "ERP", "planning", "yield"],
   authors: [{ name: "Fantasy Diamond Holdings" }],
   icons: {
     icon: [

@@ -1,6 +1,6 @@
 "use client";
 
-import { BarChart3, ClipboardList, GitBranch, Layers } from "lucide-react";
+import { BarChart3, Layers } from "lucide-react";
 import { erpBrand, brandCopyright, type ErpBrand } from "@/lib/branding";
 import { DiamondMark } from "@/components/brand/diamond-mark";
 import { DailyMotivation, type DailyMotivationProps } from "./daily-motivation";
@@ -9,9 +9,7 @@ import { DailyMotivation, type DailyMotivationProps } from "./daily-motivation";
 // authentication.
 const MODULE_ICONS: Record<string, typeof BarChart3> = {
   Analysis: BarChart3,
-  Requirements: ClipboardList,
   Planning: Layers,
-  Traceability: GitBranch,
 };
 
 function ModuleIndicators({ modules }: { modules: readonly string[] }) {

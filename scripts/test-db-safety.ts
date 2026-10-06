@@ -17,9 +17,9 @@
 //      database; Prisma's own consent gate for AI-initiated resets is left in force.
 //
 // Runs only against planning_sectest: npm run test:db-safety
-import { spawnSync } from "node:child_process";
 import { PrismaClient } from "@prisma/client";
 import { assertDisposableDatabase } from "../src/lib/fantasy/database-environment";
+import { launch, tsxInvocation } from "./process-launch";
 
 assertDisposableDatabase(process.env.DATABASE_URL, "Database safety test");
 const SECTEST_URL = process.env.DATABASE_URL!;
@@ -33,11 +33,19 @@ function check(ok: boolean, message: string, detail = "") {
   if (!ok) failures++;
 }
 
-function run(command: string, args: string[], env: Record<string, string | undefined> = {}) {
-  const merged: Record<string, string | undefined> = { ...process.env, ...env };
-  for (const [k, v] of Object.entries(env)) if (v === undefined) delete merged[k];
-  const r = spawnSync(command, args, { encoding: "utf8", shell: process.platform === "win32", env: merged as NodeJS.ProcessEnv, timeout: 10 * 60_000 });
-  return { status: r.status, output: `${r.stdout ?? ""}\n${r.stderr ?? ""}` };
+/** Output of every command launched, so a shell-argument warning anywhere is caught. */
+let shellWarnings = 0;
+/** Runs `[script, ...args]` with the project's tsx, without a shell, in the given environment. */
+function run(command: readonly string[], env: Record<string, string | undefined> = {}) {
+  const merged: NodeJS.ProcessEnv = { ...process.env };
+  for (const [k, v] of Object.entries(env)) {
+    if (v === undefined) delete merged[k];
+    else merged[k] = v;
+  }
+  const r = launch(tsxInvocation(command[0], command.slice(1), { env: merged, stdio: "pipe", encoding: "utf8", timeout: 10 * 60_000 }));
+  const output = `${r.stdout}\n${r.stderr}`;
+  if (/DEP0190/.test(output)) shellWarnings++;
+  return { status: r.status, output };
 }
 
 /** Row count of every table in the test database, `_prisma_migrations` included. */
@@ -53,29 +61,29 @@ const diff = (a: Record<string, number>, b: Record<string, number>) =>
 
 /** What a fixture load produced, without generated ids or clock-relative timestamps. */
 async function fixtureSnapshot() {
-  const [requirements, notifications, audit, polished, sales, customers] = await Promise.all([
-    db.requirement.findMany({ select: { requirementCode: true, type: true, status: true, requiredQty: true, planningAvailableQty: true, wipCoverage: true }, orderBy: { requirementCode: "asc" } }),
+  const [metrics, notifications, audit, polished, sales, customers] = await Promise.all([
+    db.demandMetric.findMany({ select: { planningCategory: true, roundedTarget: true, physicalShortage: true, pipelineNeed: true }, orderBy: { planningCategory: "asc" } }),
     db.notification.findMany({ select: { type: true, title: true, severity: true }, orderBy: [{ type: "asc" }, { title: "asc" }] }),
     db.auditLog.findMany({ select: { action: true, entity: true }, orderBy: [{ action: "asc" }, { entity: "asc" }] }),
     db.polishedStone.count(),
     db.salesRecord.count(),
     db.customer.findMany({ select: { name: true }, orderBy: { name: "asc" } }),
   ]);
-  return JSON.stringify({ requirements, notifications, audit, polished, sales, customers });
+  return JSON.stringify({ metrics, notifications, audit, polished, sales, customers });
 }
 
-const FIXTURE = ["tsx", "scripts/test-demo-fixture.ts"];
+const FIXTURE = ["scripts/test-demo-fixture.ts"];
 // `namesOwnTarget`: the command derives the database it drops from the server URL (always
 // planning_sectest), so the name in DATABASE_URL is not what it would touch.
 const DESTRUCTIVE: Array<[string, string[], { namesOwnTarget?: boolean }]> = [
   ["test demo fixture", FIXTURE, {}],
-  ["guarded Prisma reset", ["tsx", "scripts/db-guard.ts", "prisma-migrate-reset", "--", "npx", "prisma", "migrate", "reset", "--force", "--skip-seed"], {}],
-  ["guarded Prisma push with data loss", ["tsx", "scripts/db-guard.ts", "prisma-db-push", "--", "npx", "prisma", "db", "push", "--accept-data-loss", "--skip-generate"], {}],
-  ["test database recreation", ["tsx", "scripts/sectest-db.ts", "--recreate"], { namesOwnTarget: true }],
-  ["Analysis Review fixture load", ["tsx", "scripts/load-analysis-review-fixture.ts", "--profile=ANALYSIS_REVIEW_V1", "--business-date=2026-09-24", "--confirm-local"], {}],
+  ["guarded Prisma reset", ["scripts/db-guard.ts", "prisma-migrate-reset", "--", "migrate", "reset", "--force", "--skip-seed"], {}],
+  ["guarded Prisma push with data loss", ["scripts/db-guard.ts", "prisma-db-push", "--", "db", "push", "--accept-data-loss", "--skip-generate"], {}],
+  ["test database recreation", ["scripts/sectest-db.ts", "--recreate"], { namesOwnTarget: true }],
+  ["Analysis Review fixture load", ["scripts/load-analysis-review-fixture.ts", "--profile=ANALYSIS_REVIEW_V1", "--business-date=2026-09-24", "--confirm-local"], {}],
 ];
-const SETUP = ["tsx", "scripts/db-setup-dev.ts"];
-const REFERENCE = ["tsx", "scripts/db-reference-sync.ts"];
+const SETUP = ["scripts/db-setup-dev.ts"];
+const REFERENCE = ["scripts/db-reference-sync.ts"];
 
 // Unsafe URLs point at a closed local port or an unresolvable host: nothing is listening.
 type Target = { label: string; url: string | undefined; env?: Record<string, string>; refusal: string; setupRefuses: boolean };
@@ -98,13 +106,13 @@ function refusedBeforeConnecting(label: string, r: { status: number | null; outp
 
 async function main() {
   console.log("=== 1. Test demo fixture: loads deterministically, with no legacy planning or rough records");
-  let r = run("npx", FIXTURE);
+  let r = run(FIXTURE);
   check(r.status === 0, "the fixture loads on the isolated test database", r.output.slice(-400));
   const first = await fixtureSnapshot();
-  const legacy = await Promise.all([db.planningCase.count(), db.planVersion.count(), db.planOption.count(), db.planOptionPiece.count(), db.roughReservation.count(), db.roughStone.count(), db.requirementAllocation.count(), db.notification.count({ where: { type: { in: ["PLAN_APPROVAL_PENDING", "REPLAN_REQUIRED"] } } })]);
-  check(legacy.every((n) => n === 0), "no cases, versions, options, pieces, reservations, rough stones, allocations or plan notifications", legacy.join(","));
-  check(JSON.parse(first).requirements.length > 0 && JSON.parse(first).audit.length > 0, "the fixture creates its demo requirements and audit entries");
-  r = run("npx", FIXTURE);
+  const legacy = await Promise.all([db.planningCase.count(), db.planVersion.count(), db.planOption.count(), db.planOptionPiece.count(), db.roughReservation.count(), db.roughStone.count(), db.requirementAllocation.count(), db.requirement.count(), db.salesOrder.count(), db.salesOrderLine.count(), db.notification.count({ where: { type: { in: ["PLAN_APPROVAL_PENDING", "REPLAN_REQUIRED", "CRITICAL_REQUIREMENT"] } } })]);
+  check(legacy.every((n) => n === 0), "no cases, versions, options, pieces, reservations, rough stones, allocations, requirements, orders, order lines or plan/requirement notifications", legacy.join(","));
+  check(JSON.parse(first).metrics.length > 0 && JSON.parse(first).audit.length > 0, "the fixture creates its demo demand categories and audit entries");
+  r = run(FIXTURE);
   check(r.status === 0 && (await fixtureSnapshot()) === first, "a second load produces the same records");
 
   console.log("\n=== 2. Destructive commands refuse unsafe targets before connecting");
@@ -112,14 +120,14 @@ async function main() {
   for (const [name, args, opts] of DESTRUCTIVE) {
     for (const t of TARGETS.filter((x) => !(opts.namesOwnTarget && x.refusal === "DATABASE_NAME_NOT_DISPOSABLE"))) {
       const env = { DATABASE_URL: t.url, SECTEST_BASE_URL: t.url, ...(t.env ?? {}) };
-      refusedBeforeConnecting(`${name}: ${t.label} → ${t.refusal}`, run("npx", args, env), t.refusal);
+      refusedBeforeConnecting(`${name}: ${t.label} → ${t.refusal}`, run(args, env), t.refusal);
     }
   }
   for (const t of TARGETS.filter((x) => x.setupRefuses)) {
     const env = { DATABASE_URL: t.url, SECTEST_BASE_URL: t.url, ...(t.env ?? {}) };
-    refusedBeforeConnecting(`development setup: ${t.label} → ${t.refusal}`, run("npx", SETUP, env), t.refusal);
+    refusedBeforeConnecting(`development setup: ${t.label} → ${t.refusal}`, run(SETUP, env), t.refusal);
   }
-  r = run("npx", REFERENCE, { DATABASE_URL: "" });
+  r = run(REFERENCE, { DATABASE_URL: "" });
   check(r.status !== 0 && /refused \(URL_MISSING\)/.test(r.output), "reference sync: missing URL is refused");
   const after = await tableCounts();
   check(diff(before, after).length === 0, `every one of ${Object.keys(before).length} tables keeps exactly its rows after every refusal`, diff(before, after).join("; "));
@@ -130,8 +138,8 @@ async function main() {
   await db.shapeMapping.delete({ where: { rawShape: "ROUND" } });
   const beforeSetup = await tableCounts();
   const referenceTables = ["WeightBand", "LabMapping", "ShapeMapping", "AuditLog"];
-  r = run("npx", SETUP);
-  check(r.status === 0, "development setup completes on a loopback database", r.output.slice(-400));
+  r = run(SETUP);
+  check(r.status === 0 && !/DEP0190/.test(r.output), "development setup completes on a loopback database, with no shell-argument warning", r.output.slice(-400));
   const afterSetup = await tableCounts();
   const changed = diff(beforeSetup, afterSetup);
   check(changed.every((c) => referenceTables.some((t) => c.startsWith(`${t}:`))), "setup changes no table but the reference tables and the audit log", changed.join("; "));
@@ -140,12 +148,12 @@ async function main() {
   check((await db.labMapping.findUniqueOrThrow({ where: { rawLab: "GIA-Premium" } })).normalizedLab === edited.normalizedLab, "an edited mapping is not overwritten");
   check((await db.shapeMapping.count({ where: { rawShape: "ROUND" } })) === 1, "a missing confirmed mapping is added back");
   const beforeSync = await tableCounts();
-  r = run("npx", REFERENCE);
+  r = run(REFERENCE);
   check(r.status === 0 && diff(beforeSync, await tableCounts()).length === 0, "reference sync run again adds nothing and writes no audit", r.output.slice(-300));
 
   console.log("\n=== 4. An approved isolated test database resets; setup on it creates no demo data");
   const beforeWrapper = await tableCounts();
-  r = run("npx", DESTRUCTIVE[1][1]);
+  r = run(DESTRUCTIVE[1][1]);
   check(/prisma-migrate-reset: isolated test database planning_sectest/.test(r.output), "the guarded Prisma reset admits planning_sectest and hands over to Prisma", r.output.slice(-300));
   if (/PRISMA_USER_CONSENT_FOR_DANGEROUS_AI_ACTION/.test(r.output)) {
     // Prisma refuses resets it detects as AI-initiated unless a person's consent is supplied.
@@ -155,20 +163,22 @@ async function main() {
   await db.$disconnect();
   // As the npm scripts run it: the administrative connection uses the server URL, and the
   // database dropped is always planning_sectest, proven before that connection opens.
-  r = run("npx", ["tsx", "scripts/sectest-db.ts", "--recreate"], { DATABASE_URL: process.env.SECTEST_BASE_URL });
+  r = run(["scripts/sectest-db.ts", "--recreate"], { DATABASE_URL: process.env.SECTEST_BASE_URL });
   check(r.status === 0 && /ready: planning_sectest/.test(r.output), "the guarded recreation drops and recreates planning_sectest", r.output.slice(-300));
-  r = run("npx", ["tsx", "scripts/db-guard.ts", "test-migrations", "--", "npx", "prisma", "migrate", "deploy"]);
+  r = run(["scripts/db-guard.ts", "test-migrations", "--", "migrate", "deploy"]);
   check(r.status === 0, "the guarded migration run applies every migration to the recreated database", r.output.slice(-300));
   const emptied = await tableCounts();
   check(emptied.Requirement === 0 && emptied.Customer === 0 && emptied.PolishedStone === 0 && emptied._prisma_migrations > 0, "the reset left a migrated database without the fixture's records");
-  r = run("npx", SETUP);
+  r = run(SETUP);
   const afterEmptySetup = await tableCounts();
   const created = diff(emptied, afterEmptySetup);
-  check(r.status === 0 && created.every((c) => referenceTables.some((t) => c.startsWith(`${t}:`))), "setup on an empty database creates only confirmed reference rows and their audit", created.join("; "));
+  check(r.status === 0 && !/DEP0190/.test(r.output) && created.every((c) => referenceTables.some((t) => c.startsWith(`${t}:`))), "setup on an empty database creates only confirmed reference rows and their audit", created.join("; "));
   const demo = ["Customer", "SalesRecord", "PolishedStone", "RoughStone", "Requirement", "SalesOrder", "MemoRecord", "DemandRun", "Notification", "IntegrationSyncRun", "DataQualityIssue", "PlanningCase", "LotMasterRecord"];
   check(demo.every((t) => afterEmptySetup[t] === 0), "no demo customers, stones, requirements, orders, demand, notifications, sync runs or plans", demo.filter((t) => afterEmptySetup[t] !== 0).join(", "));
   const addedAudit = afterEmptySetup.AuditLog - emptied.AuditLog;
   check(addedAudit === 3 && (await db.auditLog.count({ where: { action: "REFERENCE_DATA_INSERTED" } })) === addedAudit, "setup writes no audit entry but the three records of reference data it added", `added ${addedAudit}`);
+
+  check(shellWarnings === 0, "no launched command printed a DEP0190 shell-argument warning", `${shellWarnings} command(s) did`);
 
   console.log(`\nDB SAFETY: ${checks - failures} passed, ${failures} failed`);
   process.exit(failures ? 1 : 0);

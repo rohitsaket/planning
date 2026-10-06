@@ -11,10 +11,6 @@ export type ViewId =
   | "analysis-inventory-position"
   | "fantasy-data"
   | "data-quality-issues"
-  | "requirements-matrix"
-  | "requirements-priority-queue"
-  | "orders-exceptions"
-  | "replenishment-allocation"
   | "planning-workbook-import"
   // Where links to retired pages land (manufacturing, traceability, plan versus actual,
   // forecasting, reports, stock strategy, the legacy planning workbench and approvals, rough
@@ -25,16 +21,9 @@ export type ViewId =
   | "admin-audit-log"
   // Direct views still opened from dashboard and page links
   | "analysis-customers"
-  | "analysis-orders"
   | "analysis-country"
   | "analysis-polished"
   | "analysis-memo"
-  | "requirements-orders"
-  | "requirements-replenishment"
-  | "requirements-backorders"
-  | "requirements-special"
-  | "requirements-forecast-signals"
-  | "requirements-allocation"
   // Former ids, kept only as keys of LEGACY_VIEW_ALIASES so old links keep working
   | LegacyViewId;
 
@@ -79,6 +68,17 @@ type LegacyViewId =
   | "planning-workbench"
   | "planning-approval-queue"
   | "planning-rough-availability"
+  | "requirements-matrix"
+  | "requirements-priority-queue"
+  | "orders-exceptions"
+  | "replenishment-allocation"
+  | "requirements-orders"
+  | "requirements-replenishment"
+  | "requirements-backorders"
+  | "requirements-special"
+  | "requirements-forecast-signals"
+  | "requirements-allocation"
+  | "analysis-orders"
   | "reports"
   | "admin-system-settings"
   | "admin-feature-flags"
@@ -120,6 +120,8 @@ interface ViewAlias extends ViewTarget {
 const OUT_OF_SCOPE: ViewTarget = { view: "out-of-scope", tab: null };
 /** Not available because no authoritative rough-stock source is configured (the tab names the reason). */
 const ROUGH_NOT_CONFIGURED: ViewTarget = { view: "out-of-scope", tab: "rough-stock" };
+/** Not available because requirement and order workflows are outside the planning utility. */
+const REQUIREMENTS_NOT_CONFIGURED: ViewTarget = { view: "out-of-scope", tab: "requirements" };
 
 export const LEGACY_VIEW_ALIASES: Record<LegacyViewId, ViewAlias> = {
   // Dashboard → Overview
@@ -187,6 +189,19 @@ export const LEGACY_VIEW_ALIASES: Record<LegacyViewId, ViewAlias> = {
   "planning-approval-queue": OUT_OF_SCOPE,
   // Hidden until an authoritative rough-stock source exists; the only rough records were seeded.
   "planning-rough-availability": ROUGH_NOT_CONFIGURED,
+  // The Requirements section and its order views ran on seeded requirement and order records
+  // with no authoritative source; requirement and order workflows are out of scope.
+  "requirements-matrix": REQUIREMENTS_NOT_CONFIGURED,
+  "requirements-priority-queue": REQUIREMENTS_NOT_CONFIGURED,
+  "orders-exceptions": REQUIREMENTS_NOT_CONFIGURED,
+  "replenishment-allocation": REQUIREMENTS_NOT_CONFIGURED,
+  "requirements-orders": REQUIREMENTS_NOT_CONFIGURED,
+  "requirements-replenishment": REQUIREMENTS_NOT_CONFIGURED,
+  "requirements-backorders": REQUIREMENTS_NOT_CONFIGURED,
+  "requirements-special": REQUIREMENTS_NOT_CONFIGURED,
+  "requirements-forecast-signals": REQUIREMENTS_NOT_CONFIGURED,
+  "requirements-allocation": REQUIREMENTS_NOT_CONFIGURED,
+  "analysis-orders": REQUIREMENTS_NOT_CONFIGURED,
   // Mappings
   "admin-rules-mappings": { view: "admin-mappings", tab: null },
   "admin-business-rules": { view: "admin-mappings", tab: null },

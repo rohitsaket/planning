@@ -2,10 +2,10 @@
 // TEST DEMO FIXTURE — fabricated demonstration records, for isolated test databases only.
 // Creates weight bands, lab/shape mappings, groups/companies/countries, branches,
 // Fantasy departments/locations/status mappings, customers, sales records, polished
-// stones, requirements, orders, memos, a demand run, business rules, audit entries,
-// data-quality issues, sync runs and notifications. None of it is real: it exists so
-// suites have deterministic data. No rough stones, planning cases, options, pieces,
-// reservations or plan notifications.
+// stones, memos, a demand run, business rules, audit entries, data-quality issues, sync
+// runs and notifications. None of it is real: it exists so suites have deterministic data.
+// No rough stones, planning cases, options, pieces, reservations, requirements, customer
+// orders or plan and requirement notifications.
 //
 // It clears everything it fills, together with canonical Fantasy records, in one
 // transaction. So it proves the target is an isolated test database (loopback host,
@@ -417,159 +417,6 @@ async function main() {
   }
 
   // =========================================================================
-  // REQUIREMENTS — derived from sales records grouping (90-day invoice counts)
-  // =========================================================================
-  console.log("Seeding requirements across categories...");
-  const catAgg = new Map<string, { count: number; customers: Set<string>; countries: Set<string> }>();
-  for (const r of salesRecords) {
-    const agg = catAgg.get(r.category) ?? { count: 0, customers: new Set(), countries: new Set() };
-    agg.count += 1;
-    agg.customers.add(r.customerId);
-    agg.countries.add(r.country);
-    catAgg.set(r.category, agg);
-  }
-  let reqCounter = 1;
-  for (const [cat, agg] of catAgg.entries()) {
-    const [lab, shape, bandLabel] = cat.split("|");
-    const band = await prisma.weightBand.findFirst({ where: { label: bandLabel } });
-    const sales90d = agg.count;
-    const monthlyAvg = sales90d / 3;
-    const unroundedTarget = monthlyAvg * 2;
-    const roundedTarget = Math.floor(unroundedTarget + 0.5 + 1e-9);
-    const available = await prisma.polishedStone.count({
-      where: { labNormalized: lab, shape, weightBand: { label: bandLabel }, planningClass: { in: ["PHYSICAL", "PLANNING_AVAILABLE"] } },
-    });
-    const physicalShortage = Math.max(0, roundedTarget - available);
-    const excess = Math.max(0, available - roundedTarget);
-    const wipCoverage = randInt(0, Math.floor(physicalShortage * 0.4));
-    const pipeline = Math.max(0, physicalShortage - wipCoverage);
-    // No plan coverage: there is no selected-plan source, so the remaining need is the pipeline need.
-    const remaining = pipeline;
-    const forecast = Math.round(sales90d * 0.15);
-    const reqType = pick(["STOCK_REPLENISHMENT", "CUSTOMER_ORDER", "BACKORDER", "SPECIAL_REQUIREMENT", "MANUAL_APPROVED"]);
-    const custPriority = pick(["Strategic", "Key", "Standard", "New", "Internal"]);
-    const daysOverdue = rand() < 0.25 ? randInt(1, 30) : 0;
-    
-    let reqPriority: string;
-    const reasons: string[] = [];
-    if (physicalShortage >= 8 || (physicalShortage >= 4 && daysOverdue > 0)) {
-      reqPriority = "CRITICAL";
-      reasons.push(`Physical shortage ${physicalShortage} pcs`);
-      if (daysOverdue > 0) reasons.push(`${daysOverdue}d overdue`);
-    } else if (physicalShortage >= 4 || (physicalShortage >= 2 && (daysOverdue > 0 || custPriority === "Strategic"))) {
-      reqPriority = "HIGH";
-      reasons.push(`Physical shortage ${physicalShortage} pcs`);
-      if (custPriority === "Strategic") reasons.push("Strategic customer");
-    } else if (physicalShortage >= 1) {
-      reqPriority = "NORMAL";
-      reasons.push(`Physical shortage ${physicalShortage} pcs`);
-    } else {
-      reqPriority = "LOW";
-      reasons.push("No physical shortage (FULFILLED)");
-    }
-    if (reqType === "BACKORDER") reasons.push("Backorder demand");
-    if (reqType === "SPECIAL_REQUIREMENT") reasons.push("Special requirement");
-    const orderPriority = daysOverdue > 14 ? "CRITICAL" : daysOverdue > 0 ? "HIGH" : physicalShortage >= 4 ? "NORMAL" : "LOW";
-    const country = pick(Array.from(agg.countries));
-    const branch = pick(BRANCHES_BY_COUNTRY[country] || ["Main"]);
-    const customerName = "Multiple";
-    await prisma.requirement.create({
-      data: {
-        requirementCode: `REQ-${String(reqCounter++).padStart(5, "0")}`,
-        type: reqType,
-        status: physicalShortage === 0 ? "FULFILLED" : "ACTIVE",
-        customerName,
-        groupCode: "GRP-01",
-        companyCode: country === "HK" ? "FHK" : country === "CA" ? "FCA" : country === "IN" ? "FIN" : "FNY",
-        country,
-        branch,
-        labNormalized: lab,
-        shape,
-        weightBandId: band?.id,
-        requiredQty: roundedTarget,
-        physicalStockQty: available,
-        planningAvailableQty: available,
-        memoQty: 0,
-        transferCoverage: 0,
-        wipCoverage,
-        remainingUnplanned: remaining,
-        forecastQty: forecast,
-        requiredBy: dayOffset(randInt(-30, 60)),
-        ageDays: randInt(0, 120),
-        daysRemaining: randInt(0, 60),
-        daysOverdue,
-        customerPriority: custPriority,
-        orderPriority,
-        requirementPriority: reqPriority,
-        priorityReason: reasons.join("; "),
-        calculationRunId: "SEED-RUN-001",
-        businessRuleVersion: "DEMAND-V1",
-        sourceRecords: JSON.stringify({ sales90d, monthlyAvg, unroundedTarget, roundedTarget, available, physicalShortage, excess }),
-        createdBy: "system-seed",
-        updatedBy: "system-seed",
-      },
-    });
-  }
-
-  // =========================================================================
-  // SALES ORDERS & ORDER LINES (Hundreds of detailed line items)
-  // =========================================================================
-  console.log("Seeding hundreds of sales orders and order lines...");
-  for (let i = 0; i < 160; i++) {
-    const custId = pick(customerIds);
-    const cust = await prisma.customer.findUnique({ where: { id: custId } });
-    if (!cust) continue;
-    const lineCount = randInt(1, 5);
-    const orderDate = dayOffset(randInt(0, 90));
-    const requiredDate = dayOffset(randInt(-15, 60));
-    const priority = requiredDate.getTime() < Date.now() ? "CRITICAL" : pick(["HIGH", "HIGH", "NORMAL", "NORMAL", "LOW", "WATCH"]);
-    
-    const so = await prisma.salesOrder.create({
-      data: {
-        orderNumber: `SO-${String(2000 + i).padStart(5, "0")}`,
-        customerId: custId,
-        orderDate,
-        requiredDate,
-        promisedDate: dayOffset(randInt(5, 65)),
-        branch: cust.branch,
-        country: cust.country,
-        status: pick(["OPEN", "OPEN", "PARTIAL", "PARTIAL", "COMPLETED"]),
-        priority,
-        priorityReason: priority === "CRITICAL" ? "Required delivery deadline past due" :
-                        priority === "HIGH" ? "Strategic key account milestone requirement" :
-                        "Standard order schedule lead time",
-        notes: pick(["Customer program stock", "Memo conversion expected", "Repeat replenishment", "New product intro line", "Urgent exhibition consignment"]),
-      },
-    });
-
-    for (let l = 0; l < lineCount; l++) {
-      const shape = pick(SHAPES);
-      const weight = randDec(1.0, 4.0, 2);
-      const band = classifyWeightBand(weight);
-      const qty = randInt(1, 10);
-      const allocated = randInt(0, qty);
-      await prisma.salesOrderLine.create({
-        data: {
-          orderId: so.id,
-          lineNo: l + 1,
-          lab: pick(["GIA", "GIA", "Non-Cert", "Other"]),
-          shape,
-          weight,
-          weightBandId: band ? (await prisma.weightBand.findUnique({ where: { code: band.code } }))?.id : null,
-          color: pick(COLORS),
-          clarity: pick(CLARITIES),
-          qtyOrdered: qty,
-          qtyAllocated: allocated,
-          qtyDelivered: randInt(0, allocated),
-          qtyOutstanding: qty - allocated,
-          backorderQty: rand() < 0.2 ? randInt(1, 3) : 0,
-          specialRequirement: rand() < 0.2 ? "Custom laser inscription + match pair cert" : null,
-        },
-      });
-    }
-  }
-
-  // =========================================================================
   // MEMO RECORDS (Hundreds of memo lots with full age distribution)
   // =========================================================================
   console.log("Seeding hundreds of memo records...");
@@ -840,7 +687,6 @@ async function main() {
   }
 
   const notifs = [
-    { type: "CRITICAL_REQUIREMENT", title: "Critical requirement detected", message: "GIA Round 1.70-1.99 shortage 12 pcs", severity: "CRITICAL" },
     { type: "FANTASY_SYNC_FAILURE", title: "Fantasy sync failed", message: "Rough sync failed — 2 connection errors", severity: "ERROR" },
     { type: "STOCKOUT_PREDICTED", title: "Stockout predicted", message: "GIA Oval 2.00-2.09 projected to stockout in 18 days", severity: "WARNING" },
     { type: "EXCESS_STOCK_ALERT", title: "Excess stock identified", message: "Non-Cert Princess 1.00-1.09 exceeds 90-day target by 18 pcs", severity: "INFO" },

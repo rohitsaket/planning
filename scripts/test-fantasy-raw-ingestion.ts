@@ -12,7 +12,7 @@
  * leaves nothing behind; dry run writes nothing; diagnostics carry no source values;
  * and no canonical operational table is touched.
  *
- * Usage: npx tsx scripts/with-sectest-db.ts npx tsx scripts/test-fantasy-raw-ingestion.ts
+ * Usage: npm run test:fantasy-raw
  */
 
 import { readdirSync, readFileSync } from "node:fs";
@@ -23,8 +23,8 @@ import { proveDisposableDatabase } from "../src/lib/fantasy/database-environment
 import type { RawIngestionProvenance } from "../src/lib/fantasy/raw-ingestion";
 
 /**
- * Provenance for every batch these tests ingest. Ingestion now requires it, so a batch
- * stored without it could never be projected.
+ * Provenance for every batch these tests ingest. Ingestion requires it: a batch stored
+ * without it could never be traced to the source state that produced it.
  */
 const FIXTURE_PROVENANCE: RawIngestionProvenance = {
   effectiveSourceState: "FIXTURE_SIMULATION",
@@ -849,22 +849,17 @@ async function main() {
   const apiImporters = apiFiles.filter((f) => /raw-ingestion|raw-encoding|fantasyRawBatch|fantasyRawRow/.test(readFileSync(f, "utf8")));
   assert(apiImporters.length === 0, `No API route exposes raw ingestion${apiImporters.length ? `: ${apiImporters.join(", ")}` : ""}`);
 
-  // Exactly two modules may touch the raw models: the service that writes them, and the
-  // projection service that reads them. Anything else reaching these tables would be a
-  // second, unreviewed path to raw source payloads.
-  const RAW_MODEL_ALLOWLIST = [/raw-ingestion\.ts$/, /projection\.ts$/];
+  // Exactly one module may touch the raw models: the ingestion service that writes them.
+  // (The shadow projection that once read them is retired.) Anything else reaching these
+  // tables would be a second, unreviewed path to raw source payloads.
   const libFiles = walk(path.join(process.cwd(), "src", "lib"));
-  const otherRawUsers = libFiles.filter(
-    (f) => !RAW_MODEL_ALLOWLIST.some((allowed) => allowed.test(f)) && /fantasyRawBatch|fantasyRawRow/.test(readFileSync(f, "utf8")),
-  );
-  assert(otherRawUsers.length === 0, `Raw models are reachable only from ingestion and projection${otherRawUsers.length ? `: ${otherRawUsers.join(", ")}` : ""}`);
+  const otherRawUsers = libFiles.filter((f) => !/raw-ingestion\.ts$/.test(f) && /fantasyRawBatch|fantasyRawRow/.test(readFileSync(f, "utf8")));
+  assert(otherRawUsers.length === 0, `Raw models are reachable only from the ingestion service${otherRawUsers.length ? `: ${otherRawUsers.join(", ")}` : ""}`);
 
-  // Projection's access is read-only. It must never create, alter or remove raw evidence.
-  const projectionSrc = readFileSync(path.join(process.cwd(), "src", "lib", "fantasy", "projection.ts"), "utf8")
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/^\s*\/\/.*$/gm, "");
-  const rawWrites = /fantasyRaw(Batch|Row)\s*\.\s*(create|createMany|update|updateMany|upsert|delete|deleteMany)/.test(projectionSrc);
-  assert(!rawWrites, "Projection only reads the raw models; it never writes or deletes them");
+  // The ingestion service appends evidence; it never alters or removes a stored raw row.
+  const ingestionCode = serviceSource.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  const rawRewrites = /fantasyRawRow\s*\.\s*(update|updateMany|upsert|delete|deleteMany)\b/.test(ingestionCode);
+  assert(!rawRewrites, "Stored raw rows are never updated or deleted by the ingestion service");
 
   console.log("\n===============================================================================");
   console.log(`RESULT: ${passed} passed, ${failed} failed`);

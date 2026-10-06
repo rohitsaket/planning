@@ -8,7 +8,8 @@
  *
  * Refuses to run anywhere except `planning_sectest`.
  *
- * Usage: npx tsx scripts/with-sectest-db.ts npx tsx scripts/run-security-tests.ts [filter]
+ * Usage: npm run test:security, or for one suite:
+ *   tsx --env-file-if-exists=.env scripts/with-sectest-db.ts scripts/run-security-tests.ts [filter]
  */
 
 import "../tests/security/setup";
@@ -28,7 +29,6 @@ const MODULES = [
   "../tests/security/csv-config.test",
   "../tests/security/auth.test",
   "../tests/security/route-sweep.test",
-  "../tests/security/identity-approval.test",
   "../tests/security/concurrency.test",
   "../tests/security/validation-upload.test",
   "../tests/security/sales-db-aggregation.test",
@@ -51,6 +51,8 @@ const MODULES = [
   "../tests/security/export-limits.test",
   "../tests/security/geography.test",
   "../tests/security/access-scope.test",
+  "../tests/security/memo-scope.test",
+  "../tests/security/customer-360.test",
   "../tests/security/source-disclosure.test",
   "../tests/security/category-classification.test",
   "../tests/security/projection-integrity.test",
@@ -70,6 +72,8 @@ const MODULES = [
   "../tests/security/sarin-shape-passthrough.test",
   "../tests/security/sarin-import-ux.test",
   "../tests/security/sarin-yield-rank.test",
+  // Writes the Sarin mapping catalog (and restores its content), so it follows the Sarin suites.
+  "../tests/security/identity-approval.test",
   "../tests/security/single-system-role.test",
   "../tests/security/users-access-redesign.test",
   "../tests/security/navigation-consolidation.test",
@@ -77,6 +81,7 @@ const MODULES = [
   "../tests/security/retired-features.test",
   "../tests/security/legacy-plan-independence.test",
   "../tests/security/database-safety.test",
+  "../tests/security/process-launch.test",
   "../tests/security/password-change.test",
   "../tests/security/data-table-layout.test",
   "../tests/security/scroll-layout.test",

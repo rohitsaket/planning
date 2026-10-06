@@ -1,6 +1,6 @@
 import { describe, expect, test } from "./harness";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { csvSafeCell, toCsv, columnExportValue, type CsvColumn } from "@/lib/csv-export";
 
@@ -93,7 +93,7 @@ describe("proxy configuration (SEC-003)", () => {
 
 describe("repository hygiene (CFG-002) and service config (SEC-004)", () => {
   test(".env and runtime databases are not tracked; .env.example holds no real credential", () => {
-    const tracked = execSync("git ls-files --cached .env db", { cwd: ROOT }).toString().trim();
+    const tracked = execFileSync("git", ["ls-files", "--cached", ".env", "db"], { cwd: ROOT }).toString().trim();
     expect(tracked).toBe("");
     expect(read(".env.example")).toContain("USER:PASSWORD@");
     expect(read(".gitignore")).toContain("db/*.db");

@@ -1,6 +1,6 @@
 // Creates (or recreates) the throwaway security-test database next to the dev database and
 // prints its NAME only. The connection string, including the password, is never printed.
-// Usage: npx tsx scripts/sectest-db.ts [--recreate]
+// Usage: tsx --env-file-if-exists=.env scripts/sectest-db.ts [--recreate]
 import { PrismaClient } from "@prisma/client";
 import { sectestUrl, SECTEST_DB } from "../tests/security/test-db";
 import { proveDisposableDatabase } from "../src/lib/fantasy/database-environment";

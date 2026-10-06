@@ -14,9 +14,9 @@ import { Users, ShoppingCart, Globe } from "lucide-react";
  * coincidence.
  *
  * The Orders tab reports that Fantasy supplies no order entity. The previous tab showed
- * seeded demonstration orders as though they were synchronized data; those rows still
- * exist and are still reachable from the Requirements section's Order Exceptions page,
- * which owns them.
+ * seeded demonstration orders as though they were synchronized data. Those rows are kept as
+ * history only: the Requirements section that last displayed them is retired, and order
+ * workflows are out of scope.
  */
 const TABS: HostTabItem[] = [
   { id: "customers", label: "Customers", icon: <Users className="h-3.5 w-3.5" />, permission: "customers.read", component: CustomerSalesView },

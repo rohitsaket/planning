@@ -66,7 +66,7 @@ export interface DatabaseEnvironmentProof {
 type Env = Readonly<Record<string, string | undefined>>;
 
 /** The marker variable that names a production or staging deployment, if any. */
-function deploymentMarker(env: Env): string | null {
+export function deploymentMarker(env: Env): string | null {
   for (const name of DEPLOYMENT_MARKER_VARIABLES) {
     const value = env[name]?.trim();
     if (value && DEPLOYED_VALUE.test(value)) return name;

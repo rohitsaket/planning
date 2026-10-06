@@ -53,7 +53,6 @@ const EXPECTED_SIDEBAR: Array<[string, Array<[string, string]>]> = [
   ["Dashboard", [["dashboard", "Overview"]]],
   ["Analysis", [["analysis-sales", "Sales & Trends"], ["analysis-customers-orders", "Customers & Orders"], ["analysis-inventory-position", "Inventory"]]],
   ["Data", [["fantasy-data", "Fantasy Data"], ["data-quality-issues", "Import Issues"]]],
-  ["Requirements", [["requirements-matrix", "Requirement Matrix"], ["requirements-priority-queue", "Priority Queue"], ["orders-exceptions", "Order Exceptions"], ["replenishment-allocation", "Replenishment & Allocation"]]],
   // Workbook Import only: the Workbench, Approval Queue and Rough Availability are retired.
   ["Planning", [["planning-workbook-import", "Workbook Import"]]],
   // Planning-only scope: no Execution, Manufacturing or Quality Assurance group.
@@ -89,7 +88,7 @@ async function main() {
   const actual = NAV.map((g) => [g.label, g.items.map((i) => [i.id, i.label])]);
   assert(JSON.stringify(actual) === JSON.stringify(EXPECTED_SIDEBAR), `Sidebar is exactly the approved structure (got ${JSON.stringify(actual)})`);
   const printed = NAV.map((g) => `${g.label}\n${g.items.map((i) => `  ${i.label}`).join("\n")}`).join("\n\n");
-  assert(printed.split("\n").length === 6 + 14 + 5, "Six groups and fourteen pages are listed");
+  assert(printed.split("\n").length === 5 + 10 + 4, "Five groups and ten pages are listed");
 
   // =========================================================================
   console.log("\n--- TEST 2: No duplicate destinations ---");
@@ -109,7 +108,7 @@ async function main() {
     "Planning Workbench", "Approval Queue", "Rough Availability", "Rough Reservations", "Reservations", "Planning Cases", "Planned Pieces",
   ];
   for (const label of ABSENT_ITEMS) assert(!sidebarLabels.includes(label), `'${label}' is not a sidebar item`);
-  for (const group of ["Fantasy ERP", "Overall Data", "Data Science", "Reports", "Requirements and Priority"]) {
+  for (const group of ["Fantasy ERP", "Overall Data", "Data Science", "Reports", "Requirements and Priority", "Requirements"]) {
     assert(!NAV.some((g) => g.label === group), `No '${group}' sidebar group`);
   }
   const RETIRED_IDS: ViewId[] = [
@@ -118,6 +117,7 @@ async function main() {
     "data-science-anomaly-detection", "data-science-yield-prediction", "data-science-forecast", "data-science-models", "data-science-forecast-accuracy",
     "planning-workbench", "planning-comparison", "planning-cases", "planning-planned-pieces", "planning-reservations", "planning-approval-queue", "planning-rough-availability",
     "fantasy-rough", "fantasy-live",
+    "requirements-matrix", "requirements-priority-queue", "orders-exceptions", "replenishment-allocation", "requirements-orders", "requirements-replenishment", "requirements-backorders", "requirements-special", "requirements-forecast-signals", "requirements-allocation", "analysis-orders",
   ] as ViewId[];
   const registry = read("src/app/page.tsx");
   for (const id of RETIRED_IDS) {
@@ -128,10 +128,13 @@ async function main() {
   // The generic settings page is retired, and so is the plan approval policy it last held.
   assert(resolveViewAlias("admin-system-settings" as ViewId).view === "out-of-scope", "An old #admin-system-settings link opens the Not available state");
   assert(resolveViewAlias("admin-feature-flags" as ViewId).view === "out-of-scope", "An old #admin-feature-flags link opens the Not available state");
+  for (const id of ["requirements-matrix", "requirements-priority-queue", "orders-exceptions", "replenishment-allocation", "requirements-orders", "requirements-replenishment", "requirements-backorders", "requirements-special", "requirements-forecast-signals", "requirements-allocation", "analysis-orders"]) {
+    assert(resolveViewAlias(id as ViewId).tab === "requirements", `An old #${id} link says requirement and order workflows are not configured`);
+  }
   for (const id of ["planning-rough-availability", "fantasy-rough", "fantasy-live"]) {
     assert(resolveViewAlias(id as ViewId).tab === "rough-stock", `An old #${id} link says no rough-stock source is configured`);
   }
-  for (const route of ["planning/cases", "planning/cases/[id]", "planning/cases/[id]/replan", "planning/compare/[caseId]", "planning/pieces", "planning/workbench", "planning/reservations", "planning/approvals", "planning/rough", "admin/approval-policy", "fantasy/rough"]) {
+  for (const route of ["planning/cases", "planning/cases/[id]", "planning/cases/[id]/replan", "planning/compare/[caseId]", "planning/pieces", "planning/workbench", "planning/reservations", "planning/approvals", "planning/rough", "admin/approval-policy", "fantasy/rough", "requirements", "requirements/[id]", "requirements/[id]/priority", "analysis/orders"]) {
     assert(!existsSync(path.join(process.cwd(), "src/app/api", route, "route.ts")), `Retired legacy planning API /api/${route} is removed`);
   }
   // Retired APIs are gone; APIs shared with retained planning pages stay.
@@ -145,7 +148,9 @@ async function main() {
   // =========================================================================
   console.log("\n--- TEST 4: Every page is registered and has a permission decision ---");
   const registryIds = [...registry.matchAll(/^\s+"?([a-z0-9-]+)"?:\s+\w+View,/gm)].map((m) => m[1]);
-  assert(registryIds.length >= 20, `View registry parsed (${registryIds.length} views)`);
+  // Exactly the sidebar pages and the four direct views opened from dashboard tiles.
+  const EXPECTED_REGISTRY = [...EXPECTED_SIDEBAR.flatMap(([, items]) => items.map(([id]) => id)), "analysis-customers", "analysis-country", "analysis-polished", "analysis-memo"].sort();
+  assert(JSON.stringify([...registryIds].sort()) === JSON.stringify(EXPECTED_REGISTRY), `View registry is exactly the sidebar pages and four direct views (${registryIds.length} views)`);
   for (const id of sidebarIds) {
     assert(registryIds.includes(id), `Sidebar page '${id}' has a registered component`);
     assert(viewPermissions(id).length > 0, `Sidebar page '${id}' has a permission decision`);
@@ -290,7 +295,7 @@ async function main() {
   assert(viewPermissions("manufacturing").length === 0, "Manufacturing is no longer a page");
   assert(!isViewAuthorized(["analysis.read"], "data-quality-issues") && isViewAuthorized(["data_quality.read"], "data-quality-issues"), "Import Issues needs data_quality.read (internal code unchanged)");
   assert(viewPermissions("planning-approval-queue" as ViewId).length === 0, "The Approval Queue is no longer a page");
-  for (const code of ["rough.read", "plan.read", "plan.create", "plan.select", "plan.approve", "plan.replan", "plan.export", "rough.reserve", "sarin.output.approve", "approval_policy.read", "approval_policy.manage"]) {
+  for (const code of ["requirement.read", "requirement.create", "requirement.override", "requirement.export", "orders.export", "rough.read", "plan.read", "plan.create", "plan.select", "plan.approve", "plan.replan", "plan.export", "rough.reserve", "sarin.output.approve", "approval_policy.read", "approval_policy.manage"]) {
     assert(!(PERMISSIONS as readonly string[]).includes(code), `${code} is retired`);
     assert(TEST_ROLES.every((role) => !(testPermissionsFor(role) as string[]).includes(code)), `No role holds ${code}`);
   }

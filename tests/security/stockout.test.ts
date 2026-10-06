@@ -554,7 +554,7 @@ describe("category navigation carries the exact key", () => {
 
   test("Heart opens Heart and Asscher opens Asscher — the defect this replaces", () => {
     for (const category of [heartCategory, asscherCategory]) {
-      const hash = navHash("analysis-stockout", null, { runId, category, malformed: false });
+      const hash = navHash("analysis-stockout", null, { runId, category, bucket: null, malformed: false });
       const parsed = parseNavHash(hash);
       // Stockout Risk is a tab of Inventory; the former id resolves there with its context.
       expect([parsed?.view, parsed?.tab]).toEqual(["analysis-inventory-position", "stockout"]);
@@ -567,7 +567,7 @@ describe("category navigation carries the exact key", () => {
 
   test("a category containing punctuation and separators survives the round trip", () => {
     const awkward = "GIA|HEART|1.70-1.99";
-    const parsed = parseNavHash(navHash("analysis-stockout", null, { runId: null, category: awkward, malformed: false }));
+    const parsed = parseNavHash(navHash("analysis-stockout", null, { runId: null, category: awkward, bucket: null, malformed: false }));
     expect(parsed?.trace?.category).toBe(awkward);
   });
 

@@ -17,17 +17,12 @@ import { CustomersOrdersView } from "@/components/diamond/views/consolidated/cus
 import { InventoryPositionView } from "@/components/diamond/views/consolidated/inventory-position-view";
 import { FantasyDataView } from "@/components/diamond/views/consolidated/fantasy-data-view";
 import { DataQualityView } from "@/components/diamond/views/data-quality-view";
-import { RequirementsMatrixView } from "@/components/diamond/views/requirements-matrix-view";
-import { PriorityQueueView } from "@/components/diamond/views/priority-queue-view";
-import { OrdersExceptionsView } from "@/components/diamond/views/consolidated/orders-exceptions-view";
-import { ReplenishmentAllocationView } from "@/components/diamond/views/consolidated/replenishment-allocation-view";
 import { WorkbookImportView } from "@/components/diamond/views/workbook-import-view";
 import { UsersAccessView } from "@/components/diamond/views/consolidated/users-access-view";
 import { MappingsView } from "@/components/diamond/views/consolidated/mappings-view";
 import { AuditLogView } from "@/components/diamond/views/audit-log-view";
 // Direct views opened from dashboard tiles and page links
 import { CustomersView } from "@/components/diamond/views/customers-view";
-import { OrdersView } from "@/components/diamond/views/orders-view";
 import { CountryView } from "@/components/diamond/views/country-view";
 import { PolishedView } from "@/components/diamond/views/polished-view";
 import { MemoView } from "@/components/diamond/views/memo-view";
@@ -46,11 +41,6 @@ const VIEW_REGISTRY: Record<string, React.ComponentType> = {
   // Data
   "fantasy-data": FantasyDataView,
   "data-quality-issues": DataQualityView,
-  // Requirements
-  "requirements-matrix": RequirementsMatrixView,
-  "requirements-priority-queue": PriorityQueueView,
-  "orders-exceptions": OrdersExceptionsView,
-  "replenishment-allocation": ReplenishmentAllocationView,
   // Planning
   "planning-workbook-import": WorkbookImportView,
   // Administration
@@ -60,16 +50,9 @@ const VIEW_REGISTRY: Record<string, React.ComponentType> = {
 
   // Direct views opened from dashboard tiles and page links.
   "analysis-customers": CustomersView,
-  "analysis-orders": OrdersView,
   "analysis-country": CountryView,
   "analysis-polished": PolishedView,
   "analysis-memo": MemoView,
-  "requirements-orders": OrdersView,
-  "requirements-replenishment": RequirementsMatrixView,
-  "requirements-backorders": RequirementsMatrixView,
-  "requirements-special": RequirementsMatrixView,
-  "requirements-forecast-signals": RequirementsMatrixView,
-  "requirements-allocation": RequirementsMatrixView,
 };
 
 export default function Home() {

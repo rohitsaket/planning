@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ChevronLeft, ChevronRight } from "lucide-react";
@@ -11,9 +12,11 @@ export interface ServerPaginationProps {
   total: number;
   hasMore: boolean;
   onPageChange: (page: number) => void;
+  onPageSizeChange?: (pageSize: number) => void;
   loading?: boolean;
   /** Noun for the row count, e.g. "customers". */
   label?: string;
+  pageSizeOptions?: number[];
 }
 
 /**
@@ -26,12 +29,28 @@ export function ServerPagination({
   total,
   hasMore,
   onPageChange,
+  onPageSizeChange,
   loading = false,
-  label = "rows",
+  label = "entries",
+  pageSizeOptions = [10, 15, 25, 50, 100],
 }: ServerPaginationProps) {
-  const first = total === 0 ? 0 : (page - 1) * pageSize + 1;
-  const last = Math.min(page * pageSize, total);
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const [internalPageSize, setInternalPageSize] = useState(pageSize);
+  const activePageSize = onPageSizeChange ? pageSize : internalPageSize;
+
+  const first = total === 0 ? 0 : (page - 1) * activePageSize + 1;
+  const last = Math.min(page * activePageSize, total);
+  const totalPages = Math.max(1, Math.ceil(total / activePageSize));
+
+  const options = Array.from(new Set([...pageSizeOptions, activePageSize])).sort((a, b) => a - b);
+
+  const handleSizeChange = (newSize: number) => {
+    if (onPageSizeChange) {
+      onPageSizeChange(newSize);
+    } else {
+      setInternalPageSize(newSize);
+      onPageChange(1);
+    }
+  };
 
   // Generate page numbers with ellipsis window
   const getPageNumbers = () => {
@@ -56,18 +75,38 @@ export function ServerPagination({
   };
 
   return (
-    <div className="flex items-center justify-between gap-3 px-3 py-2 border-t border-border/80 bg-white/95 dark:bg-[#131720]/95 text-xs flex-wrap backdrop-blur-md">
-      <span className="text-muted-foreground tabular-nums text-[11px]">
-        {total === 0 ? (
-          `No ${label}`
-        ) : (
-          <>
-            Showing <span className="font-semibold text-foreground">{first.toLocaleString()}</span> to{" "}
-            <span className="font-semibold text-foreground">{last.toLocaleString()}</span> of{" "}
-            <span className="font-semibold text-foreground">{total.toLocaleString()}</span> {label}
-          </>
-        )}
-      </span>
+    <div className="flex flex-shrink-0 items-center justify-between gap-3 px-3 py-2 border-t border-border/80 bg-white/95 dark:bg-[#131720]/95 text-xs flex-wrap backdrop-blur-md">
+      <div className="flex items-center gap-3 flex-wrap text-muted-foreground tabular-nums text-[11px]">
+        <span>
+          {total === 0 ? (
+            `No ${label}`
+          ) : (
+            <>
+              Showing <span className="font-semibold text-foreground">{first.toLocaleString()}</span> to{" "}
+              <span className="font-semibold text-foreground">{last.toLocaleString()}</span> of{" "}
+              <span className="font-semibold text-foreground">{total.toLocaleString()}</span> {label}
+            </>
+          )}
+        </span>
+
+        <div className="flex items-center gap-1.5 border-l border-border/60 pl-3">
+          <span>Show</span>
+          <select
+            value={activePageSize}
+            disabled={loading}
+            onChange={(e) => handleSizeChange(Number(e.target.value))}
+            className="h-6 px-1.5 text-[11px] font-medium bg-card text-foreground border border-border/80 rounded cursor-pointer focus:outline-none focus:ring-1 focus:ring-primary"
+          >
+            {options.map((size) => (
+              <option key={size} value={size}>
+                {size}
+              </option>
+            ))}
+          </select>
+          <span>entries</span>
+        </div>
+      </div>
+
       <div className="flex items-center gap-1">
         <Button
           variant="outline"
@@ -128,4 +167,3 @@ export function ServerPagination({
     </div>
   );
 }
-

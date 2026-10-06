@@ -36,6 +36,7 @@ import {
 } from "@/lib/analysis/inventory-buckets";
 import { scopeSql, UNRESTRICTED_SCOPE, type EffectiveScope } from "@/lib/auth/access-scope";
 import { resolveSourceDisclosure, UNESTABLISHED_SOURCE, type SourceDisclosure } from "@/lib/analysis/source-disclosure";
+import { memoPredicates } from "@/lib/analysis/memo";
 
 if (typeof window !== "undefined") {
   throw new Error("analysis/inventory-position is server-only and must not be imported by client code.");
@@ -656,26 +657,33 @@ export interface MirrorReconciliation {
  * Reporting only. Nothing here merges a mirror row into canonical inventory or promotes
  * an excluded canonical record because a mirror says it is available — a mirror may
  * corroborate or restrict, never promote.
+ *
+ * Every count is narrowed to the caller's scope: a whole-business total would tell a
+ * restricted reader how many records exist outside the places they may see.
  */
-export async function reconcileWithMirrors(client: DbClient = db): Promise<MirrorReconciliation> {
+export async function reconcileWithMirrors(scope: EffectiveScope, client: DbClient = db): Promise<MirrorReconciliation> {
+  const inScope = (alias: string) => scopeSql(scope, { country: `${alias}."country"`, lab: `${alias}."labNormalized"` });
+  const memoParts = memoPredicates({ scope, country: null, branch: null, lab: null, status: null }, "r");
+  const memoWhere = memoParts.length ? Prisma.sql`WHERE ${Prisma.join(memoParts, " AND ")}` : Prisma.empty;
   const agg = await client.$queryRaw<Array<{
       canonical: number; polished: number; memo: number;
       both: number; canonical_only: number; mirror_only: number; disagree: number;
     }>>`
       SELECT
-        (SELECT COUNT(*)::int FROM "LotMasterRecord" WHERE "isCurrent" = TRUE) AS canonical,
-        (SELECT COUNT(*)::int FROM "PolishedStone") AS polished,
-        (SELECT COUNT(*)::int FROM "MemoRecord")    AS memo,
-        (SELECT COUNT(*)::int FROM "PolishedStone" p
-           JOIN "LotMasterRecord" m ON m."lotId" = p."fantasyLotId" AND m."isCurrent" = TRUE) AS both,
-        (SELECT COUNT(*)::int FROM "LotMasterRecord" m
-          WHERE m."isCurrent" = TRUE
-            AND NOT EXISTS (SELECT 1 FROM "PolishedStone" p WHERE p."fantasyLotId" = m."lotId")) AS canonical_only,
-        (SELECT COUNT(*)::int FROM "PolishedStone" p
-          WHERE NOT EXISTS (SELECT 1 FROM "LotMasterRecord" m WHERE m."lotId" = p."fantasyLotId" AND m."isCurrent" = TRUE)) AS mirror_only,
+        (SELECT COUNT(*)::int FROM "LotMasterRecord" m WHERE m."isCurrent" = TRUE ${inScope("m")}) AS canonical,
+        (SELECT COUNT(*)::int FROM "PolishedStone" p WHERE TRUE ${inScope("p")}) AS polished,
+        (SELECT COUNT(*)::int FROM "MemoRecord" r ${memoWhere}) AS memo,
         (SELECT COUNT(*)::int FROM "PolishedStone" p
            JOIN "LotMasterRecord" m ON m."lotId" = p."fantasyLotId" AND m."isCurrent" = TRUE
-          WHERE (m."inventoryClass" = 'PHYSICAL_AVAILABLE') <> (p."planningClass" IN ('PHYSICAL', 'PLANNING_AVAILABLE'))) AS disagree`;
+          WHERE TRUE ${inScope("p")} ${inScope("m")}) AS both,
+        (SELECT COUNT(*)::int FROM "LotMasterRecord" m
+          WHERE m."isCurrent" = TRUE ${inScope("m")}
+            AND NOT EXISTS (SELECT 1 FROM "PolishedStone" p WHERE p."fantasyLotId" = m."lotId")) AS canonical_only,
+        (SELECT COUNT(*)::int FROM "PolishedStone" p
+          WHERE NOT EXISTS (SELECT 1 FROM "LotMasterRecord" m WHERE m."lotId" = p."fantasyLotId" AND m."isCurrent" = TRUE) ${inScope("p")}) AS mirror_only,
+        (SELECT COUNT(*)::int FROM "PolishedStone" p
+           JOIN "LotMasterRecord" m ON m."lotId" = p."fantasyLotId" AND m."isCurrent" = TRUE
+          WHERE (m."inventoryClass" = 'PHYSICAL_AVAILABLE') <> (p."planningClass" IN ('PHYSICAL', 'PLANNING_AVAILABLE')) ${inScope("p")} ${inScope("m")}) AS disagree`;
 
   const a = agg[0];
   return {

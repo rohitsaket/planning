@@ -1,22 +1,21 @@
 import { beforeAll, describe, expect, test } from "./harness";
 import { call, db, makeUser, resetDb } from "./helpers";
-import { POST as priority } from "@/app/api/requirements/[id]/priority/route";
+import { POST as saveMapping } from "@/app/api/planning/sarin/shape-mappings/route";
 import { GET as sales } from "@/app/api/analysis/sales/route";
 import { GET as issues } from "@/app/api/data-quality/route";
-import { GET as requirements } from "@/app/api/requirements/route";
+import { GET as customers } from "@/app/api/analysis/customers/route";
 import { PAGE_DEFAULT, PAGE_MAX, SCAN_MAX, scanned } from "@/lib/api/with-api";
 
-let admin: Awaited<ReturnType<typeof makeUser>>, planner: typeof admin, viewer: typeof admin, overrider: typeof admin;
-let requirementId = "";
+let admin: Awaited<ReturnType<typeof makeUser>>, planner: typeof admin, viewer: typeof admin, mapper: typeof admin;
 beforeAll(async () => {
   await resetDb();
   admin = await makeUser("vadmin", "ADMIN");
   planner = await makeUser("vplanner", "PLANNER");
   viewer = await makeUser("vviewer", "VIEWER");
   // Body validation is exercised by a principal that is authorized for the route, so the
-  // request reaches parsing rather than being refused first.
-  overrider = await makeUser("voverrider", "ANALYSIS_MANAGER");
-  requirementId = (await db.requirement.create({ data: { requirementCode: `REQ-V-${Date.now()}`, type: "STOCK_REPLENISHMENT", groupCode: "G", companyCode: "C", country: "IN", branch: "B", requiredQty: 2 } })).id;
+  // request reaches parsing rather than being refused first. None of these requests is valid,
+  // so the mapping catalog is never changed.
+  mapper = await makeUser("vmapper", "SUPER_ADMIN");
   // Three recorded import issues, enough to page through two at a time.
   await db.dataQualityIssue.deleteMany({});
   await db.dataQualityIssue.createMany({
@@ -26,20 +25,20 @@ beforeAll(async () => {
 
 describe("input handling (REL-002)", () => {
   test("malformed JSON → 400, not 500", async () => {
-    const r = await call(priority, { method: "POST", cookie: overrider.cookie, params: { id: requirementId }, raw: "{not json" });
+    const r = await call(saveMapping, { method: "POST", cookie: mapper.cookie, raw: "{not json" });
     expect([r.status, r.json.error.code]).toEqual([400, "BAD_REQUEST"]);
   });
   test("wrong types / missing fields → 400 with field details, no stack", async () => {
-    const r = await call(priority, { method: "POST", cookie: overrider.cookie, params: { id: requirementId }, body: { priority: "EXPLODE", reason: 42 } });
+    const r = await call(saveMapping, { method: "POST", cookie: mapper.cookie, body: { sarinShape: 42, fantasyShape: "Round", applyTo: "EXPLODE" } });
     expect([r.status, r.json.error.code]).toEqual([400, "VALIDATION_FAILED"]);
     expect(JSON.stringify(r.json)).not.toMatch(/at .*\.ts|node_modules/);
   });
   test("oversized JSON body → 413", async () => {
-    const r = await call(priority, { method: "POST", cookie: overrider.cookie, params: { id: requirementId }, raw: JSON.stringify({ priority: "HIGH", reason: "a".repeat(80_000) }) });
+    const r = await call(saveMapping, { method: "POST", cookie: mapper.cookie, raw: JSON.stringify({ sarinShape: "OVERSIZED", fantasyShape: "Round", applyTo: "ALL_RATIOS", note: "a".repeat(80_000) }) });
     expect(r.status).toBe(413);
   });
   test("cross-origin state-changing request → 403", async () => {
-    const r = await call(priority, { method: "POST", cookie: overrider.cookie, params: { id: requirementId }, body: { priority: "HIGH", reason: "cross-origin check" }, headers: { origin: "https://evil.example" } });
+    const r = await call(saveMapping, { method: "POST", cookie: mapper.cookie, body: { sarinShape: "CROSS ORIGIN", fantasyShape: "Round", applyTo: "ALL_RATIOS" }, headers: { origin: "https://evil.example" } });
     expect(r.status).toBe(403);
   });
   for (const bad of ["abc", "-5", "0", "1e9", "99999", "12.5", ""]) {
@@ -73,7 +72,9 @@ describe("pagination (REL-001)", () => {
     expect((await call(issues, { cookie: admin.cookie, path: `/api/data-quality?pageSize=${PAGE_MAX}` })).status).toBe(200);
     expect((await call(issues, { cookie: admin.cookie, path: `/api/data-quality?pageSize=${PAGE_MAX + 1}` })).status).toBe(400);
     expect((await call(issues, { cookie: admin.cookie, path: "/api/data-quality?page=0" })).status).toBe(400);
-    expect((await call(requirements, { cookie: admin.cookie, path: "/api/requirements?pageSize=501" })).status).toBe(400);
+    // A route with its own, smaller ceiling (500) refuses beyond it too.
+    expect((await call(customers, { cookie: admin.cookie, path: "/api/analysis/customers?pageSize=500" })).status).toBe(200);
+    expect((await call(customers, { cookie: admin.cookie, path: "/api/analysis/customers?pageSize=501" })).status).toBe(400);
     const f = await call(issues, { cookie: admin.cookie, path: "/api/data-quality?search=no-such-record-anywhere" });
     expect(f.json.rows).toEqual([]);
   });

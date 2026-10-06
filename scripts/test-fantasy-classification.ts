@@ -11,7 +11,7 @@
  * past classifications; and the hardcoded `STOCK -> PHYSICAL, else MEMO` rule is gone
  * from the repository.
  *
- * Usage: npx tsx scripts/with-sectest-db.ts npx tsx scripts/test-fantasy-classification.ts
+ * Usage: npm run test:classification
  */
 
 import { readFileSync, readdirSync } from "node:fs";

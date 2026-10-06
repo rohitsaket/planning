@@ -18,10 +18,10 @@
  *      ignored.
  *   F. Export authorization policy: no table inherits demand.export by default.
  *
- * Usage: npx tsx scripts/with-sectest-db.ts npx tsx scripts/test-demand-inventory.ts
+ * Usage: npm run test:demand-inventory
  */
 
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { db } from "../src/lib/db";
 import { SECTEST_DB } from "../tests/security/test-db";
@@ -43,7 +43,6 @@ import { GET as agingGET } from "../src/app/api/analysis/aging/route";
 import { GET as agingDashGET } from "../src/app/api/analysis/aging-dashboard/route";
 import { GET as customersGET } from "../src/app/api/analysis/customers/route";
 import { GET as timelineGET } from "../src/app/api/analysis/customers/[id]/timeline/route";
-import { GET as ordersGET } from "../src/app/api/analysis/orders/route";
 import { GET as memoGET } from "../src/app/api/analysis/memo/route";
 import { GET as historyGET } from "../src/app/api/demand/history/route";
 import { POST as demandRunPOST } from "../src/app/api/demand/run/route";
@@ -55,7 +54,7 @@ const url = process.env.DATABASE_URL ?? "";
 // Loopback host, an approved isolated test database, no production or staging marker.
 if (!proveDisposableDatabase(url).proven) {
   console.error(`REFUSING TO RUN: DATABASE_URL must point at the isolated ${SECTEST_DB} database.`);
-  console.error("Use: npx tsx scripts/with-sectest-db.ts npx tsx scripts/test-demand-inventory.ts");
+  console.error("Use: npm run test:demand-inventory");
   process.exit(1);
 }
 
@@ -653,8 +652,8 @@ async function main() {
   assert(timelineRes.status === 200 && timelineRes.json.monthly.length === 12, "Customer timeline returns 12 aggregated months");
   assert(typeof timelineRes.json.total === "number", "Customer timeline transactions are paginated with a total");
 
-  const ordersRes = await call(ordersGET, { path: "/api/analysis/orders?page=1&pageSize=10", cookie: admin.cookie });
-  assert(ordersRes.status === 200 && typeof ordersRes.json.total === "number", "Orders API returns a real total");
+  // The seeded-order API is retired with the Requirements section; order workflows are out of scope.
+  assert(!existsSync(path.join(process.cwd(), "src", "app", "api", "analysis", "orders", "route.ts")), "The retired orders API is gone");
 
   const dashRes = await call(agingDashGET, { path: "/api/analysis/aging-dashboard", cookie: admin.cookie });
   assert(dashRes.status === 200 && typeof dashRes.json.currentLots === "number", "Aging dashboard summarizes current stock");
@@ -680,7 +679,6 @@ async function main() {
   assert((await call(demandRunPOST, { method: "POST", path: "/api/demand/run", body: {} })).status === 401, "POST /api/demand/run rejects an anonymous caller");
   assert((await call(traceGET, { path: "/api/analysis/demand-trace" })).status === 401, "GET /api/analysis/demand-trace rejects an anonymous caller");
   assert((await call(customersGET, { path: "/api/analysis/customers" })).status === 401, "GET /api/analysis/customers rejects an anonymous caller");
-  assert((await call(ordersGET, { path: "/api/analysis/orders" })).status === 401, "GET /api/analysis/orders rejects an anonymous caller");
   assert((await call(memoGET, { path: "/api/analysis/memo" })).status === 401, "GET /api/analysis/memo rejects an anonymous caller");
 
   // Authenticated without permission

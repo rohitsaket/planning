@@ -1,7 +1,7 @@
 // Creates or updates a user. The password is read from NEW_USER_PASSWORD, or generated and
 // printed ONCE with --generate. It is never written to disk or to the audit log.
-// Usage: NEW_USER_PASSWORD='…' npx tsx scripts/create-user.ts <username> <ROLE> "<Display Name>" [email]
-//        npx tsx scripts/create-user.ts <username> <ROLE> "<Display Name>" --generate
+// Usage: NEW_USER_PASSWORD='…' npm run user:create -- <username> <ROLE> "<Display Name>" [email]
+//        npm run user:create -- <username> <ROLE> "<Display Name>" --generate
 import { randomBytes } from "node:crypto";
 import { PrismaClient } from "@prisma/client";
 import { hashPassword, PASSWORD_MIN_LENGTH } from "../src/lib/auth/password";
@@ -14,7 +14,7 @@ const args = process.argv.slice(2).filter((a) => a !== "--generate");
 const generate = process.argv.includes("--generate");
 const [username, role, displayName, email] = args;
 if (!username || !role || !displayName) {
-  console.error('Usage: npx tsx scripts/create-user.ts <username> <ROLE> "<Display Name>" [email] [--generate]');
+  console.error('Usage: npm run user:create -- <username> <ROLE> "<Display Name>" [email] [--generate]');
   process.exit(2);
 }
 if (!/^[a-z0-9._-]{3,50}$/.test(username)) throw new Error("username: 3-50 chars of a-z 0-9 . _ -");

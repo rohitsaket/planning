@@ -118,7 +118,8 @@ describe("Export limits — the arithmetic an invalid limit used to break", () =
   test("the old pattern produced zero rows and called the export complete", () => {
     // Reproduces the defect exactly, so the fix below is measured against it and not
     // against an assumption about what used to happen.
-    const brokenLimit = Number("abc" || 20_000);
+    const configured: string = "abc"; // the malformed environment value
+    const brokenLimit = Number(configured || 20_000);
     const broken = exportShape(5_000, brokenLimit);
     expect({ fetched: broken.fetched, truncated: broken.truncated }).toEqual({ fetched: 0, truncated: false });
   });

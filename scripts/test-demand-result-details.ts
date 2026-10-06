@@ -17,7 +17,7 @@
  *   E. Unknown categories return a safe unavailable state; failures stay business-safe.
  *   F. Fixture simulation is labelled honestly.
  *
- * Usage: npx tsx scripts/with-sectest-db.ts npx tsx scripts/test-demand-result-details.ts
+ * Usage: npm run test:demand-result
  */
 
 import { db } from "../src/lib/db";

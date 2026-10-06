@@ -14,11 +14,11 @@ export interface ErpBrand {
 export const erpBrand: ErpBrand = {
   name: "Diamond Planning Utility",
   tagline: "Plan Today. Deliver Tomorrow.",
-  description: "A unified platform for analysis, requirement, planning and traceability.",
+  description: "A unified platform for diamond analysis and planning.",
   logo: "/logo.svg",
 };
 
 /** Modules advertised on the sign-in screen. Informational only — never links. */
-export const erpModules = ["Analysis", "Requirements", "Planning", "Traceability"] as const;
+export const erpModules = ["Analysis", "Planning"] as const;
 
 export const brandCopyright = (year = new Date().getFullYear()) => `© ${year} ${erpBrand.name}. All rights reserved.`;

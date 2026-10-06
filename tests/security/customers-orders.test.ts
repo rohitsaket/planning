@@ -175,7 +175,7 @@ describe("Customers and Orders — order source", () => {
     await clearFixtures();
     await ensureCategoryMappings();
     await makeSale({ lotId: `${BATCH}-INV`, customerCode: "CUST-A", docDate: new Date(Date.now() - 5 * 86_400_000) });
-    await runDemandCalculation({ actor: "co-test", actorUserId: null, windowDays: 90, sourcePolicy: "CANONICAL_FANTASY" });
+    await runDemandCalculation({ actor: "co-test", windowDays: 90, sourcePolicy: "CANONICAL_FANTASY" });
 
     resetRateLimits();
     const orders = await call(orderAvailability, { path: "/api/analysis/customers-orders/orders", cookie });
@@ -208,7 +208,7 @@ describe("Customers and Orders — customer attribution", () => {
     // A second sale for CUST-A in an earlier 30-day window.
     await makeSale({ lotId: `${BATCH}-A2`, customerCode: "CUST-A", customerName: "Shared Name Ltd", docDate: new Date(Date.now() - 40 * day) });
 
-    const run = await runDemandCalculation({ actor: "co-test", actorUserId: null, windowDays: 90, sourcePolicy: "CANONICAL_FANTASY" });
+    const run = await runDemandCalculation({ actor: "co-test", windowDays: 90, sourcePolicy: "CANONICAL_FANTASY" });
     runId = run.runId;
   });
 
