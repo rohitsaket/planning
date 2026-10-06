@@ -11,7 +11,7 @@ import type { FantasyClient } from "@/lib/fantasy/live-api";
 // POST a Fantasy grid export (.xlsx or .csv, multipart field "file"). The rows run through the
 // exact same sync as the live listing (mapper, validation, upsert, stale guard, run history) and
 // the run is recorded with trigger "import". Same permission as Sync Now. Parsed in memory only.
-export const POST = withApi({ permission: "fantasy.sync", rateLimit: LIMITS.upload }, async (req, _ctx, api) => {
+export const POST = withApi({ permission: "fantasy.sync.run", rateLimit: LIMITS.upload }, async (req, _ctx, api) => {
   const declared = Number(req.headers.get("content-length") || 0);
   if (declared > 25 * 1024 * 1024 + 64 * 1024) throw tooLarge("File exceeds the 25MB limit");
   if (!(req.headers.get("content-type") || "").toLowerCase().startsWith("multipart/form-data")) throw badRequest("Use multipart/form-data with a 'file' field.");

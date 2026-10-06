@@ -1,5 +1,4 @@
 /**
-<<<<<<< Updated upstream
  * Server configuration for the Fantasy data source — server-only.
  *
  * This module is the only place that reads the source-mode environment variable. It
@@ -28,16 +27,7 @@ import {
   isProviderHistoryTrusted,
   type SourceEnvironment,
 } from "./provider-registry.server";
-=======
- * Central, server-only Fantasy integration configuration. The ONLY module that reads the
- * FANTASY_* / SECRETS_KEY environment. Exposes settings and a validation summary that names
- * which variables are missing but never their values; the password itself is only ever read
- * (and decrypted) by the login call in live-api.ts.
- */
-
-import { CanonicalSourceMode } from "./canonical";
 import { describeSecretEnv } from "@/lib/security/secrets";
->>>>>>> Stashed changes
 
 if (typeof window !== "undefined") {
   throw new Error("fantasy/config is server-only and must not be imported by client code.");
@@ -85,7 +75,19 @@ export function getFantasySourceConfiguration(env: SourceEnvironment = process.e
   };
 }
 
-<<<<<<< Updated upstream
+export interface FantasyServerConfig {
+  sourceMode: LegacyCanonicalSyncMode | null;
+  isSimulation: boolean;
+}
+
+export function getFantasyConfig(env: SourceEnvironment = process.env): FantasyServerConfig {
+  const { canonicalSourceMode } = parseConfiguredSourceMode(env.FANTASY_SOURCE_MODE);
+  return {
+    sourceMode: canonicalSourceMode,
+    isSimulation: canonicalSourceMode === "FIXTURE",
+  };
+}
+
 export interface SourceStateDeps {
   /** Health the installed live provider reports. Fixtures have no live health. */
   readonly providerHealth?: FantasyRuntimeHealth;
@@ -215,7 +217,8 @@ export async function resolveFantasySourceStateWithHistory(
     lastSuccessAt: deps.lastSuccessAt ?? success?.finishedAt ?? success?.startedAt ?? null,
     lastFailureAt: deps.lastFailureAt ?? failure?.finishedAt ?? failure?.startedAt ?? null,
   });
-=======
+}
+
 const int = (name: string, def: number, min: number, max: number) => {
   const n = Number(process.env[name]);
   if (!Number.isFinite(n)) return def;
@@ -310,16 +313,15 @@ export function describeBaseUrl(baseUrl: string): string {
 }
 
 /** Startup validation: logs configured=true/false per variable, never a value. */
-export function validateFantasyConfigForLog(): { integration: "live" | "fixture"; configured: boolean; missing: string[]; usernameConfigured: boolean; passwordConfigured: boolean; passwordStorage: string } {
+export function validateFantasyConfigForLog(): { integration: "live" | "fixture" | "not_configured"; configured: boolean; missing: string[]; usernameConfigured: boolean; passwordConfigured: boolean; passwordStorage: string } {
   const mode = getFantasyConfig();
   const live = getLiveFantasyConfig();
   return {
-    integration: mode.sourceMode === "FANTASY_API" ? "live" : "fixture",
+    integration: mode.sourceMode === "FANTASY_API" ? "live" : mode.sourceMode === "FIXTURE" ? "fixture" : "not_configured",
     configured: live.configured,
     missing: live.missing,
     usernameConfigured: live.usernameConfigured,
     passwordConfigured: live.passwordConfigured,
     passwordStorage: live.passwordStorage,
   };
->>>>>>> Stashed changes
 }

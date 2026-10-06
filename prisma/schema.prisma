@@ -868,7 +868,6 @@ model IntegrationSyncRun {
   @@index([batchId])
 }
 
-<<<<<<< Updated upstream
 /// Mutual exclusion over the canonical Fantasy records themselves.
 ///
 /// The sync lock and the demand lock each guard their own operation; neither knew about
@@ -895,7 +894,8 @@ model CanonicalStateClaim {
   lastForcedBy  String?
   lastForcedAt  DateTime?
   updatedAt     DateTime  @updatedAt
-=======
+}
+
 // Cached bearer token for a live integration (Fantasy OAuth2 password grant). Stored encrypted
 // under SECRETS_KEY so a database read never yields a usable token. Re-used across server
 // restarts because every fresh login signs the integration user out elsewhere.
@@ -992,7 +992,6 @@ model FantasyLiveLot {
   @@index([docDate])
   @@index([lastSeenAt])
   @@index([sourceActive])
->>>>>>> Stashed changes
 }
 
 model SyncCheckpoint {

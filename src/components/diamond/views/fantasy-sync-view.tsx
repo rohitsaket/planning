@@ -2,11 +2,7 @@
 
 import { useState, useMemo } from "react";
 import { useApi, apiPost } from "@/lib/api-client";
-<<<<<<< Updated upstream
 import { useAuthStore } from "@/stores/auth-store";
-=======
-import { useFantasySource } from "@/components/diamond/shared/fantasy-source-badge";
->>>>>>> Stashed changes
 import { KpiCard } from "@/components/diamond/shared/kpi-card";
 import { Section, PageHeader } from "@/components/diamond/shared/page-header";
 import { DataTable, type Column } from "@/components/diamond/shared/data-table";
@@ -140,28 +136,7 @@ function fmtDuration(ms: number): string {
 
 export function FantasySyncView() {
   const { data, isLoading, refetch } = useApi<SyncPayload>("/api/fantasy/sync");
-  const { data: source, refetch: refetchSource } = useFantasySource();
   const [syncing, setSyncing] = useState(false);
-  const [testing, setTesting] = useState(false);
-  const isSimulated = data?.isSimulated ?? true;
-  const handleTestConnection = async () => {
-    setTesting(true);
-    try {
-      const r = await apiPost<{ ok: boolean; host: string; login: { ok: boolean; issuedTo: string | null; expiresAt: string | null; fromCache: boolean; error?: string }; lots: { path: string; ok: boolean; status: number | null; rows: number | null; error?: string }; durationMs: number }>("/api/fantasy/source/test", {});
-      if (r.ok) {
-        toast.success("Fantasy API reachable", { description: `Logged in as ${r.login.issuedTo ?? "?"}${r.login.fromCache ? " (cached token)" : ""} · ${r.lots.path} returned ${r.lots.rows ?? 0} rows in ${r.durationMs}ms` });
-      } else if (r.login.ok) {
-        toast.warning("Login OK, listing failed", { description: `${r.lots.path}: ${r.lots.error ?? `HTTP ${r.lots.status}`}`, duration: 10000 });
-      } else {
-        toast.error("Fantasy login failed", { description: r.login.error ?? "Unknown error", duration: 10000 });
-      }
-      refetchSource();
-    } catch (e) {
-      toast.error("Connection test error", { description: e instanceof Error ? e.message : "Failed" });
-    } finally {
-      setTesting(false);
-    }
-  };
   const [unlocking, setUnlocking] = useState(false);
 
   const summary = data?.summary ?? [];
@@ -215,14 +190,6 @@ export function FantasySyncView() {
   const handleTriggerSync = async () => {
     setSyncing(true);
     try {
-      if (!isSimulated) {
-        const r = await apiPost<{ success: boolean; status: string; recordsFetched: number; recordsInserted: number; recordsUpdated: number; recordsUnchanged: number; recordsStaled: number; errorSummary: string | null }>("/api/fantasy/live-data/sync", {});
-        if (r.success) toast[r.status === "partial" ? "warning" : "success"]("Fantasy synchronization completed", { description: `${r.recordsFetched.toLocaleString()} records processed · ${r.recordsInserted} new · ${r.recordsUpdated} updated · ${r.recordsUnchanged} unchanged${r.errorSummary ? ` · ${r.errorSummary}` : ""}`, duration: 8000 });
-        else toast.error("Unable to synchronize Fantasy ERP", { description: `${r.errorSummary ?? "Sync failed"}. Last successful data remains available.`, duration: 10000 });
-        refetch();
-        refetchSource();
-        return;
-      }
       const res = await apiPost<{ success: boolean; batchId: string; status: string; reconciliation: Record<string, number> }>(
         "/api/fantasy/sync",
         {}
@@ -370,56 +337,16 @@ export function FantasySyncView() {
               onClick={handleTriggerSync}
             >
               <RefreshCw className={`h-3.5 w-3.5 ${syncing ? "animate-spin" : ""}`} />
-<<<<<<< Updated upstream
               {syncing ? "Syncing..." : `Run Next Batch (${checkpoint + 1}/5)`}
-=======
-              {syncing ? "Syncing..." : isSimulated ? `Trigger Next Batch (${checkpoint + 1}/5)` : "Sync Now"}
->>>>>>> Stashed changes
             </Button>
-            {!isSimulated && (
-              <Button size="sm" variant="outline" className="h-8 text-xs gap-1.5" disabled={testing} onClick={handleTestConnection}>
-                <Activity className={`h-3.5 w-3.5 ${testing ? "animate-pulse" : ""}`} /> {testing ? "Testing..." : "Test Connection"}
-              </Button>
-            )}
           </div>
         }
       />
 
-<<<<<<< Updated upstream
       {/* Source-state banner. Wording comes from the central source-state module, so a
           fixture is never presented as a live connection and an unconfigured source
           never claims one either. */}
       <InfoBanner variant={sourceState?.effectiveState === "LIVE_FANTASY" ? "info" : "warning"}>
-=======
-      {/* Live / Simulation Banner */}
-      {!isSimulated && source && (
-        <InfoBanner variant={source.live.configured ? "info" : "warning"}>
-          <div className="flex items-center justify-between gap-4 flex-wrap">
-            <div className="flex items-center gap-2">
-              <Database className="h-4 w-4 text-sky-600 dark:text-sky-400 shrink-0" />
-              <div>
-                <strong className="font-semibold">LIVE MODE:</strong>{" "}
-                <span>
-                  Fantasy API at <strong>{source.live.host}</strong>
-                  {" · "}credentials {source.live.usernameConfigured && source.live.passwordConfigured ? "configured" : "missing"} (password {source.live.passwordStorage === "encrypted" ? "encrypted, AES-256-GCM" : source.live.passwordStorage})
-                  {" · "}listing {source.live.lotsPath}
-                  {" · "}
-                  {source.live.scheduler.enabled
-                    ? `auto-sync every ${source.live.scheduler.intervalMinutes} min${source.live.scheduler.nextRunAt ? `, next ${fmtDate(source.live.scheduler.nextRunAt)}` : ""}`
-                    : "auto-sync off (manual)"}
-                  {source.live.token.expiresAt && ` · token valid until ${fmtDate(source.live.token.expiresAt)}`}
-                  {source.live.scheduler.lastError && <span title={source.live.scheduler.lastError}>{` · last scheduled run: ${source.live.scheduler.lastError}`}</span>}
-                  {!source.live.configured && ` · NOT CONFIGURED: missing ${source.live.missing.join(", ")}`}
-                </span>
-              </div>
-            </div>
-            <Badge variant={source.live.configured ? "success" : "warning"}>Provider: FANTASY_API</Badge>
-          </div>
-        </InfoBanner>
-      )}
-      {isSimulated && (
-      <InfoBanner variant="warning">
->>>>>>> Stashed changes
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-2">
             <FlaskConical className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
@@ -440,21 +367,13 @@ export function FantasySyncView() {
           </Badge>
         </div>
       </InfoBanner>
-      )}
 
       {/* KPI grid */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         <KpiCard
-<<<<<<< Updated upstream
           label="Synchronization progress"
           value={`Batch ${checkpoint} / 5`}
           intent="info"
-=======
-          label="Checkpoint Progress"
-          value={isSimulated ? `Batch ${checkpoint} / 5` : `Batch ${checkpoint}`}
-          intent="info"
-          hint={isSimulated ? "Monotonic fixture sync state" : "Monotonic live sync checkpoint"}
->>>>>>> Stashed changes
         />
         <KpiCard
           label="Last Sync Status"
@@ -505,12 +424,7 @@ export function FantasySyncView() {
           columns={columns}
           rows={recentRuns}
           loading={isLoading}
-<<<<<<< Updated upstream
           emptyMessage="No synchronization has run yet."
-=======
-          emptyMessage={isSimulated ? "No sync runs recorded yet. Click 'Trigger Next Batch' to run baseline synchronization." : "No sync runs recorded yet. Click 'Sync Now' or wait for the scheduled run."}
-          maxHeight="480px"
->>>>>>> Stashed changes
           initialSortKey="startedAt"
           initialSortDir="desc"
           exportable

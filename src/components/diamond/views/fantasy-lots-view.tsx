@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { RefreshCw, Activity, AlertTriangle, Upload } from "lucide-react";
 import { useApi, apiPost } from "@/lib/api-client";
 import { PageHeader, Section } from "@/components/diamond/shared/page-header";
-import { DataTable, type Column, DATA_TABLE_VIEWPORT_MAX_HEIGHT } from "@/components/diamond/shared/data-table";
+import { DataTable, type Column } from "@/components/diamond/shared/data-table";
 import { ServerPagination } from "@/components/diamond/shared/server-pagination";
 import { Badge } from "@/components/diamond/shared/badges";
 import { InfoBanner } from "@/components/diamond/shared/empty-state";
@@ -62,7 +62,7 @@ function useDebounced<T>(value: T, ms: number): T {
 export function FantasyLotsView() {
   const qc = useQueryClient();
   const perms = useAuthStore((s) => s.user?.permissions ?? []);
-  const canSync = perms.includes("fantasy.sync");
+  const canSync = perms.includes("fantasy.sync.run");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(100);
   const [search, setSearch] = useState("");
@@ -252,7 +252,6 @@ export function FantasyLotsView() {
               exportPermission="fantasy.read"
               exportScope="current-page"
               exportFilename={`fantasy-live-data-page-${page}.csv`}
-              maxHeight={DATA_TABLE_VIEWPORT_MAX_HEIGHT}
               toolbar={
                 <Select value={String(pageSize)} onValueChange={(v) => { setPageSize(Number(v)); setPage(1); }}>
                   <SelectTrigger size="sm" className="h-7 w-[92px] text-[11px]" aria-label="Rows per page"><SelectValue /></SelectTrigger>

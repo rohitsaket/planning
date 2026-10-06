@@ -1,8 +1,9 @@
 // Fantasy Live Data integration — database-backed checks on the throwaway sectest database.
 // Fantasy itself is never called: the sync service receives an injected client.
-import { beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import { beforeAll, beforeEach, describe, expect, test } from "./harness";
 import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { utils, write } from "xlsx";
 import path from "node:path";
 import { call, db, makeUser, resetDb } from "./helpers";
 import { GET as liveDataRoute } from "@/app/api/fantasy/live-data/route";
@@ -13,7 +14,7 @@ import { runLiveDataSync, LIVE_SYNC_SOURCE, getLiveSyncStatus } from "@/lib/fant
 import type { FantasyClient } from "@/lib/fantasy/live-api";
 import { FantasyApiError } from "@/lib/fantasy/live-api";
 
-const ROOT = path.resolve(import.meta.dir, "../..");
+const ROOT = process.cwd();
 const stub = (rows: () => Promise<Record<string, unknown>[]>): FantasyClient =>
   ({ fetchLots: async () => ({ rows: await rows(), pages: 1, requests: 1, durationMs: 1, complete: true }) } as unknown as FantasyClient);
 const lot = (id: string, weight: string, extra: Record<string, unknown> = {}) => ({ "Lot ID": id, "Lot Status DB": "Stock", Shape: "ROUND", Weight: weight, "Company ID": "FDH", "Doc ID": `D-${id}`, "Doc Date": "15-08-2026", ...extra });
@@ -196,14 +197,13 @@ describe("live data API", () => {
   test("manual sync route returns the documented shape and audits the user", async () => {
     const r = await call(syncRoute, { method: "POST", path: "/api/fantasy/live-data/sync", body: {}, cookie: admin.cookie });
     expect(r.status).toBe(200);
-    expect(Object.keys(r.json)).toEqual(expect.arrayContaining(["success", "syncRunId", "status", "recordsFetched", "recordsInserted", "recordsUpdated", "recordsUnchanged", "durationMs"]));
+    for (const key of ["success", "syncRunId", "status", "recordsFetched", "recordsInserted", "recordsUpdated", "recordsUnchanged", "durationMs"]) expect(Object.keys(r.json)).toContain(key);
     const audit = await db.auditLog.findFirst({ where: { action: "FANTASY_LIVE_SYNC" }, orderBy: { timestamp: "desc" } });
     expect(audit?.actorUserId).toBe(admin.user.id);
   });
 });
 
 describe("export import", () => {
-  const { utils, write } = require("xlsx") as typeof import("xlsx");
   const headers = ["Metal ID", "Lot ID", "Lot Name", "Lot Status DB", "Shape", "Weight", "Company ID", "Doc ID", "Doc Date", "ItemName"];
   const xlsx = (rows: unknown[][]) => {
     const wb = utils.book_new();
