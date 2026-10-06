@@ -131,11 +131,10 @@ Before handing work back:
 
 ## 11. Git and Publication Safety
 
-- Agents must never run `git commit`, `git push`, force-push, create or push tags, publish releases, or open pull requests for this repository.
-- Leave all implementation changes uncommitted in the working tree so the user can inspect and commit them personally.
-- Do not stage files with `git add` unless the user asks only for a staging preview; never convert staging into a commit.
+- **Automated Sync Exception**: When the user explicitly instructs to "check github connection and push pull commits" (or directly requests pulling, committing, and pushing), the agent is fully authorized to automate the entire workflow: verify remote connection, pull/rebase upstream changes, stage working changes (`git add`), create commits (`git commit`), and push to GitHub (`git push`) automatically with no manual intervention required.
+- Outside of this explicit user request, agents must not run unprompted `git commit`, `git push`, force-push, tag creation, or pull requests.
 - Never add or commit chat prompts, copied prompt files, agent session notes, completion reports, audit scratch files, temporary Markdown, or generated instruction drafts to Git or GitHub.
 - Do not create repository Markdown files merely to store a prompt or the agent's report.
-- Existing project documentation may be edited only when the user explicitly requests a documentation change. Those edits must still remain uncommitted and unpushed.
-- `AGENTS.md` may be updated when the user explicitly asks to change agent rules, but the agent must not commit or push it.
-- Git status, diff, log, and other read-only inspection commands are allowed.
+- Existing project documentation may be edited only when the user explicitly requests a documentation change.
+- `AGENTS.md` may be updated when the user explicitly asks to change agent rules.
+- Git status, diff, log, and other read-only inspection commands are always allowed.
