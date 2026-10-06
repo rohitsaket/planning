@@ -11,22 +11,11 @@ import { Badge } from "@/components/diamond/shared/badges";
 import { Filter, X, Globe, FlaskConical, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-/**
- * The global country / branch / lab selector.
- *
- * The options are narrowed to what the signed-in account is authorized for. That is a
- * convenience, not a boundary: every API route resolves the same scope from the session
- * and refuses a request for anything outside it, so editing the query string by hand
- * gets a 403 rather than someone else's data.
- */
 export function GlobalFilterBar({ className }: { className?: string }) {
   const { country, branch, lab, windowDays, setCountry, setBranch, setLab, setWindowDays, reset, hasActiveFilters } = useGlobalFilter();
   const active = hasActiveFilters();
   const accessScope = useAuthStore((s) => s.user?.accessScope);
 
-  // A null list means unrestricted, so the full option list stands. A value the account is
-  // authorized for that this build has no label for is still offered, under its own code:
-  // dropping it would silently hide data the account may legitimately read.
   const countryOptions = useMemo(() => {
     const allowed = accessScope?.countries ?? null;
     if (allowed === null) return COUNTRY_OPTIONS;
@@ -52,7 +41,6 @@ export function GlobalFilterBar({ className }: { className?: string }) {
 
   return (
     <div className={cn("flex items-center gap-1.5 text-xs", className)}>
-      {/* Country */}
       <div className="flex items-center gap-1">
         <Select value={country ?? "ALL"} onValueChange={(v) => setCountry(v === "ALL" ? null : v)}>
           <SelectTrigger size="sm" className="h-8 min-w-[138px] px-2.5 text-xs bg-card/90 border-border/80 shadow-xs">
@@ -60,7 +48,6 @@ export function GlobalFilterBar({ className }: { className?: string }) {
             <SelectValue placeholder="All Countries" />
           </SelectTrigger>
           <SelectContent>
-            {/* "All" means all of what this account may see, which is not always all of it. */}
             <SelectItem value="ALL" className="text-xs font-medium">
               {countriesRestricted ? "All authorized countries" : "All Countries"}
             </SelectItem>
@@ -71,7 +58,6 @@ export function GlobalFilterBar({ className }: { className?: string }) {
         </Select>
       </div>
 
-      {/* Branch — only show branches for selected country */}
       {country && (
         <div className="flex items-center gap-1">
           <Select value={branch ?? "ALL"} onValueChange={(v) => setBranch(v === "ALL" ? null : v)}>
@@ -88,7 +74,6 @@ export function GlobalFilterBar({ className }: { className?: string }) {
         </div>
       )}
 
-      {/* Lab */}
       <div className="flex items-center gap-1">
         <Select value={lab ?? "ALL"} onValueChange={(v) => setLab(v === "ALL" ? null : v)}>
           <SelectTrigger size="sm" className="h-8 min-w-[110px] px-2.5 text-xs bg-card/90 border-border/80 shadow-xs">
@@ -106,7 +91,6 @@ export function GlobalFilterBar({ className }: { className?: string }) {
         </Select>
       </div>
 
-      {/* Window */}
       <div className="flex items-center gap-1">
         <Select value={String(windowDays)} onValueChange={(v) => setWindowDays(parseInt(v, 10))}>
           <SelectTrigger size="sm" className="h-8 min-w-[85px] px-2.5 text-xs bg-card/90 border-border/80 shadow-xs">
@@ -142,7 +126,6 @@ export function GlobalFilterBar({ className }: { className?: string }) {
         </div>
       )}
 
-      {/* Stated rather than left to be inferred from a short list of options. */}
       {(countriesRestricted || labsRestricted) && (
         <span title={accessScope?.summary}>
           <Badge variant="warning" className="gap-1 py-0.5 text-[10px]">
@@ -155,13 +138,6 @@ export function GlobalFilterBar({ className }: { className?: string }) {
   );
 }
 
-/**
- * Branches for a country.
- *
- * Branch is not a scope dimension of its own: a branch belongs to a country, so an
- * account restricted to particular countries can only ever reach the branches inside
- * them — the country selector above has already been narrowed.
- */
 function getBranches(country: string): string[] {
   const map: Record<string, string[]> = {
     US: ["New York", "Los Angeles"],

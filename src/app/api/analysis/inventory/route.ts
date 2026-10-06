@@ -21,14 +21,6 @@ import {
   type PositionGrouping,
 } from "@/lib/analysis/inventory-position";
 
-/**
- * ANALYSIS INVENTORY — one bounded read endpoint.
- *
- * Read-only: the handler performs no write of any kind, and in particular never repairs
- * a classification as a side effect of a page load. Classification repair is a separate,
- * authorized and audited mutation.
- */
-
 const SECTIONS = ["readiness", "position", "categories", "lots", "reconciliation"] as const;
 const STOCK_TYPES = ["POLISHED", "ROUGH", "WIP"] as const;
 
@@ -44,8 +36,6 @@ export const GET = withApi(
   }
 
   const filters: InventoryFilters = {
-    // The wrapper has already refused a request for a country or lab outside this
-    // caller's scope; carrying it here is what narrows the query itself.
     scope,
     country: qStr(url, "country", 60),
     branch: qStr(url, "branch", 60),
@@ -67,15 +57,10 @@ export const GET = withApi(
     pageSize: qInt(url, "pageSize", { def: INVENTORY_PAGE_DEFAULT, min: 1, max: INVENTORY_PAGE_MAX }),
   };
 
-  // `scope` is excluded: it is an authorization decision, not a filter the caller chose,
-  // and listing it as active would invite someone to try clearing it. The caller's own
-  // scope is disclosed separately, in full, on every response.
   const activeFilters = Object.entries(filters)
     .filter(([key, v]) => key !== "scope" && v !== null && v !== "")
     .map(([key, value]) => ({ key, value: String(value) }));
   const accessScope = describeScope(scope);
-  // Attached to every section, not just readiness: each Inventory tab fetches its own
-  // section, and a tab without the notice would present simulated lots unlabelled.
   const sourceDisclosure = await readInventorySourceDisclosure(filters);
 
   switch (section) {
@@ -90,8 +75,6 @@ export const GET = withApi(
     }
     case "lots": {
       const sort = qEnum(url, "sort", LOT_SORTS, "lastSeen") as LotSort;
-      // The source record id identifies a row inside the provider feed; it is shown only
-      // to a caller already trusted with Fantasy source detail.
       const canSeeSourceRecordId = principal.permissions.includes("fantasy.read");
       const result = await readLotInventory(filters, paging, sort, canSeeSourceRecordId);
       return ok({ section, sort, activeFilters, accessScope, sourceDisclosure, ...result });
@@ -102,15 +85,12 @@ export const GET = withApi(
     }
     default: {
       const result = await readInventoryReadiness();
-      // Readiness describes the whole canonical set, so it carries its own unfiltered
-      // disclosure rather than the filtered one computed above.
       return ok({ section: "readiness", activeFilters, accessScope, ...result });
     }
   }
   },
 );
 
-/** An optional enum parameter: absent is null, present-but-unknown is refused. */
 function qEnumOrNull<T extends string>(url: URL, name: string, values: readonly T[]): T | null {
   const raw = url.searchParams.get(name);
   if (raw === null || raw === "") return null;

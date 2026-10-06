@@ -1,13 +1,3 @@
-// Retired features stay retired: stock strategy, reorder signals, transfer analysis, forecasting
-// and predictive models, the reports library, realtime broadcasts, the generic settings page
-// with its feature flags, the shadow projection of raw Fantasy batches, the legacy Planning
-// Workbench, Approval Queue, Rough Availability and Rough Reservations with the approval
-// policy, the seeded Fantasy Rough stock page, the Requirements section with its seeded
-// requirement and order views, and the pages that fronted them. Their routes and modules do not exist, no page requests them, their permissions
-// cannot be granted or take effect, and the history that mentions them is still readable.
-// Pages are rendered from their real components and every request is answered by the real
-// route handler in the isolated planning_sectest database.
-
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { beforeAll, describe, expect, test } from "./harness";
@@ -41,17 +31,13 @@ const RETIRED_PERMISSIONS = [
   "feature_flag.read", "feature_flag.manage",
   "fantasy.projection.read", "fantasy.projection.run", "fantasy.projection.recover",
 ];
-/** The legacy planning workflow: cases, plan selection and approval, reservations, and the approval policy. */
 const LEGACY_PLANNING_PERMISSIONS = [
   "plan.read", "plan.create", "plan.select", "plan.approve", "plan.replan", "plan.export",
   "rough.reserve", "sarin.output.approve", "approval_policy.read", "approval_policy.manage",
 ];
-/** Fantasy rough stock: no authoritative source, only seeded records. */
 const ROUGH_STOCK_PERMISSIONS = ["rough.read"];
-/** The Requirements section and the export of its seeded customer orders. */
 const REQUIREMENT_PERMISSIONS = ["requirement.read", "requirement.create", "requirement.override", "requirement.export", "orders.export"];
 const ALL_RETIRED = [...RETIRED_PERMISSIONS, ...LEGACY_PLANNING_PERMISSIONS, ...ROUGH_STOCK_PERMISSIONS, ...REQUIREMENT_PERMISSIONS];
-/** Pages of the retired Requirements section and its hidden order views. */
 const REQUIREMENT_VIEWS = ["requirements-matrix", "requirements-priority-queue", "orders-exceptions", "replenishment-allocation", "requirements-orders", "requirements-replenishment", "requirements-backorders", "requirements-special", "requirements-forecast-signals", "requirements-allocation", "analysis-orders"];
 const RETIRED_API_DIRS = [
   "analysis/reorder-signals",
@@ -80,7 +66,6 @@ const RETIRED_API_DIRS = [
   "analysis/orders",
   "admin/approval-policy",
 ];
-// Modules that served only a retired feature.
 const RETIRED_MODULES = [
   "src/lib/analysis/reorder-signals.ts",
   "src/lib/analysis/business-language.ts",
@@ -158,7 +143,6 @@ function sourceFiles(dir: string): string[] {
   });
 }
 
-/** Runs a migration's statements, as `migrate deploy` would. */
 async function runMigration(file: string) {
   const sql = readFileSync(file, "utf8").split("\n").filter((l) => !l.startsWith("--")).join("\n");
   for (const statement of sql.split(";").filter((s) => s.trim())) await db.$executeRawUnsafe(statement);
@@ -217,7 +201,6 @@ describe("retired routes and pages are gone", () => {
     for (const [id, tab] of [["planning-rough-availability", null], ["fantasy-rough", null], ["fantasy-live", null], ["fantasy-live", "rough"]] as const) {
       expect([id, tab, resolveViewAlias(id as ViewId, tab)]).toEqual([id, tab, ROUGH]);
     }
-    // The old live page's polished stock still has a home.
     expect(resolveViewAlias("fantasy-live" as ViewId, "polished")).toEqual({ view: "fantasy-data", tab: "current" });
     const page = await renderAs(OutOfScopeView as ComponentType<object>, root, ROUGH.tab);
     expect([page.text.includes("Not available"), page.text.includes("No authoritative rough-stock source is configured.")]).toEqual([true, true]);
@@ -230,7 +213,6 @@ describe("retired routes and pages are gone", () => {
     const page = await renderAs(OutOfScopeView as ComponentType<object>, root, TARGET.tab);
     expect([page.text.includes("Not available"), page.text.includes("Requirements and order workflows are not configured for this planning utility.")]).toEqual([true, true]);
     expect(page.requested).toEqual([]);
-    // No retained view permission, palette entry or page still names them.
     for (const id of REQUIREMENT_VIEWS) expect([id, isViewAuthorized(permissionsFor("SUPER_ADMIN") as string[], id)]).toEqual([id, false]);
   });
 
@@ -279,8 +261,6 @@ describe("retired permissions cannot be granted or take effect", () => {
     const res = await createRole(roleCode, ["analysis.read"]);
     expect(res.status).toBe(200);
     const role = await db.role.findUniqueOrThrow({ where: { code: roleCode } });
-    // Grants as a database held them before the withdrawals, in history order: approval_policy.read
-    // is not seeded, because the approval-policy migration itself derives it from feature_flag.read.
     const leftovers = ALL_RETIRED.filter((code) => code !== "approval_policy.read");
     await db.rolePermission.createMany({ data: leftovers.map((permissionCode) => ({ roleId: role.id, permissionCode, reason: "pre-withdrawal grant" })) });
     const u = await makeUser(`retired.leftover.${Date.now().toString(36)}`, "VIEWER");
@@ -291,14 +271,10 @@ describe("retired permissions cannot be granted or take effect", () => {
     expect(session.permissions.includes("analysis.read")).toBe(true);
     for (const code of ALL_RETIRED) expect([code, (session.permissions as string[]).includes(code)]).toEqual([code, false]);
 
-    // A leftover rough.read, rough.reserve or plan.read grant opens nothing: not Fantasy Data,
-    // and not its stock, which the server refuses.
     expect(isViewAuthorized(session.permissions as string[], "fantasy-data")).toBe(false);
     resetRateLimits();
     expect((await call(fantasyPolished, { cookie: u.cookie, path: "/api/fantasy/polished" })).status).toBe(403);
 
-    // Running the withdrawals twice is safe: they touch only the retired grants. Viewing the old
-    // settings once carried over as viewing the approval policy, which is itself now retired.
     for (let run = 0; run < 2; run++) for (const file of [WITHDRAW_FEATURES, APPROVAL_POLICY, WITHDRAW_PROJECTION, RETIRE_PLANNING, RETIRE_ROUGH, RETIRE_REQUIREMENTS]) await runMigration(file);
     const left = await db.rolePermission.findMany({ where: { roleId: role.id }, select: { permissionCode: true } });
     expect(left.map((p) => p.permissionCode).sort()).toEqual(["analysis.read"]);
@@ -317,13 +293,13 @@ describe("retired permissions cannot be granted or take effect", () => {
     await runMigration(RETIRE_PLANNING);
     expect(await codes()).toEqual(["analysis.read", "fantasy.read"]);
     expect(await withdrawals()).toBe(2);
-    await runMigration(RETIRE_PLANNING); // idempotent: nothing more to record or delete
+    await runMigration(RETIRE_PLANNING);
     expect([await codes(), await withdrawals()]).toEqual([["analysis.read", "fantasy.read"], 2]);
 
     await runMigration(RESTORE_PLANNING);
     const restored = await db.rolePermission.findMany({ where: { roleId: role.id }, orderBy: { permissionCode: "asc" } });
     expect(restored).toEqual(original);
-    await runMigration(RESTORE_PLANNING); // idempotent as well
+    await runMigration(RESTORE_PLANNING);
     expect((await codes()).length).toBe(4);
 
     await runMigration(RETIRE_PLANNING);
@@ -347,11 +323,11 @@ describe("retired permissions cannot be granted or take effect", () => {
     expect(records.map((r) => JSON.parse(r.before!).permissionCode).sort()).toEqual([...REQUIREMENT_PERMISSIONS].sort());
     for (const r of records) expect(Math.abs(r.timestamp.getTime() - startedAt) < 60_000).toBe(true);
 
-    await runMigration(RETIRE_REQUIREMENTS); // idempotent
+    await runMigration(RETIRE_REQUIREMENTS);
     expect([(await grants()).length, (await withdrawn()).length]).toEqual([2, 5]);
     await runMigration(RESTORE_REQUIREMENTS);
     expect(await grants()).toEqual(original);
-    await runMigration(RESTORE_REQUIREMENTS); // restoring twice adds nothing
+    await runMigration(RESTORE_REQUIREMENTS);
     expect((await grants()).length).toBe(original.length);
     await runMigration(RETIRE_REQUIREMENTS);
     expect([(await grants()).map((g) => g.permissionCode), (await withdrawn()).length]).toEqual([["analysis.read", "orders.read"], 10]);
@@ -365,8 +341,6 @@ describe("retired permissions cannot be granted or take effect", () => {
       expect((await createRole(code, ["analysis.read", "fantasy.read"])).status).toBe(200);
       roles.push(await db.role.findUniqueOrThrow({ where: { code } }));
     }
-    // Grants from before the retirement, including one of another retired code the rough
-    // migration must leave to its own migration.
     const assignedAt = new Date("2026-02-01T08:30:00.000Z");
     await db.rolePermission.createMany({
       data: [
@@ -386,15 +360,14 @@ describe("retired permissions cannot be granted or take effect", () => {
     expect(left).toEqual(["A:analysis.read", "A:fantasy.read", "B:analysis.read", "B:fantasy.read", "B:plan.read"]);
     const records = await withdrawn();
     expect(records.map((r) => JSON.parse(r.before!).permissionCode)).toEqual(["rough.read", "rough.read"]);
-    // Stored in UTC: within a minute of now, not hours away in a local zone.
     for (const r of records) expect(Math.abs(r.timestamp.getTime() - startedAt) < 60_000).toBe(true);
 
-    await runMigration(RETIRE_ROUGH); // idempotent
+    await runMigration(RETIRE_ROUGH);
     expect([(await grants()).length, (await withdrawn()).length]).toEqual([5, 2]);
 
     await runMigration(RESTORE_ROUGH);
     expect(await grants()).toEqual(original);
-    await runMigration(RESTORE_ROUGH); // restoring twice adds nothing
+    await runMigration(RESTORE_ROUGH);
     expect((await grants()).length).toBe(original.length);
 
     await runMigration(RETIRE_ROUGH);
@@ -521,7 +494,6 @@ describe("legacy planning history stays readable", () => {
       const res = await call(auditGet, { cookie: root.cookie, path: `/api/admin/audit?action=${e.action}` });
       expect([e.action, res.status, (res.json.rows as Array<{ id: string; reason: string }>).find((r) => r.id === e.id)?.reason]).toEqual([e.action, 200, e.reason]);
     }
-    // A rough-stone audit entry still reads in business terms.
     const roughEntry = await db.auditLog.create({ data: { actor: "historical.planner", action: "ROUGH_STATUS_CHANGED", entity: "RoughStone", entityId: c.roughId, reason: "Historical rough stone status change" } });
     resetRateLimits();
     const roughRes = await call(auditGet, { cookie: root.cookie, path: "/api/admin/audit?entity=RoughStone" });

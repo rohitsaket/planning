@@ -14,32 +14,9 @@ import {
 import { reconcileOperationalProjection } from "@/lib/fantasy/operational-projection";
 import { loadLabMappings } from "@/lib/fantasy/sync-service";
 
-/**
- * Canonical-to-demand category agreement.
- *
- * The planning category was decided twice — once by the synchronizer onto the canonical
- * record, once by the demand calculation from the raw columns through whatever the
- * mapping tables held at run time. The two disagreed in production: canonical inventory
- * grouped 66 lots under lab `Other` while the demand result carried a lab called `IGI`
- * that existed in no canonical record. Inventory, Aging and lab scope read one
- * vocabulary; Stockout and Excess read the other.
- *
- * Re-deriving also made a committed run retroactively mutable: editing a mapping row
- * changed what yesterday's categorisation meant.
- *
- * These tests hold the single decision in place.
- */
-
 const BATCH = "CATCLASS-TEST";
 const BASE = new Date("2026-06-15T00:00:00.000Z");
 
-/**
- * The band a weight actually resolves to in this database.
- *
- * Other suites seed the confirmed band set, whose ranges overlap this suite's. Asserting
- * a hardcoded label would be asserting which suite ran first, not what the classifier
- * decided.
- */
 async function bandLabelFor(weightCt: number): Promise<string> {
   const band = await db.weightBand.findFirst({
     where: { active: true, minCt: { lte: weightCt }, maxCt: { gte: weightCt } },
@@ -130,8 +107,6 @@ describe("Category classification — an unapproved value never becomes a catego
   });
 
   test("an unapproved lab leaves labNormalized null rather than storing the raw value", () => {
-    // `EGL_UNAPPROVED` reached `DemandMetric.labNormalized` in production and became the
-    // category `EGL_UNAPPROVED|ROUND|1.00-1.09`. It is not a lab; it is the absence of one.
     const c = classifyCanonicalCategory({ labRaw: "EGL_UNAPPROVED", shapeRaw: "ROUND", weightCt: 1.2 }, ctx);
     expect({ lab: c.labNormalized, labState: c.labState, key: c.categoryKey, state: c.state }).toEqual({
       lab: null,
@@ -143,8 +118,6 @@ describe("Category classification — an unapproved value never becomes a catego
   });
 
   test("a placeholder normalization target is not an approval", () => {
-    // Mapping every unmapped lab onto `Other` merges genuinely different labs into one
-    // valid-looking bucket. Two labs nobody has mapped are not the same lab.
     for (const placeholder of PLACEHOLDER_NORMALIZATIONS) {
       const local = { ...ctx, labMappings: new Map([["ZZLAB", placeholder]]) };
       const c = classifyCanonicalCategory({ labRaw: "ZZLAB", shapeRaw: "ROUND", weightCt: 1.2 }, local);
@@ -160,8 +133,6 @@ describe("Category classification — an unapproved value never becomes a catego
     const band = classifyCanonicalCategory({ labRaw: "GIA", shapeRaw: "ROUND", weightCt: 0.25 }, ctx);
     expect({ b: band.weightBandLabel, r: band.reviewReasons }).toEqual({ b: null, r: ["WEIGHT_BAND_UNRESOLVED"] });
 
-    // No partial key: a category identified by two confirmed dimensions and one guess is
-    // not a category.
     expect(shape.categoryKey).toBe(null);
     expect(band.categoryKey).toBe(null);
   });
@@ -181,9 +152,7 @@ describe("Category classification — canonical and demand agree", () => {
     await ensureReferenceData();
     await makeLot({ lotId: `${BATCH}-OK-1`, labRaw: "GIA", shape: "ROUND", weight: 1.2 });
     await makeLot({ lotId: `${BATCH}-OK-2`, labRaw: "GIA", shape: "OVAL", weight: 2.1 });
-    // Unapproved lab: must never key a category.
     await makeLot({ lotId: `${BATCH}-BAD-LAB`, labRaw: "EGL_UNAPPROVED", shape: "ROUND", weight: 1.2 });
-    // Unapproved shape.
     await makeLot({ lotId: `${BATCH}-BAD-SHAPE`, labRaw: "GIA", shape: "HEXAGON_TEST", weight: 1.2 });
     const run = await runDemandCalculation({ actor: "catclass-test", windowDays: 90, referenceDate: BASE });
     runId = run.runId;
@@ -201,8 +170,6 @@ describe("Category classification — canonical and demand agree", () => {
         distinct: ["labNormalized"],
       })).map((r) => r.labNormalized),
     );
-    // A lab in the demand result that no canonical record carries is the exact
-    // divergence this change removes.
     const orphanLabs = metrics
       .map((m) => m.labNormalized)
       .filter((l) => l !== null && !canonicalLabs.has(l));
@@ -225,11 +192,8 @@ describe("Category classification — canonical and demand agree", () => {
       where: { runId, lotId: { in: [`${BATCH}-BAD-LAB`, `${BATCH}-BAD-SHAPE`] } },
       select: { lotId: true, planningCategory: true, isIncluded: true },
     });
-    // Visible — a record nobody can categorise must not vanish from the trace.
     expect(traced.length >= 2).toBe(true);
     expect(traced.every((t) => t.isIncluded === false)).toBe(true);
-    // And filed in the quarantine bucket, never under a category built from its own
-    // unapproved value.
     expect(traced.every((t) => !t.planningCategory.includes("EGL_UNAPPROVED"))).toBe(true);
   });
 
@@ -268,7 +232,6 @@ describe("Category classification — a committed run is not retroactively re-ca
     });
     expect(before.length > 0).toBe(true);
 
-    // Re-point GIA at a different normalization, as an administrator might.
     const gia = await db.labMapping.findFirst({ where: { rawLab: "GIA" } });
     mappingId = gia!.id;
     await db.labMapping.update({ where: { id: mappingId }, data: { normalizedLab: "GIA-REBRANDED" } });
@@ -280,8 +243,6 @@ describe("Category classification — a committed run is not retroactively re-ca
     });
     expect(after).toEqual(before);
 
-    // And the canonical record keeps the decision it was projected with, so a re-run
-    // reads the same category rather than silently re-categorising committed stock.
     const lot = await db.lotMasterRecord.findUnique({
       where: { lotId: `${BATCH}-FROZEN` },
       select: { labNormalized: true, categoryKey: true },
@@ -303,7 +264,6 @@ describe("Category classification — a committed run is not retroactively re-ca
       select: { categoryKey: true, labNormalized: true },
     });
     expect(after).toEqual(before);
-    // Nothing to classify on a second pass.
     expect(result.classificationsWritten).toBe(0);
   });
 });
@@ -320,7 +280,6 @@ describe("Category classification — one vocabulary across every surface", () =
     await runDemandCalculation({ actor: "catclass-scope", windowDays: 90, referenceDate: BASE });
     const user = await makeUser("catclass.analyst", "ANALYSIS_MANAGER");
     cookie = user.cookie;
-    // A lab-scoped reader, restricted to the one approved lab.
     await db.userAccessScope.create({
       data: { userId: user.user.id, dimension: "LAB", value: "GIA", reason: "test fixture" },
     });
@@ -342,8 +301,6 @@ describe("Category classification — one vocabulary across every surface", () =
     expect(so.status).toBe(200);
     const soLabs = new Set((so.json.rows as Array<{ lab: string }>).map((r) => r.lab).filter(Boolean));
 
-    // Every lab Stockout reports is one Inventory also knows. Before the single
-    // classification these two sets could be disjoint for the same physical stock.
     const unknownToInventory = [...soLabs].filter((l) => !invLabs.has(l));
     expect(unknownToInventory).toEqual([]);
   });
@@ -365,8 +322,6 @@ describe("Category classification — the status vocabulary is closed again", ()
     const source = readFileSync("src/lib/fantasy/canonical.ts", "utf8");
     const type = source.slice(source.indexOf("export type CanonicalLotStatus"));
     const declaration = type.slice(0, type.indexOf(";") + 1);
-    // `| (string & {})` makes the union equivalent to `string`, so any provider value
-    // type-checks and the compiler can no longer say a status is unknown.
     expect(declaration.includes("string & {}")).toBe(false);
     expect(declaration.includes('"ROUGH_AVAILABLE"')).toBe(true);
   });
@@ -375,9 +330,6 @@ describe("Category classification — the status vocabulary is closed again", ()
     const source = readFileSync("src/lib/demand/demand-service.ts", "utf8")
       .replace(/\/\*[\s\S]*?\*\//g, "")
       .replace(/^\s*\/\/.*$/gm, "");
-    // The canonical loops must read the persisted decision. `resolveLabNormalization`
-    // remains for the plan-piece loop, which reads a plan's certification intent rather
-    // than a canonical record.
     expect(/resolveLabNormalization\(\s*rec\.labRaw/.test(source)).toBe(false);
     expect(/resolveLabNormalization\(\s*inv\.labRaw/.test(source)).toBe(false);
     expect(source.includes("persistedCategoryOf(rec)")).toBe(true);

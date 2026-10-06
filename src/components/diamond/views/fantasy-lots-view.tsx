@@ -58,7 +58,6 @@ function useDebounced<T>(value: T, ms: number): T {
   return v;
 }
 
-/** Fantasy ERP → Live Data → Lots: the synchronized lot listing with the 46 contract columns. */
 export function FantasyLotsView() {
   const qc = useQueryClient();
   const perms = useAuthStore((s) => s.user?.permissions ?? []);
@@ -81,8 +80,6 @@ export function FantasyLotsView() {
     return `/api/fantasy/live-data?${p.toString()}`;
   }, [page, pageSize, q, filters, sort]);
 
-  // UI refresh of the LOCAL database every 60s while the page is open. The backend scheduler is
-  // the only thing that talks to Fantasy.
   const { data, isLoading, isError, refetch } = useApi<LiveDataResponse>(url, { refetchInterval: 60_000 });
   const { data: facets } = useApi<Facets>("/api/fantasy/live-data/facets", { staleTime: 5 * 60_000 });
   const { data: status, refetch: refetchStatus } = useApi<SyncStatus>("/api/fantasy/sync/status", { refetchInterval: 30_000 });
@@ -109,8 +106,6 @@ export function FantasyLotsView() {
     }
   };
 
-  // Fallback while Fantasy's listing endpoint is down: import the grid's own Excel/CSV export.
-  // Multipart upload, so this is the one place the shared JSON client is not used.
   const handleImportFile = async (file: File) => {
     setImporting(true);
     try {

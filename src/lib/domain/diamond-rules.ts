@@ -1,8 +1,3 @@
-// ============================================================================
-// CORE DOMAIN: WEIGHT BANDS, LAB NORMALIZATION, SHAPE MAPPING
-// Single authoritative implementation of confirmed business rules.
-// ============================================================================
-
 export interface WeightBandDef {
   code: string;
   label: string;
@@ -11,8 +6,6 @@ export interface WeightBandDef {
   sortOrder: number;
 }
 
-// Confirmed analytical weight bands (starts at 1.00 ct).
-// Inclusive lower bound, inclusive upper bound, no gaps for in-scope values.
 export const CONFIRMED_WEIGHT_BANDS: WeightBandDef[] = [
   { code: "WB_1.00_1.09", label: "1.00-1.09", minCt: 1.0, maxCt: 1.09, sortOrder: 1 },
   { code: "WB_1.10_1.49", label: "1.10-1.49", minCt: 1.1, maxCt: 1.49, sortOrder: 2 },
@@ -40,10 +33,6 @@ export const CONFIRMED_WEIGHT_BANDS: WeightBandDef[] = [
   { code: "WB_25_PLUS", label: "25+", minCt: 25.0, maxCt: 999999, sortOrder: 24 },
 ];
 
-/**
- * Decimal-safe weight-band lookup. Uses scaled integers (carats * 1000) to
- * avoid floating-point boundary bugs.
- */
 export function classifyWeightBand(weightCt: number | string | null | undefined): WeightBandDef | null {
   if (weightCt === null || weightCt === undefined) return null;
   const w = typeof weightCt === "string" ? parseFloat(weightCt) : weightCt;
@@ -57,9 +46,6 @@ export function classifyWeightBand(weightCt: number | string | null | undefined)
   return null;
 }
 
-// ---------------------------------------------------------------------------
-// LAB NORMALIZATION
-// ---------------------------------------------------------------------------
 export const CONFIRMED_LAB_MAPPINGS: { raw: string; normalized: string }[] = [
   { raw: "GIA", normalized: "GIA" },
   { raw: "GIA-Premium", normalized: "GIA" },
@@ -79,9 +65,6 @@ export function normalizeLab(rawLab: string | null | undefined): { normalized: s
   return { normalized: trimmed, known: false };
 }
 
-// ---------------------------------------------------------------------------
-// SHAPE NORMALIZATION
-// ---------------------------------------------------------------------------
 export const CONFIRMED_SHAPE_MAPPINGS: { raw: string; normalized: string }[] = [
   { raw: "ROUND", normalized: "Round" },
   { raw: "OLD ROUND", normalized: "Old European Brilliant" },
@@ -125,14 +108,6 @@ export function normalizeShape(rawShape: string | null | undefined): { normalize
   return { normalized: trimmed, known: false };
 }
 
-// ---------------------------------------------------------------------------
-// DEMAND CALCULATION — confirmed 90-day rule, decimal-safe rounding
-// ---------------------------------------------------------------------------
-
-/**
- * Conventional round-half-up to nearest integer.
- * 5.49 -> 5, 5.50 -> 6, 5.51 -> 6, 5.33 -> 5.
- */
 export function roundHalfUpInt(value: number): number {
   if (!Number.isFinite(value)) return 0;
   return Math.floor(value + 0.5 + 1e-9);
@@ -176,9 +151,6 @@ export function calculateDemand(input: DemandInput): DemandResult {
   };
 }
 
-// ---------------------------------------------------------------------------
-// TREND CLASSIFICATION
-// ---------------------------------------------------------------------------
 export type TrendClass =
   | "Strong Growth"
   | "Growth"
@@ -210,9 +182,6 @@ export function classifyTrend(prev30: number, mid30: number, latest30: number): 
   return { trend: "Stable", pctChange: pct };
 }
 
-// ---------------------------------------------------------------------------
-// STOCKOUT RISK
-// ---------------------------------------------------------------------------
 export type StockoutRisk = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
 
 export function classifyStockoutRisk(projected30d: number, projected90d: number): StockoutRisk {
@@ -223,9 +192,6 @@ export function classifyStockoutRisk(projected30d: number, projected90d: number)
   return "LOW";
 }
 
-// ---------------------------------------------------------------------------
-// PRIORITY HELPERS
-// ---------------------------------------------------------------------------
 export const REQUIREMENT_PRIORITIES = ["CRITICAL", "HIGH", "NORMAL", "LOW", "WATCH"] as const;
 export const CUSTOMER_PRIORITIES = ["Strategic", "Key", "Standard", "New", "Internal"] as const;
 export const REQUIREMENT_TYPES = [

@@ -125,7 +125,6 @@ interface LotTimelineResponse {
   }>;
 }
 
-/** Business labels for why a lot left current stock; an unknown code reads "Removed". */
 const REMOVAL_LABEL: Record<string, string> = {
   EXPLICIT_SALE: "Sold",
   SOURCE_DISAPPEARANCE_UNKNOWN: "Removed (no sale)",
@@ -336,7 +335,6 @@ export function OverallDataView() {
       </InfoBanner>
       )}
 
-      {/* KPI Summary Grid */}
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
         <KpiCard
           label="Total Lots Retained"
@@ -370,7 +368,6 @@ export function OverallDataView() {
         />
       </div>
 
-      {/* Table & Filtering Section */}
       <Section title="Master Lot Repository" description="Search lots and view their history">
         <div className="flex flex-col sm:flex-row items-center justify-between gap-2 mb-3">
           <div className="flex items-center gap-1.5 bg-muted/40 p-1 rounded-md border border-border">
@@ -426,7 +423,6 @@ export function OverallDataView() {
         />
       </Section>
 
-      {/* Historical Timeline Drawer / Dialog */}
       <Dialog open={!!selectedLotId} onOpenChange={(open) => !open && setSelectedLotId(null)}>
         <DialogContent className="max-w-4xl sm:max-w-4xl max-h-[88dvh] overflow-y-auto">
           <DialogHeader>
@@ -445,7 +441,6 @@ export function OverallDataView() {
 
           {detailData && (
             <div className="space-y-4 pt-2">
-              {/* Current Master Summary Box */}
               <div className="rounded-lg border border-border bg-card p-3 space-y-2 text-xs">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
@@ -485,7 +480,6 @@ export function OverallDataView() {
                 </div>
               </div>
 
-              {/* Version Timeline */}
               <div className="space-y-3">
                 <h4 className="text-xs font-semibold text-foreground uppercase tracking-wider">
                   History ({detailData.timeline.length} versions)

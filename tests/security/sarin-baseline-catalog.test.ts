@@ -1,13 +1,3 @@
-// The built-in Sarin shape master: installed by migration as the effective catalog, used by
-// Blue, White and Pink processing without any mapping step, and shown on the Mappings page
-// before any file is imported.
-//
-// Registered first among the Sarin suites, so it meets the catalog exactly as a fresh
-// installation has it; it never changes the catalog. Files go through Workbook Import's own
-// processing code and the real routes against the isolated planning_sectest database. The
-// expected master below restates the SARIN SHAPE workbook (ID, EXCEL, SARIN columns) and
-// design v1.7 §15.10 independently of the migration that seeds it. All records are synthetic.
-
 import { beforeAll, describe, expect, test } from "./harness";
 import { call, db, ensureLabRegistry, makeUser } from "./helpers";
 import { renderPage, routeFetch, sessionUser } from "./ui-render";
@@ -23,7 +13,6 @@ import { WorkbookImportView } from "@/components/diamond/views/workbook-import-v
 import { SarinShapeMappingsView } from "@/components/diamond/views/sarin/sarin-shape-mappings-view";
 import { processFile, rightsOf, type ProcessingStage } from "@/components/diamond/views/sarin/sarin-processing";
 
-// [Fantasy code, Fantasy shape, Sarin shape, Ratio from, Ratio to] — the confirmed master.
 const MASTER: Array<[string, string, string, string | null, string | null]> = [
   ["BR", "Round", "ROUND", null, null],
   ["EURO", "Old European Brilliant", "OLD ROUND", null, null],
@@ -58,8 +47,6 @@ const MASTER: Array<[string, string, string, string | null, string | null]> = [
   ["HM", "Moon Half", "HALF_MOON", null, null],
   ["BAG", "Baguette", "BAGUETTE-LW", null, null],
 ];
-// Confirmed by the client after the master: RAD MODIFIED is Kriss Cut, for every Ratio. Its
-// Fantasy code is in no authoritative source yet, so it has none.
 const CONFIRMED_SINCE: Array<[string | null, string, string, string | null, string | null]> = [[null, "Kriss Cut", "RAD MODIFIED", null, null]];
 const UNCONFIRMED = ["EMERALD 4STEP", "NP-1235-6-KITE"];
 const key = (s: string) => s.trim().toUpperCase();
@@ -69,7 +56,6 @@ let root: User, planner: User, reader: User, manager: User, operator: User, scop
 let baselineId = "";
 let installedId = "";
 
-// ---- synthetic files ------------------------------------------------------------------------
 let nonce = 0;
 const kapan = () => `3${String(++nonce).padStart(3, "0")}B`;
 interface Rec { name: string; shape: string; est?: string; rough?: string; ratio?: string }
@@ -96,9 +82,7 @@ async function userWith(name: string, permissions: string[]) {
   return u;
 }
 
-/** A Pink stone of 45 records in the confirmed order, written only with confirmed Sarin shapes. */
 function confirmedPinkStone(name: string): Rec[] {
-  // Family order Round, Pear, Oval, Asscher, Emerald, Radiant, Cushion, Antique Cushion, Heart.
   const as = (shape: string): Rec => (shape === "ASSCHER" ? { name, shape: "EMERALD 5STEP", ratio: "1.020" } : shape === "EMERALD" ? { name, shape: "EMERALD 5STEP", ratio: "1.450" } : { name, shape });
   const raw: Record<string, string> = { ROUND: "ROUND", PEAR: "LeoPear11", OVAL: "LeoOval22", RADIANT: "RAD4(1)", CUSHION: "BE.CU.LONG", "ANTIQUE CUSHION": "ANTIK-CU-LONG", HEART: "S.HEART" };
   const rec = (shape: string, est: string): Rec => ({ ...(raw[shape] ? { name, shape: raw[shape] } : as(shape)), est });
@@ -115,7 +99,6 @@ beforeAll(async () => {
   planner = await makeUser("base.planner", "PLANNER");
   reader = await userWith("reader", ["sarin.mapping.read"]);
   manager = await userWith("manager", ["sarin.mapping.read", "sarin.mapping.manage"]);
-  // Processes files and may also maintain mappings.
   operator = await userWith("operator", ["sarin.import.read", "sarin.import.upload", "sarin.import.validate", "sarin.output.generate", "sarin.output.export", "sarin.mapping.read", "sarin.mapping.manage"]);
   scoped = await makeUser("base.scoped", "PLANNER");
   await db.userAccessScope.create({ data: { userId: scoped.user.id, dimension: "LAB", value: "BASE-LAB-A" } });
@@ -124,15 +107,12 @@ beforeAll(async () => {
 });
 const ruleKey = (shape: string, sarin: string, lo: string | null, hi: string | null) => [shape, key(sarin), lo, hi].join("|");
 
-// =========================================================================================
 describe("sarin baseline catalog: installed with the database", () => {
   test("a fresh installation has the confirmed master and the confirmed Kriss Cut rule in effect before any Sarin file is imported", async () => {
     expect([await db.sarinImportBatch.count(), await db.sarinSourceRow.count()]).toEqual([0, 0]);
     expect(await effectiveSnapshotId()).toBe(installedId);
     const rulesOf = (rules: Array<{ normalizedShape: string; rawShapeKey: string; ratioMin: { toFixed(n: number): string } | null; ratioMax: { toFixed(n: number): string } | null }>) =>
       rules.map((r) => ruleKey(r.normalizedShape, r.rawShapeKey, r.ratioMin?.toFixed(3) ?? null, r.ratioMax?.toFixed(3) ?? null)).sort();
-    // The master, seeded by migration, became effective and was then replaced by the snapshot
-    // the Kriss Cut migration installed from it; nobody approved either.
     const baseline = await db.sarinShapeMappingSet.findUniqueOrThrow({ where: { id: baselineId }, include: { rules: true } });
     expect([baseline.status, baseline.version, baseline.supersededBySetId, baseline.approvedByUserId]).toEqual(["SUPERSEDED", 1, installedId, null]);
     expect(rulesOf(baseline.rules)).toEqual(MASTER.map(([, shape, sarin, lo, hi]) => ruleKey(shape, sarin, lo, hi)).sort());
@@ -142,8 +122,6 @@ describe("sarin baseline catalog: installed with the database", () => {
     const kriss = set.rules.find((r) => r.rawShapeKey === "RAD MODIFIED")!;
     expect([kriss.normalizedShape, kriss.conditionKind, kriss.ratioMin, kriss.ratioMax, kriss.changedByUserId]).toEqual(["Kriss Cut", "NONE", null, null, null]);
     expect(set.rules.some((r) => UNCONFIRMED.includes(r.rawShapeKey))).toBe(false);
-    // The migration's system audit event is not asserted here: earlier suites reset the audit
-    // table (resetDb), so it is verified where the migration runs, on its own database.
   });
 
   test("every Fantasy shape carries its master code; Kriss Cut is in the vocabulary once, with no invented code", () => {
@@ -151,7 +129,6 @@ describe("sarin baseline catalog: installed with the database", () => {
     expect(Object.keys(SARIN_FANTASY_SHAPE_CODES).sort()).toEqual([...SARIN_ECOSYSTEM_SHAPES].sort());
     const codes = Object.values(SARIN_FANTASY_SHAPE_CODES).filter((c): c is string => c !== null);
     expect([new Set(codes).size, codes.length, SARIN_FANTASY_SHAPE_CODES["Kriss Cut"]]).toEqual([codes.length, SARIN_ECOSYSTEM_SHAPES.length - 1, null]);
-    // One canonical identity: no two shapes differ only by case or spacing.
     expect(new Set(SARIN_ECOSYSTEM_SHAPES.map((s) => s.trim().toUpperCase())).size).toBe(SARIN_ECOSYSTEM_SHAPES.length);
     expect(SARIN_ECOSYSTEM_SHAPES.filter((s) => s.toUpperCase().replace(/\s+/g, " ") === "KRISS CUT")).toEqual(["Kriss Cut"]);
   });
@@ -187,13 +164,12 @@ describe("sarin baseline catalog: installed with the database", () => {
   });
 });
 
-// =========================================================================================
 describe("sarin baseline catalog: processing with the master", () => {
   test("a Blue file of confirmed shapes goes from Process File straight to output", async () => {
     const k = kapan();
     const recs: Rec[] = [
       ...Array.from({ length: 13 }, () => ({ name: `${k}-001 DC`, shape: "ROUND" })),
-      { name: `${k}-001 DC`, shape: "Moval" }, // mixed case: compared without case, as §15.10 confirms
+      { name: `${k}-001 DC`, shape: "Moval" },
       { name: `${k}-001 DC`, shape: "BEZEL PRINCESS" },
       { name: `${k}-001 DC`, shape: "EMERALD 5STEP", ratio: "1.030" },
       { name: `${k}-001 DC`, shape: "EMERALD 5STEP", ratio: "1.400" },
@@ -240,13 +216,11 @@ describe("sarin baseline catalog: processing with the master", () => {
     const recs: Rec[] = [...["ROUND", "LEOOVAL22", "LEOPEAR11", "MOVAL", "BEZEL PRINCESS"].flatMap((shape) => Array.from({ length: 3 }, () => ({ name: `${k}-001 DC`, shape }))), { name: `${k}-001 DC`, shape: "HEXA CUT" }, { name: `${k}-001 DC`, shape: "ROUND" }];
     const r = await run(planner, recs, "base-unknown.csv", "BLUE");
     expect([r.failure, r.stages, (await db.sarinImportBatch.findUniqueOrThrow({ where: { id: r.batchId! } })).status]).toEqual([null, ["uploading", "checking", "preparing"], "VALIDATED"]);
-    // Design v1.7 §15.10: the unknown shape keeps its raw text in the output; nothing is guessed.
     const raw = await db.sarinPlanPiece.findMany({ where: { batchId: r.batchId!, shapeResolution: "RAW_PASSTHROUGH" }, select: { rawShape: true, normalizedShape: true } });
     expect(raw).toEqual([{ rawShape: "HEXA CUT", normalizedShape: null }]);
     const needing = (await catalog()).needsMapping.map((s: any) => s.sarinShape);
     expect(needing.includes("HEXA CUT")).toBe(true);
     for (const known of ["ROUND", "LEOOVAL22", "LEOPEAR11", "MOVAL", "BEZEL PRINCESS", "EMERALD 5STEP"]) expect([known, needing.includes(known)]).toEqual([known, false]);
-    // An imported unconfirmed shape is listed once, under Needs Mapping, not again as unconfirmed.
     expect((await catalog()).unconfirmed).toEqual(["NP-1235-6-KITE"]);
   });
 
@@ -259,7 +233,6 @@ describe("sarin baseline catalog: processing with the master", () => {
     const rows = (await call(listInterpretations, { cookie: planner.cookie, path: "/api/x?pageSize=500", params: { batchId: r.batchId! } })).json.rows as any[];
     const got = rows.filter((x) => x.rawShape === "EMERALD 5STEP").sort((a, b) => a.sourceRowNumber - b.sourceRowNumber).map((x) => x.normalizedShape);
     expect(got).toEqual([null, "Asscher", "Asscher", null, null, "Emerald", "Emerald"]);
-    // A shape whose Ratio falls between the ranges needs attention; the confirmed ranges are not changed.
     const row = (await catalog()).needsMapping.find((s: any) => s.sarinShape === "EMERALD 5STEP");
     expect(row.observedRatio).toEqual({ lowest: "0.999", highest: "1.399" });
     expect(await effectiveSnapshotId()).toBe(installedId);

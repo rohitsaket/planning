@@ -3,10 +3,10 @@
 import { create } from "zustand";
 
 export interface GlobalFilter {
-  country: string | null; // null = all countries
-  branch: string | null; // null = all branches
-  lab: string | null; // null = all labs
-  windowDays: number; // default 90
+  country: string | null;
+  branch: string | null;
+  lab: string | null;
+  windowDays: number;
 }
 
 interface GlobalFilterState extends GlobalFilter {
@@ -15,9 +15,7 @@ interface GlobalFilterState extends GlobalFilter {
   setLab: (lab: string | null) => void;
   setWindowDays: (days: number) => void;
   reset: () => void;
-  // Build a query string suffix for APIs that accept these filters
   toQueryString: () => string;
-  // Whether any filter is active
   hasActiveFilters: () => boolean;
 }
 
@@ -30,7 +28,7 @@ const DEFAULTS = {
 
 export const useGlobalFilter = create<GlobalFilterState>((set, get) => ({
   ...DEFAULTS,
-  setCountry: (country) => set({ country, branch: null }), // reset branch when country changes
+  setCountry: (country) => set({ country, branch: null }),
   setBranch: (branch) => set({ branch }),
   setLab: (lab) => set({ lab }),
   setWindowDays: (windowDays) => set({ windowDays }),
@@ -51,7 +49,6 @@ export const useGlobalFilter = create<GlobalFilterState>((set, get) => ({
   },
 }));
 
-// Available filter options (static — could be fetched from API)
 export const COUNTRY_OPTIONS = [
   { value: "US", label: "🇺🇸 United States" },
   { value: "HK", label: "🇭🇰 Hong Kong" },

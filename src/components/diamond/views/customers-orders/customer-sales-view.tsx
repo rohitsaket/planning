@@ -16,15 +16,6 @@ import { Info, Search, X } from "lucide-react";
 import { SimulationBanner } from "@/components/diamond/shared/simulation-banner";
 import type { SourceDisclosure } from "@/lib/analysis/source-disclosure";
 
-/**
- * CUSTOMERS — who bought, during the authoritative 90-day window.
- *
- * Every figure is read from the API exactly as returned; this file performs no business
- * arithmetic. Confirmed quantity, measured weight and sale-record count are three
- * separate columns because they are three different facts — a record count is not a
- * piece count.
- */
-
 interface PagingMeta { page: number; pageSize: number; total: number; hasMore: boolean }
 
 interface CustomerRow {
@@ -74,15 +65,6 @@ interface DetailResponse {
   exclusionCodes: Array<{ code: string; count: number }>;
 }
 
-/**
- * Where these figures come from, in one line.
- *
- * This replaced a twelve-row CHECK / VALUE / STATE table that read as a backend
- * verification report: it repeated the source three ways, restated the same identity
- * count as three rows, and carried order-source rows that have nothing to do with
- * customer sales. What a reader actually needs is the provenance, the period and the
- * cutoff — plus a warning when, and only when, something is wrong.
- */
 const PAGE_SIZE = 25;
 const DATA_STATE_LABEL: Record<string, string> = { CONFIRMED: "Confirmed", IDENTITY_MISSING: "Customer ID missing", INSUFFICIENT_HISTORY: "Limited history" };
 
@@ -127,7 +109,6 @@ export function CustomerSalesView() {
       key: "customerCode", header: "Customer", width: "16rem",
       cell: (r) =>
         r.identitySource === "MISSING" ? (
-          // Never merged by name: unidentified records are one explicit bucket.
           <span className="italic text-muted-foreground">Unidentified customer</span>
         ) : (
           <button
@@ -144,7 +125,6 @@ export function CustomerSalesView() {
     { key: "branch", header: "Branch", width: "9rem", cell: (r) => <span className="text-muted-foreground">{r.branch ?? "—"}</span> },
     { key: "confirmedQuantity", header: "Confirmed qty (pcs)", align: "right", cell: (r) => <NumberCell value={r.confirmedQuantity} intent="success" /> },
     { key: "measuredWeight", header: "Measured weight (ct)", align: "right", cell: (r) => <NumberCell value={r.measuredWeight} decimals={2} /> },
-    // Deliberately adjacent to, and distinct from, the quantity column above.
     { key: "saleRecordCount", header: "Sale records", align: "right", cell: (r) => <NumberCell value={r.saleRecordCount} /> },
     { key: "distinctCategories", header: "Categories", align: "right", cell: (r) => <NumberCell value={r.distinctCategories} /> },
     { key: "previous30Quantity", header: "Prev 30D", align: "right", cell: (r) => <NumberCell value={r.previous30Quantity} zeroAsDash /> },
@@ -169,7 +149,6 @@ export function CustomerSalesView() {
         <button
           type="button"
           className="text-left text-primary hover:underline cursor-pointer"
-          // The canonical key is carried verbatim, so Heart opens Heart.
           onClick={() => setView("analysis-sales", "analysis")}
           title={r.categoryId}
         >
@@ -193,7 +172,6 @@ export function CustomerSalesView() {
 
   return (
     <div data-page-body className="flex flex-col gap-section px-page-x py-page-y">
-      {/* Persistent and unmistakable while fixture data is on screen. */}
       <SimulationBanner disclosure={customers.data?.sourceDisclosure} />
 
       {!selected ? (
@@ -283,7 +261,6 @@ export function CustomerSalesView() {
               </div>
             )}
 
-            {/* Segmented Sub-Tab Switcher inside Customer Detail */}
             <div className="flex items-center gap-1.5 p-1 rounded-full border border-border/80 bg-muted/40 backdrop-blur-md shadow-2xs w-fit flex-shrink-0">
               <button
                 type="button"

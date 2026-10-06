@@ -1,16 +1,3 @@
-// Unmapped Sarin shapes (design v1.7 §15.10): a present shape with no confirmed mapping is
-// written unchanged in the structured output with one warning per record, summarised by
-// shape; blank shapes, malformed rows and Pink's positional contract still block output.
-//
-// The White file below reproduces the audited structure of the client's White raw file:
-// five stones of 51, 45, 44, 45 and 50 plans, `RAD MODIFIED` at plan 16 of each (CSV rows
-// 16, 67, 112, 156, 201) and `NP-1235-6-KITE` at plan 43 of the second (CSV row 94, in an
-// additional group). Every other shape is in the confirmed master. Files go through Workbook
-// Import's processing code and the real routes against the isolated planning_sectest
-// database. The White file is processed first with a catalog lacking `RAD MODIFIED` (as it was
-// before the client confirmed it), then again once the confirmed `RAD MODIFIED -> Kriss Cut`
-// rule is in effect.
-
 import { beforeAll, beforeEach, describe, expect, test } from "./harness";
 import { call, db, ensureLabRegistry, makeUser } from "./helpers";
 import { renderPage, routeFetch, sessionUser } from "./ui-render";
@@ -33,7 +20,6 @@ import { continueProcessing, fileStatus, processFile, rightsOf, type ProcessingS
 type User = Awaited<ReturnType<typeof makeUser>>;
 let root: User, planner: User, viewer: User, mapper: User, scopedIn: User;
 const SARIN_DATA = ["SarinPlanPiece", "SarinPlanOption", "SarinOutputVersion", "SarinRowInterpretation", "SarinValidationAttempt", "SarinIssueOverride", "SarinValidationIssue", "SarinStoneBlock", "SarinSourceRow", "SarinImportBatch", "SarinSourceFileContent", "SarinSourceFile"];
-// The confirmed master shapes this file uses. RAD MODIFIED and NP-1235-6-KITE are absent.
 const MASTER: CatalogRule[] = [
   { rawShape: "ROUND", normalizedShape: "Round" },
   { rawShape: "LeoOval22", normalizedShape: "Oval" },
@@ -43,15 +29,12 @@ const MASTER: CatalogRule[] = [
   { rawShape: "EMERALD 5STEP", normalizedShape: "Emerald", conditionKind: "RATIO_RANGE", ratioMin: "1.400", ratioMax: null },
 ];
 
-// ---- the audited White structure ------------------------------------------------------------
 type Rec = [name: string, rough: string, shape: string, est: string, ratio: string];
 const line = ([name, rough, shape, est, ratio]: Rec) => [name, rough, shape, est, "VS1", "D", "61.1", ratio, "17.62", "9.16", "5.6"].join(",");
-/** One White stone: 32 main plans (RAD MODIFIED at plan 16), then additional groups of falling weights. */
 function whiteStone(name: string, rough: string, plans: number, extra: Record<number, string> = {}): Rec[] {
   return Array.from({ length: plans }, (_, i) => {
     const plan = i + 1;
     const shape = plan === 16 ? "RAD MODIFIED" : extra[plan] ?? (plan % 3 === 0 ? "LeoOval22" : plan % 3 === 1 ? "ROUND" : "LeoPear11");
-    // Main plans descend; each additional group of four restarts higher, so groups form.
     const est = plan <= 32 ? (20 - plan * 0.4).toFixed(3) : (4 - ((plan - 33) % 4) * 0.8).toFixed(3);
     return [name, rough, shape, est, shape === "NP-1235-6-KITE" ? "1.920" : shape === "RAD MODIFIED" ? "1.430" : "1.000"];
   });
@@ -114,7 +97,6 @@ beforeEach(async () => {
   await applyCatalog(mapper.cookie, MASTER);
 });
 
-// =========================================================================================
 describe("sarin shape pass-through: the audited White file", () => {
   test("the six audited records are read in place and are the only unmapped rows", async () => {
     const rows = await db.sarinSourceRow.findMany({ where: { batchId: white.batchId, shapeRaw: { in: ["RAD MODIFIED", "NP-1235-6-KITE"] } }, orderBy: { sourceRowNumber: "asc" }, select: { sourceRowNumber: true, shapeRaw: true, fieldCount: true, stoneNameRaw: true, estimatedWeight: true, ratio: true } });
@@ -130,7 +112,6 @@ describe("sarin shape pass-through: the audited White file", () => {
     const batch = await db.sarinImportBatch.findUniqueOrThrow({ where: { id: white.batchId } });
     const output = await db.sarinOutputVersion.findUniqueOrThrow({ where: { id: white.outputId } });
     expect([batch.status, output.status, output.stoneCount, output.pieceCount]).toEqual(["VALIDATED", "GENERATED", 5, 235]);
-    // White structure is unchanged: 32 main plans per stone, then additional groups.
     const kinds = await db.sarinPlanOption.groupBy({ by: ["optionKind"], where: { outputVersionId: output.id }, _count: { _all: true } });
     expect(Object.fromEntries(kinds.map((k) => [k.optionKind, k._count._all])).MAIN).toBe(160);
     resetRateLimits();
@@ -159,7 +140,6 @@ describe("sarin shape pass-through: the audited White file", () => {
     ]);
     const mapped = pieces.filter((p) => p.shapeResolution === "MAPPED");
     expect([mapped.length, mapped.every((p) => p.normalizedShape !== null && p.mappingRuleId !== null), mapped.some((p) => p.normalizedShape === "RAD MODIFIED")]).toEqual([229, true, false]);
-    // The affected-records list names stone, CSV row, plan and raw shape; the kite is in an additional group.
     const affected = (await get(listPieces, planner, { batchId: white.batchId, versionId: white.outputId }, "?unmapped=true&pageSize=50")).json;
     expect(affected.rows.map((r: any) => [r.stoneName, r.sourceRowNumber, r.option.kind, r.shape, r.shapeResolution])).toEqual([
       ["2501-001 HA", 16, "MAIN", "RAD MODIFIED", "RAW_PASSTHROUGH"], ["2501-002 NH", 67, "MAIN", "RAD MODIFIED", "RAW_PASSTHROUGH"],
@@ -184,7 +164,6 @@ describe("sarin shape pass-through: the audited White file", () => {
     expect(sheetRows.filter((c) => c[8]!.v === "NP-1235-6-KITE").length).toBe(1);
     expect([wb.rows(wb.sheetNames[0])[0].length, wb.merges(wb.sheetNames[0]).length > 0]).toEqual([19, true]);
     const csv = new TextDecoder().decode((await download(exportCsv, planner, white.batchId, white.outputId)).bytes).trimEnd().split("\r\n").slice(5);
-    // CSV keeps its columns: Sarin Shape is the raw text; Normalized Shape stays blank where none is mapped.
     expect(csv.map((l) => l.split(",").slice(16, 18).map((c) => c.replace(/"/g, "")))).toEqual(preview.map((p) => [p.rawShape, p.normalizedShape ?? ""]));
   });
 
@@ -193,7 +172,6 @@ describe("sarin shape pass-through: the audited White file", () => {
     const firstOutput = await currentOutput(planner, r.batchId!);
     const before = await db.sarinPlanPiece.findMany({ where: { outputVersionId: firstOutput }, orderBy: { outputRowSequence: "asc" }, select: { rawShape: true, shapeResolution: true, normalizedShape: true } });
     const firstSheet = JSON.stringify(inspectWorkbook((await download(exportWorkbook, planner, r.batchId!, firstOutput)).bytes).rows("2501"));
-    // The client-confirmed rule: RAD MODIFIED is Kriss Cut, for every Ratio.
     await applyCatalog(mapper.cookie, [...MASTER, { rawShape: "RAD MODIFIED", normalizedShape: "Kriss Cut" }]);
     expect(await db.sarinPlanPiece.findMany({ where: { outputVersionId: firstOutput }, orderBy: { outputRowSequence: "asc" }, select: { rawShape: true, shapeResolution: true, normalizedShape: true } })).toEqual(before);
     const again = await continueProcessing(routeFetch(planner.cookie), r.batchId!, true, rightsOf((await sessionUser(planner.cookie)).permissions));
@@ -208,12 +186,10 @@ describe("sarin shape pass-through: the audited White file", () => {
     const kriss = await db.sarinPlanPiece.findMany({ where: { outputVersionId: secondOutput, rawShape: "RAD MODIFIED" }, orderBy: { sourceRowNumber: "asc" }, select: { sourceRowNumber: true, normalizedShape: true, shapeResolution: true, mappingRule: { select: { rawShapeKey: true, normalizedShape: true } } } });
     expect(kriss.map((p) => [p.sourceRowNumber, p.normalizedShape, p.shapeResolution, p.mappingRule?.rawShapeKey])).toEqual([16, 67, 112, 156, 201].map((n) => [n, "Kriss Cut", "MAPPED", "RAD MODIFIED"]));
     expect(await db.sarinPlanPiece.count({ where: { outputVersionId: secondOutput, normalizedShape: "Radiant Modified" } })).toBe(0);
-    // The new version warns only about the kite; the historical one is unchanged, warnings and export included.
     expect((await get(getOutput, planner, { batchId: r.batchId!, versionId: secondOutput })).json.unmappedShapes).toEqual({ shapes: [{ shape: "NP-1235-6-KITE", records: 1 }], records: 1, partial: false });
     expect((await get(getOutput, planner, { batchId: r.batchId!, versionId: firstOutput })).json.unmappedShapes.records).toBe(6);
     expect(await db.sarinPlanPiece.findMany({ where: { outputVersionId: firstOutput }, orderBy: { outputRowSequence: "asc" }, select: { rawShape: true, shapeResolution: true, normalizedShape: true } })).toEqual(before);
     expect(JSON.stringify(inspectWorkbook((await download(exportWorkbook, planner, r.batchId!, firstOutput)).bytes).rows("2501"))).toBe(firstSheet);
-    // The new version agrees across preview, reopened detail, XLSX and CSV.
     resetRateLimits();
     const listed = (await call(listImports, { cookie: planner.cookie, path: "/api/planning/sarin/imports?pageSize=50" })).json.rows.find((b: any) => b.id === r.batchId);
     expect([listed.currentOutputId, listed.currentOutputUnmappedRows, fileStatus(listed)]).toEqual([secondOutput, 1, "Output Ready with Warnings"]);
@@ -226,13 +202,11 @@ describe("sarin shape pass-through: the audited White file", () => {
     const csv = new TextDecoder().decode((await download(exportCsv, planner, r.batchId!, secondOutput)).bytes).trimEnd().split("\r\n").slice(5);
     expect(csv.map((l) => l.split(",")[17].replace(/"/g, ""))).toEqual(preview.map((p) => p.normalizedShape ?? ""));
     expect(csv.filter((l) => l.includes('"RAD MODIFIED","Kriss Cut"')).length).toBe(5);
-    // Retrying changes nothing further.
     await continueProcessing(routeFetch(planner.cookie), r.batchId!, true, rightsOf((await sessionUser(planner.cookie)).permissions));
     expect(await db.sarinOutputVersion.count({ where: { batchId: r.batchId! } })).toBe(2);
   });
 });
 
-// =========================================================================================
 describe("sarin shape pass-through: what still blocks", () => {
   const blue = (name: string, shapes: string[]) => shapes.map((shape, i): Rec => [name, "3.000", shape, (1.5 - i * 0.01).toFixed(3), "1.000"]);
 
@@ -279,7 +253,6 @@ describe("sarin shape pass-through: what still blocks", () => {
   });
 });
 
-// =========================================================================================
 describe("sarin shape pass-through: the Kriss Cut shape", () => {
   test("mapping managers may map to Kriss Cut; others may not; only the exact canonical name is accepted", async () => {
     const save = (u: User, body: Record<string, unknown>) => {
@@ -289,7 +262,6 @@ describe("sarin shape pass-through: the Kriss Cut shape", () => {
     expect((await save(planner, { sarinShape: "KRISS TEST", fantasyShape: "Kriss Cut" })).status).toBe(403);
     const lower = await save(mapper, { sarinShape: "KRISS TEST", fantasyShape: "kriss cut" });
     expect([lower.status, lower.json.error.message]).toEqual([400, "Choose a valid Fantasy shape"]);
-    // A client cannot supply a code or an actor: unknown fields are refused.
     expect((await save(mapper, { sarinShape: "KRISS TEST", fantasyShape: "Kriss Cut", fantasyCode: "KC" })).status).toBe(400);
     expect((await save(mapper, { sarinShape: "KRISS TEST", fantasyShape: "Kriss Cut", changedByUserId: planner.user.id })).status).toBe(400);
     const ok = await save(mapper, { sarinShape: "KRISS TEST", fantasyShape: "Kriss Cut" });
@@ -299,7 +271,6 @@ describe("sarin shape pass-through: the Kriss Cut shape", () => {
   });
 });
 
-// =========================================================================================
 describe("sarin shape pass-through: access", () => {
   test("warnings and affected records follow the output's permissions and scope", async () => {
     expect((await get(listPieces, viewer, { batchId: white.batchId, versionId: white.outputId }, "?unmapped=true")).status).toBe(403);
@@ -307,7 +278,6 @@ describe("sarin shape pass-through: access", () => {
     const be = await processAs(planner, csvFile(auditedWhite(), "white-igi.csv"), "WHITE", "IGI");
     const beOutput = await currentOutput(planner, be.batchId!);
     expect([(await get(getOutput, scopedIn, { batchId: be.batchId!, versionId: beOutput })).status, (await get(listPieces, scopedIn, { batchId: be.batchId!, versionId: beOutput }, "?unmapped=true")).status, (await download(exportWorkbook, scopedIn, be.batchId!, beOutput)).status]).toEqual([404, 404, 404]);
-    // Only a mapping manager is offered the way to Mappings; everyone sees the summary.
     const asPlanner = await render(white.batchId, planner);
     expect([asPlanner.text.includes("2 shapes are not mapped"), asPlanner.text.includes("Open Mappings")]).toEqual([true, false]);
   });

@@ -10,15 +10,6 @@ import { getSalesContribution, resolveSalesSnapshot } from "@/lib/analytics/sale
 import { assertRequestedWindow, parseSalesFilters, parseSalesPaging } from "@/lib/analytics/sales-history-request";
 import { withSalesScope } from "@/lib/analytics/sales-history";
 
-/**
- * Sales Analysis — who and where the confirmed sales came from, aggregated and bounded.
- *
- * Grouping by customer discloses customer identity and revenue-bearing volume, so it
- * carries its own permission on top of sales.read. Hiding the control in the browser is
- * UX; this check is the boundary.
- *
- * Detail per customer belongs to the Customers & Orders page and is not duplicated here.
- */
 export const GET = withApi({ permission: "sales.read", scoped: true }, async (req: Request, _ctx, api) => {
   const url = new URL(req.url);
   const dimension = qEnum<ContributionDimension>(url, "dimension", CONTRIBUTION_DIMENSIONS, "country");

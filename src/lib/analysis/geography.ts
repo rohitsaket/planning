@@ -1,39 +1,3 @@
-/**
- * COUNTRY & BRANCH — what is actually known per location, and nothing else.
- *
- * ## Why this module replaces the previous one
- *
- * The page this serves used to report, per country: a demand target, a physical shortage,
- * an excess, a pipeline requirement, a remaining unplanned quantity and a count of
- * transfer candidates. None of it could be derived from the authoritative demand result.
- *
- * `DemandMetric` — what the approved demand engine persists — has no country and no
- * branch column. The target is calculated once per planning category for the whole
- * business. The previous implementation worked around that by taking country demand from
- * the seeded `Requirement` table and availability from the seeded `PolishedStone` mirror,
- * neither of which is the 90-day demand result. The numbers looked like findings and were
- * not, and they contradicted the Transfer Analyzer, which states plainly on the same data
- * that a location-level shortage cannot be computed.
- *
- * Two pages cannot both be right about that, so this one stops claiming it.
- *
- * ## What is reported instead
- *
- * Two factual distributions, kept in separate tables because they answer different
- * questions and must never be subtracted from one another:
- *
- *   1. Confirmed customer sales by country and branch, read from the same persisted sale
- *      trace and the same 90-day snapshot that Customers & Orders uses. These are sales
- *      that happened, attributed to the location the canonical lot record carries.
- *   2. Current inventory by country and branch, which the shared aging summary already
- *      produces from the same bucket definition as every other stock surface.
- *
- * Sales are historical and inventory is a present position. Putting them in one table
- * would invite exactly the subtraction that produced the fabricated shortage.
- *
- * Server-only.
- */
-
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { num } from "@/lib/api-utils";
@@ -50,21 +14,8 @@ type DbClient = typeof db;
 
 const BUSINESS_TIMEZONE = "Asia/Kolkata";
 
-/**
- * The most location rows one response will carry.
- *
- * Country and branch are low-cardinality in the canonical model, but that is an
- * expectation rather than something the database enforces, so the query asks for one row
- * more and the response says plainly when the list is incomplete.
- */
 export const GEOGRAPHY_ROW_MAX = 200;
 
-/**
- * The statement this page makes instead of a geographic shortage.
- *
- * It is shown whether or not a snapshot exists, because the reason has nothing to do with
- * whether data has loaded: the demand result has no location dimension at all.
- */
 export const GEOGRAPHIC_DEMAND_UNAVAILABLE_MESSAGE =
   "Demand is not currently calculated by country or branch, so geographic shortage, excess and transfer " +
   "recommendations are unavailable.";
@@ -78,13 +29,6 @@ export interface GeographyFilters {
   readonly country: string | null;
   readonly branch: string | null;
   readonly lab: string | null;
-  /**
-   * The caller's country and lab authorization scope.
-   *
-   * It rides with the filters because it is applied in the same place they are, but it is
-   * not a filter: it comes from the authenticated server session and a request can only
-   * ever narrow within it, never widen past it.
-   */
   readonly scope: EffectiveScope;
 }
 
@@ -92,31 +36,20 @@ export const EMPTY_GEOGRAPHY_FILTERS: GeographyFilters = {
   country: null, branch: null, lab: null, scope: UNRESTRICTED_SCOPE,
 };
 
-// ---------------------------------------------------------------------------
-// Confirmed sales by location
-// ---------------------------------------------------------------------------
-
 export interface GeographySalesRow {
   readonly key: string;
   readonly country: string;
-  /** Null on the country rollup; set on the branch breakdown. */
   readonly branch: string | null;
   readonly confirmedQuantity: number;
   readonly measuredWeight: number;
   readonly saleRecordCount: number;
-  /**
-   * Distinct confirmed customer codes. Null without `customers.read`: the figure is
-   * derived from customer identity, and identity is what that permission governs.
-   */
   readonly distinctCustomers: number | null;
   readonly latestSaleDateIst: string | null;
 }
 
 export interface GeographySalesResult {
-  /** Where the sales behind this page came from. */
   readonly sourceDisclosure: SourceDisclosure;
   readonly available: boolean;
-  /** Why no sales are shown, when none are. Null when the snapshot exists. */
   readonly unavailableMessage: string | null;
   readonly snapshot: {
     readonly runId: string;
@@ -146,25 +79,11 @@ function salesFilterSql(f: GeographyFilters): Prisma.Sql {
   if (f.country) parts.push(Prisma.sql`AND "m"."country" = ${f.country}`);
   if (f.branch) parts.push(Prisma.sql`AND "m"."branch" = ${f.branch}`);
   if (f.lab) parts.push(Prisma.sql`AND "t"."lab" = ${f.lab}`);
-  // The country comes from the canonical lot the sale is joined to; the lab is on the
-  // trace row itself. Both are narrowed unconditionally.
   const scope = scopeSql(f.scope, { country: '"m"."country"', lab: '"t"."lab"' });
   if (scope !== Prisma.empty) parts.push(scope);
   return parts.length ? Prisma.join(parts, " ") : Prisma.empty;
 }
 
-/**
- * The confirmed sales of one snapshot, placed at the location of their canonical lot.
- *
- * Identical in shape to the Customers & Orders sale CTE — same run, same trace type, same
- * inclusion flag, same IST window — so the two pages cannot report different sales for the
- * same period. `LotMasterRecord.lotId` is unique, so the join adds location without ever
- * multiplying a sale row.
- *
- * A sale whose lot carries no location is grouped under an explicit unattributed key
- * rather than dropped, because a sale that happened is not less real for having an
- * incomplete record.
- */
 function salesCte(run: SalesSnapshot, f: GeographyFilters): Prisma.Sql {
   return Prisma.sql`
     WITH sale AS (
@@ -215,13 +134,6 @@ function toSalesRow(g: RawSalesGroup, canSeeCustomers: boolean): GeographySalesR
   };
 }
 
-/**
- * Confirmed sales grouped by country and by branch, aggregated in the database.
- *
- * `canSeeCustomers` must come from the authenticated server session. It withholds the
- * distinct-customer figure only; the sales themselves are location facts and are not
- * customer identity.
- */
 export async function readSalesByGeography(
   filters: GeographyFilters,
   canSeeCustomers: boolean,

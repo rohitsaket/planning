@@ -1,10 +1,5 @@
 "use client";
 
-// Prepare Sarin Output: choose a Sarin CSV and its details, click Process File, and get
-// either the issues to correct or the finished output. The form's checks only help before
-// a round trip; the server repeats every one of them. Who uploads, what they may see and
-// what they may do always come from the session on the server.
-
 import { useId, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useApi } from "@/lib/api-client";
@@ -41,7 +36,6 @@ export function formatBytes(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
-/** The file shown in the card's result area, and how it got there in this session. */
 export interface OpenFile {
   batchId: string;
   failure: ProcessingResult["failure"];
@@ -88,7 +82,6 @@ export function SarinProcessCard({ rights, open, stage, onRun, onClose }: Props)
 
 function ProcessForm({ rights, busy, onRun }: { rights: ProcessingRights; busy: boolean; onRun: Props["onRun"] }) {
   const ids = useId();
-  // A user limited to particular labs must declare one; the server refuses an import without.
   const labRequired = useAuthStore((s) => (s.user?.accessScope?.labs ?? null) !== null);
   const settings = useApi<{ upload: UploadConstraints | null; mappingsConfigured: boolean }>("/api/planning/sarin/imports?pageSize=1");
   const constraints = settings.data?.upload ?? null;
@@ -100,7 +93,6 @@ function ProcessForm({ rights, busy, onRun }: { rights: ProcessingRights; busy: 
   const [planningDate, setPlanningDate] = useState(getISTDateString(new Date()));
   const [uploadError, setUploadError] = useState<string | null>(null);
 
-  // Assistance only: the server checks the extension, the size and the content again.
   const fileProblem = !file || !constraints
     ? null
     : !file.name.toLowerCase().endsWith(constraints.acceptedExtension)
@@ -110,7 +102,6 @@ function ProcessForm({ rights, busy, onRun }: { rights: ProcessingRights; busy: 
         : file.size > constraints.maxFileBytes
           ? "The file is too large."
           : null;
-  // Processing uses the shape mappings in effect; with none configured it cannot check the file.
   const noMappings = rights.validate && settings.data?.mappingsConfigured === false;
   const labs = constraints?.labs ?? [];
   const labChosen = lab !== "" && labs.includes(lab);
@@ -203,7 +194,6 @@ function ProcessForm({ rights, busy, onRun }: { rights: ProcessingRights; busy: 
   );
 }
 
-/** One processing run at a time; the result is always re-read from the server afterwards. */
 export function useSarinProcessing() {
   const queryClient = useQueryClient();
   const [stage, setStage] = useState<ProcessingStage | null>(null);
@@ -211,7 +201,6 @@ export function useSarinProcessing() {
   const running = useRef(false);
 
   const run: Props["onRun"] = async (task) => {
-    // Guards against a double click before the disabled state renders.
     if (running.current) return null;
     running.current = true;
     try {

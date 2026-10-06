@@ -73,17 +73,9 @@ const DATA_STATE_VARIANT: Record<SalesDataState, React.ComponentProps<typeof Bad
 
 const PAGE_SIZE = 25;
 
-/** IST business date of a stored UTC instant, for display only. */
 const istDate = (iso: string | null) =>
   iso ? new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(iso)) : "—";
 
-/**
- * Sales Analysis — confirmed historical sales by category, and the exact records behind
- * each aggregate.
- *
- * This page describes what was sold. It does not calculate manufacturing priorities,
- * reorder quantities or forecasts, and it never presents a row count as a piece quantity.
- */
 export function SalesAnalysisView() {
   const { params } = useSalesQuery();
   const selectCategory = useSalesFilters((s) => s.selectCategory);
@@ -96,8 +88,6 @@ export function SalesAnalysisView() {
   const [recordSort, setRecordSort] = useState<{ key: RecordSortKey; dir: SortDirection }>({ key: "docDate", dir: "desc" });
 
   const query = params.toString();
-  // Any change to the filters or the ordering invalidates the page cursor: staying on
-  // page 7 of a different result set would show rows that do not belong to the request.
   const [pageSize, setPageSize] = useState(PAGE_SIZE);
   const [recordPageSize, setRecordPageSize] = useState(PAGE_SIZE);
   const [page, setPage] = useServerPage(`${query}|${sort.key}|${sort.dir}`);

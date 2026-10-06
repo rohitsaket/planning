@@ -1,16 +1,3 @@
-/**
- * Reads of Sarin output versions: the versions of one import, one version's summary, and
- * paginated stones, plan options and plan pieces. Every read first resolves the batch
- * inside the caller's scope (an out-of-scope batch or version is a 404) and nothing
- * returns an unbounded collection.
- *
- * Values are the stored values: weights and measurements as fixed three-place decimals,
- * the yield with its exact numerator, denominator and ten-place percentage plus the
- * confirmed two-place display. Nothing is recomputed here and nothing is ranked.
- *
- * Server-only.
- */
-
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { scopeWhere, type EffectiveScope } from "@/lib/auth/access-scope";
@@ -20,13 +7,8 @@ import { displayYield, YIELD_SCALE } from "@/lib/sarin/yield";
 import { outputShape } from "@/lib/sarin/domain";
 import { outputRowRange, yieldRankMap } from "@/lib/sarin/yield-rank";
 
-/** At most this many distinct unmapped shapes are named in one output's warning summary. */
 const MAX_WARNING_SHAPES = 100;
 
-/**
- * An output's pass-through warning: each Sarin shape written unchanged because its mapping
- * set had no rule for it (design v1.7 §15.10), with the number of output rows showing it.
- */
 async function unmappedShapesOf(versionId: string) {
   const groups = await db.sarinPlanPiece.groupBy({
     by: ["rawShape"],
@@ -56,14 +38,12 @@ const paged = <T>(rows: T[], page: Page, total: number) => ({ rows, page: page.p
 const skipTake = (page: Page) => ({ skip: (page.page - 1) * page.pageSize, take: page.pageSize });
 const d3 = (v: Prisma.Decimal) => v.toFixed(3);
 
-/** The option kinds a version of each packet type holds, in display order. */
 const KINDS_OF = (packetType: string): string[] => (packetType === "PINK" ? ["MK", "SL", "BP", "BT"] : ["MAIN", "ADDITIONAL"]);
 
 async function scopedBatch(scope: EffectiveScope, batchId: string) {
   return db.sarinImportBatch.findFirst({ where: { id: batchId, ...scopeOf(scope) }, select: { id: true, validationAttempt: true } });
 }
 
-/** The version within the batch within scope; null otherwise. */
 async function scopedVersionId(scope: EffectiveScope, batchId: string, versionId: string): Promise<string | null> {
   const v = await db.sarinOutputVersion.findFirst({ where: { id: versionId, batchId, batch: scopeOf(scope) }, select: { id: true } });
   return v?.id ?? null;
@@ -93,7 +73,6 @@ function versionView(v: Prisma.SarinOutputVersionGetPayload<{ select: typeof VER
     id: v.id,
     versionNumber: v.versionNumber,
     status: v.status,
-    // Current means: the batch's one GENERATED version, derived from its current validation.
     isCurrent: v.status === "GENERATED" && v.validationAttempt.attemptNumber === currentAttempt,
     packetType: v.packetType,
     validationAttempt: v.validationAttempt.attemptNumber,
@@ -121,7 +100,6 @@ export async function listOutputVersions(scope: EffectiveScope, batchId: string,
   return { batchId: batch.id, ...paged(rows.map((v) => versionView(v, batch.validationAttempt, names)), page, total) };
 }
 
-/** One version with bounded aggregates of its content. */
 export async function getOutputVersion(scope: EffectiveScope, batchId: string, versionId: string) {
   const batch = await scopedBatch(scope, batchId);
   if (!batch) return null;
@@ -196,7 +174,6 @@ export async function listOutputOptions(scope: EffectiveScope, batchId: string, 
     db.sarinPlanOption.count({ where }),
     db.sarinPlanOption.findMany({
       where,
-      // Output rows are numbered in stone order, then option order.
       orderBy: { firstOutputRow: "asc" },
       ...skipTake(page),
       select: {
@@ -207,8 +184,6 @@ export async function listOutputOptions(scope: EffectiveScope, batchId: string, 
       },
     }),
   ]);
-  // Ranks compare every option of a stone, so they are computed over the whole stone even
-  // when this page (or a kind filter) holds only some of its options.
   const stoneIds = [...new Set(rows.map((o) => o.stoneBlockId))];
   const stoneOptions = stoneIds.length
     ? await db.sarinPlanOption.findMany({
@@ -232,11 +207,8 @@ export async function listOutputOptions(scope: EffectiveScope, batchId: string, 
         pieceCount: o.pieceCount,
         totalEstimatedWeight: d3(o.totalEstimatedWeight),
         yield: { numerator: d3(o.yieldNumerator), denominator: d3(o.yieldDenominator), percent: o.yieldPercent.toFixed(YIELD_SCALE), display: displayYield(o.yieldPercent) },
-        /** 1, 2 or 3 for the stone's three highest yields; null otherwise. */
         yieldRank: rankOf.get(o.id) ?? null,
         outputRows: { first: o.firstOutputRow, last: o.lastOutputRow },
-        // Best Twin only: the stored difference, and the advisory it raises under the
-        // current (unconfirmed-tolerance) policy.
         pairWeightDifference: o.pairWeightDifference ? d3(o.pairWeightDifference) : null,
         advisory: o.pairWeightDifference ? bestTwinWeightFinding(o.pairWeightDifference) : null,
       })),
@@ -279,7 +251,6 @@ export async function listOutputPieces(scope: EffectiveScope, batchId: string, v
         pieceSequence: p.pieceSequence,
         sourceRowNumber: p.sourceRowNumber,
         rawShape: p.rawShape,
-        // The shape the output shows, and whether it is a confirmed mapping or the raw Sarin text.
         shape: outputShape(p),
         shapeResolution: p.shapeResolution,
         normalizedShape: p.normalizedShape,

@@ -1,15 +1,3 @@
-/**
- * Validation reads for one import: a bounded summary for the batch detail, and paginated
- * lists of stone blocks, findings and row interpretations. Every list first resolves the
- * batch inside the caller's scope (an out-of-scope batch is a 404) and is then narrowed
- * to it; nothing returns an unbounded collection.
- *
- * The attempt shown by default is the latest COMPLETED one: a failed or running attempt
- * never replaces the last complete result.
- *
- * Server-only.
- */
-
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { scopeWhere, type EffectiveScope } from "@/lib/auth/access-scope";
@@ -74,7 +62,6 @@ const ATTEMPT_SELECT = {
   shapeMappingSet: { select: { id: true, version: true, status: true } },
 } as const satisfies Prisma.SarinValidationAttemptSelect;
 
-/** The validation part of a batch detail: bounded aggregates only. */
 export async function getValidationSummary(batchId: string) {
   const [latest, completed] = await Promise.all([
     db.sarinValidationAttempt.findFirst({ where: { batchId }, orderBy: { attemptNumber: "desc" }, select: ATTEMPT_SELECT }),
@@ -110,13 +97,8 @@ export async function getValidationSummary(batchId: string) {
         }
       : null,
     lastValidatedAt: completed?.finishedAt?.toISOString() ?? null,
-    // The rules this build validates with. A completed validation under older rules proves
-    // nothing about the current ones: the import must be validated again before output.
     currentValidationProfile: SARIN_VALIDATION_PROFILE_VERSION,
     revalidationRequired: revalidationReason !== null,
-    // RULES_UPDATED: validated under older validation rules. MAPPING_SUPERSEDED: validated
-    // with a mapping version that is no longer approved. Either way the earlier result is
-    // kept as history but cannot produce new output.
     revalidationReason,
   };
 }
@@ -163,9 +145,7 @@ export interface IssueFilters {
   readonly severity: string | null;
   readonly status: string | null;
   readonly code: string | null;
-  /** true: blocking findings only; false: advisories only; null: both. */
   readonly blocking: boolean | null;
-  /** A finding kind to leave out (ignored when `code` is given). */
   readonly excludeCode?: string | null;
 }
 

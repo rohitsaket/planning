@@ -1,12 +1,3 @@
-// Administration → Mappings → Sarin Shape Mapping: one current catalog of mappings, changed
-// by saving, effective at once as an immutable snapshot.
-//
-// Every request goes through the real route handlers against the isolated planning_sectest
-// database, as users whose roles hold exactly the permissions under test (custom roles are
-// created through the real admin routes). Page content is asserted on the rendered page
-// (see ./ui-render). Failures are injected with database triggers. Nothing here is a
-// production mapping; the EMERALD 4STEP rule is never saved.
-
 import { beforeAll, beforeEach, describe, expect, test } from "./harness";
 import { call, db, ensureLabRegistry, makeUser, resetDb } from "./helpers";
 import { renderPage, sessionUser } from "./ui-render";
@@ -65,7 +56,6 @@ async function userWith(name: string, permissions: string[]) {
   return u;
 }
 
-// ---- Sarin files, through the real upload and validation routes --------------------------
 let nonce = 0;
 const kapan = () => `5${String(++nonce).padStart(3, "0")}C`;
 interface Rec { name: string; shape?: string; ratio?: string }
@@ -93,7 +83,6 @@ const stone = (shape: string, ratio = "1.000") => {
   return Array.from({ length: 17 }, () => ({ name, shape, ratio }));
 };
 
-/** Runs `fn` while inserting the named audit action fails inside the saving transaction. */
 async function withAuditFailure(action: string, fn: () => Promise<void>) {
   const [{ d }] = await db.$queryRaw<{ d: string }[]>`SELECT current_database() AS d`;
   if (d !== "planning_sectest") throw new Error(`refusing to alter ${d}`);
@@ -121,13 +110,11 @@ beforeAll(async () => {
   scoped = await userWith("scoped", ["sarin.mapping.read"]);
   await db.userAccessScope.create({ data: { userId: scoped.user.id, dimension: "LAB", value: "GIA" } });
 });
-// Every test starts from the same catalog, set through the routes under test.
 beforeEach(async () => {
   resetRateLimits();
   await applyCatalog(manager.cookie, BASE_RULES);
 });
 
-// =========================================================================================
 describe("sarin mapping catalog: saving", () => {
   test("Add Mapping is effective at once as a new snapshot; nobody approves it", async () => {
     const before = await effectiveSnapshotId();
@@ -137,7 +124,6 @@ describe("sarin mapping catalog: saving", () => {
     expect([now.id === before, now.copiedFromSetId, now.approvedByUserId, now.approvedAt, now.effectiveAt !== null, now.contentHash !== null]).toEqual([false, before, null, null, true, true]);
     const m = await mappingOf("Oval Brilliant");
     expect([m.fantasyShape, m.applyTo, m.minimumRatio, m.maximumRatio, m.note, m.updatedBy]).toEqual(["Oval", "ALL_RATIOS", null, null, "From the client sheet", "manager"]);
-    // The very next file uses it.
     const batchId = await upload(stone("OVAL BRILLIANT"));
     expect(await validate(batchId)).toBe("VALIDATED");
   });
@@ -169,7 +155,6 @@ describe("sarin mapping catalog: saving", () => {
       expect([JSON.stringify(body), r.status, r.json.error.message, r.json.error.details?.field ?? null]).toEqual([JSON.stringify(body), status, message, field]);
       expect(/SELECT|prisma|at .*\.ts|23P01|23505/i.test(JSON.stringify(r.json))).toBe(false);
     }
-    // Unknown fields and oversized values are refused by the strict request schema.
     for (const body of [{ sarinShape: "HEXA", fantasyShape: "Kite", status: "EFFECTIVE" }, { sarinShape: "HEXA", fantasyShape: "Kite", mappingSetId: "x" }, { sarinShape: "H".repeat(257), fantasyShape: "Kite" }, { sarinShape: "HEXA", fantasyShape: "Kite", applyTo: "SOMETIMES" }]) {
       expect([JSON.stringify(body).slice(0, 60), (await save(manager, body)).status]).toEqual([JSON.stringify(body).slice(0, 60), 400]);
     }
@@ -197,9 +182,7 @@ describe("sarin mapping catalog: saving", () => {
     expect(r.status).toBe(200);
     const now = (await catalog()).mappings.filter((m: any) => m.sarinShape === "EMERALD 5STEP");
     expect(now.map((m: any) => [m.fantasyShape, m.minimumRatio, m.maximumRatio])).toEqual([["Asscher", "0.990", "1.050"], ["Emerald", "1.400", null]]);
-    // The unchanged mapping keeps who last changed it; the edited one names the editor.
     expect(now.map((m: any) => m.updatedBy === "managerb")).toEqual([true, false]);
-    // Editing it into its neighbour is refused.
     const moved = (await catalog()).mappings.find((m: any) => m.fantasyShape === "Asscher");
     expect((await save(manager, { ruleId: moved.id, sarinShape: "EMERALD 5STEP", fantasyShape: "Asscher", applyTo: "RATIO_RANGE", minimumRatio: "1.000", maximumRatio: "1.500" })).json.error.message).toBe("This ratio overlaps another mapping");
   });
@@ -207,7 +190,6 @@ describe("sarin mapping catalog: saving", () => {
   test("an edit that names a mapping from an earlier snapshot still reaches it; a removed one is reported", async () => {
     const stale = await mappingOf("PEAR");
     expect((await save(manager, { sarinShape: "HEART SHAPE", fantasyShape: "Heart" })).status).toBe(200);
-    // `stale.id` belongs to the replaced snapshot; the page may still hold it.
     expect((await save(manager, { ruleId: stale.id, sarinShape: "PEAR", fantasyShape: "Pear", note: "checked" })).status).toBe(200);
     expect((await mappingOf("PEAR")).note).toBe("checked");
     const gone = await mappingOf("PEAR");
@@ -217,7 +199,6 @@ describe("sarin mapping catalog: saving", () => {
   });
 });
 
-// =========================================================================================
 describe("sarin mapping catalog: removal", () => {
   test("Remove takes the mapping out as a new snapshot, audited; the replaced snapshot keeps it", async () => {
     const before = (await effectiveSnapshotId())!;
@@ -229,11 +210,9 @@ describe("sarin mapping catalog: removal", () => {
     expect(await db.sarinShapeMappingRule.count({ where: { mappingSetId: before, rawShapeKey: "PEAR" } })).toBe(1);
     const audit = await db.auditLog.findFirstOrThrow({ where: { action: "SARIN_MAPPING_REMOVED", entityId: after } });
     expect([audit.actorUserId, JSON.parse(audit.before!).sarinShape]).toEqual([manager.user.id, "PEAR"]);
-    // A file with that shape now shows it unmapped (design v1.7 §15.10), with a warning per record.
     const pearFile = await upload(stone("PEAR"));
     expect(await validate(pearFile)).toBe("VALIDATED");
     expect(await db.sarinValidationIssue.count({ where: { batchId: pearFile, code: "SHAPE_NOT_MAPPED", blocking: false } })).toBe(17);
-    // Removing it again is reported, not repeated.
     expect((await remove(manager, pear.id)).status).toBe(404);
     expect(await effectiveSnapshotId()).toBe(after);
   });
@@ -248,7 +227,6 @@ describe("sarin mapping catalog: removal", () => {
   });
 });
 
-// =========================================================================================
 describe("sarin mapping catalog: concurrency, rollback and history", () => {
   test("concurrent saves of different shapes both apply, one after the other", async () => {
     const before = await snapshots();
@@ -262,7 +240,6 @@ describe("sarin mapping catalog: concurrency, rollback and history", () => {
     const shapes = (await catalog()).mappings.map((m: any) => m.sarinShape);
     expect(["MARQ", "PRINCESS CUT", "KITE CUT", "ROUND", "PEAR"].every((s) => shapes.includes(s))).toBe(true);
     expect([await snapshots(), await db.sarinShapeMappingSet.count({ where: { sourceSystem: "SARIN", status: "EFFECTIVE" } })]).toEqual([before + 3, 1]);
-    // The snapshots form one chain: each replaced the one before it.
     const chain = await db.sarinShapeMappingSet.findMany({ where: { sourceSystem: "SARIN" }, orderBy: { version: "desc" }, take: 4, select: { id: true, copiedFromSetId: true, supersededBySetId: true } });
     for (let i = 0; i < 3; i++) expect([chain[i].copiedFromSetId, chain[i + 1].supersededBySetId]).toEqual([chain[i + 1].id, chain[i].id]);
   });
@@ -284,7 +261,6 @@ describe("sarin mapping catalog: concurrency, rollback and history", () => {
     });
     expect([await effectiveSnapshotId(), await snapshots(), await db.sarinShapeMappingRule.count(), await db.auditLog.count({ where: { action: "SARIN_MAPPING_SAVED" } })]).toEqual(before);
     expect(await mappingOf("HEXA")).toBe(undefined);
-    // The same save succeeds afterwards.
     expect((await save(manager, { sarinShape: "HEXA", fantasyShape: "Kite" })).status).toBe(200);
   });
 
@@ -309,7 +285,7 @@ describe("sarin mapping catalog: concurrency, rollback and history", () => {
 
   test("a file checked before a change keeps its snapshot; Process Again uses the new one", async () => {
     const batchId = await upload(stone("HEXA"));
-    expect(await validate(batchId)).toBe("VALIDATED"); // unmapped: written as it is, with a warning
+    expect(await validate(batchId)).toBe("VALIDATED");
     const firstSet = (await effectiveSnapshotId())!;
     expect((await save(manager, { sarinShape: "HEXA", fantasyShape: "Kite" })).status).toBe(200);
     expect(await validate(batchId)).toBe("VALIDATED");
@@ -320,7 +296,6 @@ describe("sarin mapping catalog: concurrency, rollback and history", () => {
   });
 });
 
-// =========================================================================================
 describe("sarin mapping catalog: authority", () => {
   test("read needs sarin.mapping.read; add, edit and remove need sarin.mapping.manage", async () => {
     expect((await get(undefined)).status).toBe(401);
@@ -332,7 +307,6 @@ describe("sarin mapping catalog: authority", () => {
     const pear = await mappingOf("PEAR");
     for (const u of [admin, planner, reader]) expect([u.user.username, (await remove(u, pear.id)).status]).toEqual([u.user.username, 403]);
     expect([(await get(reader)).status, (await save(manager, { sarinShape: "HEXA", fantasyShape: "Kite" })).status]).toEqual([200, 200]);
-    // SUPER_ADMIN holds both through its built-in policy; a custom administrator role without them holds neither.
     expect([(await get(root)).status, (await save(root, { sarinShape: "HEXA 2", fantasyShape: "Kite" })).status]).toEqual([200, 200]);
   });
 
@@ -364,7 +338,6 @@ describe("sarin mapping catalog: authority", () => {
   });
 });
 
-// =========================================================================================
 describe("sarin mapping catalog: Pink stays blocked", () => {
   test("EMERALD 4STEP, RAD MODIFIED and NP-1235-6-KITE are listed to map, with no suggestion; the catalog holds none of them", async () => {
     await upload([{ name: `${kapan()}-001 DC`, shape: "EMERALD 4STEP" }, ...Array.from({ length: 16 }, () => ({ name: `${kapan()}-001 DC`, shape: "RAD MODIFIED" }))]);
@@ -377,7 +350,6 @@ describe("sarin mapping catalog: Pink stays blocked", () => {
   });
 });
 
-// =========================================================================================
 describe("sarin mapping catalog: the page and navigation", () => {
   test("Administration shows one Mappings item; old links land on it", () => {
     const admin = NAV.flatMap((g: any) => g.items ?? []).filter((i: any) => /mapping|business rules/i.test(i.label));
@@ -397,8 +369,6 @@ describe("sarin mapping catalog: the page and navigation", () => {
     const page = await render(MappingsView, {}, root);
     for (const tab of ["Weight Bands", "Lab Mapping", "Shape Mapping", "Status Mapping", "Sarin Shape Mapping"]) expect([tab, page.text.includes(tab)]).toEqual([tab, true]);
     expect(/Business Rules|Business Rule\b/.test(page.text)).toBe(false);
-    // A user with only sarin.mapping.read opens on the Sarin tab; the tabs they cannot open
-    // are not shown at all, so a single remaining tab needs no tab strip.
     const onlySarin = await render(MappingsView, {}, reader);
     expect([onlySarin.text.includes("Current mappings"), (onlySarin.html.match(/role="tab"/g) ?? []).length, onlySarin.text.includes("Weight Bands")]).toEqual([true, 0, false]);
   });
@@ -412,7 +382,7 @@ describe("sarin mapping catalog: the page and navigation", () => {
         expect([label, page.includes(label)]).toEqual([label, true]);
       }
     }
-    expect(asManager.html.includes('aria-label="Show"')).toBe(true); // the All / Mapped / Needs Mapping filter
+    expect(asManager.html.includes('aria-label="Show"')).toBe(true);
     expect([asManager.text.includes("Add Mapping"), asManager.html.includes('aria-label="Map MYSTERY CUT"'), asManager.html.includes('aria-label="Edit mapping for ROUND, All ratios"')]).toEqual([true, true, true]);
     expect([asReader.text.includes("Add Mapping"), asReader.html.includes('aria-label="Map '), asReader.html.includes("Edit mapping for")]).toEqual([false, false, false]);
     expect(/version|draft|approv|review|coverage|dry run|clone|lifecycle|retire|effective|snapshot|rule id|\{"/i.test(asManager.text + asReader.text)).toBe(false);

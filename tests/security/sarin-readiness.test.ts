@@ -1,12 +1,3 @@
-// Sarin readiness: what the Workbook Import page's APIs return when the database is behind
-// the code (pending migrations), and on a freshly migrated, empty database — the upload
-// settings, an empty import list, the baseline shape mappings in effect, and the permission
-// boundaries around them.
-//
-// Runs against the isolated planning_sectest database only. The "pending migration" state
-// is simulated by renaming a table or column inside the test database for one request and
-// restoring it in `finally`; no other database is touched.
-
 import { beforeAll, beforeEach, describe, expect, test } from "./harness";
 import { call, db, makeUser, resetDb } from "./helpers";
 import { resetRateLimits } from "@/lib/api/rate-limit";
@@ -28,7 +19,6 @@ const get = (handler: any, u: User | undefined, query = "", params: Record<strin
 };
 const SAFE = (json: unknown) => !/Sarin[A-Z][A-Za-z]+"|relation|column|does not exist|SELECT|prisma|at .*\.ts|node_modules|\bP20\d\d\b/i.test(JSON.stringify(json));
 
-/** Runs `fn` with one database object renamed, restoring it whatever happens. */
 async function withRenamed(rename: string, restore: string, fn: () => Promise<void>) {
   const [{ d }] = await db.$queryRaw<{ d: string }[]>`SELECT current_database() AS d`;
   if (d !== "planning_sectest") throw new Error(`refusing to alter ${d}`);
@@ -51,7 +41,6 @@ beforeAll(async () => {
 });
 beforeEach(() => resetRateLimits());
 
-// =========================================================================================
 describe("sarin readiness: database behind the code", () => {
   test("a missing Sarin table is a safe 503 naming no table, query or path", async () => {
     await withRenamed(`ALTER TABLE "SarinImportBatch" RENAME TO "SarinImportBatch_pending"`, `ALTER TABLE "SarinImportBatch_pending" RENAME TO "SarinImportBatch"`, async () => {
@@ -64,7 +53,6 @@ describe("sarin readiness: database behind the code", () => {
       const r = await get(readCatalog, root);
       expect([r.status, r.json.error.code, SAFE(r.json)]).toEqual([503, "DATABASE_NOT_READY", true]);
     });
-    // Restored: the same requests succeed again.
     expect((await get(listImports, planner)).status).toBe(200);
   });
 
@@ -77,7 +65,6 @@ describe("sarin readiness: database behind the code", () => {
   });
 });
 
-// =========================================================================================
 describe("sarin readiness: freshly migrated, empty database", () => {
   test("the import list is a successful empty state; uploaders get the upload settings, readers do not", async () => {
     const asPlanner = await get(listImports, planner);
@@ -91,12 +78,10 @@ describe("sarin readiness: freshly migrated, empty database", () => {
 
   test("the migration made the 32 confirmed rules the initial effective catalog, approved by nobody", async () => {
     const stored = await db.sarinShapeMappingSet.findUniqueOrThrow({ where: { id: BASELINE } });
-    // Effective at migration, or already replaced by a snapshot another suite saved.
     expect([["EFFECTIVE", "SUPERSEDED"].includes(stored.status), stored.origin, stored.version, stored.effectiveAt !== null]).toEqual([true, "MIGRATION_BASELINE", 1, true]);
     expect([stored.approvedByUserId, stored.approvedAt, stored.createdByUserId, stored.lastModifiedByUserId]).toEqual([null, null, null, null]);
     const rules = await db.sarinShapeMappingRule.findMany({ where: { mappingSetId: BASELINE }, select: { rawShapeKey: true, note: true } });
     expect([rules.length, rules.some((x) => x.rawShapeKey === "EMERALD 4STEP"), rules.filter((x) => x.note).length]).toEqual([32, false, 0]);
-    // Exactly one catalog is in effect, and Workbook Import knows mappings are configured.
     expect(await db.sarinShapeMappingSet.count({ where: { sourceSystem: "SARIN", status: "EFFECTIVE" } })).toBe(1);
     expect((await get(listImports, planner)).json.mappingsConfigured).toBe(true);
   });
@@ -107,7 +92,6 @@ describe("sarin readiness: freshly migrated, empty database", () => {
     }
     expect(permissionsFor("SUPER_ADMIN").filter((p) => p.startsWith("sarin.mapping")).sort()).toEqual(["sarin.mapping.manage", "sarin.mapping.read"]);
     expect((await get(readCatalog, admin)).status).toBe(403);
-    // The withdrawn permission cannot be granted again, and no role holds it.
     resetRateLimits();
     const refused = await call(rolesPost, { method: "POST", cookie: root.cookie, body: { op: "createRole", code: `READY_APPROVER_${Date.now().toString(36).toUpperCase()}`, name: "Approver", permissions: ["sarin.mapping.read", "sarin.mapping.approve"] } });
     expect(refused.status).toBe(400);

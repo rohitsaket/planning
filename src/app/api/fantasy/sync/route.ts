@@ -5,10 +5,7 @@ import { runSynchronization } from "@/lib/fantasy/sync-service";
 import { resolveFantasySourceState, resolveFantasySourceStateWithHistory } from "@/lib/fantasy/config";
 import { readPublicFailure } from "@/lib/api/operational-failure";
 
-// GET: Fantasy Sync Dashboard — sync runs, active checkpoint & honest reconciliation summary
 export const GET = withApi({ permission: "fantasy.read" }, async () => {
-  // One centrally derived source state. This route never decides for itself what
-  // "simulated", "live" or "degraded" means.
   const sourceState = await resolveFantasySourceStateWithHistory(db);
 
   const checkpoint = await db.syncCheckpoint.findUnique({
@@ -23,7 +20,6 @@ export const GET = withApi({ permission: "fantasy.read" }, async () => {
   const latestRun = runs[0] ?? null;
   const hasEverRun = runs.length > 0;
 
-  // Real entity-specific statuses
   const polishedRun = runs.find((r) => r.entity === "Polished" || r.entity === "ALL" || r.entity === "BATCH") ?? null;
   const wipRun = runs.find((r) => r.entity === "WIP" || r.entity === "ALL" || r.entity === "BATCH") ?? null;
 
@@ -50,15 +46,12 @@ export const GET = withApi({ permission: "fantasy.read" }, async () => {
     },
   ];
 
-  // Reconciliation statistics. There is no rough-stock figure: rough records have no
-  // authoritative source and were never synchronized.
   const fantasyPolishedCount = await db.polishedStone.count();
   const totalOverallLots = await db.lotMasterRecord.count();
   const activeOverallLots = await db.lotMasterRecord.count({ where: { isCurrent: true } });
   const historicalOverallLots = await db.lotMasterRecord.count({ where: { isCurrent: false } });
   const unmappedStatuses = await db.fantasyStatusMapping.count({ where: { planningClass: "OTHER" } });
 
-  // Separate active/open issues from resolved issues
   const activeDqErrors = await db.dataQualityIssue.count({
     where: { source: "FANTASY", status: "OPEN", severity: { in: ["ERROR", "BLOCKING"] } },
   });
@@ -69,13 +62,11 @@ export const GET = withApi({ permission: "fantasy.read" }, async () => {
     where: { source: "FANTASY", status: "RESOLVED" },
   });
 
-  // Calculate missing IDs, duplicate IDs, and stale records when supporting data exists
   let missingIds: number | null = null;
   let duplicateIds: number | null = null;
   let staleRecords: number | null = null;
 
   if (hasEverRun) {
-    // Check if any active polished inventory stone lacks a corresponding master record
     const orphanedPolished = await db.polishedStone.count({
       where: {
         fantasyLotId: {
@@ -84,9 +75,8 @@ export const GET = withApi({ permission: "fantasy.read" }, async () => {
       },
     });
     missingIds = orphanedPolished;
-    duplicateIds = 0; // Guarded by unique constraint
+    duplicateIds = 0;
 
-    // Check for records not seen in over 30 days
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     staleRecords = await db.lotMasterRecord.count({
       where: {
@@ -97,7 +87,6 @@ export const GET = withApi({ permission: "fantasy.read" }, async () => {
   }
 
   return ok({
-    // Sanitized: no credential, environment value, provider URL or cursor token.
     sourceState,
     hasEverRun,
     checkpoint: checkpoint?.currentCheckpoint ?? 0,
@@ -152,8 +141,6 @@ export const GET = withApi({ permission: "fantasy.read" }, async () => {
       recordsFetched: r.recordsFetched,
       durationMs: r.durationMs,
       triggeredBy: r.triggeredBy,
-      // Runs recorded before failures were sanitized hold raw exception text, so the
-      // column is re-sanitized on read rather than merely shortened.
       failure: readPublicFailure(r.errorSummary),
       startedAt: r.startedAt.toISOString(),
       finishedAt: r.finishedAt?.toISOString() ?? null,
@@ -161,10 +148,7 @@ export const GET = withApi({ permission: "fantasy.read" }, async () => {
   });
 });
 
-// POST: Trigger real incremental synchronization batch
 export const POST = withApi({ permission: "fantasy.sync.run" }, async (_req, _ctx, { principal, audit }) => {
-  // Fails closed on an unconfigured or unsupported source: no lock, no run record and
-  // a fixed safe explanation instead of an unhandled provider error.
   const sourceState = resolveFantasySourceState();
   if (sourceState.effectiveState === "NOT_CONFIGURED") {
     return err(sourceState.statusExplanation, 409);

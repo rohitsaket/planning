@@ -18,18 +18,6 @@ import { SimulationBanner } from "@/components/diamond/shared/simulation-banner"
 import type { SourceDisclosure } from "@/lib/analysis/source-disclosure";
 import { AgingSummary } from "./aging-summary";
 
-/**
- * STOCK AGING — current stock, and an honest statement that age cannot yet be derived.
- *
- * The page this replaces read a legacy seeded mirror and reported
- * `NOW() - lastUpdated` as inventory age, sorted into six hardcoded bands. That number
- * looked authoritative and was not: the timestamp records when a row was last written,
- * so a full synchronization would have reported the entire warehouse as new.
- *
- * Every figure here comes from the API as returned; this file performs no arithmetic and
- * shows no age.
- */
-
 interface AgingLotRow {
   lotId: string;
   stoneName: string | null;
@@ -68,16 +56,11 @@ export function AgingView() {
   const [search, setSearch] = useState("");
   const [appliedSearch, setAppliedSearch] = useState("");
 
-  // A drill-down from the bucket summary (formerly the Aging Dashboard) arrives in the typed `bucket` field of the nav
-  // context. It used to be read from the generic `category` field, which carried a raw
-  // `inventoryClass` value the API refused — so the filter never applied and the page
-  // showed everything while claiming to show one bucket.
   const bucketFromNav = trace?.bucket ?? null;
 
   const url = useMemo(() => {
     const p = new URLSearchParams();
     if (bucketFromNav) p.set("bucket", bucketFromNav);
-    // Country, branch and lab are real dimensions of a stock record, so all three apply.
     if (globalFilter.country) p.set("country", globalFilter.country);
     if (globalFilter.branch) p.set("branch", globalFilter.branch);
     if (globalFilter.lab) p.set("lab", globalFilter.lab);
@@ -98,7 +81,6 @@ export function AgingView() {
     { key: "shape", header: "Shape", width: "8rem", cell: (r) => <span className="text-muted-foreground">{r.shape ?? "—"}</span> },
     {
       key: "confirmedQuantity", header: "Confirmed quantity (pcs)", align: "right",
-      // Null is not zero: the source never established a quantity for this record.
       cell: (r) => r.confirmedQuantity === null
         ? <span className="text-muted-foreground">Not confirmed</span>
         : <NumberCell value={r.confirmedQuantity} />,
@@ -114,7 +96,6 @@ export function AgingView() {
     { key: "department", header: "Department", width: "12rem", cell: (r) => <span className="text-xs text-muted-foreground">{r.department ?? "—"}</span> },
     { key: "location", header: "Location", width: "12rem", cell: (r) => <span className="text-xs text-muted-foreground">{r.location ?? "—"}</span> },
     {
-      // Named for what it is. It is not an aging start date and is not presented as one.
       key: "lastSourceUpdateIst", header: "Last reported by source", width: "12rem",
       cell: (r) => <span className="text-xs text-muted-foreground">{r.lastSourceUpdateIst ?? "—"}</span>,
     },
@@ -141,13 +122,11 @@ export function AgingView() {
           ) : undefined
         }
       />
-      {/* Persistent and unmistakable while fixture data is on screen. */}
       <SimulationBanner disclosure={data?.sourceDisclosure} />
 
 
 
       <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
-        {/* All three cover the complete filtered result, not the page on screen. */}
         <KpiCard label="Current lots" value={data?.totals.currentLots ?? 0} intent="info" icon={Boxes} hint="Lots in stock" />
         <KpiCard label="Confirmed quantity" value={data?.totals.confirmedQuantity ?? 0} unit="pcs" intent="success" hint="Confirmed pieces in stock" />
         <KpiCard label="Needing review" value={data?.totals.lotsNeedingReview ?? 0} intent="warning" hint="Quantity or classification not confirmed" />

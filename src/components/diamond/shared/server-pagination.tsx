@@ -8,21 +8,15 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 export interface ServerPaginationProps {
   page: number;
   pageSize: number;
-  /** Total matching rows on the server, not the number of rows on this page. */
   total: number;
   hasMore: boolean;
   onPageChange: (page: number) => void;
   onPageSizeChange?: (pageSize: number) => void;
   loading?: boolean;
-  /** Noun for the row count, e.g. "customers". */
   label?: string;
   pageSizeOptions?: number[];
 }
 
-/**
- * Paging control for endpoints that page on the server. It always states the real
- * total so a page of rows is never mistaken for the whole dataset.
- */
 export function ServerPagination({
   page,
   pageSize,
@@ -52,7 +46,6 @@ export function ServerPagination({
     }
   };
 
-  // Generate page numbers with ellipsis window
   const getPageNumbers = () => {
     if (totalPages <= 7) {
       return Array.from({ length: totalPages }, (_, i) => i + 1);

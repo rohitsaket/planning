@@ -13,9 +13,6 @@ export const GET = withApi({ authenticated: true, allowPasswordChangeSession: tr
       roleCodes,
       permissions,
       mustChangePassword,
-      // The caller's own scope, so the global filter can offer only the countries and labs
-      // they are authorized for. This is UX: every route enforces the same scope again on
-      // the server, and a request for anything outside it is refused there.
       accessScope: describeScope(scope),
     },
   });

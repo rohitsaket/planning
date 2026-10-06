@@ -5,11 +5,6 @@ import { withApi, qInt } from "@/lib/api/with-api";
 import { describeScope } from "@/lib/auth/access-scope";
 import { memoPredicates, memoWhere, readMemoFilters } from "@/lib/analysis/memo";
 
-// Memo Analysis — memo is a separate decision context and never reduces physical
-// shortage (BR-MEMO-001). Aggregates are computed in PostgreSQL over the whole
-// filtered set; the detail list is paginated on the server. Every figure — totals,
-// groupings, age buckets and the page of lots — is read through one memo filter, so they
-// always describe the same records.
 export const GET = withApi(
   { permission: "sales.read", scoped: true, query: ["country", "branch", "lab", "status", "page", "pageSize"] },
   async (req: Request, _ctx, { scope }) => {
@@ -119,7 +114,6 @@ export const GET = withApi(
     pageSize,
     total,
     hasMore: page * pageSize < total,
-    // What this caller is allowed to see, so a narrowed page can say why.
     accessScope: describeScope(scope),
   });
   },

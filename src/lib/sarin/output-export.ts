@@ -1,16 +1,3 @@
-/**
- * CSV export of one immutable Sarin output version: one line per plan piece, in output
- * order, with its option and stone. Every value is the stored value — weights at three
- * decimals, the yield as displayed at two — so the file cannot disagree with the preview.
- *
- * It is transformed Sarin candidate data, never an approved manufacturing plan, and the
- * file says so before its header. Text that a spreadsheet would run as a formula is
- * neutralised by the shared CSV policy. A version larger than the export limit is refused,
- * never cut short. Nothing here is recomputed or ranked.
- *
- * Server-only.
- */
-
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { ApiError } from "@/lib/api/errors";
@@ -24,7 +11,6 @@ if (typeof window !== "undefined") {
   throw new Error("sarin/output-export is server-only and must not be imported by client code.");
 }
 
-/** Pieces read per query while the file is built. */
 const EXPORT_READ_PAGE = 5000;
 
 export const SARIN_PLAN_CODE_LABELS: Record<string, string> = {
@@ -36,7 +22,6 @@ export const SARIN_PLAN_CODE_LABELS: Record<string, string> = {
   BT: "Best Twin",
 };
 
-/** Column order is part of the file contract: it never depends on the data. */
 const HEADER = [
   "Output Row", "Stone Name", "Kapan", "Packet", "Signer", "Packet Type", "Rough Weight (ct)",
   "Option", "Plan Code", "Plan", "Option Pieces", "Option Est. Weight (ct)", "Option Yield %", "Twin Weight Difference (ct)",
@@ -67,8 +52,6 @@ export async function exportOutputVersion(scope: EffectiveScope, batchId: string
     throw new ApiError(413, "EXPORT_TOO_LARGE", `This output has ${version.pieceCount} pieces, more than the ${maxRows} one export may contain.`);
   }
 
-  // Notices come before the header, so a recipient who only opens the file still learns
-  // what it is and which version it came from.
   const lines: string[] = [
     csvSafeCell("Sarin structured output: transformed Sarin candidate data. Not an approved manufacturing plan."),
     csvSafeCell(`Output version ${version.versionNumber} (${version.status === "GENERATED" ? "current" : "superseded"}) · packet type ${version.packetType} · planning date ${version.batch.planningDate.toISOString().slice(0, 10)}`),

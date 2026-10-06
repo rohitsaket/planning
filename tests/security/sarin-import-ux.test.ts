@@ -1,12 +1,3 @@
-// Workbook Import presentation: the output preview (stone header, focused columns, grouped
-// plans, stored yields, warnings, navigation, one horizontal scroll region) rendered from
-// the real routes; the packet type (Blue, White or Pink packet) as the only import
-// classification; and Sarin imports without any country — no field, no identity, no
-// scope — while lab scope still applies.
-//
-// Requests go through the real route handlers against the isolated planning_sectest
-// database. All data is synthetic.
-
 import { beforeAll, beforeEach, describe, expect, test } from "./harness";
 import { call, db, ensureLabRegistry, makeUser, resetDb } from "./helpers";
 import { renderPage, routeFetch, sessionUser } from "./ui-render";
@@ -33,7 +24,6 @@ const SHAPES = [["ROUND", "Round"], ["PEAR", "Pear"], ["OVAL", "Oval"], ["ASSCHE
 const RULES: CatalogRule[] = SHAPES.map(([rawShape, normalizedShape]) => ({ rawShape, normalizedShape }));
 const COLUMNS = ["Plan", "Plan Type", "Piece", "Shape", "Est. Weight", "Clarity", "Color", "Depth %", "Ratio", "Width", "Length", "MM", "Yield %"];
 
-// ---- synthetic files ------------------------------------------------------------------------
 let nonce = 0;
 const kapan = () => `8${String(++nonce).padStart(3, "0")}X`;
 interface Rec { name: string; shape?: string; est?: string; rough?: string }
@@ -48,7 +38,6 @@ function pinkStone(name: string): Rec[] {
   return recs.map((r) => ({ ...r, rough: "10.000" }));
 }
 
-// ---- sessions and rendering -------------------------------------------------------------------
 const sessions = new Map<User, Session>();
 const as = async (u: User): Promise<Session> => {
   if (!sessions.has(u)) sessions.set(u, { cookie: u.cookie, user: await sessionUser(u.cookie) });
@@ -56,7 +45,6 @@ const as = async (u: User): Promise<Session> => {
 };
 const render = async <P extends object>(view: ComponentType<P>, props: P, u: User, headerCountry: string | null = null) => {
   const s = await as(u);
-  // The header filter as the browser store would hold it, for this render only.
   const initial = useGlobalFilter.getInitialState();
   const saved = initial.country;
   initial.country = headerCountry;
@@ -79,7 +67,6 @@ async function grantScope(u: User, countries: string[], labs: string[] = []) {
   await db.userAccessScope.createMany({ data: [...countries.map((value) => ({ userId: u.user.id, dimension: "COUNTRY", value })), ...labs.map((value) => ({ userId: u.user.id, dimension: "LAB", value }))] });
 }
 
-/** Process File exactly as the page runs it; returns the batch and its current output. */
 async function processed(u: User, recs: Rec[], packetType: string) {
   const rights = rightsOf((await as(u)).user.permissions);
   const result = await processFile(routeFetch(u.cookie), csvFile(recs), { packetType, labId: null, planningDate: "2026-09-28" }, rights);
@@ -89,7 +76,6 @@ async function processed(u: User, recs: Rec[], packetType: string) {
 }
 const api = async (u: User, path: string) => (await routeFetch(u.cookie)(path)).json() as Promise<any>;
 
-/** A multipart upload straight to the route, with exactly the given fields. */
 async function upload(u: User, recs: Rec[], fields: Record<string, string>) {
   resetRateLimits();
   const fd = new FormData();
@@ -105,15 +91,11 @@ const lastRejection = async (u: User) => {
   return row ? { outcome: row.outcome, ...JSON.parse(row.after!) } : null;
 };
 
-// ---- HTML reading -------------------------------------------------------------------------------
 const decode = (s: string) => s.replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&#x27;|&#39;/g, "'").replace(/&quot;/g, '"').replace(/&nbsp;/g, " ").trim();
 const headers = (html: string) => [...html.matchAll(/<th scope="col"[^>]*>([\s\S]*?)<\/th>/g)].map((m) => decode(m[1]));
-/** A column header's accessible name: decorative content (aria-hidden, e.g. sort arrows) is not part of it. */
 const accessibleHeaders = (html: string) => [...html.matchAll(/<th[^>]*scope="col"[^>]*>([\s\S]*?)<\/th>/g)].map((m) => decode(m[1].replace(/<([a-z]+)[^>]*aria-hidden="true"[^>]*>[\s\S]*?<\/\1>/g, "")));
 const groupHeaders = (html: string) => [...html.matchAll(/<th scope="rowgroup"[^>]*>([\s\S]*?)<\/th>/g)].map((m) => decode(m[1]));
-/** The data rows of the table: each row's cells as text, with each cell's class. */
 function dataRows(html: string) {
-  // A yield-rank badge (a titled span) is not part of the cell's value.
   return [...html.matchAll(/<tr(?: [^>]*)? class="[^"]*"[^>]*>([\s\S]*?)<\/tr>/g)]
     .map((m) => [...m[1].matchAll(/<td class="([^"]*)"[^>]*>([\s\S]*?)<\/td>/g)].map((c) => ({ cls: c[1], text: decode(c[2].replace(/<span[^>]* title="[^"]*"[^>]*>[\s\S]*?<\/span><\/span>/g, "").replace(/<span class="sr-only">[\s\S]*?<\/span>/g, "")), html: c[2] })))
     .filter((cells) => cells.length === COLUMNS.length);
@@ -146,14 +128,12 @@ beforeAll(async () => {
   const b = await processed(planner, [...rows(`${k}-001 DC`, [...Array(17).fill("1.500"), "0.500", "0.400", "0.600", "0.300"]), ...rows(`${k}-002 DC`, Array(17).fill("1.100"), { rough: "2.750" })], "BLUE");
   blue = { ...b, kapan: k };
   pink = await processed(planner, pinkStone(`${kapan()}-111_M`), "PINK");
-  // One record's shape has no mapping: written as the Sarin shape, with a warning.
   const whiteRecs = rows(`${kapan()}-0007 HA`, [...Array(32).fill("0.250"), "0.900", "0.800"], { rough: "10.000" });
   whiteRecs[4] = { ...whiteRecs[4], shape: "KITE-UX" };
   white = await processed(planner, whiteRecs, "WHITE");
 });
 beforeEach(() => resetRateLimits());
 
-// =========================================================================================
 describe("sarin import ux: output preview", () => {
   test("the stone header shows the stone once: position, Kapan, packet, signer, rough weight, plan and piece counts", async () => {
     const page = await render(SarinOutputPreview, { batchId: blue.batchId, versionId: blue.versionId }, planner);
@@ -168,7 +148,6 @@ describe("sarin import ux: output preview", () => {
   test("the table has the focused columns only; Kapan, packet, signer and rough weight are not repeated per row", async () => {
     const page = await render(SarinOutputPreview, { batchId: blue.batchId, versionId: blue.versionId }, planner);
     expect(headers(page.html)).toEqual(COLUMNS);
-    // The caption names the stone; no header or cell repeats its Kapan, packet, signer or rough weight.
     const body = page.html.match(/<thead[\s\S]*<\/table>/)![0];
     expect([body.includes(blue.kapan), dataRows(page.html).some((r) => r.some((c) => c.text === "DC" || c.text === "3.000"))]).toEqual([false, false]);
     expect(page.html).toContain("<caption");
@@ -204,7 +183,6 @@ describe("sarin import ux: output preview", () => {
     const shown = dataRows(page.html);
     expect(shown.slice(17).map((r) => r[2].text)).toEqual(["1 of 2", "2 of 2", "1 of 2", "2 of 2"]);
     expect(shown.slice(17).map((r) => r[1].text)).toEqual(["2 Pcs", "", "2 Pcs", ""]);
-    // No orange tint anywhere in the preview.
     expect(/orange/.test(page.html)).toBe(false);
   });
 
@@ -218,7 +196,6 @@ describe("sarin import ux: output preview", () => {
     const types = dataRows(page.html).map((r) => r[1].text).filter(Boolean);
     expect(types).toEqual([...Array.from({ length: 9 }, () => ["MK", "SL"]).flat(), "BP", "BP", "BP", "BT", "BT", "BT", "BT", "BT", "BT"]);
     for (const name of ["Makeable", "Solace", "Best Pair", "Best Twin"]) expect([name, page.html.includes(`<span class="sr-only">${name}</span>`)]).toEqual([name, true]);
-    // The pure grouping keeps every stored row, in order.
     const options = (await api(planner, `${outputPath(pink.batchId, pink.versionId)}/options?stone=1&pageSize=500`)).rows as PreviewOption[];
     const pieces = (await api(planner, `${outputPath(pink.batchId, pink.versionId)}/pieces?stone=1&pageSize=500`)).rows as PreviewPiece[];
     expect(groupPreviewRows(options, pieces).flatMap((g) => g.options.flatMap((o) => o.pieces.map((p) => p.outputRow)))).toEqual(pieces.map((p) => p.outputRow));
@@ -229,7 +206,6 @@ describe("sarin import ux: output preview", () => {
     expect([disabled(first.html, "Previous Stone"), disabled(first.html, "Next Stone"), /aria-label="Preview stones"/.test(first.html)]).toEqual([true, false, true]);
     const only = await render(SarinOutputPreview, { batchId: pink.batchId, versionId: pink.versionId }, planner);
     expect([decode(only.html).includes("Stone 1 of 1"), disabled(only.html, "Previous Stone"), disabled(only.html, "Next Stone")]).toEqual([true, true, true]);
-    // The stones are read one page at a time from the server.
     expect(first.requested.some((p) => /\/stones\?pageSize=1&page=1$/.test(p))).toBe(true);
   });
 
@@ -251,13 +227,11 @@ describe("sarin import ux: output preview", () => {
     const numeric = [0, 2, 4, 7, 8, 9, 10, 11, 12];
     expect(shown.every((r) => numeric.every((i) => r[i].cls.includes("text-right")) && [1, 3, 5, 6].every((i) => !r[i].cls.includes("text-right")))).toBe(true);
     expect(page.html).toMatch(/<table class="[^"]*tabular-nums/);
-    // No nested vertical scrolling: the table's horizontal overflow is the only scroll region.
     expect([(page.html.match(/overflow-x-auto/g) ?? []).length, /overflow-auto|overflow-y-|max-h-/.test(page.html)]).toEqual([1, false]);
     expect(page.html).toMatch(/role="region" aria-label="Plans of stone [^"]+" tabindex="0"/);
   });
 });
 
-// =========================================================================================
 describe("sarin import ux: packet type, and no country", () => {
   test("the form asks for a Packet Type (Blue, White or Pink packet) and never for a country, whatever the scope or header filter", async () => {
     const form = (html: string) => html.match(/<form[\s\S]*<\/form>/)![0];
@@ -266,7 +240,6 @@ describe("sarin import ux: packet type, and no country", () => {
       const f = form((await render(WorkbookImportView, {}, u, header)).html);
       expect([u.user.username, header, /country/i.test(f), /stone[ -]?type/i.test(decode(f)), f.includes('aria-label="Packet Type"'), decode(f).includes("Packet Type"), textInputs(f)]).toEqual([u.user.username, header, false, false, true, true, []]);
     }
-    // A lab-scoped user's lab is required, not optional.
     const lab = (await render(WorkbookImportView, {}, labScoped)).html;
     expect([lab.includes("Lab (optional)"), /<label[^>]*>Lab<\/label>/.test(lab)]).toEqual([false, true]);
   });
@@ -289,7 +262,6 @@ describe("sarin import ux: packet type, and no country", () => {
     expect([ok.status, ok.json.batch.packetType, "country" in ok.json.batch, "stoneType" in ok.json.batch]).toEqual([201, "WHITE", false, false]);
     const audit = JSON.parse((await db.auditLog.findFirstOrThrow({ where: { action: "SARIN_IMPORT_UPLOADED", entityId: ok.json.batch.id } })).after!);
     expect([audit.packetType, "country" in audit, "stoneType" in audit]).toEqual(["WHITE", false, false]);
-    // The list filters by packetType, and only by a known one.
     const pinkOnly = await api(planner, "/api/planning/sarin/imports?packetType=PINK&pageSize=100");
     expect([pinkOnly.rows.length > 0, pinkOnly.rows.every((r: any) => r.packetType === "PINK")]).toEqual([true, true]);
     expect((await routeFetch(planner.cookie)("/api/planning/sarin/imports?packetType=GREEN")).status).toBe(400);
@@ -299,16 +271,13 @@ describe("sarin import ux: packet type, and no country", () => {
     const recs = rows(`${kapan()}-001 DC`, Array(17).fill("1.500"));
     const first = await upload(planner, recs, {});
     expect(first.status).toBe(201);
-    // No country distinguishes imports: another user of any country scope reuses the same import.
     for (const u of [single, multi]) {
       const again = await upload(u, recs, {});
       expect([u.user.username, again.status, again.json.duplicate, again.json.batch.id]).toEqual([u.user.username, 200, true, first.json.batch.id]);
     }
-    // A different packet type or planning date is a different import.
     const white = await upload(planner, recs, { packetType: "WHITE" });
     const later = await upload(planner, recs, { planningDate: "2026-09-29" });
     expect([white.status, later.status, new Set([first.json.batch.id, white.json.batch.id, later.json.batch.id]).size]).toEqual([201, 201, 3]);
-    // Archived, the import is history; the same upload then becomes a new active import.
     resetRateLimits();
     expect((await call(archiveImport, { method: "DELETE", cookie: planner.cookie, params: { batchId: first.json.batch.id } })).status).toBe(200);
     const fresh = await upload(planner, recs, {});
@@ -320,7 +289,6 @@ describe("sarin import ux: packet type, and no country", () => {
     for (const u of [single, multi]) {
       expect([u.user.username, (await routeFetch(u.cookie)(`/api/planning/sarin/imports/${own.json.batch.id}`)).status]).toEqual([u.user.username, 200]);
     }
-    // A lab-scoped user cannot see an import without a lab, and must declare their lab.
     expect((await routeFetch(labScoped.cookie)(`/api/planning/sarin/imports/${own.json.batch.id}`)).status).toBe(404);
     expect((await upload(labScoped, rows(`${kapan()}-001 DC`, Array(17).fill("1.500")), {})).status).toBe(403);
     expect(await lastRejection(labScoped)).toMatchObject({ outcome: "DENIED", packetType: "BLUE" });
@@ -334,11 +302,9 @@ describe("sarin import ux: packet type, and no country", () => {
     const page = await render(WorkbookImportView, {}, planner);
     const headerCells = accessibleHeaders(page.html);
     expect([headerCells.includes("Packet Type"), headerCells.includes("Lab"), headerCells.some((h) => /stone type|country/i.test(h))]).toEqual([true, true, false]);
-    // The sort control stays announced through aria-sort, not through the glyph.
     expect(/<th scope="col"[^>]*aria-sort="(none|ascending|descending)"[^>]*>[\s\S]*?Packet Type/.test(page.html)).toBe(true);
     const result = await render(SarinFileResult, { batchId: blue.batchId, rights: rightsOf((await as(planner)).user.permissions), failure: null, busy: false, onProcessAgain: () => {}, onProcessAnother: () => {} }, planner);
     const text = result.text.replace(/\s+/g, " ");
-    // Packet Type (Blue) in the summary; Stones counts rough stones; the preview header's Packet is the packet number.
     expect([/Packet Type\s*Blue/.test(text), /Stones\s*2\b/.test(text), /Packet\s*001/.test(text), /stone type/i.test(text)]).toEqual([true, true, true, false]);
   });
 
@@ -354,11 +320,9 @@ describe("sarin import ux: packet type, and no country", () => {
       }
     };
     walk(path.join(process.cwd(), "src"));
-    // Only the stored output-inputs hash keeps its original key, so existing versions stay recognised.
     const allowed = (line: string) => line.includes("stoneType: packetType,") || line.includes('original hash key "stoneType"');
     const found = files.flatMap((f) => readFileSync(f, "utf8").split("\n").map((line, i) => ({ f, i, line }))).filter(({ line }) => /stone[ _-]?types?\b|stoneType|StoneType|STONE_TYPE/i.test(line) && !allowed(line));
     expect(found.map(({ f, i }) => `${path.relative(process.cwd(), f)}:${i + 1}`)).toEqual([]);
-    // Legitimate uses of "stone" for a rough stone remain.
     const all = files.map((f) => readFileSync(f, "utf8")).join("\n");
     expect([all.includes('label="Stones"'), all.includes("Rough weight"), all.includes("stoneCount")]).toEqual([true, true, true]);
   });

@@ -3,9 +3,6 @@ import { withApi, idSchema, qInt } from "@/lib/api/with-api";
 import { badRequest, notFound } from "@/lib/api/errors";
 import { listOutputPieces, SARIN_OUTPUT_PIECE_PAGE } from "@/lib/sarin/output-queries";
 
-// One page of an output version's plan pieces in output-row order, optionally for one
-// option or one stone, or only the rows whose shape is written unmapped, each traceable to
-// its source row and mapping rule.
 export const GET = withApi<{ batchId: string; versionId: string }>({ permission: "sarin.import.read" }, async (_req, { params }, api) => {
   const p = await params;
   const url = api.url;

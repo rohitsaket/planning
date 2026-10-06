@@ -1,19 +1,3 @@
-/**
- * A minimal, bounded writer for .xlsx workbooks produced on the server.
- *
- * An .xlsx file is a ZIP container of XML parts. This module writes that container as a
- * stream into a private temporary file (deflate compression, CRC-32 and sizes recorded in
- * data descriptors), so memory stays bounded by one page of rows however large the
- * workbook is. It writes only the parts a plain workbook needs — no macros, no external
- * links, no shared formulas, no hidden sheets — and every cell value is either a number
- * or an inline string, so nothing in a cell is ever evaluated as a formula.
- *
- * ZIP64 is not supported: an entry larger than 4 GiB is refused. Callers bound the row
- * count long before that.
- *
- * Server-only.
- */
-
 import { once } from "node:events";
 import { createWriteStream, type WriteStream } from "node:fs";
 import { createDeflateRaw, crc32 } from "node:zlib";
@@ -32,7 +16,6 @@ interface CentralEntry {
   offset: number;
 }
 
-/** DOS date and time of a moment, as ZIP headers record it. */
 function dosDateTime(d: Date): { time: number; date: number } {
   const time = (d.getHours() << 11) | (d.getMinutes() << 5) | Math.floor(d.getSeconds() / 2);
   const date = ((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate();
@@ -41,7 +24,6 @@ function dosDateTime(d: Date): { time: number; date: number } {
 
 export type PartWriter = (chunk: string) => Promise<void>;
 
-/** Streams ZIP entries into one file. Entries are written one at a time, in order. */
 export class ZipFileWriter {
   private readonly out: WriteStream;
   private offset = 0;
@@ -49,7 +31,6 @@ export class ZipFileWriter {
   private readonly stamp: { time: number; date: number };
 
   constructor(path: string, modified: Date) {
-    // wx: never overwrite; 0600: readable only by this process's user.
     this.out = createWriteStream(path, { flags: "wx", mode: 0o600 });
     this.stamp = dosDateTime(modified);
   }
@@ -59,18 +40,16 @@ export class ZipFileWriter {
     if (!this.out.write(buf)) await once(this.out, "drain");
   }
 
-  /** Adds one entry whose content the producer writes in chunks. */
   async addEntry(path: string, produce: (write: PartWriter) => Promise<void>): Promise<void> {
     const name = Buffer.from(path, "utf8");
     const offset = this.offset;
     const header = Buffer.alloc(30);
     header.writeUInt32LE(0x04034b50, 0);
-    header.writeUInt16LE(20, 4); // version needed
-    header.writeUInt16LE(0x0808, 6); // data descriptor follows; UTF-8 name
-    header.writeUInt16LE(8, 8); // deflate
+    header.writeUInt16LE(20, 4);
+    header.writeUInt16LE(0x0808, 6);
+    header.writeUInt16LE(8, 8);
     header.writeUInt16LE(this.stamp.time, 10);
     header.writeUInt16LE(this.stamp.date, 12);
-    // CRC and sizes are 0 here and recorded in the data descriptor.
     header.writeUInt16LE(name.length, 26);
     await this.raw(Buffer.concat([header, name]));
 
@@ -115,14 +94,13 @@ export class ZipFileWriter {
     this.entries.push({ name, crc: crc >>> 0, compressed, size, offset });
   }
 
-  /** Writes the central directory and closes the file. */
   async finish(): Promise<void> {
     const start = this.offset;
     for (const e of this.entries) {
       const h = Buffer.alloc(46);
       h.writeUInt32LE(0x02014b50, 0);
-      h.writeUInt16LE(20, 4); // made by
-      h.writeUInt16LE(20, 6); // needed
+      h.writeUInt16LE(20, 4);
+      h.writeUInt16LE(20, 6);
       h.writeUInt16LE(0x0808, 8);
       h.writeUInt16LE(8, 10);
       h.writeUInt16LE(this.stamp.time, 12);
@@ -145,7 +123,6 @@ export class ZipFileWriter {
     await once(this.out, "finish");
   }
 
-  /** Closes the file without completing it (the caller deletes it). */
   async abort(): Promise<void> {
     if (this.out.closed) return;
     this.out.destroy();
@@ -153,21 +130,14 @@ export class ZipFileWriter {
   }
 }
 
-// ---------------------------------------------------------------------------------------
-// XML helpers
-// ---------------------------------------------------------------------------------------
-
-/** Characters XML 1.0 cannot carry at all: removed, never passed through. */
 const XML_INVALID = /[\u0000-\u0008\u000B\u000C\u000E-\u001F￾￿]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
 
 export function xmlText(value: string): string {
   return value.replace(XML_INVALID, "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
-/** Text a spreadsheet user could take for a formula if it were retyped. */
 export const FORMULA_LIKE = /^[=+\-@\t\r]/;
 
-/** Zero-based column index to letters: 0 → A, 18 → S. */
 export function columnLetter(index: number): string {
   let n = index + 1;
   let s = "";
@@ -179,7 +149,6 @@ export function columnLetter(index: number): string {
   return s;
 }
 
-/** A sheet name Excel accepts: no []:*?/\ characters, at most 31 characters, not empty. */
 export function safeSheetName(raw: string, taken: Set<string>): string {
   let base = raw.replace(XML_INVALID, "").replace(/[[\]:*?/\\]/g, "_").replace(/^'+|'+$/g, "").trim().slice(0, 31) || "Sheet";
   if (base.toLowerCase() === "history") base = "History_";
@@ -189,7 +158,6 @@ export function safeSheetName(raw: string, taken: Set<string>): string {
   return name;
 }
 
-/** Days since 1899-12-30 for a calendar date (YYYY-MM-DD), as Excel stores dates. */
 export function excelDateSerial(isoDate: string): number {
   const [y, m, d] = isoDate.split("-").map(Number);
   return Math.round((Date.UTC(y, m - 1, d) - Date.UTC(1899, 11, 30)) / 86_400_000);

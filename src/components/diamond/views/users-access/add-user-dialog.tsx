@@ -10,7 +10,6 @@ import { useAuthStore } from "@/stores/auth-store";
 import { RolePicker, ScopePicker, scopeChoiceValid } from "./access-pickers";
 import { USERS_URL, type RoleRow, type ScopeOptions } from "./shared";
 
-/** A server-issued temporary password, shown once for the administrator to hand over. */
 export function OneTimePassword({ username, password }: { username: string; password: string }) {
   const [copied, setCopied] = useState(false);
   return (
@@ -37,7 +36,6 @@ export function OneTimePassword({ username, password }: { username: string; pass
   );
 }
 
-// Mirrors the server minimum for a quicker hint; the server rejects anything shorter.
 const MIN_PASSWORD = 12;
 
 const EMPTY = { displayName: "", username: "", email: "", roles: [] as string[], activation: "temporary" as "temporary" | "password", password: "", scope: { countries: [] as string[], labs: [] as string[] } };
@@ -52,7 +50,6 @@ export function AddUserDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   roles: RoleRow[];
-  /** Present only when the caller may assign scope. */
   scopeOptions: ScopeOptions | null;
   onCreated: () => Promise<void>;
 }) {

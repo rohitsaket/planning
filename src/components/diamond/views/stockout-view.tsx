@@ -19,20 +19,6 @@ import { SimulationBanner } from "@/components/diamond/shared/simulation-banner"
 import { useDemandRefresh } from "@/components/diamond/shared/use-demand-refresh";
 import type { SourceDisclosure } from "@/lib/analysis/source-disclosure";
 
-/**
- * STOCKOUT RISK — which categories have confirmed demand that available finished
- * polished stock does not cover.
- *
- * Every figure is read from the API exactly as returned. This file performs no business
- * arithmetic: the shortage shown here is the shortage the demand engine stored, which is
- * what makes this page and Demand Overview the same answer rather than two answers that
- * happen to look alike.
- *
- * The page it replaces projected forecast predictions against available stock and ranked
- * the result CRITICAL / HIGH / MEDIUM — a risk model nobody approved, over numbers that
- * were not the confirmed shortage.
- */
-
 type StockoutState = "OUT_OF_STOCK" | "SHORTAGE" | "COVERED" | "EXCESS" | "REVIEW_REQUIRED";
 type DataState = "CONFIRMED" | "REVIEW_REQUIRED" | "BLOCKED";
 
@@ -79,7 +65,6 @@ interface CategoriesResponse {
   runId: string | null;
   unavailableMessage: string | null;
   rows: StockoutRow[];
-  // Absent when the run is unavailable: the response is then a state, not a page.
   paging?: PagingMeta;
   totals: {
     categoriesWithShortage: number;
@@ -95,7 +80,6 @@ interface CategoriesResponse {
 interface DetailResponse {
   available: boolean;
   runId: string | null;
-  /** Absent when no demand calculation has run (`available` is false). */
   detail?:
     | ({ found: true } & StockoutRow & {
         reservedQuantity: number;
@@ -156,14 +140,12 @@ export function StockoutView() {
   const canExport = perms.includes("analysis.export");
   const canRunDemand = perms.includes("demand.run");
 
-  // The category comes from the URL/nav context, never from the first row.
   const selectedCategory = trace?.category ?? null;
   const requestedRunId = trace?.runId ?? null;
 
   const qs = useMemo(() => {
     const p = new URLSearchParams();
     if (requestedRunId) p.set("runId", requestedRunId);
-    // Lab is a real dimension of the stored result; country and branch are not.
     if (globalFilter.lab) p.set("lab", globalFilter.lab);
     if (appliedSearch) p.set("search", appliedSearch);
     if (stateFilter) p.set("stockoutState", stateFilter);
@@ -201,7 +183,6 @@ export function StockoutView() {
         <button
           type="button"
           className="text-left font-semibold text-foreground hover:underline cursor-pointer"
-          // The canonical key is carried verbatim.
           onClick={() => setTraceCategory(r.categoryId)}
           title={r.categoryId}
         >
@@ -255,7 +236,6 @@ export function StockoutView() {
         }
       />
 
-      {/* Compact source and snapshot status — no rule version, fingerprint or checkpoint. */}
       {s && (
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-border bg-muted/20 px-3 py-2 text-xs">
@@ -285,7 +265,6 @@ export function StockoutView() {
             )}
           </div>
 
-          {/* Persistent and unmistakable while fixture data is on screen. */}
           <SimulationBanner disclosure={s.sourceDisclosure} />
           {s.reviewWarning && <InfoBanner variant="warning">{s.reviewWarning}</InfoBanner>}
           {s.staleWarning && (
@@ -313,7 +292,6 @@ export function StockoutView() {
         </div>
       )}
 
-      {/* Business totals. Never zeros when there is no run. */}
       <div className="grid grid-cols-2 gap-2 md:grid-cols-3 lg:grid-cols-6">
         <KpiCard label="Categories with shortage" value={hasRun ? (totals?.categoriesWithShortage ?? 0) : "NOT RUN"} intent="warning" icon={AlertTriangle} hint="Target not covered by available finished stock" />
         <KpiCard label="Out of stock" value={hasRun ? (totals?.categoriesOutOfStock ?? 0) : "NOT RUN"} intent="critical" icon={PackageX} hint="Target exists and nothing is available" />
@@ -417,7 +395,6 @@ export function StockoutView() {
           {detail.isLoading ? (
             <div className="px-3 py-4 text-xs text-muted-foreground">Loading category detail…</div>
           ) : detail.data && !detail.data.available ? (
-            // No demand calculation has run: the API answers with a state, not a detail.
             <EmptyState title="No demand calculation yet" message="Category detail appears once demand has been calculated." icon={<Info className="h-5 w-5" />} />
           ) : detail.data?.detail?.found === false ? (
             <EmptyState
@@ -434,7 +411,6 @@ export function StockoutView() {
   );
 }
 
-/** Business supporting figures only — no formula, no source table, no rule identifier. */
 function CategoryDetail({ d }: { d: Extract<DetailResponse["detail"], { found: true }> }) {
   const figures: Array<[string, number | string]> = [
     ["Confirmed sales 90D (pcs)", d.sales90d],

@@ -1,10 +1,3 @@
-// UI contracts that only a real browser can show: things placed after mount (the table tools
-// that join a panel header), computed sizes from the density tokens, keyboard behaviour, and
-// the retired legacy planning and Fantasy Rough slices as the production build serves them: old links show Not
-// available, retired APIs answer 404, and no client chunk carries a retired page.
-//
-// Runs only against the isolated planning_sectest database and a production build:
-//   npm run build && npm run test:ui-contracts
 import { call, db, makeUser } from "../tests/security/helpers";
 import { resetRateLimits } from "@/lib/api/rate-limit";
 import { createSession, SESSION_COOKIE } from "@/lib/auth/session";
@@ -21,7 +14,6 @@ const record = (check: string, ok: boolean, detail = "") => {
   console.log(`  ${ok ? "PASS" : "FAIL"} ${check}${!ok && detail ? ` — ${detail}` : ""}`);
 };
 
-/** A user whose only role holds exactly these permissions; returns a session token. */
 async function tokenWith(rootCookie: string, name: string, permissions: string[]): Promise<string> {
   const u = await makeUser(`contract.${name}.${Date.now().toString(36)}`, "VIEWER");
   const code = `CONTRACT_${name.toUpperCase()}_${Date.now().toString(36).toUpperCase()}`;
@@ -34,7 +26,6 @@ async function tokenWith(rootCookie: string, name: string, permissions: string[]
 
 let base = "";
 async function open(hash: string) {
-  // A fresh document each time, so a new session cookie takes effect (a hash-only change would not reload).
   await send("Page.navigate", { url: "about:blank" });
   await sleep(200);
   await send("Page.navigate", { url: `${base}/${hash}` });
@@ -93,7 +84,6 @@ async function recentFiles(tag: string) {
   record(`${tag}: Recent Files names the column "Packet Type" and announces its sort state`, header?.name === "Packet Type" && header.sort === "none", JSON.stringify(header));
 }
 
-/** Old links to the retired planning pages, and the reason each must state. */
 const RETIRED_LINKS: Array<[string, RegExp]> = [
   ["#planning-workbench?tab=comparison", /outside the current planning utility/],
   ["#planning-cases", /outside the current planning utility/],
@@ -110,7 +100,6 @@ const RETIRED_LINKS: Array<[string, RegExp]> = [
   ["#requirements-special", /Requirements and order workflows are not configured for this planning utility\./],
   ["#analysis-orders", /Requirements and order workflows are not configured for this planning utility\./],
 ];
-/** The retired legacy planning APIs; the production build must not serve any of them. */
 const RETIRED_APIS = [
   "/api/planning/cases", "/api/planning/cases/x", "/api/planning/cases/x/replan", "/api/planning/compare/x", "/api/planning/pieces",
   "/api/planning/workbench", "/api/planning/reservations", "/api/planning/approvals", "/api/planning/rough", "/api/admin/approval-policy",
@@ -118,7 +107,6 @@ const RETIRED_APIS = [
   "/api/requirements", "/api/requirements/x", "/api/requirements/x/priority", "/api/analysis/orders",
 ];
 
-/** Requests to the application's API since `from`, by path. */
 const apiRequestsSince = (from: number) =>
   eventsSince(from)
     .filter((e) => e.method === "Network.requestWillBeSent")
@@ -127,7 +115,6 @@ const apiRequestsSince = (from: number) =>
 
 async function retiredPlanning(tag: string, rootToken: string, desktop: boolean) {
   await signInAs(rootToken);
-  // Old links open Not available with the reason, and ask the server for no page data.
   for (const [hash, reason] of RETIRED_LINKS) {
     const from = eventCount();
     await open(hash);
@@ -135,9 +122,6 @@ async function retiredPlanning(tag: string, rootToken: string, desktop: boolean)
     const data = apiRequestsSince(from).filter((p) => p !== "/api/auth/me" && p !== "/api/notifications");
     record(`${tag}: ${hash} shows Not available with its reason and requests no page data`, /Not available/.test(text) && reason.test(text) && data.length === 0, `${text.slice(0, 140)} | ${data.join(", ")}`);
   }
-  // Every retired API is gone from the production build, for reads and writes alike, even for
-  // the Super Admin. Asked from this process with the same session, so the page's console stays
-  // a clean signal.
   const statuses: Array<[string, number, number]> = [];
   for (const p of RETIRED_APIS) {
     const headers = { cookie: `${SESSION_COOKIE}=${rootToken}`, origin: base, "content-type": "application/json" };
@@ -145,18 +129,15 @@ async function retiredPlanning(tag: string, rootToken: string, desktop: boolean)
   }
   record(`${tag}: every retired planning API answers 404 to GET and POST`, statuses.every(([, g, p]) => g === 404 && p === 404), JSON.stringify(statuses.filter(([, g, p]) => g !== 404 || p !== 404)));
 
-  // Fantasy Data shows polished stock only and asks for no rough stock.
   let from = eventCount();
   await open("#fantasy-data");
   let requested = apiRequestsSince(from);
   record(`${tag}: Fantasy Data requests polished stock and no rough stock`, requested.includes("/api/fantasy/polished") && !requested.some((p) => p.startsWith("/api/fantasy/rough")) && !/Rough stock/i.test(await mainText()), requested.join(", "));
-  // Synchronization presents no rough mirror as live stock.
   await open("#fantasy-data?tab=integration");
   const sync = await mainText();
   record(`${tag}: Integration Status shows no "Current Rough" figure and no rough stock row`, /Integration Status/.test(sync) && !/Current Rough|Rough Stock/i.test(sync), sync.slice(0, 160));
 
   if (desktop) {
-    // Global search asks for polished lots and requirements, never rough stock.
     await open("#dashboard");
     from = eventCount();
     await evaluate(`(() => {
@@ -173,7 +154,6 @@ async function retiredPlanning(tag: string, rootToken: string, desktop: boolean)
   }
 }
 
-/** No client chunk of the production build carries a retired page or API. */
 function bundleChecks() {
   const dir = path.join(process.cwd(), ".next", "static", "chunks");
   const files = readdirSync(dir, { recursive: true }).map(String).filter((f) => f.endsWith(".js"));
@@ -182,7 +162,6 @@ function bundleChecks() {
     "/api/planning/approvals", "/api/planning/rough", "/api/admin/approval-policy", "Approve this plan", "Request replanning", "Rough Reservations",
     "/api/fantasy/rough", "fantasyRoughCount", "Current Rough",
     "/api/requirements", "/api/analysis/orders", "Requirement Matrix", "Priority Queue", "Order Exceptions", "Replenishment & Allocation", "Critical Reqs", "Overdue Reqs",
-    // Customer 360's seeded order count and the sign-in page's retired module.
     "Open Orders", "Open and partly filled orders", "Traceability",
   ];
   const found = files.flatMap((f) => {

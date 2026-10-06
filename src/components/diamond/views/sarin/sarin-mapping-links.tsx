@@ -1,8 +1,5 @@
 "use client";
 
-// Ways from Workbook Import to Mappings → Sarin Shape Mapping. They show only to users who
-// may change mappings (sarin.mapping.manage); the mapping page and its API check again.
-
 import { create } from "zustand";
 import { useAuthStore } from "@/stores/auth-store";
 import { useNavStore } from "@/stores/nav-store";
@@ -10,7 +7,6 @@ import { Button } from "@/components/ui/button";
 
 const SARIN_MAPPING_VIEW = { view: "admin-mappings", tab: "sarin-shape-mapping" } as const;
 
-/** A shape someone asked to map from Workbook Import; the mapping page opens its form with it. */
 export const useMappingIntent = create<{ shape: string | null; setShape: (shape: string | null) => void }>((set) => ({
   shape: null,
   setShape: (shape) => set({ shape }),

@@ -11,21 +11,6 @@ import { resolveActiveTab } from "@/components/diamond/shared/tabbed-host-view";
 import { resolveViewAlias } from "@/stores/nav-store";
 import type { Permission } from "@/lib/auth/permissions";
 
-/**
- * Customers and Orders — section authorization.
- *
- * The page hosts two sections with two different permissions. Previously one endpoint
- * served both behind a single `customers.read` guard, so an orders-only user was refused
- * before the orders branch could run, and a customers-only user received order-source
- * diagnostics inside the customer readiness payload. Both directions are tested here,
- * through the real handlers.
- *
- * No built-in role holds `orders.read` without `customers.read` — `COMMERCIAL_READ`
- * grants them together — so the one-sided cases use custom roles, which is the model's
- * own supported way to express an arbitrary permission set.
- */
-
-/** A user whose effective permissions are exactly the set given, via a custom role. */
 async function makeUserWithPermissions(username: string, permissions: Permission[]) {
   const passwordHash = await hashPassword(testPassword());
   const user = await db.user.create({
@@ -35,8 +20,6 @@ async function makeUserWithPermissions(username: string, permissions: Permission
     data: {
       code: `TEST_${username.toUpperCase().replace(/[^A-Z0-9]/g, "_")}`,
       name: `Test role for ${username}`,
-      // A custom role keeps its permissions in rows, which is what lets a test express a
-      // set no built-in role has.
       isSystem: false,
       status: "ACTIVE",
       permissions: { create: permissions.map((permissionCode) => ({ permissionCode })) },
@@ -128,13 +111,10 @@ describe("orders-only access", () => {
   test("may enter the page — the old single-permission mapping locked this user out", () => {
     const perms = ["orders.read"];
     expect(isViewAuthorized(perms, "analysis-customers-orders")).toBe(true);
-    // The former id is an alias of the same page, so old links reach it too.
     expect(resolveViewAlias("customers-orders").view).toBe("analysis-customers-orders");
   });
 
   test("the page opens on Orders rather than showing Access Restricted on the default tab", () => {
-    // The default tab is Customers, which this user cannot read. Landing there would
-    // render Access Restricted; the resolver skips it instead.
     expect(resolveActiveTab(TABS, null, "customers", ["orders.read"])).toBe("orders");
   });
 
@@ -145,14 +125,12 @@ describe("orders-only access", () => {
 
 describe("page entry requires at least one section permission", () => {
   test("holding neither denies the page", () => {
-    // PLANNER-style permissions: real, but unrelated to this page.
     expect(isViewAuthorized(["config.read", "fantasy.read"], "analysis-customers-orders")).toBe(false);
     expect(isViewAuthorized([], "analysis-customers-orders")).toBe(false);
   });
 
   test("the mapping lists both section permissions and nothing broader", () => {
     expect([...viewPermissions("analysis-customers-orders")].sort()).toEqual(["customers.read", "orders.read"]);
-    // Explicitly not admitted by the most widely held read permission.
     expect(isViewAuthorized(["analysis.read"], "analysis-customers-orders")).toBe(false);
   });
 
@@ -170,12 +148,10 @@ describe("country and branch section keeps its own permission", () => {
   test("the tab requires analysis.read, which the country API enforces independently", async () => {
     await resetDb();
     resetRateLimits();
-    // This user may enter the page through customers.read but holds no analysis.read.
     const { cookie } = await makeUserWithPermissions("co-rbac-nocountry", ["customers.read"]);
     const res = await call(countries, { path: "/api/analysis/countries", cookie });
     expect(res.status).toBe(403);
 
-    // Entering the page does not select a tab the user cannot read.
     expect(resolveActiveTab(TABS, "country", "customers", ["customers.read"])).toBe("customers");
   });
 
@@ -228,12 +204,10 @@ describe("country and lab scope still applies to customer reads", () => {
       path: "/api/analysis/customers-orders?section=orders",
       cookie,
     });
-    // `orders` is no longer a section of this endpoint and is not silently accepted.
     expect(res.status).toBe(400);
   });
 });
 
-/** The page's real tab set, so the resolver is tested against what ships. */
 const TABS = [
   { id: "customers", permission: "customers.read" },
   { id: "orders", permission: "orders.read" },

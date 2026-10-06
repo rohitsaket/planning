@@ -6,7 +6,6 @@ import { isAuditableEntity } from "@/lib/domain/entity-labels";
 
 export const GET = withApi({ permission: "audit.read" }, async (req: Request) => {
   const url = new URL(req.url);
-  // Only a key this build knows reaches the query.
   const entity = qStr(url, "entity", 60);
   if (entity && !isAuditableEntity(entity)) {
     throw new ApiError(400, "BAD_REQUEST", "Query parameter 'entity' is not a recognized record type.");

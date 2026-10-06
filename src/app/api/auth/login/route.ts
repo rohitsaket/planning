@@ -19,10 +19,8 @@ const bodySchema = z.object({
 
 const invalid = () => new ApiError(401, "INVALID_CREDENTIALS", "Invalid username or password.");
 
-// Public by necessity: this is where a session is obtained.
 export const POST = withApi({ public: true, body: bodySchema, rateLimit: LIMITS.loginPerClient }, async (req, _ctx, api) => {
   const username = api.body.username.toLowerCase();
-  // Per-username throttle, so guessing one account cannot lock everyone else out of the login endpoint.
   const rl = consume(`login-user|${username}`, LIMITS.login);
   if (!rl.ok) throw tooManyRequests(rl.retryAfterSeconds);
   const user = await db.user.findUnique({
@@ -61,7 +59,6 @@ export const POST = withApi({ public: true, body: bodySchema, rateLimit: LIMITS.
       role: user.role,
       roleCodes: access.roleCodes,
       permissions: access.permissions,
-      // The client routes a restricted session straight to the password-change screen.
       mustChangePassword: user.mustChangePassword,
     },
   });

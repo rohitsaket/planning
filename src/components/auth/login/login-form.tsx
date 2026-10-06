@@ -6,8 +6,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { SessionUser } from "@/stores/auth-store";
 
-// Convenience only: the username, never the password and never a token. Session
-// lifetime is owned entirely by the server (HttpOnly cookie, absolute + idle TTL).
 const REMEMBERED_USERNAME = "dp_remembered_username";
 
 const FIELD = "h-[48px] rounded-xl border-border bg-background/60 hover:bg-background focus:bg-background px-4 text-sm text-foreground placeholder:text-muted-foreground/70 focus:border-[#F9733E] focus-visible:ring-2 focus-visible:ring-[#F9733E]/20 shadow-none transition-all";
@@ -16,7 +14,7 @@ function readRemembered(): string {
   try {
     return localStorage.getItem(REMEMBERED_USERNAME) ?? "";
   } catch {
-    return ""; // private mode / blocked storage
+    return "";
   }
 }
 
@@ -43,9 +41,8 @@ export function LoginForm({ onAuthenticated, onRequestAccess }: { onAuthenticate
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    if (submitting) return; // guard against double submit
+    if (submitting) return;
 
-    // Client validation is a usability aid only; the server revalidates everything.
     const next: { username?: string; password?: string } = {};
     if (!username.trim()) next.username = "Enter your username.";
     if (!password) next.password = "Enter your password.";
@@ -68,9 +65,6 @@ export function LoginForm({ onAuthenticated, onRequestAccess }: { onAuthenticate
       const data = await res.json().catch(() => null);
 
       if (!res.ok) {
-        // Deliberately generic: never reveal whether the account exists, is
-        // locked or is disabled. Rate-limit and maintenance responses are safe
-        // to surface because they say nothing about the account.
         if (res.status === 401) setError("Unable to sign in with the provided credentials.");
         else if (res.status === 429) setError(data?.error?.message ?? "Too many attempts. Try again shortly.");
         else if (res.status >= 500) setError("ERP access is temporarily unavailable. Try again shortly.");
@@ -81,7 +75,7 @@ export function LoginForm({ onAuthenticated, onRequestAccess }: { onAuthenticate
       }
 
       writeRemembered(remember ? username.trim() : null);
-      setPassword(""); // drop the secret from component state immediately
+      setPassword("");
       onAuthenticated(data.user as SessionUser);
     } catch {
       setError("Unable to reach the server. Check your connection and try again.");
@@ -95,7 +89,6 @@ export function LoginForm({ onAuthenticated, onRequestAccess }: { onAuthenticate
       <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground">Welcome Back</h2>
       <p className="mt-1.5 text-xs sm:text-sm text-muted-foreground">Sign in to access your ERP workspace.</p>
 
-      {/* Server-side failures. aria-live so screen readers hear it without focus moving. */}
       {error && (
         <p
           role="alert"
@@ -201,9 +194,6 @@ export function LoginForm({ onAuthenticated, onRequestAccess }: { onAuthenticate
         </button>
       </div>
 
-      {/* This deployment has no self-service reset: passwords are reset by an
-          administrator. Saying so plainly beats a link that goes nowhere, and it
-          reveals nothing about whether any given account exists. */}
       {showRecovery && (
         <p
           id="password-recovery"
@@ -222,8 +212,6 @@ export function LoginForm({ onAuthenticated, onRequestAccess }: { onAuthenticate
         {submitting ? "Signing in…" : "Sign In"}
       </button>
 
-      {/* Registration is a request, not a signup: it creates no account and grants
-          no access until an administrator approves it and assigns a role. */}
       <p className="mt-5 border-t border-border pt-4 text-center text-xs text-muted-foreground">
         Need an account?{" "}
         <button

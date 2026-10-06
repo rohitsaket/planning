@@ -11,32 +11,9 @@ import {
 } from "@/lib/fantasy/overall-filters";
 import { resolveExportRowLimit } from "@/lib/config/export-limits";
 
-/**
- * OVERALL DATA EXPORT — canonical Fantasy lot records as a business CSV.
- *
- * Three things this export previously got wrong, all fixed here:
- *
- *   1. It read only `isCurrent` and `status`, ignoring the country, branch and lab the
- *      user had filtered by — so the file could contain records from outside the scope
- *      they were looking at. Both this route and the list now build their query from
- *      `parseOverallLotFilters`, so the file matches the screen.
- *   2. It stopped at a fixed 5,000 rows and said nothing. A short file is
- *      indistinguishable from a complete one, which makes it dangerous to reconcile
- *      against. The ceiling is now declared in the response headers *and* written into
- *      the file itself.
- *   3. It assembled CSV by hand, escaping quotes but leaving a leading `=`, `+`, `-` or
- *      `@` intact — a value a spreadsheet would execute. It now goes through the shared
- *      `toCsv`, which is the one CSV policy for the application.
- *
- * The internal sync cursor, batch key and version counter have been dropped: they
- * describe how synchronization is implemented and mean nothing to a stock reconciler.
- */
-
-/** Row ceiling for a single export, validated centrally like every other export ceiling. */
 export const OVERALL_EXPORT_LIMIT = resolveExportRowLimit("OVERALL_EXPORT_MAX_ROWS", 50_000);
 export const OVERALL_EXPORT_ROW_LIMIT = OVERALL_EXPORT_LIMIT.rows;
 
-/** Rows fetched per query, so a large export never materializes one huge result set. */
 const READ_BATCH = 2_000;
 
 type LotRow = Awaited<ReturnType<typeof db.lotMasterRecord.findMany>>[number];
@@ -46,7 +23,6 @@ const COLUMNS: CsvColumn<LotRow>[] = [
   { key: "sourceType", header: "Source Type" },
   { key: "currentStatus", header: "Current Status" },
   { key: "previousStatus", header: "Previous Status", exportValue: (l) => l.previousStatus ?? "" },
-  // The business meaning of `isCurrent`, stated rather than exposed as a flag name.
   { key: "stockState", header: "Stock State", exportValue: (l) => (l.isCurrent ? "Current stock" : "History") },
   { key: "shape", header: "Shape" },
   { key: "weight", header: "Weight (ct)", exportValue: (l) => num(l.weight) },
@@ -81,8 +57,6 @@ export const GET = withApi(
     const exportCount = Math.min(total, OVERALL_EXPORT_ROW_LIMIT);
     const truncated = total > OVERALL_EXPORT_ROW_LIMIT;
 
-    // Read in bounded batches. Every batch carries the same `where`, so the scope the
-    // user filtered by is applied to each one rather than only the first.
     const lots: LotRow[] = [];
     while (lots.length < exportCount) {
       const batch = await db.lotMasterRecord.findMany({
@@ -102,8 +76,6 @@ export const GET = withApi(
       reason: `Overall data exported: ${lots.length} of ${total} rows (${describeOverallLotFilters(filters)})${truncated ? " — row limit reached" : ""}`,
     });
 
-    // Notices precede the header row. A recipient who opens only the file still learns
-    // that it is simulated, or that it is not the whole result.
     const notices: string[] = [];
     if (sourceState.isSimulated) {
       notices.push(csvSafeCell("NOTICE: SIMULATED / TEST FIXTURE DATA - DIAMOND PLANNING SYSTEM"));
@@ -127,7 +99,6 @@ export const GET = withApi(
         "content-type": "text/csv; charset=utf-8",
         "content-disposition": `attachment; filename="${filename}"`,
         "cache-control": "no-store",
-        // Partial results are declared, never implied by a short file.
         "x-overall-export-rows": String(lots.length),
         "x-overall-export-total": String(total),
         "x-overall-export-limit": String(OVERALL_EXPORT_ROW_LIMIT),

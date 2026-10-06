@@ -4,13 +4,7 @@ import { useApi } from "@/lib/api-client";
 import { useAuthStore } from "@/stores/auth-store";
 import { FANTASY_SOURCE_STATE_LABELS, type FantasySourceStateSummary } from "@/lib/fantasy/source-state";
 
-/**
- * Where the Fantasy data on a page comes from, taken from the central source state rather
- * than a fixed string, so a page can never claim a live ERP connection while fixture
- * simulation is running. Renders nothing for a reader who may not see the source state.
- */
 export function FantasySourceBadge() {
-  // Asked only of readers the source-state API admits, so no page makes a doomed request.
   const canRead = useAuthStore((s) => !!s.user?.permissions.includes("fantasy.read"));
   const { data } = useApi<{ sourceState: FantasySourceStateSummary }>(canRead ? "/api/fantasy/sync" : null);
   const sourceState = data?.sourceState;

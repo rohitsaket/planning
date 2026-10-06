@@ -1,16 +1,3 @@
-/**
- * POLISHED INVENTORY VALUATION — configuration-driven, never invented.
- *
- * The application does not know diamond prices. A monetary value is only produced
- * when an approved, versioned valuation model exists as business rule
- * BR-VALUATION-001 (CONFIRMED, effective, with a price table). Without it the
- * valuation state is NOT_CONFIGURED and pieces and carats are reported alone.
- *
- * Any value produced here is an estimate from the configured model and carries its
- * version, effective date, currency and price source. It is never a statutory or
- * financial inventory valuation.
- */
-
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 
@@ -41,14 +28,12 @@ export interface ValuationPolicy {
   ruleId: string;
   status: ValuationStatus;
   reason: ValuationReason;
-  /** Operator-facing explanation. Safe to display verbatim. */
   message: string;
   modelVersion: string | null;
   effectiveDate: string | null;
   currency: string | null;
   priceSource: string | null;
   entries: ValuationPriceEntry[];
-  /** Always true when a value is produced: these are model estimates, not book values. */
   isEstimate: boolean;
 }
 
@@ -71,7 +56,6 @@ function str(v: unknown): string | null {
   return typeof v === "string" && v.trim() !== "" ? v.trim() : null;
 }
 
-/** Reads BR-VALUATION-001 and decides whether any monetary value may be shown at all. */
 export async function loadValuationPolicy(client: DbClient = db, now: Date = new Date()): Promise<ValuationPolicy> {
   const rule = await client.businessRule.findUnique({ where: { ruleId: VALUATION_RULE_ID } });
 
@@ -171,7 +155,6 @@ export interface ValuationResult {
   valued: boolean;
   value: number | null;
   pricePerCarat: number | null;
-  /** Why no value was produced, when valued is false. */
   reason: "VALUED" | "POLICY_NOT_CONFIGURED" | "NO_MATCHING_PRICE" | "INVALID_WEIGHT";
 }
 
@@ -182,11 +165,6 @@ const UNVALUED = (reason: ValuationResult["reason"]): ValuationResult => ({
   reason,
 });
 
-/**
- * Values one stone with the most specific matching price entry. Entries leave a
- * dimension null to act as a wildcard; a stone with no matching entry is reported
- * as unvalued rather than being given a made-up price.
- */
 export function valueStone(subject: ValuationSubject, policy: ValuationPolicy): ValuationResult {
   if (policy.status !== "CONFIGURED") return UNVALUED("POLICY_NOT_CONFIGURED");
   if (!Number.isFinite(subject.weight) || subject.weight <= 0) return UNVALUED("INVALID_WEIGHT");

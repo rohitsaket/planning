@@ -15,16 +15,6 @@ import {
 } from "@/lib/analysis/stockout";
 import { describeFilters, parseFilters } from "../route";
 
-/**
- * STOCKOUT EXPORT — the visible table, as a business CSV.
- *
- * Same run, same filters and same ordering as the table, so a file cannot disagree with
- * the screen it was taken from. Approved business fields only: no rule identifier, no
- * mapping fingerprint, no batch id, no checkpoint, no source table and no internal row
- * id. The run date and source state are carried because a recipient needs to know which
- * calculation the numbers came from.
- */
-
 const COLUMNS: CsvColumn<StockoutRow>[] = [
   { key: "categoryId", header: "Category" },
   { key: "lab", header: "Lab", exportValue: (r) => r.lab ?? "" },
@@ -54,8 +44,6 @@ export const GET = withApi(
       );
     }
 
-    // The same scope the on-screen table is narrowed by. An export is a read like any
-    // other, and is the one place a missing scope would be hardest to notice.
     const filters = parseFilters(url, api.scope);
     const sort = {
       key: qEnum(url, "sort", STOCKOUT_SORTS, "physicalShortage") as StockoutSortKey,
@@ -74,8 +62,6 @@ export const GET = withApi(
         `${truncated ? " — row limit reached" : ""}`,
     });
 
-    // Notices precede the header row, so a recipient who opens only the file still learns
-    // the source state and whether the file is the whole result.
     const notices: string[] = [
       csvSafeCell(
         `SOURCE: ${status.sourceLabel} - demand calculation of ${status.runCompletedIst ?? "unknown date"}, ${status.periodLabel}`,
@@ -112,7 +98,6 @@ export const GET = withApi(
         "content-type": "text/csv; charset=utf-8",
         "content-disposition": `attachment; filename="${filename}"`,
         "cache-control": "no-store",
-        // Partial results are declared, never implied by a short file.
         "x-stockout-export-rows": String(rows.length),
         "x-stockout-export-total": String(total),
         "x-stockout-export-limit": String(STOCKOUT_EXPORT_ROW_LIMIT),

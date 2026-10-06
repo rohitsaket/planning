@@ -3,9 +3,8 @@
 import { useQuery, UseQueryOptions } from "@tanstack/react-query";
 import { useAuthStore } from "@/stores/auth-store";
 
-// Turns the server error contract { error: { code, message, requestId } } into an Error.
 export async function toApiError(res: Response): Promise<Error> {
-  if (res.status === 401) useAuthStore.getState().setUser(null); // session ended → back to sign-in
+  if (res.status === 401) useAuthStore.getState().setUser(null);
   const txt = await res.text();
   try {
     const e = JSON.parse(txt)?.error;

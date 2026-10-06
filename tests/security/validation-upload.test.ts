@@ -12,11 +12,7 @@ beforeAll(async () => {
   admin = await makeUser("vadmin", "ADMIN");
   planner = await makeUser("vplanner", "PLANNER");
   viewer = await makeUser("vviewer", "VIEWER");
-  // Body validation is exercised by a principal that is authorized for the route, so the
-  // request reaches parsing rather than being refused first. None of these requests is valid,
-  // so the mapping catalog is never changed.
   mapper = await makeUser("vmapper", "SUPER_ADMIN");
-  // Three recorded import issues, enough to page through two at a time.
   await db.dataQualityIssue.deleteMany({});
   await db.dataQualityIssue.createMany({
     data: [0, 1, 2].map((i) => ({ issueCode: `DQ-V-${i}`, source: "FANTASY", entity: "LOT", recordId: `LOT-V-${i}`, rule: "UNMAPPED_LAB_WARNING", message: `paging check ${i}`, severity: "WARNING", status: "OPEN" })),
@@ -72,7 +68,6 @@ describe("pagination (REL-001)", () => {
     expect((await call(issues, { cookie: admin.cookie, path: `/api/data-quality?pageSize=${PAGE_MAX}` })).status).toBe(200);
     expect((await call(issues, { cookie: admin.cookie, path: `/api/data-quality?pageSize=${PAGE_MAX + 1}` })).status).toBe(400);
     expect((await call(issues, { cookie: admin.cookie, path: "/api/data-quality?page=0" })).status).toBe(400);
-    // A route with its own, smaller ceiling (500) refuses beyond it too.
     expect((await call(customers, { cookie: admin.cookie, path: "/api/analysis/customers?pageSize=500" })).status).toBe(200);
     expect((await call(customers, { cookie: admin.cookie, path: "/api/analysis/customers?pageSize=501" })).status).toBe(400);
     const f = await call(issues, { cookie: admin.cookie, path: "/api/data-quality?search=no-such-record-anywhere" });

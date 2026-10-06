@@ -12,22 +12,8 @@ import {
   SHORTAGE_ELIGIBLE_BUCKET,
 } from "@/lib/analysis/inventory-position";
 
-/**
- * Analysis Inventory.
- *
- * Every assertion runs against the real service or the real handler. The point under
- * test is not arithmetic — the service performs almost none — but that the buckets come
- * from the centralized classification, partition the records exactly once, and never
- * promote memo, reserved, WIP, rough, held or seeded stock into available.
- */
-
 const BATCH = "INV-TEST";
 
-/**
- * Every service assertion is scoped to this suite's own lots. The database also holds
- * canonical records written by other suites, and a global total would silently absorb
- * them — making these assertions pass or fail for reasons unrelated to what they test.
- */
 const SCOPED = { ...EMPTY_INVENTORY_FILTERS, search: BATCH };
 
 async function makeLot(opts: {
@@ -83,7 +69,6 @@ describe("Analysis Inventory — authorization", () => {
   });
 
   test("a signed-in user without analysis.read is denied", async () => {
-    // FANTASY_INTEGRATION holds fantasy and projection permissions but not analysis.read.
     const integration = await makeUser("inv.integration", "FANTASY_INTEGRATION");
     resetRateLimits();
     const res = await call(inventory, { path: "/api/analysis/inventory?section=position", cookie: integration.cookie });
@@ -121,19 +106,15 @@ describe("Analysis Inventory — buckets", () => {
     await clearFixtures();
     cookie = (await makeUser("inv.buckets", "DATA_ANALYST")).cookie;
 
-    // One record per bucket, plus the cases that must fail closed.
     await makeLot({ lotId: `${BATCH}-PHYS`, inventoryClass: "PHYSICAL_AVAILABLE" });
     await makeLot({ lotId: `${BATCH}-RESV`, inventoryClass: "RESERVED" });
     await makeLot({ lotId: `${BATCH}-MEMO`, inventoryClass: "MEMO", currentStatus: "MEMO" });
     await makeLot({ lotId: `${BATCH}-WIP`, inventoryClass: "WIP" });
     await makeLot({ lotId: `${BATCH}-ROUGH`, inventoryClass: "PHYSICAL_AVAILABLE", roughOrPolished: "ROUGH" });
     await makeLot({ lotId: `${BATCH}-EXCL`, inventoryClass: "EXCLUDED" });
-    // Unclassified: must be review-required, never stock.
     await makeLot({ lotId: `${BATCH}-NULL`, inventoryClass: null, classificationState: null, holdState: null });
-    // Held and unknown-hold: must be unavailable even though the class says available.
     await makeLot({ lotId: `${BATCH}-HELD`, inventoryClass: "PHYSICAL_AVAILABLE", holdState: "HELD" });
     await makeLot({ lotId: `${BATCH}-UNK`, inventoryClass: "PHYSICAL_AVAILABLE", holdState: "UNKNOWN" });
-    // Non-current history: must never appear as inventory.
     await makeLot({ lotId: `${BATCH}-SOLD`, inventoryClass: "PHYSICAL_AVAILABLE", isCurrent: false, currentStatus: "SOLD" });
   });
 
@@ -141,7 +122,6 @@ describe("Analysis Inventory — buckets", () => {
     const position = await readInventoryPosition(SCOPED, "bucket");
     const current = await db.lotMasterRecord.count({ where: { isCurrent: true, lotId: { contains: BATCH } } });
     const summed = position.rows.reduce((s, r) => s + r.lotRecordCount, 0);
-    // The bucket lot counts sum to the record count: no lot is missing, none is doubled.
     expect({ summed, current }).toEqual({ summed: current, current });
 
     const lots = await readLotInventory(SCOPED, { page: 1, pageSize: 200 }, "lotId", false);
@@ -150,7 +130,6 @@ describe("Analysis Inventory — buckets", () => {
     const multiBucket = [...perLot.entries()].filter(([, b]) => b.length > 1).map(([id]) => id);
     expect({ multiBucket }).toEqual({ multiBucket: [] });
 
-    // Every bucket reported is in the approved vocabulary.
     for (const r of position.rows) {
       expect((INVENTORY_BUCKETS as readonly string[]).includes(r.groupKey)).toBe(true);
     }
@@ -170,7 +149,6 @@ describe("Analysis Inventory — buckets", () => {
     expect(bucketOf(`${BATCH}-MEMO`)).toBe("MEMO_POLISHED");
     expect(bucketOf(`${BATCH}-RESV`)).toBe("RESERVED_POLISHED");
     expect(bucketOf(`${BATCH}-WIP`)).toBe("MANUFACTURING_WIP");
-    // Rough is physically available but is its own bucket — it cannot meet polished demand.
     expect(bucketOf(`${BATCH}-ROUGH`)).toBe("ROUGH_AVAILABLE");
 
     const physicalLots = lots.rows.filter((r) => r.bucket === "PHYSICAL_AVAILABLE_POLISHED").map((r) => r.lotId);
@@ -183,7 +161,6 @@ describe("Analysis Inventory — buckets", () => {
     const lots = await readLotInventory(SCOPED, { page: 1, pageSize: 200 }, "lotId", false);
     const held = lots.rows.find((r) => r.lotId === `${BATCH}-HELD`)!;
     const unknown = lots.rows.find((r) => r.lotId === `${BATCH}-UNK`)!;
-    // Both carry inventoryClass PHYSICAL_AVAILABLE; hold overrides, restrictively.
     expect({ held: held.bucket, unknown: unknown.bucket }).toEqual({
       held: "HELD_OR_EXCLUDED", unknown: "HELD_OR_EXCLUDED",
     });
@@ -200,7 +177,6 @@ describe("Analysis Inventory — buckets", () => {
     const lots = await readLotInventory(SCOPED, { page: 1, pageSize: 200 }, "lotId", false);
     expect(lots.rows.some((r) => r.lotId === `${BATCH}-SOLD`)).toBe(false);
 
-    // It exists in the table — it is simply history, not stock.
     const stored = await db.lotMasterRecord.count({ where: { lotId: `${BATCH}-SOLD` } });
     expect(stored).toBe(1);
   });
@@ -210,7 +186,6 @@ describe("Analysis Inventory — buckets", () => {
     const canonical = new Set(
       (await db.lotMasterRecord.findMany({ where: { isCurrent: true, lotId: { contains: BATCH } }, select: { lotId: true } })).map((r) => r.lotId),
     );
-    // Every lot shown is a canonical record; the projection tables are never a source.
     expect({ notCanonical: lots.rows.filter((r) => !canonical.has(r.lotId)).map((r) => r.lotId) })
       .toEqual({ notCanonical: [] });
   });
@@ -225,9 +200,7 @@ describe("Analysis Inventory — quantity and weight safety", () => {
     cookie = (await makeUser("inv.qty", "DATA_ANALYST")).cookie;
 
     await makeLot({ lotId: `${BATCH}-Q-OK`, inventoryClass: "PHYSICAL_AVAILABLE", quantity: 1, weight: 1.5 });
-    // Live-sourced: quantity provenance cannot be confirmed from a column default.
     await makeLot({ lotId: `${BATCH}-Q-LIVE`, inventoryClass: "PHYSICAL_AVAILABLE", quantity: 1, weight: 2.0, sourceType: "FANTASY_API", isSimulated: false });
-    // Zero quantity: must not become one.
     await makeLot({ lotId: `${BATCH}-Q-ZERO`, inventoryClass: "PHYSICAL_AVAILABLE", quantity: 0, weight: 1.1 });
   });
 
@@ -236,13 +209,11 @@ describe("Analysis Inventory — quantity and weight safety", () => {
     const live = lots.rows.find((r) => r.lotId === `${BATCH}-Q-LIVE`)!;
     const zero = lots.rows.find((r) => r.lotId === `${BATCH}-Q-ZERO`)!;
 
-    // Null, not 1 — and the record is preserved, not dropped.
     expect(live.confirmedQuantity).toBe(null);
     expect(zero.confirmedQuantity).toBe(null);
     expect(live.reviewCodes.includes("QUANTITY_PROVENANCE_UNCONFIRMED")).toBe(true);
     expect(zero.reviewCodes.includes("QUANTITY_PROVENANCE_UNCONFIRMED")).toBe(true);
 
-    // Their weight is still measured and reported.
     expect(live.measuredWeight).toBe(2);
   });
 
@@ -250,7 +221,6 @@ describe("Analysis Inventory — quantity and weight safety", () => {
     const position = await readInventoryPosition(SCOPED, "bucket");
     const physical = position.rows.find((r) => r.groupKey === "PHYSICAL_AVAILABLE_POLISHED")!;
 
-    // Three lots, one confirmed piece, two unconfirmed — three separate figures.
     expect({ lots: physical.lotRecordCount, qty: physical.confirmedQuantity, unconfirmed: physical.unconfirmedQuantityCount })
       .toEqual({ lots: 3, qty: 1, unconfirmed: 2 });
   });
@@ -258,26 +228,18 @@ describe("Analysis Inventory — quantity and weight safety", () => {
   test("record count, piece quantity and measured weight remain separate", async () => {
     const position = await readInventoryPosition(SCOPED, "bucket");
     const physical = position.rows.find((r) => r.groupKey === "PHYSICAL_AVAILABLE_POLISHED")!;
-    // 3 records, 1 piece, 4.6 ct — no two of these are equal, so none can be standing in
-    // for another.
     expect(physical.lotRecordCount).not.toBe(physical.confirmedQuantity);
     expect(physical.measuredWeight).toBe(4.6);
     expect(physical.measuredWeight).not.toBe(physical.lotRecordCount);
   });
 
   test("no estimated weight is presented as measured weight", async () => {
-    // The canonical model carries a single measured `weight`; estimated weight exists
-    // only on shadow projection candidates, which are not a source here.
     const source = await import("node:fs").then((fs) =>
       fs.readFileSync("src/lib/analysis/inventory-position.ts", "utf8"),
     );
     const code = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
-    // No estimated weight is read, so none can be presented as measured.
     expect(/estimatedWeight|estimated_weight/.test(code)).toBe(false);
-    // Shadow projection is not a source: the service never queries its candidates for
-    // inventory, only counts them for the reconciliation disclosure.
     expect(/fantasyProjectionCandidate\s*\.\s*(findMany|findFirst|groupBy|aggregate)/.test(code)).toBe(false);
-    // And the only weight it does read is the canonical measured column.
     expect(/"m"\."weight"/.test(code)).toBe(true);
   });
 });
@@ -297,7 +259,6 @@ describe("Analysis Inventory — legacy mirrors and reconciliation", () => {
     const position = await readInventoryPosition(SCOPED, "bucket");
     const canonicalCurrent = await db.lotMasterRecord.count({ where: { isCurrent: true, lotId: { contains: BATCH } } });
 
-    // The totals follow canonical storage, not the mirror's size.
     expect(position.totals.lotRecordCount).toBe(canonicalCurrent);
     expect(position.totals.lotRecordCount).not.toBe(mirrorRows);
 
@@ -314,7 +275,6 @@ describe("Analysis Inventory — legacy mirrors and reconciliation", () => {
     expect(res.status).toBe(200);
 
     const r = res.json;
-    // Each population is its own figure; nothing is summed across them.
     expect(typeof r.canonicalCurrent).toBe("number");
     expect(typeof r.mirrorOnlyLegacySeed).toBe("number");
     expect(typeof r.classificationDisagreements).toBe("number");
@@ -353,7 +313,6 @@ describe("Analysis Inventory — filters, paging and integrity", () => {
       const res = await call(inventory, { path: `/api/analysis/inventory?section=lots&page=${page}&pageSize=25&sort=lotId&search=${BATCH}`, cookie });
       for (const r of res.json.rows as Array<{ lotId: string }>) seen.add(r.lotId);
     }
-    // Every lot reachable exactly once — no gap, no repeat.
     expect(seen.size).toBe(TOTAL);
 
     resetRateLimits();
@@ -375,7 +334,6 @@ describe("Analysis Inventory — filters, paging and integrity", () => {
 
     resetRateLimits();
     const badBucket = await call(inventory, { path: "/api/analysis/inventory?section=lots&bucket=NONSENSE", cookie });
-    // Refused, never silently defaulted.
     expect(badBucket.status).toBe(400);
 
     resetRateLimits();
@@ -388,7 +346,6 @@ describe("Analysis Inventory — filters, paging and integrity", () => {
     const res = await call(inventory, { path: "/api/analysis/inventory?section=categories&pageSize=200", cookie });
     expect(res.status).toBe(200);
     for (const c of res.json.rows as Array<{ categoryId: string; lab: string; shape: string; weightBand: string }>) {
-      // The id is the canonical key and its parts agree with it — not display text.
       expect(c.categoryId).toBe(`${c.lab}|${c.shape}|${c.weightBand}`);
     }
   });
@@ -432,7 +389,6 @@ describe("Analysis Inventory — filters, paging and integrity", () => {
       const res = await call(inventory, { path: `/api/analysis/inventory?section=${section}&pageSize=200`, cookie });
       expect(res.status).toBe(200);
     }
-    // In particular the classification count is unchanged: no repair happens on read.
     expect(await snapshot()).toEqual(before);
   });
 });
@@ -449,7 +405,6 @@ describe("Analysis Inventory — states", () => {
       const records = readiness.rows.find((r) => r.key === "records")!;
       expect(records.state).toBe("UNAVAILABLE");
       const classified = readiness.rows.find((r) => r.key === "classified")!;
-      // "Unavailable", not "0" — the check could not be performed.
       expect(classified.value).toBe("Unavailable");
     } else {
       expect(readiness.currentRecordCount).toBe(current);
@@ -458,8 +413,6 @@ describe("Analysis Inventory — states", () => {
 
   test("fixture inventory is labelled simulated and never as live", async () => {
     await makeLot({ lotId: `${BATCH}-SIM`, inventoryClass: "PHYSICAL_AVAILABLE" });
-    // Other suites may leave non-simulated canonical rows behind; this assertion is about
-    // how a fixture record is labelled, so it reads the scoped lot directly.
     const scopedLots = await readLotInventory(SCOPED, { page: 1, pageSize: 10 }, "lotId", false);
     expect(scopedLots.rows.every((r) => r.isSimulated)).toBe(true);
     const readiness = await readInventoryReadiness();
@@ -488,7 +441,6 @@ describe("Analysis Inventory — states", () => {
       value: "Inventory has changed since the latest demand calculation.",
     });
 
-    // The stored run is untouched — no recalculation happened on read.
     const run = await db.demandRun.findFirstOrThrow({ orderBy: { runDate: "desc" }, select: { finishedAt: true } });
     expect(run.finishedAt?.getTime()).toBe(past.getTime());
   });

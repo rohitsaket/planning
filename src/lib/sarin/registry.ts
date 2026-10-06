@@ -1,11 +1,3 @@
-/**
- * The lab registry for Sarin imports: an active normalized lab in LabMapping, the registry
- * the rest of the system normalizes labs through. No new registry is created. Sarin
- * imports carry no country.
- *
- * Server-only.
- */
-
 import { db } from "@/lib/db";
 
 if (typeof window !== "undefined") {

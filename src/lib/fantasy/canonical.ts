@@ -1,8 +1,3 @@
-/**
- * Canonical Source-Data Contract for Fantasy ERP integration.
- * Defines provider-independent record representations, enums, and normalization rules.
- */
-
 export type CanonicalSourceMode = "FIXTURE" | "FILE_IMPORT" | "FANTASY_API";
 
 export type CanonicalEntityType =
@@ -14,18 +9,6 @@ export type CanonicalEntityType =
   | "DEPARTMENT"
   | "LOCATION";
 
-/**
- * The closed set of canonical lot statuses.
- *
- * Closed on purpose. A `| (string & {})` escape hatch was added here so a fixture could
- * emit a status nobody had approved; it made the type equivalent to `string`, so any
- * provider value type-checked and the compiler stopped being able to say that a status
- * was unknown. Runtime classification still failed closed, but the first line of defence
- * was gone.
- *
- * Adding a status means adding it here AND giving it an approved mapping in the active
- * classification profile. A status with no mapping is quarantined, not guessed.
- */
 export type CanonicalLotStatus =
   | "STOCK"
   | "MEMO"
@@ -60,8 +43,8 @@ export interface CanonicalRecord {
   entityType: CanonicalEntityType;
   currentStatus: CanonicalLotStatus;
   previousStatus?: CanonicalLotStatus | null;
-  statusEffectiveDate: string; // ISO UTC
-  docDate: string; // ISO UTC
+  statusEffectiveDate: string;
+  docDate: string;
   quantity: number;
   shape: string;
   shapeNormalized?: string | null;
@@ -87,11 +70,11 @@ export interface CanonicalRecord {
   parentRoughId?: string | null;
   kapan?: string | null;
   stoneName?: string | null;
-  sourceCreatedAt: string; // ISO UTC
-  sourceUpdatedAt: string; // ISO UTC
-  firstSeenAt: string; // ISO UTC
-  lastSeenAt: string; // ISO UTC
-  removedFromLiveAt?: string | null; // ISO UTC
+  sourceCreatedAt: string;
+  sourceUpdatedAt: string;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  removedFromLiveAt?: string | null;
   removalReason?: CanonicalRemovalReason | null;
   isCurrent: boolean;
   checkpoint: number;
@@ -104,7 +87,7 @@ export interface CanonicalRecord {
 export interface CanonicalRemovalEvent {
   lotId: string;
   removalReason: CanonicalRemovalReason;
-  removedFromLiveAt: string; // ISO UTC
+  removedFromLiveAt: string;
   docDate?: string;
   saleTotalUsd?: number | null;
   customerName?: string | null;
@@ -117,9 +100,6 @@ export interface BatchValidationResult {
   warnings: string[];
 }
 
-/**
- * Normalizes diamond shape string to standardized uppercase representation.
- */
 export function normalizeShape(raw: string | null | undefined): string {
   if (!raw) return "UNKNOWN";
   const trimmed = raw.trim().toUpperCase();
@@ -144,13 +124,6 @@ export interface LabNormalizationResult {
   warning?: string;
 }
 
-/**
- * Resolves diamond lab certification with recognition status and configurable mappings.
- * Client Rules:
- * - Blank, null, NONE, UNCERTIFIED -> Non-Cert
- * - Recognized GIA variants -> GIA
- * - Unconfirmed labs (IGI, HRD, etc.) retain raw value unless in configuredMappings, and raise review warning.
- */
 export function resolveLabNormalization(
   raw: string | null | undefined,
   configuredMappings?: Map<string, string> | Record<string, string>
@@ -168,7 +141,6 @@ export function resolveLabNormalization(
   const rawTrimmed = raw.trim();
   const upper = rawTrimmed.toUpperCase();
 
-  // 1. Non-certified representations
   if (
     upper === "NONE" ||
     upper === "NON-CERT" ||
@@ -189,7 +161,6 @@ export function resolveLabNormalization(
     };
   }
 
-  // 2. Configured database mappings
   if (configuredMappings) {
     let mapped: string | undefined;
     if (configuredMappings instanceof Map) {
@@ -208,7 +179,6 @@ export function resolveLabNormalization(
     }
   }
 
-  // 3. Recognized GIA variants
   if (
     upper === "GIA" ||
     upper === "G.I.A." ||
@@ -229,8 +199,6 @@ export function resolveLabNormalization(
     };
   }
 
-  // 4. Unconfirmed lab values (IGI, HRD, or new unmapped values)
-  // Retain raw value without silently asserting an approved classification, flag for review.
   return {
     normalized: rawTrimmed,
     raw: rawTrimmed,
@@ -241,9 +209,6 @@ export function resolveLabNormalization(
   };
 }
 
-/**
- * Normalizes diamond lab certification string.
- */
 export function normalizeLab(
   raw: string | null | undefined,
   configuredMappings?: Map<string, string> | Record<string, string>
@@ -251,9 +216,6 @@ export function normalizeLab(
   return resolveLabNormalization(raw, configuredMappings).normalized;
 }
 
-/**
- * Validates a single canonical record for essential data integrity.
- */
 export function validateCanonicalRecord(
   rec: CanonicalRecord,
   configuredMappings?: Map<string, string> | Record<string, string>

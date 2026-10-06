@@ -5,8 +5,6 @@ import { describeBaseUrl, getFantasyConfig, getLiveFantasyConfig } from "@/lib/f
 import { getFantasyTokenStatus } from "@/lib/fantasy/live-api";
 import { getSchedulerStatus } from "@/lib/fantasy/scheduler";
 
-// Integration health for the Fantasy source. Names the host and HOW credentials are stored
-// (configured flags), never a username, password or token.
 export const GET = withApi({ permission: "fantasy.read" }, async () => {
   const config = getFantasyConfig();
   const live = getLiveFantasyConfig();

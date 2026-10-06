@@ -1,13 +1,3 @@
-/**
- * Fantasy grid export → listing rows. Fantasy's own lot grid exports to Excel/CSV with the same
- * 46 headers the live listing carries, so an export is a valid snapshot for the Live Data sync
- * (it flows through the identical mapper, validation, upsert and stale rules; the run is
- * recorded with trigger "import"). Used while the vendor's listing endpoint is unavailable.
- *
- * Reads only the first worksheet, data only (no formulas, macros or styles), bounded by the same
- * archive/size limits as the planning workbook upload.
- */
-
 import * as XLSX from "xlsx";
 import { inspectXlsxContainer, WORKBOOK_LIMITS } from "@/lib/domain/workbook-guard";
 
@@ -57,8 +47,6 @@ export function parseLiveExport(buffer: ArrayBuffer, fileName: string): ({ ok: t
   if (range.e.r + 1 > WORKBOOK_LIMITS.maxRows) return { ok: false, status: 413, message: `The export has more than ${WORKBOOK_LIMITS.maxRows} rows; split it.` };
   if (range.e.c + 1 > WORKBOOK_LIMITS.maxColumns) return { ok: false, status: 400, message: `The export has more than ${WORKBOOK_LIMITS.maxColumns} columns.` };
 
-  // Header row = first row; values keyed by the exact header text. Blank rows dropped, cells
-  // kept raw (numbers stay numbers, dates stay Date objects for xlsx) so the mapper decides types.
   const table: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, blankrows: false, defval: null, raw: true });
   if (table.length === 0) return { ok: false, status: 400, message: "The first sheet is empty." };
   const headers = (table[0] ?? []).map((h) => (h === null || h === undefined ? "" : String(h).trim()));

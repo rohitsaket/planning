@@ -1,23 +1,3 @@
-/**
- * EXECUTIVE ANALYSIS — bounded read service.
- *
- * Composes results that other services already own: the demand engine's completed run,
- * the classifier's inventory buckets, the Fantasy source state and the data-quality
- * register. It calculates no business quantity of its own.
- *
- * The one thing it does compute is the split of a run's own sales snapshot into three
- * 30-day windows, and even that is a re-bucketing of rows the run already attributed to
- * a category (`DemandMetricTraceItem` of type SALE) — not a re-resolution of categories
- * and not a second sales rule. Anchoring those windows to the run's `lookbackEnd` rather
- * than to the wall clock is what keeps them in the same snapshot as the targets and
- * shortages shown beside them.
- *
- * Every read is aggregated or paginated in the database. Nothing loads an operational
- * table into memory, and no query runs per row.
- *
- * Server-only.
- */
-
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { num } from "@/lib/api-utils";
@@ -47,37 +27,19 @@ if (typeof window !== "undefined") {
 
 type DbClient = typeof db;
 
-/**
- * Analysis reads only a run that passes the shared compatibility rule — not merely the
- * newest row labelled COMPLETED. A legacy run with no business window cannot say which
- * 90 days it covered, so its numbers are never shown as a current answer.
- */
 async function compatibleRunId(client: DbClient): Promise<string | null> {
   const selection = await selectAnalysisSnapshot(client);
   return selection.run?.id ?? null;
 }
 
-/** Hard ceiling on any page this service returns. */
 export const EXECUTIVE_PAGE_MAX = 200;
 export const EXECUTIVE_PAGE_DEFAULT = 25;
-
-// ---------------------------------------------------------------------------
-// Shared filter
-// ---------------------------------------------------------------------------
 
 export interface ExecutiveFilters {
   readonly country: string | null;
   readonly branch: string | null;
   readonly lab: string | null;
-  /** Free-text match against the canonical category key. */
   readonly search: string | null;
-  /**
-   * The caller's country and lab authorization scope.
-   *
-   * It rides with the filters because it is applied where they are, but it is not a
-   * filter: it comes from the authenticated server session and a request can only narrow
-   * within it, never widen past it.
-   */
   readonly scope: EffectiveScope;
 }
 
@@ -86,7 +48,6 @@ export interface ExecutivePaging {
   readonly pageSize: number;
 }
 
-/** Fixed states. Never a fabricated "healthy". */
 export const READINESS_STATES = [
   "CURRENT",
   "SIMULATED",
@@ -99,10 +60,6 @@ export const READINESS_STATES = [
 ] as const;
 export type ReadinessState = (typeof READINESS_STATES)[number];
 
-// ---------------------------------------------------------------------------
-// A. Data readiness
-// ---------------------------------------------------------------------------
-
 export interface ReadinessRow {
   readonly key: string;
   readonly label: string;
@@ -114,38 +71,21 @@ export interface ReadinessResult {
   readonly rows: readonly ReadinessRow[];
   readonly isSimulated: boolean;
   readonly sourceLabel: string;
-  /** Where these figures came from. Rendered by the shared simulation banner. */
   readonly sourceDisclosure: SourceDisclosure;
   readonly demandRunId: string | null;
   readonly demandRunAt: string | null;
   readonly demandRunAtIst: string | null;
   readonly hasCompletedRun: boolean;
-  /** True when inventory was synchronized after the demand run finished. */
   readonly demandMayNeedRecalculation: boolean;
   readonly wipCoverage: WipCoverageState;
   readonly blockingDataQualityIssues: number;
-  /**
-   * Which of the distinct empty/ready states the page is in. NOT_RUN is a state here,
-   * never a numeric zero: "we have not looked" and "we looked and found none" are
-   * different answers and must not render the same.
-   */
   readonly availability: AnalysisAvailabilityState;
   readonly availabilityMessage: string;
-  /** True when canonical Fantasy data exists but no compatible snapshot has been run. */
   readonly refreshRequired: boolean;
   readonly canonicalRecordCount: number;
-  /** Runs that exist but cannot back Analysis, with their fixed reason codes. */
   readonly ineligibleRuns: ReadonlyArray<{ runId: string; reasons: readonly string[] }>;
 }
 
-/**
- * Builds the readiness table.
- *
- * Nothing here substitutes the current clock for a missing timestamp, and nothing
- * reports a green state it has not observed: an absent demand run is NOT_RUN, an absent
- * synchronization is UNAVAILABLE, and fixture data is SIMULATED regardless of how
- * healthy the pipeline looks.
- */
 export async function readExecutiveReadiness(client: DbClient = db): Promise<ReadinessResult> {
   const sourceState = await resolveFantasySourceStateWithHistory(client);
   const compatibleId = await compatibleRunId(client);
@@ -202,7 +142,6 @@ export async function readExecutiveReadiness(client: DbClient = db): Promise<Rea
   const inventorySeenAt = lastInventoryUpdate._max.lastSeenAt ?? null;
   const runFinishedAt = latestRun?.finishedAt ?? latestRun?.runDate ?? null;
 
-  // Reported, never acted on: this service does not recompute a stored snapshot.
   const demandMayNeedRecalculation =
     runFinishedAt !== null && inventorySeenAt !== null && inventorySeenAt.getTime() > runFinishedAt.getTime();
 
@@ -304,21 +243,7 @@ export async function readExecutiveReadiness(client: DbClient = db): Promise<Rea
   };
 }
 
-// ---------------------------------------------------------------------------
-// Category selection shared by sections B and D
-// ---------------------------------------------------------------------------
-
-/**
- * Builds the metric filter.
- *
- * `country` and `branch` are deliberately NOT applied here. A `DemandMetric` is a
- * category-level result with no location dimension, so silently filtering it by country
- * would return a number that answers a different question than the one asked. The
- * caller is told instead — see `locationFilterApplies` on the result.
- */
 function metricWhere(runId: string, filters: ExecutiveFilters): Prisma.DemandMetricWhereInput {
-  // Only the lab half of the scope can apply here, for the same reason `country` is not a
-  // filter on this table: a demand metric has no location.
   const where: Prisma.DemandMetricWhereInput = {
     runId,
     ...scopeWhere(filters.scope, { country: null, lab: "labNormalized" }),
@@ -333,7 +258,6 @@ function metricWhere(runId: string, filters: ExecutiveFilters): Prisma.DemandMet
 export type CategorySort = "category" | "shortage" | "excess" | "target" | "sales";
 
 function metricOrder(sort: CategorySort): Prisma.DemandMetricOrderByWithRelationInput[] {
-  // The category key is always the final tiebreak so paging is deterministic.
   switch (sort) {
     case "shortage":
       return [{ physicalShortage: "desc" }, { planningCategory: "asc" }];
@@ -368,10 +292,6 @@ function pageMeta(paging: ExecutivePaging, total: number): PageMeta {
   };
 }
 
-// ---------------------------------------------------------------------------
-// B. Sales and demand summary
-// ---------------------------------------------------------------------------
-
 export interface SalesDemandRow {
   readonly category: string;
   readonly label: string;
@@ -379,13 +299,6 @@ export interface SalesDemandRow {
   readonly shape: string;
   readonly weightBand: string;
   readonly sales90d: number;
-  /**
-   * Null when this run kept no per-sale trace, so the window cannot be counted.
-   *
-   * Zero would be a statement that nothing sold in those 30 days, which is a different
-   * claim from "this run did not record which sales fell where" — and would contradict
-   * the 90-day total sitting next to it.
-   */
   readonly earliest30: number | null;
   readonly middle30: number | null;
   readonly latest30: number | null;
@@ -403,23 +316,11 @@ export interface SalesDemandResult {
   readonly businessDateIst: string | null;
   readonly available: boolean;
   readonly unavailableReason: "NOT_RUN" | null;
-  /**
-   * False when the run kept no per-sale trace: the 30-day columns are then unavailable
-   * rather than zero, and the table says so instead of showing a contradiction.
-   */
   readonly salesWindowsAvailable: boolean;
   readonly salesWindowsUnavailableReason: "NO_SALES_TRACE_IN_RUN" | null;
-  /** False: a category result has no location dimension, so country/branch cannot apply. */
   readonly locationFilterApplies: boolean;
 }
 
-/**
- * Sales and demand per canonical category, one server page at a time.
- *
- * The three 30-day counts come from the run's own SALE trace items, bucketed against
- * the run's `lookbackEnd`. Three grouped queries per page — not one per row — scoped to
- * the categories actually on the page.
- */
 export async function readSalesAndDemand(
   filters: ExecutiveFilters,
   paging: ExecutivePaging,
@@ -441,7 +342,6 @@ export async function readSalesAndDemand(
       windowDays: null,
       businessDateIst: null,
       available: false,
-      // NOT_RUN, never an empty table that reads as "nothing sold".
       unavailableReason: "NOT_RUN",
       salesWindowsAvailable: false,
       salesWindowsUnavailableReason: null,
@@ -476,8 +376,6 @@ export async function readSalesAndDemand(
 
   const categories = metrics.map((m) => m.planningCategory);
   const buckets = await readSalesWindowBuckets(run.id, run.lookbackEnd, categories, client);
-  // A run with no lookback window, or one that persisted no SALE trace rows, cannot have
-  // its sales split into windows. Reported as unavailable rather than as three zeros.
   const salesWindowsAvailable =
     run.lookbackEnd !== null &&
     (categories.length === 0 ||
@@ -501,7 +399,6 @@ export async function readSalesAndDemand(
       middle30: salesWindowsAvailable ? b.middle30 : null,
       latest30: salesWindowsAvailable ? b.latest30 : null,
       target: num(m.roundedTarget),
-      // A trend needs two countable windows. Without them there is no direction to state.
       trend: salesWindowsAvailable ? toSalesTrendDirection(b.earliest30, b.latest30) : null,
       status: toBusinessStatus({
         metricStatus: m.status,
@@ -534,13 +431,6 @@ interface WindowBuckets {
   latest30: number;
 }
 
-/**
- * Splits the run's own SALE trace rows into three 30-day windows.
- *
- * Anchored to `lookbackEnd`, so the counts belong to the same snapshot as the targets
- * beside them. Anchoring to the wall clock instead would mix a live window with a stored
- * result and quietly drift further apart every day after the run.
- */
 async function readSalesWindowBuckets(
   runId: string,
   lookbackEnd: Date | null,
@@ -558,7 +448,6 @@ async function readSalesWindowBuckets(
     { key: "earliest30" as const, gte: new Date(end - 90 * day), lte: new Date(end - 60 * day - 1) },
   ];
 
-  // Three grouped queries for the whole page, using the [runId, planningCategory] index.
   const results = await Promise.all(
     windows.map((w) =>
       client.demandMetricTraceItem.groupBy({
@@ -587,11 +476,6 @@ async function readSalesWindowBuckets(
   return out;
 }
 
-// ---------------------------------------------------------------------------
-// C. Inventory position
-// ---------------------------------------------------------------------------
-
-/** The classifier's buckets. Mutually exclusive by construction: one value per record. */
 export const INVENTORY_BUCKETS = ["PHYSICAL_AVAILABLE", "RESERVED", "MEMO", "WIP", "EXCLUDED"] as const;
 
 export interface InventoryLocationRow {
@@ -616,13 +500,6 @@ export interface InventoryPositionResult {
   readonly available: boolean;
 }
 
-/**
- * Inventory grouped by location and classifier bucket.
- *
- * One grouped database query over current records. Only `PHYSICAL_AVAILABLE` polished
- * stock is reported as available against finished-diamond demand; memo, reserved, WIP
- * and rough stay visible in their own columns and are never added into it.
- */
 export async function readInventoryPosition(
   filters: ExecutiveFilters,
   paging: ExecutivePaging,
@@ -643,7 +520,6 @@ export async function readInventoryPosition(
     _max: { lastSeenAt: true },
   });
 
-  // Mutable accumulator; the readonly row shape is built from it once the counts settle.
   type LocationAccumulator = {
     -readonly [K in keyof InventoryLocationRow]: InventoryLocationRow[K];
   } & { lastSeen: Date | null };
@@ -677,8 +553,6 @@ export async function readInventoryPosition(
       row.lastSeen = g._max.lastSeenAt;
     }
 
-    // A record with no classification is unclassified — not available. A null here means
-    // the record predates classification, and treating it as stock would invent a fact.
     if (g.inventoryClass === null) {
       row.unclassified += count;
       continue;
@@ -687,7 +561,6 @@ export async function readInventoryPosition(
     const isRough = g.roughOrPolished === "ROUGH";
     switch (g.inventoryClass) {
       case "PHYSICAL_AVAILABLE":
-        // Rough is tracked separately: it cannot satisfy finished-diamond demand.
         if (isRough) row.roughAvailable += count;
         else row.physicalAvailablePolished += count;
         break;
@@ -723,8 +596,6 @@ export async function readInventoryPosition(
     }))
     .sort((a, b) => a.country.localeCompare(b.country) || a.branch.localeCompare(b.branch));
 
-  // Location cardinality is bounded by country × branch, so the grouped result is paged
-  // in memory rather than with a second round trip.
   const pageSize = Math.min(Math.max(1, paging.pageSize), EXECUTIVE_PAGE_MAX);
   const start = (paging.page - 1) * pageSize;
   const sourceState = await resolveFantasySourceStateWithHistory(client);
@@ -737,10 +608,6 @@ export async function readInventoryPosition(
   };
 }
 
-// ---------------------------------------------------------------------------
-// D. Shortage and excess
-// ---------------------------------------------------------------------------
-
 export type ShortageExcessMode = "ALL" | "SHORTAGE_ONLY" | "EXCESS_ONLY";
 
 export interface ShortageExcessRow {
@@ -751,9 +618,7 @@ export interface ShortageExcessRow {
   readonly physicalShortage: number;
   readonly excess: number;
   readonly reserved: number;
-  /** Advisory: memo does not reduce physical shortage. */
   readonly memo: number;
-  /** Advisory, and null when this run could not apply manufacturing coverage. */
   readonly wip: number | null;
   readonly status: DemandCategoryStatus;
 }
@@ -769,14 +634,6 @@ export interface ShortageExcessResult {
   readonly locationFilterApplies: boolean;
 }
 
-/**
- * The decision table, straight from the latest completed run.
- *
- * Every quantity is a stored value read back unchanged. The page does not add, subtract
- * or net anything: the approved meaning of each column — physical reduces shortage, memo
- * and WIP do not, reserved is unavailable, rough is absent entirely — is already baked
- * into what the demand engine persisted.
- */
 export async function readShortageAndExcess(
   filters: ExecutiveFilters,
   paging: ExecutivePaging,
@@ -855,8 +712,6 @@ export async function readShortageAndExcess(
       excess: num(m.excessStock),
       reserved: num(m.reservedQty),
       memo: num(m.memoQty),
-      // Null rather than 0 when the run could not apply coverage: 0 would read as
-      // "nothing in manufacturing", which is a different statement.
       wip: wipCoverage.appliedInRun ? num(m.wipCoverage) : null,
       status: toBusinessStatus({
         metricStatus: m.status,
@@ -880,10 +735,6 @@ export async function readShortageAndExcess(
   };
 }
 
-// ---------------------------------------------------------------------------
-// E. Attention required
-// ---------------------------------------------------------------------------
-
 export const ATTENTION_KINDS = [
   "CATEGORY_PHYSICAL_SHORTAGE",
   "SOURCE_DATA_STALE",
@@ -894,10 +745,6 @@ export const ATTENTION_KINDS = [
 ] as const;
 export type AttentionKind = (typeof ATTENTION_KINDS)[number];
 
-/**
- * Neutral navigation only. Nothing here ranks work or recommends what to manufacture. A
- * null action means the row is information only: there is no page to act on it from.
- */
 export const ATTENTION_ACTIONS = {
   CATEGORY_PHYSICAL_SHORTAGE: "Review shortage",
   SOURCE_DATA_STALE: "Review source data",
@@ -913,7 +760,6 @@ export interface AttentionRow {
   readonly detail: string;
   readonly count: number;
   readonly action: string | null;
-  /** Canonical category key when the row is about one category, else null. */
   readonly category: string | null;
 }
 
@@ -922,12 +768,6 @@ export interface AttentionResult {
   readonly meta: PageMeta;
 }
 
-/**
- * Factual exceptions, counted in the database.
- *
- * Deliberately not a priority list: rows are ordered by kind and then by size, and the
- * page assigns no manufacturing sequence.
- */
 export async function readAttentionRequired(
   filters: ExecutiveFilters,
   paging: ExecutivePaging,

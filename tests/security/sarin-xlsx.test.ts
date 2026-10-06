@@ -1,13 +1,3 @@
-// Sarin structured workbook (.xlsx) export and Phase 8 hardening: the client column
-// sequence and layout for Blue, White and Pink, formats, merges, stone boundaries, safe
-// cell content, no formulas / macros / links / hidden sheets, row-limit refusal,
-// concurrency, cleanup after a failure, audit, RBAC and scope; plus explicit approval
-// assignment and explicit mapping-version selection.
-//
-// Requests go through the real route handlers against the isolated planning_sectest
-// database. Workbooks are inspected with a parser (tests/security/workbook-inspect.ts),
-// never with Excel. Every fixture is synthetic; no client workbook content is copied.
-
 import { beforeAll, beforeEach, describe, expect, test } from "./harness";
 import { call, db, ensureLabRegistry, makeUser, resetDb } from "./helpers";
 import { inspectWorkbook, type InspectedWorkbook } from "./workbook-inspect";
@@ -33,14 +23,12 @@ const COMMON_RULES: CatalogRule[] = [
   { rawShape: "ROUND", normalizedShape: "Round" }, { rawShape: "PEAR", normalizedShape: "Pear" }, { rawShape: "OVAL", normalizedShape: "Oval" },
   { rawShape: "RADIANT", normalizedShape: "Radiant" }, { rawShape: "CUSHION", normalizedShape: "Cushion Brilliant" }, { rawShape: "ANTIQUE CUSHION", normalizedShape: "Antique Cushion" }, { rawShape: "HEART", normalizedShape: "Heart" },
 ];
-// Test-only EMERALD 4STEP thresholds: never a production rule.
 const PINK_RULES: CatalogRule[] = [
   ...COMMON_RULES,
   { rawShape: "EMERALD 4STEP", normalizedShape: "Asscher", conditionKind: "RATIO_RANGE", ratioMin: "1.000", ratioMax: "1.030" },
   { rawShape: "EMERALD 4STEP", normalizedShape: "Emerald", conditionKind: "RATIO_RANGE", ratioMin: "1.400" },
 ];
 
-// ---- synthetic records ---------------------------------------------------------------------
 interface Rec { name: string; rough?: string; shape?: string; est?: string; clarity?: string; ratio?: string }
 const line = (r: Rec) => [r.name, r.rough ?? "3.000", r.shape ?? "ROUND", r.est ?? "1.500", r.clarity ?? "VS1", "G", "61.6", r.ratio ?? "1.000", "7.62", "7.58", "4.69"].join(",");
 const file = (recs: Rec[]) => new TextEncoder().encode(recs.map(line).join("\n") + "\n");
@@ -64,7 +52,6 @@ const post = (h: any, cookie: string, body: unknown, params: Record<string, stri
   resetRateLimits();
   return call(h, { method: "POST", cookie, body, params });
 };
-/** Uploads, checks against `rules` made the catalog in effect, and generates. */
 async function outputOf(recs: Rec[], fields: Record<string, string> = {}, rules = COMMON_RULES) {
   const batchId = await upload(recs, fields);
   await applyCatalog(mapper.cookie, rules);
@@ -123,7 +110,6 @@ beforeEach(async () => {
   await applyCatalog(mapper.cookie, COMMON_RULES);
 });
 
-// =========================================================================================
 describe("sarin xlsx: Phase 8 hardening", () => {
   test("mapping authority is read and manage only; there is no approval step", async () => {
     const perms = async (u: User) => {
@@ -150,7 +136,6 @@ describe("sarin xlsx: Phase 8 hardening", () => {
   });
 });
 
-// =========================================================================================
 describe("sarin xlsx: Blue and White layout", () => {
   test("Blue: one sheet per Kapan, 17 main plans, merged additional groups, stone boundaries", async () => {
     const k1 = `6${uniq()}B`;
@@ -171,32 +156,24 @@ describe("sarin xlsx: Blue and White layout", () => {
     const s1 = wb.rows(k1);
     expect(values(s1[0])).toEqual([...WORKBOOK_HEADERS]);
     expect(s1.length).toBe(1 + 21 + 17);
-    // First row of the first stone: identity once, date as a real date, weights to three places.
     expect(s1[1].map((c) => c && [c.t, c.v, c.z ?? null])).toEqual([
       ["n", 1, null], ["n", 46293, "dd\\-mm\\-yyyy"], ["s", "DC", "@"], ["n", 1, null], ["s", k1, "@"], ["s", "001", "@"], ["n", 3, "0.000"], null,
       ["s", "Round", "@"], ["n", 1.5, "0.000"], ["s", "VS1", "@"], ["s", "G", "@"], ["n", 61.6, "0.00"], ["n", 1, "0.00"], ["n", 7.58, "0.00"], ["n", 7.62, "0.00"], ["n", 4.69, "0.00"], ["n", 0.5, "0.00%"], null,
     ]);
-    // Continuation rows: blank Date, Signer, stone NO. and Kapan; Packet and Rough Weight repeat.
     expect(values(s1[2]).slice(0, 8)).toEqual([2, null, null, null, null, "001", 3, null]);
     expect(s1.slice(1, 22).map((c) => c[0]!.v)).toEqual(Array.from({ length: 21 }, (_, i) => i + 1));
-    expect(s1.slice(1, 18).every((c) => c[7] === null)).toBe(true); // main plans: H blank
+    expect(s1.slice(1, 18).every((c) => c[7] === null)).toBe(true);
     expect([s1[18][7]!.v, s1[19][7], s1[20][7]!.v, s1[21][7]]).toEqual(["2 Pcs", null, "2 Pcs", null]);
-    // Group yield once, from the stored value (0.900/3.000 = 30.00 %, 0.900 again for 0.6+0.3).
     expect([s1[18][17]!.v, s1[19][17], s1[20][17]!.v, s1[21][17]]).toEqual([0.3, null, 0.3, null]);
-    // Second stone: numbering restarts, stone NO. 2, its own Rough Weight.
     expect(values(s1[22]).slice(0, 7)).toEqual([1, 46293, "DC", 2, k1, "002", 2.75]);
     expect(wb.merges(k1)).toEqual(["H19:H20", "H21:H22", "R19:R20", "R21:R22"]);
-    // Second Kapan sheet: stone NO. restarts; a one-piece group is labelled but not merged.
     const s2 = wb.rows(k2);
     expect(values(s2[1]).slice(0, 7)).toEqual([1, 46293, "JV", 1, k2, "0450", 4]);
     expect([s2[18][7]!.v, s2[18][17]!.v]).toEqual(["1 Pcs", 0.05]);
     expect(wb.merges(k2)).toEqual([]);
-    // Formula-like text is kept as text, marked with the quote prefix, never a formula.
     expect([s1[17][10]!.t, s1[17][10]!.v, wb.quotePrefixed(wb.styleOf(1, "K18")!)]).toEqual(["s", "=HYPERLINK(1)", true]);
     expect(wb.quotePrefixed(wb.styleOf(1, "K2")!)).toBe(false);
-    // OK column is present and empty everywhere.
     expect(s1.slice(1).every((c) => c[18] === null)).toBe(true);
-    // Stored yield, not recomputed: matches the API's display value for every option.
     const options = (await call(listOptions, { cookie: planner.cookie, path: "/api/x?pageSize=500&stone=1", params: { batchId, versionId } })).json.rows;
     const shown = s1.slice(1, 22).map((c) => c[17]).filter((c) => c !== null).map((c) => (c!.v as number).toFixed(4));
     expect(shown).toEqual(options.map((o: any) => (Number(o.yield.display) / 100).toFixed(4)));
@@ -217,7 +194,6 @@ describe("sarin xlsx: Blue and White layout", () => {
   });
 });
 
-// =========================================================================================
 describe("sarin xlsx: Pink layout", () => {
   test("27 options over 45 rows: MK single, SL/BP/BT merged pairs, codes in H", async () => {
     const name = `6${uniq()}-111_M`;
@@ -244,15 +220,12 @@ describe("sarin xlsx: Pink layout", () => {
       ...Array.from({ length: 9 }, (_, i) => `H${3 * i + 3}:H${3 * i + 4}`),
       "H29:H30", "H31:H32", "H33:H34", "H35:H36", "H37:H38", "H39:H40", "H41:H42", "H43:H44", "H45:H46",
     ].sort((a, b) => a.localeCompare(b, "en", { numeric: true })));
-    // MK yields on their own row; SL yield once over its two rows (0.100 + 0.040 over 0.500).
     expect([s[1][17]!.v, s[2][17]!.v, s[3][17]]).toEqual([0.2, 0.28, null]);
     expect(s.slice(1).map((c) => c[8]!.v).slice(9, 15)).toEqual(["Asscher", "Asscher", "Round", "Emerald", "Emerald", "Round"]);
-    // The twin weight difference stays in the application: no advisory text in the workbook.
     expect(JSON.stringify(s).includes("Twin")).toBe(false);
   });
 });
 
-// =========================================================================================
 describe("sarin xlsx: workbook safety and presentation", () => {
   test("no formulas, macros, external links, hidden sheets or extra parts; frozen header; landscape print with titles", async () => {
     const { batchId, versionId } = await outputOf(rows(`6${uniq()}D-001 DC`, [...Array(17).fill("1.500"), "0.200", "0.100"]));
@@ -265,12 +238,10 @@ describe("sarin xlsx: workbook safety and presentation", () => {
     expect(sheet).toContain('<pageSetup paperSize="9" orientation="landscape" fitToWidth="1" fitToHeight="0"/>');
     expect(wb.part("xl/workbook.xml")).toMatch(/<definedName name="_xlnm.Print_Titles" localSheetId="0">'[^']+'!\$1:\$1<\/definedName>/);
     expect(wb.widths(wb.sheetNames[0]).length).toBe(19);
-    expect(wb.widths(wb.sheetNames[0])[8]).toBeGreaterThan(20); // Shape column is wide enough for long names
-    // Document properties say what the file is; they carry no database identifiers.
+    expect(wb.widths(wb.sheetNames[0])[8]).toBeGreaterThan(20);
     const core = wb.part("docProps/core.xml");
     expect(core).toContain("Not an approved manufacturing plan.");
     expect(core.includes(versionId) || core.includes(batchId)).toBe(false);
-    // Which mapping snapshot produced it is kept in the database and audit, not printed in the file.
     expect(/mapping/i.test(wb.sheetNames.map((n) => JSON.stringify(wb.rows(n))).join("") + core)).toBe(false);
   });
 
@@ -287,7 +258,6 @@ describe("sarin xlsx: workbook safety and presentation", () => {
   });
 });
 
-// =========================================================================================
 describe("sarin xlsx: access, limits, failures and audit", () => {
   test("export permission, scope and version checks; CSV stays as it was", async () => {
     const { batchId, versionId } = await outputOf(rows(`6${uniq()}F-001 DC`, Array(17).fill("1.500")), { labId: "IGI" });
@@ -300,7 +270,6 @@ describe("sarin xlsx: access, limits, failures and audit", () => {
     const csv = await download(exportCsv, batchId, versionId, planner.cookie);
     const text = new TextDecoder().decode(csv.bytes).split("\r\n");
     expect([csv.status, csv.headers.get("content-type"), text[0], text[4].split(",").length]).toEqual([200, "text/csv; charset=utf-8", '"Sarin structured output: transformed Sarin candidate data. Not an approved manufacturing plan."', 26]);
-    // The notice lines keep their places; none names the mapping snapshot.
     expect([text[2].startsWith('"Generated '), /mapping/i.test(text.slice(0, 4).join(""))]).toEqual([true, false]);
     const output = await db.sarinOutputVersion.findUniqueOrThrow({ where: { id: versionId }, select: { shapeMappingSetId: true } });
     expect(output.shapeMappingSetId).toBe(await effectiveSnapshotId());
@@ -340,21 +309,16 @@ describe("sarin xlsx: access, limits, failures and audit", () => {
     expect(tempDirs()).toBe(before);
     const ok = await db.auditLog.findFirstOrThrow({ where: { action: "SARIN_OUTPUT_EXPORTED", entityId: batchId } });
     expect([ok.actorUserId, JSON.parse(ok.after!)]).toEqual([planner.user.id, { outputVersionId: versionId, versionNumber: 1, format: "XLSX", rows: 17 }]);
-    expect(ok.after!.length).toBeLessThan(200); // no workbook content in the audit
+    expect(ok.after!.length).toBeLessThan(200);
   });
 });
 
-// =========================================================================================
-// The output area is A:S. Excel paints every cell that names no style with cellXfs[0], so
-// that entry must be plain; everything else — cells, merges, fills, used range and print
-// area — must stay inside A:S and the written rows.
 const COLUMN_S = 19;
 const columnNumber = (letters: string) => [...letters].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0);
 const cellXfs = (wb: InspectedWorkbook) => (wb.part("xl/styles.xml").match(/<cellXfs[^>]*>([\s\S]*?)<\/cellXfs>/)?.[1] ?? "").match(/<xf [^>]*?(?:\/>|>[\s\S]*?<\/xf>)/g) ?? [];
 const fillOf = (xf: string) => Number(xf.match(/fillId="(\d+)"/)?.[1] ?? 0);
 const cellsOf = (xml: string) => [...xml.matchAll(/<c r="([A-Z]+)(\d+)"(?: s="(\d+)")?/g)].map((m) => ({ col: columnNumber(m[1]), row: Number(m[2]), ref: `${m[1]}${m[2]}`, style: m[3] === undefined ? 0 : Number(m[3]) }));
 
-/** Every A:S boundary fact of one workbook, per sheet, for exact comparison. */
 function boundaryOf(wb: InspectedWorkbook) {
   const xfs = cellXfs(wb);
   const workbookXml = wb.part("xl/workbook.xml");
@@ -415,10 +379,8 @@ describe("sarin xlsx: the output area ends at column S", () => {
     const styles = wb.part("xl/styles.xml");
     expect(xfs[0]).toBe('<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>');
     expect([styles.includes('<fills count="9"><fill><patternFill patternType="none"/></fill>'), styles.includes('<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>')]).toEqual([true, true]);
-    // The gold header style exists once and is used by A1:S1 only.
     expect(xfs.filter((x) => fillOf(x) === 2).length).toBe(1);
     expect(boundaryOf(wb)[0].headerCells).toBe(HEADER_REFS);
-    // No written cell relies on the default style, and neither rows, columns nor the sheet default carry one.
     expect(cellsOf(wb.sheetXml(1)).filter((c) => c.style === 0).map((c) => c.ref)).toEqual([]);
     expect([/<sheetFormatPr[^>]* style=/.test(wb.sheetXml(1)), boundaryOf(wb)[0].rowOrColumnStyles]).toEqual([false, false]);
   });
@@ -434,14 +396,11 @@ describe("sarin xlsx: the output area ends at column S", () => {
     expect(wb.sheetNames).toEqual([k1, k2]);
     expectInsideAtoS(wb);
     expect(boundaryOf(wb).map((b) => [b.dimension, b.printArea])).toEqual([["A1:S22", `'${k1}'!$A$1:$S$22`], ["A1:S19", `'${k2}'!$A$1:$S$19`]]);
-    // Print titles are kept beside the print area.
     expect((wb.part("xl/workbook.xml").match(/_xlnm\.Print_Titles/g) ?? []).length).toBe(2);
-    // Group shading covers only the group's own cells H..Q, never a whole row.
     const xfs = cellXfs(wb);
     const shaded = cellsOf(wb.sheetXml(1)).filter((c) => [4, 5].includes(fillOf(xfs[c.style] ?? "")));
     expect([...new Set(shaded.map((c) => c.col))].sort((a, b) => a - b)).toEqual([8, 9, 10, 11, 12, 13, 14, 15, 16, 17]);
     expect([...new Set(shaded.map((c) => c.row))].sort((a, b) => a - b)).toEqual([19, 20, 21, 22]);
-    // Values and formats are unchanged: weights 0.000, yield 0.00% from the stored value, merges H and R only.
     const s = wb.rows(k1);
     expect([s[1][9]!.z, s[1][17]!.z, s[18][17]!.v, s[18][7]!.v]).toEqual(["0.000", "0.00%", 0.3, "2 Pcs"]);
     expect(wb.merges(k1)).toEqual(["H19:H20", "H21:H22", "R19:R20", "R21:R22"]);

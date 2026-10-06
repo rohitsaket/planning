@@ -6,9 +6,6 @@ import { resolveFantasySourceStateWithHistory } from "@/lib/fantasy/config";
 import { formatIST } from "@/lib/fantasy/time";
 
 export const GET = withApi<{ lotId: string }>({ permission: "overall.read" }, async (_req, ctx) => {
-  // Validated before it reaches the database. Without this an absent or malformed path
-  // segment was handed straight to Prisma, which raised a driver error and surfaced as a
-  // 500 — a bad identifier is a client mistake, not a server failure.
   const lotId = idSchema.parse((await ctx.params).lotId);
   const sourceState = await resolveFantasySourceStateWithHistory(db);
 

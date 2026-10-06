@@ -4,7 +4,6 @@ import { notFound } from "@/lib/api/errors";
 import { SARIN_STONE_BLOCK_PARSE_STATUSES } from "@/lib/sarin/domain";
 import { listStoneBlocks, SARIN_BLOCK_PAGE } from "@/lib/sarin/validation-queries";
 
-// One page of an import's stone blocks in file order. Scoped in the query (404 outside it).
 export const GET = withApi<{ batchId: string }>({ permission: "sarin.import.read" }, async (_req, { params }, api) => {
   const batchId = idSchema.parse((await params).batchId);
   const url = api.url;

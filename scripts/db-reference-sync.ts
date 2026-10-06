@@ -1,7 +1,3 @@
-// Adds missing confirmed reference data — weight bands, lab mappings and shape mappings —
-// and records what it added in the audit log. Insert-only and idempotent: existing rows,
-// including edited ones, are never changed, and nothing is deleted.
-// Usage: npm run db:reference:sync
 import { PrismaClient } from "@prisma/client";
 import { syncConfirmedReferenceData } from "../src/lib/reference-data/reference-sync";
 

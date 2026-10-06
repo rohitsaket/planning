@@ -1,15 +1,3 @@
-/**
- * Automatic Fantasy synchronisation (server process only).
- *
- * Started once per Node server from src/instrumentation.ts when FANTASY_SOURCE_MODE=FANTASY_API and
- * FANTASY_SYNC_INTERVAL_MINUTES > 0. Each tick calls the same runSynchronization() the "Sync Now"
- * button uses, so the atomic sync lock, checkpoint rules, audit trail and Sync Monitor all apply.
- * A tick that finds the lock held simply logs and waits for the next one. Consecutive failures
- * (for example the vendor's listing endpoint erroring) double the wait, up to 32× the interval,
- * so a broken upstream does not fill the Sync Monitor with a failed run every few minutes; the
- * first success restores the normal cadence.
- */
-
 import { log } from "@/lib/api/with-api";
 import { getFantasyConfig, getLiveFantasyConfig, validateFantasyConfigForLog } from "./config";
 
@@ -59,11 +47,9 @@ async function tick(state: SchedulerState) {
     state.lastRunAt = new Date().toISOString();
     state.lastStatus = result.status;
     state.lastError = result.errorSummary ?? null;
-    // LOCKED (a manual run is in progress) is coalesced, not counted as an upstream failure.
     state.consecutiveFailures = result.success || result.status === "LOCKED" ? (result.success ? 0 : state.consecutiveFailures) : state.consecutiveFailures + 1;
     log(result.success ? "info" : "warn", "fantasy_scheduled_sync", { syncRunId: result.syncRunId, status: result.status, fetched: result.recordsFetched, inserted: result.recordsInserted, updated: result.recordsUpdated, errorCode: result.errorCode ?? null, consecutiveFailures: state.consecutiveFailures });
   } catch (e) {
-    // Lock held by a manual run, or configuration error: not counted as an upstream failure.
     state.lastRunAt = new Date().toISOString();
     state.lastStatus = "SKIPPED";
     state.lastError = (e instanceof Error ? e.message : String(e)).slice(0, 250);
@@ -83,7 +69,6 @@ function schedule(state: SchedulerState, delayMs: number) {
 }
 
 export function startFantasySyncScheduler(): SchedulerStatus {
-  // Startup validation: names what is configured, never a value.
   log("info", "fantasy_integration_config", validateFantasyConfigForLog());
   const cfg = getSchedulerConfig();
   if (!cfg.enabled) {

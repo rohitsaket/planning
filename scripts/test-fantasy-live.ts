@@ -1,11 +1,3 @@
-/**
- * FANTASY LIVE INTEGRATION — unit checks (no database, no network).
- * 1. Encrypted secrets: round trip, plaintext passthrough, wrong key rejected, envelope shape.
- * 2. Row mapper: header variants, status/entity resolution, sale → not current, WIP stages,
- *    rough detection, dates, missing Lot ID skipped, raw columns preserved.
- * 3. Live provider: full-snapshot batch, monotonic checkpoint, removals for disappeared lots,
- *    never simulated, batch id unique per cutoff.
- */
 import { decryptSecret, encryptSecret, generateSecretsKey, isEncryptedSecret } from "../src/lib/security/secrets";
 import { mapFantasyRow, mapFantasyRows, parseFantasyDate, resolveStatus } from "../src/lib/fantasy/live-mapper";
 import { LiveFantasyProvider } from "../src/lib/fantasy/provider";
@@ -96,10 +88,6 @@ async function main() {
 }
 main().then(() => part2()).then(() => part3()).catch((e) => { console.error(e); process.exit(1); });
 
-// ---------------------------------------------------------------------------------------------
-// Part 2 — config validation, redaction, client retry policy / pagination, 46-field Live Data
-// mapping (no database, no network: fetch is injected)
-// ---------------------------------------------------------------------------------------------
 import { getLiveFantasyConfig, validateFantasyConfigForLog } from "../src/lib/fantasy/config";
 import { redact, redactString, safeErrorMessage } from "../src/lib/security/redact";
 import { createFantasyClient, FantasyApiError, memoryTokenStore, retryDelayMs, type LiveFantasyConfig } from "../src/lib/fantasy/live-api";
@@ -138,7 +126,6 @@ async function part2() {
   const tokenRes = () => new Response(JSON.stringify({ access_token: "T1", token_type: "bearer", expires_in: 86400, userName: "U" }), { status: 200, headers: { "content-type": "application/json" } });
   const json = (b: unknown, status = 200, headers: Record<string, string> = {}) => new Response(JSON.stringify(b), { status, headers: { "content-type": "application/json", ...headers } });
 
-  // login body never contains the password in a logged place; token reused
   let c = mk(base, (url, init) => (url.endsWith("/token") ? tokenRes() : json([{ "Lot ID": "L1" }])));
   await c.fetchLots(); await c.fetchLots();
   assert(calls.filter((x) => x.includes("/token")).length === 1 && calls.filter((x) => x.includes("/api/lots")).length === 2, "token cached: one login for two listings");
@@ -149,50 +136,41 @@ async function part2() {
   await c.getAccessToken({ forceLogin: true });
   assert(sawPasswordInBody, "password grant is form-encoded to /token (and nowhere else)");
 
-  // 500 then 200 → retried with backoff
   calls.length = 0; waits.length = 0;
   let n = 0;
   c = mk(base, (url) => (url.endsWith("/token") ? tokenRes() : ++n === 1 ? new Response("boom", { status: 500 }) : json([{ "Lot ID": "L1" }])));
   const r1 = await c.fetchLots();
   assert(r1.rows.length === 1 && waits.length === 1 && waits[0] === 500, "transient 500 retried once after 500ms backoff");
-  // exhausts retries
   waits.length = 0;
   c = mk(base, (url) => (url.endsWith("/token") ? tokenRes() : new Response("down", { status: 503 })));
   let err: unknown = null; try { await c.fetchLots(); } catch (e) { err = e; }
   assert(err instanceof FantasyApiError && err.code === "UPSTREAM_ERROR" && err.status === 503 && waits.length === 3 && waits.join(",") === "500,1000,2000", "5xx retried maxRetries times with exponential backoff, then UPSTREAM_ERROR");
-  // 429 honours Retry-After
   waits.length = 0; n = 0;
   c = mk(base, (url) => (url.endsWith("/token") ? tokenRes() : ++n === 1 ? new Response("slow", { status: 429, headers: { "retry-after": "7" } }) : json([])));
   await c.fetchLots();
   assert(waits.length === 1 && waits[0] === 7000, "429 waits Retry-After seconds");
-  // 401 → one re-login, then AUTH_FAILED, no retries
   calls.length = 0; waits.length = 0;
   c = mk(base, (url) => (url.endsWith("/token") ? tokenRes() : new Response("denied", { status: 401 })));
   err = null; try { await c.fetchLots(); } catch (e) { err = e; }
   assert(err instanceof FantasyApiError && err.code === "AUTH_FAILED" && err.message === "Fantasy authentication failed." && waits.length === 0 && calls.filter((x) => x.includes("/token")).length === 2 && calls.filter((x) => x.includes("/api/lots")).length === 2, "401 → exactly one re-login, then AUTH_FAILED with a safe message and no backoff retries");
-  // bad credentials at login are not retried
   calls.length = 0;
   c = mk(base, () => json({ error: "invalid_grant", error_description: "The user name or password is incorrect." }, 400));
   err = null; try { await c.getAccessToken(); } catch (e) { err = e; }
   assert(err instanceof FantasyApiError && err.code === "AUTH_FAILED" && calls.length === 1, "rejected login → AUTH_FAILED after a single attempt");
-  // timeout classification
   c = mk(base, (url) => { if (url.endsWith("/token")) return tokenRes(); const e = new Error("t"); e.name = "TimeoutError"; throw e; });
   err = null; try { await c.fetchLots(); } catch (e) { err = e; }
   assert(err instanceof FantasyApiError && err.code === "TIMEOUT", "aborted requests surface as TIMEOUT");
-  // pagination: 3 pages of size 2 → 5 rows, stops on short page
   calls.length = 0;
   const paged: LiveFantasyConfig = { ...base, pageParam: "page", pageSizeParam: "pageSize" };
   c = mk(paged, (url) => { if (url.endsWith("/token")) return tokenRes(); const p = Number(new URL(url).searchParams.get("page")); return json(p === 1 ? [{ "Lot ID": "1" }, { "Lot ID": "2" }] : p === 2 ? [{ "Lot ID": "3" }, { "Lot ID": "4" }] : [{ "Lot ID": "5" }]); });
   const pr = await c.fetchLots();
   assert(pr.rows.length === 5 && pr.pages === 3 && calls.filter((x) => x.includes("pageSize=2")).length === 3, "every page fetched until a short page (5 rows over 3 pages)");
-  // wrapped shapes + non-array → BAD_RESPONSE
   c = mk(base, (url) => (url.endsWith("/token") ? tokenRes() : json({ Data: [{ "Lot ID": "9" }], Total: 1 })));
   assert((await c.fetchLots()).rows[0]["Lot ID"] === "9", "wrapped {Data:[…]} payload unwrapped");
   c = mk(base, (url) => (url.endsWith("/token") ? tokenRes() : json({ message: "nothing" })));
   err = null; try { await c.fetchLots(); } catch (e) { err = e; }
   assert(err instanceof FantasyApiError && err.code === "BAD_RESPONSE", "payload without a row array → BAD_RESPONSE");
   assert(retryDelayMs(0, null, () => 0.5) === 625 && retryDelayMs(3, null, () => 0) === 4000 && retryDelayMs(0, "3", () => 0) === 3000, "backoff formula: 500·2^n + jitter, Retry-After wins");
-  // test connection result carries no secrets
   c = mk(base, (url) => (url.endsWith("/token") ? tokenRes() : json([{ "Lot ID": "1", Weight: 1 }])));
   const tc = await c.testConnection();
   const tcText = JSON.stringify(tc);
@@ -233,9 +211,6 @@ async function part2() {
   console.log(`\n🎉 PART 2 PASSED (${passed} total)`);
 }
 
-// ---------------------------------------------------------------------------------------------
-// Part 3 — Fantasy grid export parsing (xlsx + csv), fed through the same mapper
-// ---------------------------------------------------------------------------------------------
 import * as XLSX from "xlsx";
 import { parseLiveExport } from "../src/lib/fantasy/live-import";
 import { friendlyErrorSummary } from "../src/lib/fantasy/live-sync";

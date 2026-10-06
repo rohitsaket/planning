@@ -20,20 +20,6 @@ import {
 import { SimulationBanner } from "@/components/diamond/shared/simulation-banner";
 import type { SourceDisclosure } from "@/lib/analysis/source-disclosure";
 
-/**
- * EXECUTIVE ANALYSIS — past sales → demand → available inventory → shortage/excess.
- *
- * A read-oriented summary of results the backend already owns. Every number on this page
- * is displayed exactly as the API returned it: there is no arithmetic in this file, and
- * no formula, rule identifier or calculation step is shown to the user.
- *
- * Tables page, sort and filter on the server. The client holds one page at a time.
- */
-
-// ---------------------------------------------------------------------------
-// Response shapes
-// ---------------------------------------------------------------------------
-
 type ReadinessState =
   | "CURRENT" | "SIMULATED" | "STALE" | "DEGRADED" | "FAILED" | "UNAVAILABLE" | "NOT_RUN" | "UNKNOWN";
 
@@ -123,11 +109,6 @@ interface AttentionResponse {
   activeFilters: ActiveFilter[];
 }
 
-// ---------------------------------------------------------------------------
-// Presentation helpers (display only — no business arithmetic)
-// ---------------------------------------------------------------------------
-
-/** Advisory quantities are visually separated from confirmed facts, never colour-coded as stock. */
 function Advisory({ value }: { value: number | null }) {
   if (value === null) return <span className="text-muted-foreground italic text-xs">Unavailable</span>;
   return (
@@ -137,21 +118,11 @@ function Advisory({ value }: { value: number | null }) {
   );
 }
 
-/**
- * A 30-day window count. Null means this demand run kept no per-sale trace, so the
- * window cannot be counted — which is not the same statement as "nothing sold".
- */
 function WindowCount({ value }: { value: number | null }) {
   if (value === null) return <span className="text-xs italic text-muted-foreground">Unavailable</span>;
   return <NumberCell value={value} zeroAsDash />;
 }
 
-/**
- * Footer under a server-paged table.
- *
- * Delegates the counts and controls to the shared ServerPagination component and adds
- * only what it does not carry: the exact filters that produced these totals.
- */
 function TableFooter({
   meta, filters, onPage, onPageSizeChange, loading, label,
 }: {
@@ -242,7 +213,6 @@ export function ExecutiveAnalysisView() {
   const [search, setSearch] = useState("");
   const [appliedSearch, setAppliedSearch] = useState("");
 
-  // Global country/lab scope travels with every request; the server applies it.
   const scope = useMemo(() => {
     const p = new URLSearchParams();
     if (globalFilter.country) p.set("country", globalFilter.country);
@@ -278,7 +248,6 @@ export function ExecutiveAnalysisView() {
     setGapPage(1);
   };
 
-  // ---------------------------------------------------------------- columns
   const salesColumns: Column<SalesDemandResponse["rows"][number]>[] = [
     {
       key: "label", header: "Category (Lab | Shape | Weight Band)", width: "20rem",
@@ -388,10 +357,8 @@ export function ExecutiveAnalysisView() {
   const simulated = readiness.data?.isSimulated ?? false;
   const availability = readiness.data?.availability ?? null;
   const permissions = useAuthStore((st) => st.user?.permissions ?? []);
-  // Hiding the button is UX. The server enforces demand.run on every request.
   const canRunDemand = permissions.includes("demand.run");
 
-  /** Where an attention row leads; null when there is nowhere to act on it from. */
   const attentionTarget = (r: AttentionResponse["rows"][number]): (() => void) | null => {
     if (r.kind === "DEMAND_NOT_RUN") return canRunDemand ? () => refresh.mutate() : null;
     if (r.kind === "CATEGORY_PHYSICAL_SHORTAGE" && r.category) {
@@ -409,10 +376,8 @@ export function ExecutiveAnalysisView() {
         title="Executive Analysis"
         subtitle="Sales, demand, inventory, shortage and excess"
       />
-      {/* Persistent and unmistakable while fixture data is on screen. */}
       <SimulationBanner disclosure={readiness.data?.sourceDisclosure} />
 
-      {/* Navigation Tabs */}
       <div className="flex items-center gap-1.5 border-b border-border bg-card/80 p-1 rounded-xl shadow-2xs">
         {TABS.map((tab) => {
           const Icon = tab.icon;
@@ -436,7 +401,6 @@ export function ExecutiveAnalysisView() {
         })}
       </div>
 
-      {/* -------------------------------------- TAB 1: Sales and demand summary */}
       {activeTab === "sales-demand" && (
         <Section
           title="Sales and Demand"
@@ -502,7 +466,6 @@ export function ExecutiveAnalysisView() {
         </Section>
       )}
 
-      {/* ------------------------------------------ TAB 2: Inventory position */}
       {activeTab === "inventory" && (
         <Section
           title="Inventory Position"
@@ -537,7 +500,6 @@ export function ExecutiveAnalysisView() {
         </Section>
       )}
 
-      {/* --------------------------------------- TAB 3: Shortage and excess */}
       {activeTab === "shortage-excess" && (
         <Section
           title="Shortage and Excess"
@@ -606,7 +568,6 @@ export function ExecutiveAnalysisView() {
         </Section>
       )}
 
-      {/* ------------------------------------------ TAB 4: Attention required */}
       {activeTab === "attention" && (
         <Section
           title="Attention Required"

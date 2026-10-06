@@ -5,14 +5,6 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { SortDirection } from "@/lib/analytics/sales-history-contract";
 
-/**
- * Sort control for a server-paginated table.
- *
- * The column headers on these tables are deliberately not clickable: sorting one loaded
- * page would order 25 rows out of a much larger result and look like the whole table had
- * been sorted. This control sorts on the server, so page 1 really is the top of the
- * chosen order.
- */
 export function SortControls<T extends string>({
   keys,
   labels,

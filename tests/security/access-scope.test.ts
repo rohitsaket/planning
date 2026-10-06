@@ -24,22 +24,8 @@ import {
 } from "@/lib/auth/access-scope";
 import { ROLE_PERMISSIONS, ROLES } from "@/lib/auth/permissions";
 
-/**
- * Country and lab authorization scope.
- *
- * Before this existed, the country and lab controls on screen were a convenience filter:
- * any caller holding `analysis.read` received the whole business, and editing the query
- * string was enough to look at anything. A client-supplied filter is not authorization.
- *
- * These tests cross the real handler boundary in both directions — a request for another
- * country is refused, and an unfiltered request returns only the caller's own scope —
- * because either half alone leaves a hole. They also pin the backward-compatibility rule
- * that an account with no stored scope keeps unrestricted access.
- */
-
 const BATCH = "SCOPE-TEST";
 
-/** Two countries and two labs, each with a distinguishable number of lots. */
 const LOTS: Array<{ country: string; lab: string; n: number }> = [
   { country: "ZS", lab: "LAB-ALPHA", n: 4 },
   { country: "ZS", lab: "LAB-BETA", n: 3 },
@@ -103,8 +89,6 @@ describe("Access scope — the model itself", () => {
   beforeAll(async () => { await resetDb(); await clearFixtures(); });
 
   test("an account with no stored scope is unrestricted", async () => {
-    // The backward-compatibility rule. The table starts empty on deploy, so every account
-    // that existed before scoping must keep exactly the access it had.
     const user = await makeUser("scope.legacy", "DATA_ANALYST");
     const scope = await readEffectiveScope(user.user.id);
     expect(scope).toEqual(UNRESTRICTED_SCOPE);
@@ -134,8 +118,6 @@ describe("Access scope — the model itself", () => {
       where: { userId: user.user.id, dimension: "COUNTRY" },
       select: { value: true },
     });
-    // Two rows, not one row holding "ZS,ZT". A delimited value cannot be indexed, cannot
-    // be revoked individually, and widens access the moment a value contains the delimiter.
     expect(rows.map((r) => r.value).sort()).toEqual(["ZS", "ZT"]);
     expect(rows.some((r) => r.value.includes(","))).toBe(false);
   });
@@ -153,7 +135,6 @@ describe("Access scope — the model itself", () => {
       refused = true;
     }
     expect(refused).toBe(true);
-    // And a request inside it passes untouched.
     assertWithinScope(scope, { country: "ZS" });
     assertWithinScope(scope, { country: null, lab: "ANYTHING" });
   });
@@ -170,8 +151,6 @@ describe("Access scope — the model itself", () => {
   });
 
   test("a null column is outside a restricted scope", () => {
-    // A record that does not say where it is cannot be shown to someone authorized for
-    // particular places.
     const where = scopeWhere({ countries: ["ZS"], labs: null }, { country: "country", lab: "labNormalized" });
     expect(where).toEqual({ country: { in: ["ZS"] } });
   });
@@ -185,7 +164,6 @@ describe("Access scope — the model itself", () => {
     expect(applied.applied).toEqual(["LAB"]);
     expect(applied.notEnforceable).toEqual(["COUNTRY"]);
     expect(applied.notice !== null).toBe(true);
-    // Nothing is claimed when everything could be applied.
     expect(describeScopeApplication({ countries: ["ZS"], labs: null }, ["COUNTRY", "LAB"]).notice).toBe(null);
   });
 
@@ -213,8 +191,6 @@ describe("Access scope — enforcement across the real API boundary", () => {
   });
 
   test("an unfiltered request returns only the caller's scope", async () => {
-    // The half a refusal alone would miss: the caller asked for nothing in particular, so
-    // there was nothing to refuse, and the whole business used to come back.
     resetRateLimits();
     const res = await call(aging, {
       path: `/api/analysis/aging?section=lots&search=${BATCH}&pageSize=200`,
@@ -224,7 +200,6 @@ describe("Access scope — enforcement across the real API boundary", () => {
     const rows = res.json.rows as Array<{ country: string }>;
     expect(rows.length > 0).toBe(true);
     expect([...new Set(rows.map((r) => r.country))]).toEqual(["ZS"]);
-    // 4 + 3 lots in ZS, out of 10 overall.
     expect(res.json.totals.currentLots).toBe(7);
   });
 
@@ -268,7 +243,6 @@ describe("Access scope — enforcement across the real API boundary", () => {
     expect(res.status).toBe(200);
     const rows = res.json.rows as Array<{ lab: string | null }>;
     expect([...new Set(rows.map((r) => r.lab))]).toEqual(["LAB-ALPHA"]);
-    // 4 in ZS + 2 in ZT.
     expect(res.json.totals.currentLots).toBe(6);
   });
 
@@ -284,8 +258,6 @@ describe("Access scope — enforcement across the real API boundary", () => {
   });
 
   test("the summary, the dashboard and the transfer distribution are narrowed too", async () => {
-    // Aggregation, not only row listing: a KPI computed over everything would leak the
-    // same data the table withholds.
     const surfaces: Array<{ name: string; lots: number }> = [];
     for (const [name, handler, path] of [
       ["aging summary", aging, `/api/analysis/aging?section=summary&search=${BATCH}`],
@@ -341,8 +313,6 @@ describe("Access scope — enforcement across the real API boundary", () => {
   });
 
   test("a demand-derived page says which half of the scope it could not apply", async () => {
-    // `DemandMetric` has a lab but no country. Rather than imply a country-level figure,
-    // the response states that the country restriction could not be applied.
     resetRateLimits();
     const res = await call(stockout, { path: "/api/analysis/stockout?section=categories", cookie: scopedCookie });
     expect(res.status).toBe(200);
@@ -380,9 +350,6 @@ describe("Access scope — enforcement across the real API boundary", () => {
 
 describe("Access scope — exports carry the same restriction", () => {
   test("every scoped read route also declares the scope in its filters", () => {
-    // The wrapper refuses an out-of-scope request; the read service narrows the query.
-    // A route that declared only the first half would return everything to a caller who
-    // simply did not ask for a country, which is the easier mistake to make.
     const offenders: string[] = [];
     const walk = (dir: string) => {
       for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -392,7 +359,6 @@ describe("Access scope — exports carry the same restriction", () => {
           const text = readFileSync(full, "utf8");
           if (!text.includes("scoped: true")) continue;
           const rel = full.split(path.sep).join("/");
-          // It must do something with the scope, not merely declare it.
           const uses =
             text.includes("scopeWhere") ||
             text.includes("scopePredicates") ||
@@ -400,10 +366,6 @@ describe("Access scope — exports carry the same restriction", () => {
             text.includes("api.scope") ||
             text.includes("withSalesScope") ||
             text.includes("scope.labs") ||
-            // Passed as an argument — the aging and sales services take the scope as a
-            // required parameter, which is how the compiler stops a route forgetting it.
-            // `describeScope(scope)` deliberately does not match: disclosing a scope is
-            // not applying one.
             /,\s*scope\s*[,)]/.test(text);
           if (!uses) offenders.push(rel);
         }
@@ -433,7 +395,6 @@ describe("Access scope — exports carry the same restriction", () => {
           const code = readFileSync(full, "utf8")
             .replace(/\/\*[\s\S]*?\*\//g, "")
             .replace(/^\s*\/\/.*$/gm, "");
-          // An authorization input taken from the caller is not authorization.
           if (/qStr\(url,\s*"(role|actor|userId|permissions|accessScope|allowedCountries|allowedLabs)"/.test(code)) {
             offenders.push(full.split(path.sep).join("/"));
           }
@@ -449,10 +410,8 @@ describe("Access scope — exports carry the same restriction", () => {
 });
 
 describe("Access scope — managing it is its own authority", () => {
-  // A scope may only name registered countries and labs.
   beforeAll(async () => { await ensureCountryRegistry(["ZS", "ZT"]); await ensureLabRegistry(["LAB-ALPHA"]); });
   test("only Super Admin holds scope assignment by default; anyone else needs a custom role that names it", () => {
-    // Super Admin is the only built-in role, so no other account receives it implicitly.
     expect([...ROLES]).toEqual(["SUPER_ADMIN"]);
     expect([ROLE_PERMISSIONS.SUPER_ADMIN.includes("user.scope.assign"), ROLE_PERMISSIONS.SUPER_ADMIN.includes("user.scope.read")]).toEqual([true, true]);
   });
@@ -468,7 +427,6 @@ describe("Access scope — managing it is its own authority", () => {
       body: { op: "setScope", id: target.user.id, countries: ["ZS"], labs: [], reason: "test" },
     });
     expect(res.status).toBe(403);
-    // And nothing was written.
     expect(await db.userAccessScope.count({ where: { userId: target.user.id } })).toBe(0);
   });
 
@@ -486,7 +444,6 @@ describe("Access scope — managing it is its own authority", () => {
     expect(set.status).toBe(200);
     expect(await readEffectiveScope(target.user.id)).toEqual({ countries: ["ZS"], labs: ["LAB-ALPHA"] });
 
-    // Clearing is an empty set, which restores unrestricted access.
     resetRateLimits();
     const cleared = await call(adminUsersPost, {
       method: "POST",
@@ -568,7 +525,6 @@ describe("Access scope — managing it is its own authority", () => {
       body: { op: "setScope", id: target.user.id, countries: ["ZT"], labs: [], reason: "narrowing live" },
     });
 
-    // Same cookie, same session.
     resetRateLimits();
     const after = await call(aging, {
       path: `/api/analysis/aging?section=lots&search=${BATCH}&pageSize=200`,
@@ -581,7 +537,6 @@ describe("Access scope — managing it is its own authority", () => {
     const analyst = await makeUser("scope.reader", "DATA_ANALYST");
     resetRateLimits();
     const res = await call(adminUsers, { path: "/api/admin/users", cookie: analyst.cookie });
-    // A data analyst holds no user.read at all, so the list is refused outright.
     expect(res.status).toBe(403);
   });
 
@@ -591,7 +546,6 @@ describe("Access scope — managing it is its own authority", () => {
     const res = await call(adminUsers, { path: "/api/admin/users?pageSize=100", cookie: admin.cookie });
     expect(res.status).toBe(200);
     expect(res.json.canReadScope).toBe(true);
-    // ADMIN does not hold the assign permission, and the list says so.
     expect(res.json.canManageScope).toBe(false);
     const rows = res.json.rows as Array<{ accessScope: unknown }>;
     expect(rows.every((r) => r.accessScope !== null)).toBe(true);

@@ -4,11 +4,6 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { useAuthStore } from "@/stores/auth-store";
 import type { RoleRow, ScopeOptions } from "./shared";
 
-/**
- * Role choice for an account: active custom roles only (Super Admin is never offered). The
- * server checks every role again, including that a caller who is not a Super Admin holds
- * every permission the chosen roles carry.
- */
 export function RolePicker({
   roles,
   value,
@@ -42,11 +37,6 @@ export function RolePicker({
   );
 }
 
-/**
- * Country and lab scope from the registered values only. "All" is offered for a dimension
- * only when the signed-in user is unrestricted in it — nobody can grant wider than they hold,
- * and the server enforces the same rule.
- */
 export function ScopePicker({
   options,
   value,
@@ -129,7 +119,6 @@ function ScopeDimension({
   );
 }
 
-/** Whether a scope choice can be submitted by this user (see ScopePicker). */
 export function scopeChoiceValid(own: { countries: string[] | null; labs: string[] | null } | undefined, value: { countries: string[]; labs: string[] }): boolean {
   if (!own) return true;
   return (own.countries === null || value.countries.length > 0) && (own.labs === null || value.labs.length > 0);

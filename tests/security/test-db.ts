@@ -1,4 +1,3 @@
-// The security tests only ever run against a database whose name is exactly SECTEST_DB.
 export const SECTEST_DB = "planning_sectest";
 
 export function sectestUrl(): string {

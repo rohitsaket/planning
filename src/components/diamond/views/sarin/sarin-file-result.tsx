@@ -1,10 +1,5 @@
 "use client";
 
-// The result of processing one file, read back from the server: Output Ready, the issues
-// that need correcting, or the one action that continues it. Continuing always resumes
-// from what the server has stored (see sarin-processing.ts); nothing is repeated here.
-// Each control mirrors its permission and the server enforces it again.
-
 import { useState } from "react";
 import { toast } from "sonner";
 import { ChevronDown, Download, FileSpreadsheet, RefreshCw } from "lucide-react";
@@ -35,7 +30,6 @@ import {
   type ProcessingStage,
 } from "./sarin-processing";
 
-/** Downloads a file built on the server from one immutable output version. */
 export function useOutputExport() {
   const [exporting, setExporting] = useState<"xlsx" | "csv" | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -67,10 +61,8 @@ export function useOutputExport() {
 interface Props {
   batchId: string;
   rights: ProcessingRights;
-  /** The in-session failure that stopped processing this file, if any. */
   failure: { stage: ProcessingStage; error: SarinRequestError } | null;
   busy: boolean;
-  /** Processes the file again against the shape mappings in effect now. */
   onProcessAgain: () => void;
   onProcessAnother: () => void;
 }
@@ -154,15 +146,10 @@ function ContinueButton({ label, busy, onClick }: { label: string; busy: boolean
   );
 }
 
-// ---------------------------------------------------------------------------------------
-// Output Ready
-// ---------------------------------------------------------------------------------------
-
 function OutputReady(props: { batchId: string; outputId: string; advisories: number; fileName: string; planningDate: string; rights: ProcessingRights; busy: boolean; onProcessAgain: () => void; onProcessAnother: () => void }) {
   const { batchId, outputId, advisories, rights } = props;
   const output = useApi<{ version: OutputVersion; unmappedShapes: UnmappedShapes }>(outputPath(batchId, outputId));
   const exporter = useOutputExport();
-  // The stored output is shown at once; the preview pages through it on the server.
   const [panel, setPanel] = useState<"preview" | "advisories" | null>("preview");
   const toggle = (p: "preview" | "advisories") => setPanel((cur) => (cur === p ? null : p));
 
@@ -238,10 +225,6 @@ const AFFECTED_PAGE = 20;
 const planLabel = (o: AffectedRecord["option"]) =>
   o.kind === "MAIN" ? `Main plan ${o.mainOrdinal ?? ""}`.trim() : o.kind === "ADDITIONAL" ? `Group ${o.additionalGroupOrdinal ?? ""}`.trim() : o.kind;
 
-/**
- * Shapes the output shows as they appear in the Sarin file because no mapping is confirmed
- * for them: one line per shape with its record count, and the records behind an expander.
- */
 function UnmappedShapesWarning({ batchId, outputId, warning, rights, busy, onProcessAgain }: { batchId: string; outputId: string; warning: UnmappedShapes; rights: ProcessingRights; busy: boolean; onProcessAgain: () => void }) {
   const [open, setOpen] = useState(false);
   const count = warning.shapes.length;
@@ -263,7 +246,6 @@ function UnmappedShapesWarning({ batchId, outputId, warning, rights, busy, onPro
           {open ? "Hide affected records" : "View affected records"}
         </Button>
         <OpenMappings />
-        {/* After a shape is mapped, processing again makes a new output version with it. */}
         {rights.validate && <ContinueButton label="Process Again" busy={busy} onClick={onProcessAgain} />}
       </div>
       {open && <AffectedRecords batchId={batchId} outputId={outputId} />}
@@ -323,10 +305,8 @@ function Fact({ label, children }: { label: string; children: React.ReactNode })
 const text = (v: unknown) => (typeof v === "string" || typeof v === "number" ? String(v) : "—");
 const FINDING_PAGE = 20;
 
-/** Non-blocking items of the current check, e.g. a Best Twin weight difference. */
 export function AdvisoryList({ batchId }: { batchId: string }) {
   const [page, setPage] = useState(1);
-  // Unmapped-shape warnings are summarised by shape in the result, not listed here row by row.
   const items = useApi<Paged<Finding>>(`${importPath(batchId)}/issues?blocking=false&exclude=SHAPE_NOT_MAPPED&pageSize=${FINDING_PAGE}&page=${page}`);
   if (items.isLoading) return <p className="text-[11px] text-muted-foreground" role="status">Loading items to review…</p>;
   if (items.error || !items.data) return <InfoBanner variant="critical">The items to review could not be loaded.</InfoBanner>;
@@ -360,10 +340,6 @@ export function AdvisoryList({ batchId }: { batchId: string }) {
     </section>
   );
 }
-
-// ---------------------------------------------------------------------------------------
-// Output needs attention
-// ---------------------------------------------------------------------------------------
 
 function NeedsAttention(props: { batchId: string; blocking: number; rights: ProcessingRights; busy: boolean; onProcessAgain: () => void; onProcessAnother: () => void }) {
   const { rights } = props;

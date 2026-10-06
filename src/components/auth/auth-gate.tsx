@@ -24,8 +24,6 @@ interface LoginContext {
   version: string;
 }
 
-// Rendered immediately so the panel has content on first paint; both API
-// responses replace it without changing any element's size.
 const INITIAL: LoginContext = { branding: erpBrand, modules: erpModules, version: "" };
 
 type SetUser = (user: SessionUser | null) => void;
@@ -35,14 +33,11 @@ async function signOut(setUser: SetUser) {
   setUser(null);
 }
 
-/** Re-reads the session from the server, e.g. after the password change rotated it. */
 async function reloadSession(setUser: SetUser) {
   const r = await fetch("/api/auth/me", { credentials: "same-origin" }).catch(() => null);
   setUser(r?.ok ? ((await r.json()).user as SessionUser) : null);
 }
 
-// Shows the sign-in screen until the server confirms a session. This is a UX gate
-// only: the API rejects every unauthenticated or unauthorized request on its own.
 export function AuthGate({ children }: { children: ReactNode }) {
   const { status, user, setUser } = useAuthStore();
   const queryClient = useQueryClient();
@@ -57,13 +52,9 @@ export function AuthGate({ children }: { children: ReactNode }) {
   }, [setUser]);
 
   useEffect(() => {
-    if (status === "signed-out") queryClient.clear(); // drop cached data from the previous session
+    if (status === "signed-out") queryClient.clear();
   }, [status, queryClient]);
 
-  // Branding and the day's quote. Both are public, cacheable and non-blocking:
-  // they are fetched in parallel after the screen has already painted, and a
-  // failure of either just leaves the built-in fallback on screen. Sign-in never
-  // waits on them.
   useEffect(() => {
     if (status !== "signed-out") return;
     let cancelled = false;
@@ -102,19 +93,15 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
   return (
     <main className="relative h-full w-full overflow-y-auto bg-background lg:grid lg:grid-cols-[50%_50%] xl:grid-cols-[52%_48%]">
-      {/* Theme toggle in top-right corner of screen */}
       <div className="absolute top-4 right-4 z-20">
         <ThemeToggle />
       </div>
 
-      {/* Branding: a full column on desktop, hidden on small screens where the
-          compact motivation strip below the form carries it instead. */}
       <div className="hidden lg:block h-full">
         <BrandingPanel brand={ctx.branding} modules={ctx.modules} motivation={motivation} version={ctx.version} />
       </div>
 
       <div className="flex min-h-full flex-col justify-center px-5 py-10 sm:px-10 lg:px-14 overflow-y-auto">
-        {/* Mobile/tablet brand lockup — the desktop panel is hidden there. */}
         <header className="mb-6 lg:hidden max-w-[460px] mx-auto w-full">
           <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[#FFEDD5]/95 dark:bg-[#25201D] border border-[#FED7AA] dark:border-[#3D322C] shadow-2xs mb-3 w-fit">
             <div className="h-6 w-6 rounded-lg bg-[#18181B] text-white flex items-center justify-center flex-shrink-0 shadow-xs">
@@ -139,8 +126,6 @@ export function AuthGate({ children }: { children: ReactNode }) {
           )}
         </div>
 
-        {/* Motivation follows the form on small screens so the primary action
-            stays above the fold. */}
         <div className="mx-auto mt-8 w-full max-w-[460px] lg:hidden">
           <DailyMotivation {...motivation} />
           <p className="mt-6 text-center text-xs text-muted-foreground">
@@ -153,11 +138,6 @@ export function AuthGate({ children }: { children: ReactNode }) {
   );
 }
 
-/**
- * The only screen a session on a temporary password can use. There is no way into the
- * application from here except replacing the password; the server enforces the same
- * restriction on every route regardless of what this screen shows.
- */
 function ForcedPasswordChange() {
   const { user, setUser } = useAuthStore();
   return (
@@ -206,7 +186,6 @@ export function UserMenu() {
     </div>
   );
 
-  // The profile chip opens the account menu; signing out lives there.
   return (
     <>
     <Popover open={menuOpen} onOpenChange={setMenuOpen}>

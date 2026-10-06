@@ -1,8 +1,5 @@
 "use client";
 
-// Recent Files: the imports the user may see (scoped on the server), newest first, with a
-// business status and the actions that apply.
-
 import { useMemo, useState } from "react";
 import { useApi } from "@/lib/api-client";
 import { Section } from "@/components/diamond/shared/page-header";
@@ -28,11 +25,9 @@ const STATUS_VARIANT: Record<FileStatus, "success" | "warning" | "critical" | "i
   Archived: "neutral",
 };
 
-/** Whether this user can move the file on from its stored state. */
 function canProcessAgain(b: ImportSummary, rights: ProcessingRights): boolean {
   if (b.status === "ARCHIVED" || b.status === "VALIDATING") return false;
   if (b.revalidationRequired || b.status === "FAILED" || b.status === "UPLOADED") return rights.validate;
-  // Output that shows unmapped shapes can be processed again once they are mapped.
   if (b.status === "VALIDATED" && b.currentOutputId && b.currentOutputUnmappedRows > 0) return rights.validate;
   return b.status === "VALIDATED" && !b.currentOutputId && rights.generate;
 }

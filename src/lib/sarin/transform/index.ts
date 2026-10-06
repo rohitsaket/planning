@@ -1,11 +1,3 @@
-/**
- * The packet-type profiles: the transformation each declared packet type (Blue, White,
- * Pink) uses, behind one shape, so the output service stores every packet type through
- * the same versioned, audited path.
- *
- * Server-only.
- */
-
 import type { Prisma } from "@prisma/client";
 import type { SarinPlanOptionKind, SarinPacketType } from "@/lib/sarin/domain";
 import { planBlueWhiteStone, SARIN_BLUE_WHITE_TRANSFORM_PROFILE, SARIN_BLUE_WHITE_TRANSFORM_PROFILE_HASH } from "@/lib/sarin/transform/blue-white";

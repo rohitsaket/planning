@@ -5,14 +5,6 @@ import { withApi, qStr, qEnum, qInt } from "@/lib/api/with-api";
 import { loadValuationPolicy, valueStone } from "@/lib/analytics/valuation";
 import { describeScope, scopePredicates, scopeWhere } from "@/lib/auth/access-scope";
 
-// Polished Stock Analysis — pieces and carats by planning class, lab, shape, weight
-// band or country, plus stock aging.
-//
-// Monetary value is shown only when an approved valuation model (BR-VALUATION-001)
-// is configured; otherwise valuation is reported as NOT_CONFIGURED and no estimate
-// is invented. Aggregation happens in PostgreSQL, and the detail list is paginated
-// on the server.
-
 const DIMENSIONS = [
   "planningClass",
   "lab",
@@ -46,8 +38,6 @@ export const GET = withApi(
   const page = qInt(url, "page", { def: 1, min: 1, max: 1_000_000 });
   const pageSize = qInt(url, "pageSize", { def: 50, min: 1, max: 500 });
 
-  // Merged before the request filters, so a filter can only narrow within the
-  // caller's scope and an unfiltered request returns their scope rather than everything.
   const where: Prisma.PolishedStoneWhereInput = {
     ...scopeWhere(scope, { country: "country", lab: "labNormalized" }),
   };
@@ -59,7 +49,6 @@ export const GET = withApi(
   const [valuation, bands, groups, total] = await Promise.all([
     loadValuationPolicy(db),
     db.weightBand.findMany({ orderBy: { sortOrder: "asc" } }),
-    // One database-side aggregation drives every dimension roll-up and the valuation.
     db.polishedStone.groupBy({
       by: [
         "planningClass",
@@ -128,7 +117,6 @@ export const GET = withApi(
         key = g.planningClass;
     }
 
-    // Value the group as a whole: every stone in it shares lab, shape and weight band.
     const priced = valueStone(
       { lab: g.labNormalized, shape: g.shapeNormalized || g.shape, weightBandCode: band?.code ?? null, weight: carats },
       valuation,
@@ -157,14 +145,12 @@ export const GET = withApi(
       dimension: key,
       pieces: v.pieces,
       carats: num(v.carats),
-      // Null — not zero — when no approved model can value the stones.
       estimatedValue: valuationAvailable && v.valuedPieces > 0 ? num(v.value) : null,
       valuedPieces: v.valuedPieces,
       unvaluedPieces: v.unvaluedPieces,
     }))
     .sort((a, b) => b.pieces - a.pieces || a.dimension.localeCompare(b.dimension));
 
-  // Stock aging, bucketed in the database against the same filters.
   const filters: Prisma.Sql[] = [...scopePredicates(scope, { country: '"country"', lab: '"labNormalized"' })];
   if (country) filters.push(Prisma.sql`country = ${country}`);
   if (branch) filters.push(Prisma.sql`branch = ${branch}`);
@@ -201,7 +187,6 @@ export const GET = withApi(
   }));
   const slowMoving = aging.filter((b) => b.label !== "0-30" && b.label !== "31-60" && b.label !== "61-90").reduce((s, b) => s + b.pieces, 0);
 
-  // Paginated detail list — deterministic order, filters applied before paging.
   const stones = await db.polishedStone.findMany({
     where,
     include: { weightBand: true },
@@ -269,7 +254,6 @@ export const GET = withApi(
     pageSize,
     total,
     hasMore: page * pageSize < total,
-    // What this caller is allowed to see, so a narrowed page can say why.
     accessScope: describeScope(scope),
   });
   },

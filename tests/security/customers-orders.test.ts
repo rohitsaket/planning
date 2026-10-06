@@ -12,15 +12,6 @@ import {
   UNIDENTIFIED_CUSTOMER_KEY,
 } from "@/lib/analysis/customers-orders";
 
-/**
- * Customers and Orders.
- *
- * The page attributes sales the confirmed-sales policy already admitted; it never
- * re-decides what a sale is. These tests therefore assert attribution, identity and
- * authorization — and that the order tab reports the absence of a source rather than
- * dressing seeded rows as Fantasy data.
- */
-
 const BATCH = "CO-TEST";
 
 async function makeSale(opts: {
@@ -48,13 +39,6 @@ async function makeSale(opts: {
   });
 }
 
-/**
- * The approved mappings the demand run needs to resolve a category.
- *
- * Without these every sale is quarantined as unmapped and the trace holds no included
- * SALE row — which would make the attribution assertions below pass vacuously against
- * two empty sets. Seeding them exercises the real category path rather than bypassing it.
- */
 async function ensureCategoryMappings() {
   await db.labMapping.upsert({
     where: { rawLab: "GIA" }, create: { rawLab: "GIA", normalizedLab: "GIA", active: true }, update: { active: true },
@@ -91,7 +75,6 @@ describe("Customers and Orders — authorization", () => {
   });
 
   test("a user without customers.read is denied", async () => {
-    // PLANNER holds planning permissions but no customer access — a real negative case.
     const planner = await makeUser("co.planner", "PLANNER");
     resetRateLimits();
     const res = await call(customersOrders, {
@@ -135,7 +118,6 @@ describe("Customers and Orders — order source", () => {
       state: "NOT_CONFIGURED",
       reasonCode: "FANTASY_ORDER_ENTITY_NOT_SUPPLIED",
     });
-    // Nothing is claimed as available.
     expect(source.fieldsAvailable).toEqual([]);
     for (const field of ["REQUESTED_QUANTITY", "REQUIRED_DATE", "FULFILMENT_STATUS", "BACKORDER_STATE", "CANCELLATION"]) {
       expect(source.fieldsUnavailable.includes(field)).toBe(true);
@@ -143,8 +125,6 @@ describe("Customers and Orders — order source", () => {
   });
 
   test("the service still sees the seeded rows, so their exclusion is a decision not an accident", async () => {
-    // This is the server-side consumer of the internal capability structure: it proves
-    // the seeded SalesOrder rows exist and are deliberately kept out of reporting.
     const seeded = await db.salesOrder.count();
     const source = await resolveOrderSourceState();
     expect(source.seededOrderCount).toBe(seeded);
@@ -157,7 +137,6 @@ describe("Customers and Orders — order source", () => {
 
     expect({ available: res.json.available, rows: res.json.rows.length }).toEqual({ available: false, rows: 0 });
     expect(res.json.state).toBe("NOT_CONFIGURED");
-    // Exactly the approved fields, nothing more.
     expect(Object.keys(res.json).sort()).toEqual(["available", "message", "nextStep", "rows", "state"]);
 
     const payload = JSON.stringify(res.json);
@@ -179,7 +158,6 @@ describe("Customers and Orders — order source", () => {
 
     resetRateLimits();
     const orders = await call(orderAvailability, { path: "/api/analysis/customers-orders/orders", cookie });
-    // The sale exists and is counted as a sale; the orders tab still reports no orders.
     expect(orders.json.rows.length).toBe(0);
     expect(orders.json.available).toBe(false);
 
@@ -200,12 +178,9 @@ describe("Customers and Orders — customer attribution", () => {
     cookie = (await makeUser("co.attrib", "ANALYSIS_MANAGER")).cookie;
     const day = 86_400_000;
 
-    // Two distinct customers sharing a NAME but holding different codes.
     await makeSale({ lotId: `${BATCH}-A1`, customerCode: "CUST-A", customerName: "Shared Name Ltd", docDate: new Date(Date.now() - 5 * day) });
     await makeSale({ lotId: `${BATCH}-B1`, customerCode: "CUST-B", customerName: "Shared Name Ltd", docDate: new Date(Date.now() - 6 * day) });
-    // A sale with no customer identity at all.
     await makeSale({ lotId: `${BATCH}-N1`, customerCode: null, customerName: null, docDate: new Date(Date.now() - 7 * day) });
-    // A second sale for CUST-A in an earlier 30-day window.
     await makeSale({ lotId: `${BATCH}-A2`, customerCode: "CUST-A", customerName: "Shared Name Ltd", docDate: new Date(Date.now() - 40 * day) });
 
     const run = await runDemandCalculation({ actor: "co-test", windowDays: 90, sourcePolicy: "CANONICAL_FANTASY" });
@@ -219,7 +194,6 @@ describe("Customers and Orders — customer attribution", () => {
 
     const a = summary!.rows.find((r) => r.customerCode === "CUST-A")!;
     const b = summary!.rows.find((r) => r.customerCode === "CUST-B")!;
-    // Both carry the same display name; neither absorbed the other's sales.
     expect({ aName: a.customerName, bName: b.customerName }).toEqual({
       aName: "Shared Name Ltd", bName: "Shared Name Ltd",
     });
@@ -234,7 +208,6 @@ describe("Customers and Orders — customer attribution", () => {
     expect({ identity: missing!.identitySource, state: missing!.dataState }).toEqual({
       identity: "MISSING", state: "IDENTITY_MISSING",
     });
-    // Reported, not silently dropped and not merged into a named customer.
     expect(missing!.saleRecordCount >= 1).toBe(true);
   });
 
@@ -246,7 +219,6 @@ describe("Customers and Orders — customer attribution", () => {
       WHERE "runId" = ${snap!.id} AND "traceType" = 'SALE' AND "isIncluded" = TRUE`;
 
     const summary = await readCustomerSummary(EMPTY_CUSTOMER_FILTERS, { page: 1, pageSize: 200 }, { key: "confirmedQuantity", dir: "desc" }, true);
-    // Including the unidentified bucket, customer totals must equal the snapshot total.
     expect({
       qty: summary!.totals.confirmedQuantity,
       records: summary!.totals.saleRecordCount,
@@ -257,7 +229,6 @@ describe("Customers and Orders — customer attribution", () => {
   test("quantity, weight and record count stay separate measures", async () => {
     const summary = await readCustomerSummary(EMPTY_CUSTOMER_FILTERS, { page: 1, pageSize: 50 }, { key: "confirmedQuantity", dir: "desc" }, true);
     const a = summary!.rows.find((r) => r.customerCode === "CUST-A")!;
-    // Two records, two pieces, 2.4 ct — three figures that must not be interchangeable.
     expect({ records: a.saleRecordCount, qty: a.confirmedQuantity }).toEqual({ records: 2, qty: 2 });
     expect(a.measuredWeight).toBe(2.4);
     expect(a.measuredWeight).not.toBe(a.saleRecordCount);
@@ -269,7 +240,6 @@ describe("Customers and Orders — customer attribution", () => {
       const windowed = r.previous30Quantity + r.middle30Quantity + r.latest30Quantity;
       expect({ customer: r.customerKey, windowed }).toEqual({ customer: r.customerKey, windowed: r.confirmedQuantity });
     }
-    // Windows are anchored to the snapshot's IST business date and are contiguous.
     const w = summary!.windows;
     expect(w.map((x) => x.key)).toEqual(["previous30", "middle30", "latest30"]);
     expect(w[2].endDate).toBe(summary!.businessDateIst);
@@ -301,7 +271,6 @@ describe("Customers and Orders — customer attribution", () => {
     const categories = detail.json.categories as Array<{ categoryId: string; lab: string; shape: string; weightBand: string }>;
     expect(categories.length >= 1).toBe(true);
     for (const c of categories) {
-      // The id is the canonical key, and its parts agree with it — not display text.
       expect(c.categoryId).toBe(`${c.lab}|${c.shape}|${c.weightBand}`);
       const metric = await db.demandMetric.findFirst({ where: { runId, planningCategory: c.categoryId }, select: { id: true } });
       expect(metric !== null).toBe(true);
@@ -328,7 +297,6 @@ describe("Customers and Orders — customer attribution", () => {
     const badState = await call(customersOrders, {
       path: "/api/analysis/customers-orders?section=customers&dataState=NONSENSE", cookie,
     });
-    // Refused, never silently defaulted.
     expect(badState.status).toBe(400);
   });
 
@@ -348,7 +316,6 @@ describe("Customers and Orders — customer attribution", () => {
       });
       for (const r of res.json.rows as Array<{ customerKey: string }>) seen.add(r.customerKey);
     }
-    // Every customer reachable exactly once across the pages.
     expect(seen.size).toBe(3);
 
     resetRateLimits();
@@ -363,16 +330,10 @@ describe("Customers and Orders — customer attribution", () => {
     const summary = await call(customersOrders, { path: "/api/analysis/customers-orders?section=summary", cookie });
     expect(summary.json.sourceState).toBe("SIMULATION");
     expect(summary.json.sourceLabel).toBe("Fixture Simulation");
-    // Provenance and completeness are separate dimensions. Whatever the identity
-    // coverage turns out to be, it must not make a simulated snapshot read as live, and
-    // the two are reported as distinct fields rather than one blended badge.
     expect(["COMPLETE", "PARTIAL", "UNKNOWN"].includes(summary.json.identityCompleteness)).toBe(true);
     expect(summary.json.sourceState).toBe("SIMULATION");
-    // Usability is its own dimension too: this fixture run completed REVIEW_REQUIRED,
-    // which is reported as INCOMPLETE without changing what the source is.
     const run = await resolveSalesSnapshot();
     expect(summary.json.snapshotState).toBe(run?.status === "REVIEW_REQUIRED" ? "INCOMPLETE" : "AVAILABLE");
-    // No legacy blended state survives.
     expect(JSON.stringify(summary.json).includes("CURRENT")).toBe(false);
   });
 
@@ -431,7 +392,6 @@ describe("Customers and Orders — no snapshot", () => {
     resetRateLimits();
     const summary = await call(customersOrders, { path: "/api/analysis/customers-orders?section=summary", cookie });
     expect(summary.json.hasSnapshot).toBe(false);
-    // Null, not 0 — nothing has been counted.
     expect(summary.json.recordsWithIdentity).toBe(null);
     expect(summary.json.recordsMissingIdentity).toBe(null);
     expect(summary.json.snapshotState).toBe("UNAVAILABLE");

@@ -1,10 +1,3 @@
-// Customer 360 shows sales and memo exposure only. Its former "Open Orders" figure counted
-// seeded SalesOrder rows — there is no authoritative order source — so it is gone from the
-// page, the API and the export, and the route no longer reads the order tables. The order
-// rows themselves stay as history. Customer access and scoping are unchanged, and a
-// customer outside the caller's countries is answered exactly as one that does not exist.
-// Every request crosses the real route handler in the isolated planning_sectest database.
-
 import { readFileSync } from "node:fs";
 import type { ComponentType } from "react";
 import { afterAll, beforeAll, describe, expect, test } from "./harness";
@@ -36,7 +29,6 @@ beforeAll(async () => {
   for (const country of [HOME, AWAY]) {
     const c = await db.customer.create({ data: { customerCode: `C360-${country}-${STAMP}`, name: `C360 Customer ${country}`, country, branch: `${country}-1` } });
     ids[country] = c.id;
-    // A seeded open order with a backorder: exactly what the removed figure used to count.
     const order = await db.salesOrder.create({ data: { orderNumber: `SO-C360-${country}-${STAMP}`, customerId: c.id, country, branch: `${country}-1`, status: "OPEN", orderDate: new Date() } });
     await db.salesOrderLine.create({ data: { orderId: order.id, lineNo: 1, shape: "ROUND", qtyOrdered: 3, qtyOutstanding: 3, backorderQty: 1 } });
   }
@@ -51,7 +43,6 @@ describe("Customer 360: no order figure", () => {
     const row = (res.json.rows as Array<Record<string, unknown>>).find((r) => r.id === ids[HOME])!;
     expect(Object.keys(row).sort()).toEqual(["accountOwner", "avgPerCt", "branch", "businessPriority", "carats", "country", "customerCode", "id", "lastPurchase", "memoExposure", "name", "pieces", "priorityReason", "totalValue"]);
     expect(/order/i.test(JSON.stringify(res.json))).toBe(false);
-    // The historical orders are untouched.
     expect(await orderCounts()).toEqual(before);
     expect(await db.salesOrder.count({ where: { orderNumber: { startsWith: "SO-C360-" }, customerId: { in: Object.values(ids) } } })).toBe(2);
   });
@@ -95,7 +86,6 @@ describe("Customer 360: access and scope are unchanged", () => {
     expect([other.status, missing.status]).toEqual([404, 404]);
     expect([other.json.error.code, other.json.error.message]).toEqual([missing.json.error.code, missing.json.error.message]);
     expect(JSON.stringify(other.json).includes("C360")).toBe(false);
-    // An unrestricted reader still sees both.
     expect((await get(reader, `/api/analysis/customers/${ids[AWAY]}/timeline`, { id: ids[AWAY] })).status).toBe(200);
   });
 

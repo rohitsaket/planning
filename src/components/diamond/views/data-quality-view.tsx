@@ -20,18 +20,6 @@ import {
   type IssueTypeOrOther,
 } from "@/lib/data-quality/issue-types";
 
-/**
- * IMPORT ISSUES — problems with planning inputs that synchronization and the demand
- * calculation recorded: invalid or rejected records, unmapped source values,
- * reconciliation and import problems, and incomplete calculation inputs. This is not a
- * manufacturing quality-assurance page. (Internally the page and its permissions keep their
- * original data-quality names, so bookmarks and role assignments are unaffected.)
- *
- * Every figure comes from persisted issues. An empty page says that nothing is recorded,
- * never that the data is healthy. Fixing an unmapped value happens under Administration
- * → Mappings.
- */
-
 interface IssueRow {
   id: string;
   type: IssueTypeOrOther;

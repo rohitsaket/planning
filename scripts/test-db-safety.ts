@@ -1,22 +1,3 @@
-// Database command safety, proven by running the real commands.
-//
-//   1. The test demo fixture loads, and loads identically twice, with no legacy planning or
-//      rough-stock records.
-//   2. Every destructive command refuses every unsafe target — missing or malformed URL,
-//      remote host, the development database name, an unknown name, a production or a
-//      staging marker — with the guard's own refusal, before it connects: the unsafe URLs
-//      point at a closed local port or an unresolvable host, so a command that tried to
-//      connect would fail with a connection error instead. Afterwards every table of the
-//      isolated test database has exactly the rows it had before.
-//   3. Development setup and reference sync on a populated database delete nothing, change
-//      no existing record, keep audit history and edited mappings, and add nothing the
-//      second time.
-//   4. An approved isolated test database can be reset — dropped, recreated and migrated
-//      through the guarded db:test:reset path — and development setup on the empty result
-//      creates no demo data at all. The guarded Prisma reset wrapper admits the isolated
-//      database; Prisma's own consent gate for AI-initiated resets is left in force.
-//
-// Runs only against planning_sectest: npm run test:db-safety
 import { PrismaClient } from "@prisma/client";
 import { assertDisposableDatabase } from "../src/lib/fantasy/database-environment";
 import { launch, tsxInvocation } from "./process-launch";
@@ -33,9 +14,7 @@ function check(ok: boolean, message: string, detail = "") {
   if (!ok) failures++;
 }
 
-/** Output of every command launched, so a shell-argument warning anywhere is caught. */
 let shellWarnings = 0;
-/** Runs `[script, ...args]` with the project's tsx, without a shell, in the given environment. */
 function run(command: readonly string[], env: Record<string, string | undefined> = {}) {
   const merged: NodeJS.ProcessEnv = { ...process.env };
   for (const [k, v] of Object.entries(env)) {
@@ -48,18 +27,15 @@ function run(command: readonly string[], env: Record<string, string | undefined>
   return { status: r.status, output };
 }
 
-/** Row count of every table in the test database, `_prisma_migrations` included. */
 async function tableCounts(): Promise<Record<string, number>> {
   const tables = await db.$queryRaw<Array<{ name: string }>>`SELECT table_name AS name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE' ORDER BY table_name`;
   const out: Record<string, number> = {};
-  // Identifiers come from the catalogue, never from input.
   for (const { name } of tables) out[name] = Number((await db.$queryRawUnsafe<Array<{ n: bigint }>>(`SELECT count(*) AS n FROM "${name.replace(/"/g, '""')}"`))[0].n);
   return out;
 }
 const diff = (a: Record<string, number>, b: Record<string, number>) =>
   [...new Set([...Object.keys(a), ...Object.keys(b)])].filter((t) => a[t] !== b[t]).map((t) => `${t}: ${a[t]} → ${b[t]}`);
 
-/** What a fixture load produced, without generated ids or clock-relative timestamps. */
 async function fixtureSnapshot() {
   const [metrics, notifications, audit, polished, sales, customers] = await Promise.all([
     db.demandMetric.findMany({ select: { planningCategory: true, roundedTarget: true, physicalShortage: true, pipelineNeed: true }, orderBy: { planningCategory: "asc" } }),
@@ -73,8 +49,6 @@ async function fixtureSnapshot() {
 }
 
 const FIXTURE = ["scripts/test-demo-fixture.ts"];
-// `namesOwnTarget`: the command derives the database it drops from the server URL (always
-// planning_sectest), so the name in DATABASE_URL is not what it would touch.
 const DESTRUCTIVE: Array<[string, string[], { namesOwnTarget?: boolean }]> = [
   ["test demo fixture", FIXTURE, {}],
   ["guarded Prisma reset", ["scripts/db-guard.ts", "prisma-migrate-reset", "--", "migrate", "reset", "--force", "--skip-seed"], {}],
@@ -85,7 +59,6 @@ const DESTRUCTIVE: Array<[string, string[], { namesOwnTarget?: boolean }]> = [
 const SETUP = ["scripts/db-setup-dev.ts"];
 const REFERENCE = ["scripts/db-reference-sync.ts"];
 
-// Unsafe URLs point at a closed local port or an unresolvable host: nothing is listening.
 type Target = { label: string; url: string | undefined; env?: Record<string, string>; refusal: string; setupRefuses: boolean };
 const TARGETS: Target[] = [
   { label: "missing URL", url: "", refusal: "URL_MISSING", setupRefuses: true },
@@ -93,8 +66,6 @@ const TARGETS: Target[] = [
   { label: "remote host", url: "postgresql://u:p@db.invalid:5432/planning_sectest", refusal: "HOST_NOT_LOOPBACK", setupRefuses: true },
   { label: "development database 'planning'", url: "postgresql://u:p@127.0.0.1:1/planning", refusal: "DATABASE_NAME_NOT_DISPOSABLE", setupRefuses: false },
   { label: "unknown database name", url: "postgresql://u:p@127.0.0.1:1/customer_live", refusal: "DATABASE_NAME_NOT_DISPOSABLE", setupRefuses: false },
-  // The markers are tested against the real isolated database: only the marker stands between
-  // the command and it, and the row counts prove nothing was touched.
   { label: "production marker", url: SECTEST_URL, env: { APP_ENV: "production" }, refusal: "DEPLOYED_ENVIRONMENT", setupRefuses: true },
   { label: "staging marker", url: SECTEST_URL, env: { DEPLOY_ENV: "staging" }, refusal: "DEPLOYED_ENVIRONMENT", setupRefuses: true },
 ];
@@ -156,13 +127,9 @@ async function main() {
   r = run(DESTRUCTIVE[1][1]);
   check(/prisma-migrate-reset: isolated test database planning_sectest/.test(r.output), "the guarded Prisma reset admits planning_sectest and hands over to Prisma", r.output.slice(-300));
   if (/PRISMA_USER_CONSENT_FOR_DANGEROUS_AI_ACTION/.test(r.output)) {
-    // Prisma refuses resets it detects as AI-initiated unless a person's consent is supplied.
-    // That consent is not fabricated here; the database must be untouched.
     check(diff(beforeWrapper, await tableCounts()).length === 0, "Prisma's own consent gate stopped the AI-initiated reset, and nothing changed");
   }
   await db.$disconnect();
-  // As the npm scripts run it: the administrative connection uses the server URL, and the
-  // database dropped is always planning_sectest, proven before that connection opens.
   r = run(["scripts/sectest-db.ts", "--recreate"], { DATABASE_URL: process.env.SECTEST_BASE_URL });
   check(r.status === 0 && /ready: planning_sectest/.test(r.output), "the guarded recreation drops and recreates planning_sectest", r.output.slice(-300));
   r = run(["scripts/db-guard.ts", "test-migrations", "--", "migrate", "deploy"]);

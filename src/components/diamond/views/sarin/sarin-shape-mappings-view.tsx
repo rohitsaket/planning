@@ -1,14 +1,5 @@
 "use client";
 
-// Mappings → Sarin Shape Mapping: which Fantasy shape each Sarin shape becomes.
-//
-// One table of current mappings (the built-in shape master or its maintained successor,
-// shown whether or not any file was imported), a work list of imported shapes that have
-// none, the known shapes still awaiting a client decision, and one form.
-// Saving is checked by the server and applies at once; nothing else is needed. Reading needs
-// sarin.mapping.read; adding, editing and removing need sarin.mapping.manage. Each control
-// mirrors its permission and every API enforces it again.
-
 import { useEffect, useId, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -18,7 +9,6 @@ import { useAuthStore } from "@/stores/auth-store";
 import { formatIST } from "@/lib/fantasy/time";
 import { SARIN_ECOSYSTEM_SHAPES } from "@/lib/sarin/domain";
 
-/** The Fantasy shapes a mapping may name, alphabetically, from the one shared vocabulary. */
 const FANTASY_SHAPE_OPTIONS = [...SARIN_ECOSYSTEM_SHAPES].sort((a, b) => a.localeCompare(b, "en", { sensitivity: "base" }));
 import { Section } from "@/components/diamond/shared/page-header";
 import { EmptyState, InfoBanner } from "@/components/diamond/shared/empty-state";
@@ -72,17 +62,14 @@ export function SarinShapeMappingsView() {
   const canManage = useAuthStore((s) => !!s.user?.permissions.includes("sarin.mapping.manage"));
   const queryClient = useQueryClient();
   const catalog = useApi<Catalog>(API);
-  // Arrived from Workbook Import's Map action: the form opens for that shape.
   const [form, setForm] = useState<FormValues | null>(() => {
     const shape = useMappingIntent.getState().shape;
     return shape && canManage ? { ...EMPTY_FORM, sarinShape: shape } : null;
   });
   const [show, setShow] = useState<Show>("ALL");
   const [removing, setRemoving] = useState<string | null>(null);
-  // Mapping pages and Workbook Import refresh together after any change.
   const refresh = () => queryClient.invalidateQueries({ predicate: (q) => String(q.queryKey[0]).startsWith("/api/planning/sarin/") });
 
-  // The Map request is used once.
   useEffect(() => {
     if (useMappingIntent.getState().shape) useMappingIntent.getState().setShape(null);
   }, []);
@@ -268,10 +255,6 @@ export function SarinShapeMappingsView() {
   );
 }
 
-// ---------------------------------------------------------------------------------------
-// Add / edit
-// ---------------------------------------------------------------------------------------
-
 interface FormValues {
   ruleId?: string;
   sarinShape: string;
@@ -297,7 +280,6 @@ function MappingForm({ initial, onCancel, onSaved }: { initial: FormValues; onCa
   const range = v.applyTo === "RATIO_RANGE";
 
   const save = async () => {
-    // Assistance only: the server repeats every check and more.
     if (!v.sarinShape.trim()) return setError({ field: "sarinShape", message: "Enter a Sarin shape" });
     if (!v.fantasyShape) return setError({ field: "fantasyShape", message: "Choose a valid Fantasy shape" });
     const badRange =

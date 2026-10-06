@@ -39,11 +39,6 @@ interface SyncSummaryItem {
   failure: PublicFailure | null;
 }
 
-/**
- * The sanitized failure the API returns in place of an error summary. A reference is all
- * that ties a user report back to the server diagnostic; nothing about the exception
- * itself crosses this boundary.
- */
 interface PublicFailure {
   code: string;
   message: string;
@@ -100,7 +95,6 @@ interface SyncRun {
 }
 
 interface SyncPayload {
-  /** Centrally derived, sanitized source state. The page never re-derives a label. */
   sourceState: FantasySourceStateSummary;
   checkpoint: number;
   isLocked: boolean;
@@ -145,8 +139,6 @@ export function FantasySyncView() {
   const checkpoint = data?.checkpoint ?? 0;
   const isLocked = data?.isLocked ?? false;
   const sourceState = data?.sourceState;
-  // Three separate authorities: running a sync no longer implies retrying it or
-  // force-releasing a stuck lock. The server enforces each independently.
   const permissions = useAuthStore((st) => st.user?.permissions ?? []);
   const canRunSync = permissions.includes("fantasy.sync.run");
   const canRetrySync = permissions.includes("fantasy.sync.retry");
@@ -154,8 +146,6 @@ export function FantasySyncView() {
   const sourceStateLabel = sourceState
     ? FANTASY_SOURCE_STATE_LABELS[sourceState.effectiveState]
     : FANTASY_SOURCE_STATE_LABELS.NOT_CONFIGURED;
-  // No source, no synchronization action. The server refuses it as well; this only
-  // keeps the page from offering something that cannot run.
   const sourceUnusable = sourceState?.effectiveState === "NOT_CONFIGURED";
 
   const lastSyncStatus = useMemo(() => {
@@ -343,9 +333,6 @@ export function FantasySyncView() {
         }
       />
 
-      {/* Source-state banner. Wording comes from the central source-state module, so a
-          fixture is never presented as a live connection and an unconfigured source
-          never claims one either. */}
       <InfoBanner variant={sourceState?.effectiveState === "LIVE_FANTASY" ? "info" : "warning"}>
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-2">
@@ -368,7 +355,6 @@ export function FantasySyncView() {
         </div>
       </InfoBanner>
 
-      {/* KPI grid */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         <KpiCard
           label="Synchronization progress"
@@ -418,7 +404,6 @@ export function FantasySyncView() {
         )}
       </Section>
 
-      {/* Recent sync runs table */}
       <Section title="History">
         <DataTable
           columns={columns}

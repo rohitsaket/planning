@@ -1,18 +1,3 @@
-/**
- * Minimal test harness for the security suite.
- *
- * The suite was written against `bun:test`, but Bun is not installed and
- * `npm run test:security` consequently executed no test at all — the strongest
- * authorization coverage in the repository never ran. This module provides the same
- * small surface (`describe`, `test`, `expect`, `beforeAll`, `afterAll`, `beforeEach`)
- * on the `tsx` + isolated-database convention every other suite here uses, so the
- * existing tests keep running real route handlers against a real database rather than
- * being rewritten into static assertions.
- *
- * Deliberately tiny: it implements only the matchers this suite actually uses. An
- * unimplemented matcher fails loudly instead of silently passing.
- */
-
 type Hook = () => void | Promise<void>;
 
 interface RegisteredTest {
@@ -30,11 +15,6 @@ interface RegisteredSuite {
   readonly file: FileScope;
 }
 
-/**
- * File-level hooks. The suite registers `beforeAll`/`afterAll`/`beforeEach` at module
- * top level, which Bun scopes to the file. The runner calls `beginModule()` before each
- * import so those hooks apply to that module's suites and to no others.
- */
 interface FileScope {
   readonly beforeAll: Hook[];
   readonly afterAll: Hook[];
@@ -47,7 +27,6 @@ let current: RegisteredSuite | null = null;
 let fileScope: FileScope = { beforeAll: [], afterAll: [], beforeEach: [], ran: false };
 const fileScopes: FileScope[] = [fileScope];
 
-/** Starts a new file scope. Called by the runner before importing each test module. */
 export function beginModule(): void {
   fileScope = { beforeAll: [], afterAll: [], beforeEach: [], ran: false };
   fileScopes.push(fileScope);
@@ -65,7 +44,6 @@ export function describe(name: string, body: () => void): void {
   }
 }
 
-/** Hooks declared outside a describe belong to the module, exactly as in Bun. */
 function hookTarget(): { beforeAll: Hook[]; afterAll: Hook[]; beforeEach: Hook[] } {
   return current ?? fileScope;
 }
@@ -88,10 +66,6 @@ export function afterAll(fn: Hook): void {
 export function beforeEach(fn: Hook): void {
   hookTarget().beforeEach.push(fn);
 }
-
-// ---------------------------------------------------------------------------
-// Matchers
-// ---------------------------------------------------------------------------
 
 function render(value: unknown): string {
   if (typeof value === "string") return JSON.stringify(value);
@@ -117,7 +91,6 @@ function deepEqual(a: unknown, b: unknown): boolean {
   );
 }
 
-/** Subset comparison: every key in `expected` must match, extra keys in `actual` are ignored. */
 function matchesObject(actual: unknown, expected: unknown): boolean {
   if (typeof expected !== "object" || expected === null) return deepEqual(actual, expected);
   if (typeof actual !== "object" || actual === null) return false;
@@ -268,8 +241,6 @@ export function expect(actual: unknown): Expectation {
     return actual as Promise<unknown>;
   };
 
-  // Accessors are defined, never spread: Object.assign would *invoke* a getter while
-  // copying it, so every expect() would evaluate .rejects and throw immediately.
   const notTarget: Record<string, unknown> = { ...negative };
   Object.defineProperty(notTarget, "rejects", { get: () => rejectsMatchers(asPromise(), true) });
 
@@ -280,17 +251,12 @@ export function expect(actual: unknown): Expectation {
   return target as unknown as Expectation;
 }
 
-// ---------------------------------------------------------------------------
-// Runner
-// ---------------------------------------------------------------------------
-
 export interface RunSummary {
   readonly passed: number;
   readonly failed: number;
   readonly failures: readonly string[];
 }
 
-/** Runs every registered suite in registration order and reports the outcome. */
 export async function runRegisteredSuites(filter?: string): Promise<RunSummary> {
   let passed = 0;
   const failures: string[] = [];
@@ -300,7 +266,6 @@ export async function runRegisteredSuites(filter?: string): Promise<RunSummary> 
     console.log(`\n--- ${suite.name} ---`);
     let suiteSetupFailed: string | null = null;
     try {
-      // Module-level setup runs once, before the first suite declared in that file.
       if (!suite.file.ran) {
         suite.file.ran = true;
         for (const hook of suite.file.beforeAll) await hook();
@@ -338,7 +303,6 @@ export async function runRegisteredSuites(filter?: string): Promise<RunSummary> 
     }
   }
 
-  // Module-level teardown last, so a spawned helper process is stopped exactly once.
   for (const scope of fileScopes) {
     for (const hook of scope.afterAll) {
       try {
@@ -352,7 +316,6 @@ export async function runRegisteredSuites(filter?: string): Promise<RunSummary> 
   return { passed, failed: failures.length, failures };
 }
 
-/** Number of registered tests — used to prove the runner actually loaded the suites. */
 export function registeredTestCount(): number {
   return suites.reduce((n, s) => n + s.tests.length, 0);
 }

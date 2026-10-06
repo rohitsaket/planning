@@ -1,10 +1,3 @@
-// Encrypted-at-rest secrets for .env values.
-//
-// A secret may be stored in plain text or as an `enc:v1:<base64>` envelope produced by
-// `npm run secret:encrypt`. Envelopes are AES-256-GCM, keyed by SECRETS_KEY (32 random bytes,
-// base64). The plaintext never leaves the server process, is never logged, and is never
-// returned by any API route. Rotate by generating a new SECRETS_KEY and re-encrypting.
-
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 
 export const SECRET_ENVELOPE_PREFIX = "enc:v1:";
@@ -53,14 +46,12 @@ export function decryptSecret(value: string, key?: string): string {
   }
 }
 
-/** Reads an environment variable that may be stored encrypted. Returns null when unset/empty. */
 export function readSecretEnv(name: string): string | null {
   const v = process.env[name];
   if (!v || v.trim() === "") return null;
   return decryptSecret(v.trim());
 }
 
-/** For status displays: says whether a secret is configured and how, never what it is. */
 export function describeSecretEnv(name: string): "missing" | "plaintext" | "encrypted" {
   const v = process.env[name];
   if (!v || v.trim() === "") return "missing";

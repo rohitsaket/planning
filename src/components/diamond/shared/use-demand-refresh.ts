@@ -4,13 +4,8 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { apiPost } from "@/lib/api-client";
 
-/** Every read that depends on the demand snapshot, so none keeps showing the previous one. */
 const SNAPSHOT_READS = ["/api/analysis", "/api/demand", "/api/dashboard"];
 
-/**
- * Recalculates the authoritative 90-day Analysis snapshot in place (POST /api/analysis/refresh).
- * The server enforces demand.run; callers hide the action from users without it.
- */
 export function useDemandRefresh() {
   const qc = useQueryClient();
   return useMutation({

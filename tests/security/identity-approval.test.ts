@@ -1,12 +1,3 @@
-// Identity, authorization and transaction integrity on a maintained real write: the Sarin
-// shape-mapping catalog (POST /api/planning/sarin/shape-mappings, DELETE …/[ruleId]). The
-// retired requirement-priority override used to carry these checks (see retired-features).
-//
-// Registered after the Sarin suites: a save adds a catalog snapshot, and the baseline suite
-// must meet the catalog as a fresh installation has it. Every mapping added here uses its own
-// shape name and is removed again through the real route, so the catalog's content is
-// unchanged when the suite ends.
-
 import { afterAll, beforeAll, describe, expect, test } from "./harness";
 import { call, db, makeUser } from "./helpers";
 import { effectiveSnapshotId } from "./sarin-catalog";
@@ -76,8 +67,6 @@ describe("server-side authorization on the write", () => {
 });
 
 describe("transaction integrity (SEC-007)", () => {
-  // Suite-level, so it runs straight after these tests — module-level teardown runs only after
-  // every suite, when later suites have already reset the accounts this one signs in with.
   afterAll(async () => {
     for (const r of await ruleIds()) {
       resetRateLimits();

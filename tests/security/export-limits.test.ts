@@ -11,19 +11,6 @@ import { EXCESS_EXPORT_LIMIT } from "@/lib/analysis/excess";
 import { SALES_EXPORT_LIMIT } from "@/lib/analytics/sales-history";
 import { OVERALL_EXPORT_LIMIT } from "@/app/api/fantasy/overall/export/route";
 
-/**
- * Export row limits.
- *
- * The defect these tests pin is quiet. `Number("abc")` is `NaN`; `Math.min(total, NaN)`
- * is `NaN`; `rows.length < NaN` is false, so the fetch loop never runs; and
- * `total > NaN` is also false, so the response reports the export as complete. One typo
- * in an environment variable produced an empty file that claimed to be the full result.
- *
- * So the assertions below are about the resolution, not about arithmetic: every refusable
- * value is refused, every refusal still yields a usable ceiling, and no module anywhere
- * reads a row ceiling straight out of the environment again.
- */
-
 const VALID_DEFAULT = 20_000;
 
 describe("Export limits — an unusable configuration is refused", () => {
@@ -81,19 +68,15 @@ describe("Export limits — an unusable configuration is refused", () => {
     const unusable: string[] = [];
     for (const c of cases) {
       const limit = validateExportRowLimit("TEST_EXPORT_MAX_ROWS", c.raw, VALID_DEFAULT);
-      // The whole point: whatever was configured, the arithmetic downstream stays sound.
       if (!Number.isInteger(limit.rows) || limit.rows <= 0 || limit.rows > EXPORT_ROW_LIMIT_MAX) {
         unusable.push(`${c.name} → ${limit.rows}`);
       }
-      // And it can never be the value that broke the loop.
       if (Number.isNaN(limit.rows) || !Number.isFinite(limit.rows)) unusable.push(`${c.name} → not finite`);
     }
     expect(unusable).toEqual([]);
   });
 
   test("an unusable built-in default is a programming error and is refused outright", async () => {
-    // There is no safe value to fall back to when the code's own default is wrong, so this
-    // fails loudly rather than resolving to something nobody chose.
     const { resolveExportRowLimit } = await import("@/lib/config/export-limits");
     let threw = false;
     try {
@@ -106,7 +89,6 @@ describe("Export limits — an unusable configuration is refused", () => {
 });
 
 describe("Export limits — the arithmetic an invalid limit used to break", () => {
-  /** The loop shape every export reader uses, run against a resolved limit. */
   function exportShape(total: number, limitRows: number) {
     const target = Math.min(total, limitRows);
     let fetched = 0;
@@ -116,9 +98,7 @@ describe("Export limits — the arithmetic an invalid limit used to break", () =
   }
 
   test("the old pattern produced zero rows and called the export complete", () => {
-    // Reproduces the defect exactly, so the fix below is measured against it and not
-    // against an assumption about what used to happen.
-    const configured: string = "abc"; // the malformed environment value
+    const configured: string = "abc";
     const brokenLimit = Number(configured || 20_000);
     const broken = exportShape(5_000, brokenLimit);
     expect({ fetched: broken.fetched, truncated: broken.truncated }).toEqual({ fetched: 0, truncated: false });
@@ -152,8 +132,6 @@ describe("Export limits — every export reads its ceiling from the validated he
   });
 
   test("no module builds a row ceiling out of the environment by hand", () => {
-    // A comment saying a limit is validated is not evidence; the absence of the old
-    // pattern is. `Number(process.env.X || n)` is the exact shape that produced NaN.
     const offenders: string[] = [];
     const pattern = /Number\s*\(\s*process\.env\./;
     const walk = (dir: string) => {
@@ -162,8 +140,6 @@ describe("Export limits — every export reads its ceiling from the validated he
         if (entry.isDirectory()) walk(full);
         else if (/\.tsx?$/.test(entry.name)) {
           const rel = full.split(path.sep).join("/");
-          // Comments are stripped first: the helper's own documentation quotes the old
-          // shape in order to explain why it was removed.
           const code = readFileSync(full, "utf8")
             .replace(/\/\*[\s\S]*?\*\//g, "")
             .replace(/^\s*\/\/.*$/gm, "");
@@ -184,7 +160,6 @@ describe("Export limits — every export reads its ceiling from the validated he
 
   test("a refused configuration is logged without the configured value", () => {
     const source = readFileSync("src/lib/config/numeric-env.ts", "utf8");
-    // The variable name and the reason are logged; the value the environment held is not.
     expect(/log\("warn", "numeric_configuration_rejected"/.test(source)).toBe(true);
     const logCall = source.slice(source.indexOf('numeric_configuration_rejected'));
     const block = logCall.slice(0, logCall.indexOf("});"));
@@ -192,9 +167,6 @@ describe("Export limits — every export reads its ceiling from the validated he
   });
 
   test("the settings that are not export ceilings are validated too", () => {
-    // A NaN session lifetime produces an invalid expiry date, a NaN page ceiling is a
-    // bound that never binds, and a NaN lock lease is a lock nobody can reclaim. All three
-    // came from the same `Number(process.env.X || n)` shape as the export ceilings.
     const checks: Array<{ file: string; variable: string }> = [
       { file: "src/lib/auth/session.ts", variable: "SESSION_TTL_HOURS" },
       { file: "src/lib/auth/session.ts", variable: "SESSION_IDLE_MINUTES" },
@@ -207,8 +179,6 @@ describe("Export limits — every export reads its ceiling from the validated he
       const code = readFileSync(file, "utf8")
         .replace(/\/\*[\s\S]*?\*\//g, "")
         .replace(/^\s*\/\/.*$/gm, "");
-      // The variable name must appear as the argument of a validated resolution, and the
-      // raw environment read must be gone from the file entirely.
       const resolved = code.includes(`resolveNumericEnv(`) && code.includes(`"${variable}"`);
       const rawRead = new RegExp(`process\\.env\\.${variable}\\b`).test(code);
       return !resolved || rawRead;

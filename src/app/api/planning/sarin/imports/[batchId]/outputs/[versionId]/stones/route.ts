@@ -3,7 +3,6 @@ import { withApi, idSchema, qInt } from "@/lib/api/with-api";
 import { notFound } from "@/lib/api/errors";
 import { listOutputStones, SARIN_OUTPUT_STONE_PAGE } from "@/lib/sarin/output-queries";
 
-// One page of an output version's stones in file order, with their option totals.
 export const GET = withApi<{ batchId: string; versionId: string }>({ permission: "sarin.import.read" }, async (_req, { params }, api) => {
   const p = await params;
   const page = qInt(api.url, "page", { def: 1, min: 1, max: 1_000_000 });

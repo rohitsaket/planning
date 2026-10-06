@@ -1,11 +1,3 @@
-/**
- * SALES ANALYSIS & TRENDS — behavioural and authorization suite.
- *
- * Every assertion below goes through the real route handler, against a real database,
- * over a snapshot produced by the real demand calculation from real canonical lifecycle
- * records. Nothing here is asserted against a reconstructed array.
- */
-
 import { afterAll, beforeAll, describe, expect, test } from "./harness";
 import { call, db, makeUser, resetDb } from "./helpers";
 import {
@@ -41,7 +33,6 @@ const SUMMARY = "/api/analysis/sales";
 const get = (handler: Parameters<typeof call>[0], path: string, user?: User) =>
   call(handler, { path, cookie: user?.cookie });
 
-/** The category row for one category id, from a page sized to hold every category. */
 async function categoryRow(user: User, categoryId: string, extra = "") {
   const r = await get(salesRoute, `${SUMMARY}?pageSize=200${extra}`, user);
   expect(r.status).toBe(200);
@@ -56,8 +47,6 @@ beforeAll(async () => {
   salesViewer = await makeUser("sales.viewer", "SALES_VIEWER");
   viewer = await makeUser("sales.plain", "VIEWER");
 });
-
-// ---------------------------------------------------------------------------
 
 describe("SH-01 authorization is enforced on the server for every route", () => {
   beforeAll(() => ensureWorld("core"));
@@ -102,7 +91,6 @@ describe("SH-01 authorization is enforced on the server for every route", () => 
   });
 
   test("a customer filter is refused rather than silently ignored", async () => {
-    // Quietly dropping the parameter would answer a different question from the one asked.
     expect((await get(salesRoute, `${SUMMARY}?customerCode=C-IN`, scientist)).status).toBe(403);
     expect((await get(salesRoute, `${SUMMARY}?customerCode=C-IN`, admin)).status).toBe(200);
   });
@@ -124,8 +112,6 @@ describe("SH-01 authorization is enforced on the server for every route", () => 
   });
 });
 
-// ---------------------------------------------------------------------------
-
 describe("SH-02 the IST window is exact, and the three 30-day windows tile it", () => {
   beforeAll(() => ensureWorld("core"));
 
@@ -137,12 +123,10 @@ describe("SH-02 the IST window is exact, and the three 30-day windows tile it", 
 
     const day = (d: string) => Date.parse(`${d}T00:00:00Z`) / 86_400_000;
     for (const w of windows) expect(day(w.endDate) - day(w.startDate) + 1).toBe(SALES_WINDOW_SIZE_DAYS);
-    // Each window starts the day after the previous one ends: no overlap, no gap.
     expect(day(windows[1].startDate) - day(windows[0].endDate)).toBe(1);
     expect(day(windows[2].startDate) - day(windows[1].endDate)).toBe(1);
     expect(windows[2].endDate).toBe(cutoff);
     expect(day(windows[2].endDate) - day(windows[0].startDate) + 1).toBe(90);
-    // The snapshot's own cutoff is the one authority; nothing is recomputed from "now".
     expect(cutoff).toBe(cutoffIst());
   });
 
@@ -159,11 +143,8 @@ describe("SH-02 the IST window is exact, and the three 30-day windows tile it", 
   test("the window edges include and exclude the exact business dates they should", async () => {
     const records = await get(recordsRoute, "/api/analysis/sales/records?pageSize=200", admin);
     const lots: string[] = records.json.rows.map((r: { lotId: string }) => r.lotId);
-    // 23:00 IST on the cutoff date is the last included instant.
     expect(lots).toContain("SA-EDGE-IN");
-    // The first included business date of the window is D-89, at its very start.
     expect(lots).toContain("SA-A-7");
-    // One hour before the window opens, and any instant after the cutoff day ends.
     expect(lots).not.toContain("SA-EDGE-BEFORE");
     expect(lots).not.toContain("SA-EDGE-AFTER");
   });
@@ -176,8 +157,6 @@ describe("SH-02 the IST window is exact, and the three 30-day windows tile it", 
   });
 });
 
-// ---------------------------------------------------------------------------
-
 describe("SH-03 only confirmed sales are counted", () => {
   beforeAll(() => ensureWorld("core"));
 
@@ -187,12 +166,10 @@ describe("SH-03 only confirmed sales are counted", () => {
     for (const excluded of ["SA-MEMO", "SA-RESERVED", "SA-TRANSFER", "SA-WIP", "SA-STOCK"]) {
       expect({ excluded, present: lots.includes(excluded) }).toEqual({ excluded, present: false });
     }
-    // The open order exists and is deliberately absent from every sales figure.
     expect(await db.salesOrderLine.count({ where: { qtyOutstanding: { gt: 0 } } })).toBe(1);
     const summary = await get(salesRoute, `${SUMMARY}?pageSize=200`, admin);
     const quantity = summary.json.rows.reduce((s: number, r: { total90Quantity: number }) => s + r.total90Quantity, 0);
     expect(quantity).toBe(summary.json.totals.confirmedQuantity);
-    // 25 ordered pieces would be impossible to miss if an open order had leaked in.
     expect(quantity).toBeLessThan(25);
   });
 
@@ -207,7 +184,6 @@ describe("SH-03 only confirmed sales are counted", () => {
     const records = await get(recordsRoute, "/api/analysis/sales/records?pageSize=200", admin);
     const episode = records.json.rows.filter((r: { lotId: string }) => r.lotId === "SA-EPISODE");
     expect(episode).toHaveLength(2);
-    // The two episodes fall in different 30-day windows, so they are visible separately.
     expect(new Set(episode.map((r: { docDate: string }) => r.docDate)).size).toBe(2);
   });
 
@@ -218,8 +194,6 @@ describe("SH-03 only confirmed sales are counted", () => {
   });
 
   test("an invoice later cancelled is reported exactly as the centralized policy recorded it", async () => {
-    // The page applies no reversal rule of its own: it reports the sale events the demand
-    // calculation admitted, and the snapshot is the authority on what those are.
     const snapshot = await db.demandRun.findFirst({ orderBy: { runDate: "desc" }, select: { id: true } });
     const traced = await db.demandMetricTraceItem.count({
       where: { runId: snapshot!.id, traceType: "SALE", isIncluded: true, lotId: "SA-CANCEL" },
@@ -229,8 +203,6 @@ describe("SH-03 only confirmed sales are counted", () => {
     expect(shown).toBe(traced);
   });
 });
-
-// ---------------------------------------------------------------------------
 
 describe("SH-04 quantity, weight and record count stay three different figures", () => {
   beforeAll(() => ensureWorld("core"));
@@ -246,21 +218,15 @@ describe("SH-04 quantity, weight and record count stay three different figures",
     const a = await categoryRow(admin, CATEGORY_A);
     expect(a.total90Quantity).toBeGreaterThan(a.recordCount);
     expect(a.total90Weight).toBeGreaterThan(0);
-    // Weight is a measurement, quantity is a count: they are reported side by side and
-    // never summed into one figure.
     expect(a.total90Weight).not.toBe(a.total90Quantity);
   });
 
   test("readiness reports quantity confirmation as its own figure", async () => {
     const readiness = (await get(salesRoute, SUMMARY, admin)).json.readiness;
-    // Quantity semantics are decided by the centralized policy before the snapshot is
-    // written; this page reports what that produced and converts nothing itself.
     expect(readiness.recordsWithUnconfirmedQuantity).toBe(0);
     expect(readiness.eligibleConfirmedQuantity).toBeGreaterThan(readiness.eligibleSalesRecords);
   });
 });
-
-// ---------------------------------------------------------------------------
 
 describe("SH-05 readiness states are honest", () => {
   test("no completed snapshot reports NOT RUN and shows nothing in its place", async () => {
@@ -275,7 +241,6 @@ describe("SH-05 readiness states are honest", () => {
     expect(r.json.readiness.eligibleSalesRecords).toBeNull();
     expect(r.json.rows).toHaveLength(0);
     expect(r.json.totals.confirmedQuantity).toBe(0);
-    // Every other surface refuses to invent a figure too.
     expect((await get(trendRoute, "/api/analysis/sales/trend", admin)).json.available).toBe(false);
     expect((await get(movementRoute, "/api/analysis/sales/movement", admin)).json.available).toBe(false);
     expect((await get(exportRoute, "/api/analysis/sales/export", admin)).status).toBe(409);
@@ -306,7 +271,6 @@ describe("SH-05 readiness states are honest", () => {
     expect(readiness.recordsBlockedByMissingCategory).toBeGreaterThan(0);
     expect(readiness.excludedRecords).toBeGreaterThan(0);
 
-    // The blocked sale contributes to no category total.
     const records = await get(recordsRoute, "/api/analysis/sales/records?pageSize=200", admin);
     const lots: string[] = records.json.rows.map((r: { lotId: string }) => r.lotId);
     expect(lots).toContain("SAQ-OK");
@@ -328,12 +292,9 @@ describe("SH-05 readiness states are honest", () => {
     expect(movement.json.available).toBe(false);
     expect(movement.json.rows).toHaveLength(0);
     expect((await get(trendRoute, "/api/analysis/sales/trend?interval=window30", admin)).json.available).toBe(false);
-    // A calendar interval is still meaningful and is offered rather than refused.
     expect((await get(trendRoute, "/api/analysis/sales/trend?interval=day", admin)).json.available).toBe(true);
   });
 });
-
-// ---------------------------------------------------------------------------
 
 describe("SH-06 category normalization matches the demand snapshot exactly", () => {
   beforeAll(() => ensureWorld("core"));
@@ -353,8 +314,6 @@ describe("SH-06 category normalization matches the demand snapshot exactly", () 
     expect(a.dataState).toBe("CONFIRMED");
   });
 });
-
-// ---------------------------------------------------------------------------
 
 describe("SH-07 filters, sorting and paging are server-side and consistent", () => {
   beforeAll(() => ensureWorld("core"));
@@ -397,15 +356,12 @@ describe("SH-07 filters, sorting and paging are server-side and consistent", () 
 
   test("a trend filter selects categories by the shared trend rule", async () => {
     const b = await categoryRow(admin, CATEGORY_B);
-    // Category B sold only in the latest window, so the shared rule calls it New Demand.
     expect(b.trend).toBe("New Demand");
     const filtered = await get(salesRoute, `${SUMMARY}?pageSize=200&trend=New%20Demand`, admin);
     expect(filtered.json.rows.map((r: { categoryId: string }) => r.categoryId)).toContain(CATEGORY_B);
     for (const r of filtered.json.rows) expect(r.trend).toBe("New Demand");
   });
 });
-
-// ---------------------------------------------------------------------------
 
 describe("SH-08 trend and movement stay descriptive", () => {
   beforeAll(() => ensureWorld("core"));
@@ -454,8 +410,6 @@ describe("SH-08 trend and movement stay descriptive", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-
 describe("SH-09 nothing internal leaks to the browser", () => {
   beforeAll(() => ensureWorld("quality"));
 
@@ -499,8 +453,6 @@ describe("SH-09 nothing internal leaks to the browser", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-
 describe("SH-10 export is separately authorized, bounded and spreadsheet-safe", () => {
   beforeAll(() => ensureWorld("quality"));
 
@@ -522,7 +474,6 @@ describe("SH-10 export is separately authorized, bounded and spreadsheet-safe", 
   test("a value a spreadsheet would execute is neutralised", async () => {
     const csv = await exportCsv(admin);
     expect(csv.status).toBe(200);
-    // The fixture contains an approved shape whose value begins with a formula trigger.
     expect(csv.text).toContain("=CMD");
     expect(csv.text).toContain(`"'=CMD"`);
     for (const line of csv.text.split("\r\n").slice(1)) {
@@ -551,8 +502,6 @@ describe("SH-10 export is separately authorized, bounded and spreadsheet-safe", 
   });
 });
 
-// ---------------------------------------------------------------------------
-
 describe("SH-11 reading sales changes nothing", () => {
   beforeAll(() => ensureWorld("core"));
 
@@ -580,8 +529,6 @@ describe("SH-11 reading sales changes nothing", () => {
     expect(await census()).toEqual(before);
   });
 });
-
-// ---------------------------------------------------------------------------
 
 describe("SH-12 large data is paged, never silently shortened", () => {
   beforeAll(() => ensureWorld("bulk"));

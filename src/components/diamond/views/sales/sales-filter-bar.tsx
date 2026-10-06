@@ -11,14 +11,6 @@ import { SALES_DATA_STATE_LABELS, type SalesDataState, type SalesTrendDirection 
 
 const ANY = "__any__";
 
-/**
- * Page-level filters. Every one of them is applied on the server, by the same filter set
- * the totals and the paging counts are computed from — so narrowing the table narrows
- * the totals with it, and the row count shown is always the real number of matches.
- *
- * Customer narrowing appears only for a principal holding customers.read; the server
- * refuses the parameter without it rather than quietly ignoring it.
- */
 export function SalesFilterBar() {
   const { filters, set, reset } = useSalesFilters();
   const permissions = useAuthStore((s) => s.user?.permissions ?? []);

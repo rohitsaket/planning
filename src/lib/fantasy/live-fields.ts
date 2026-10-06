@@ -1,28 +1,11 @@
-/**
- * The Fantasy Live Data contract: the 46 Live Data headers, in display order, with the internal
- * field each one maps to, the source column(s) it is read from, its type and its transformation.
- * Shared by the mapper (server), the Live Data table (client) and the mapping report.
- *
- * Source names come from the Fantasy lot listing header (the customer-supplied export header).
- * The vendor listing endpoint has not yet returned a live payload, so each source name is the
- * header label itself plus its obvious identifier spelling; lookups ignore case, spaces and
- * punctuation ("Lot Status DB" ≡ "lotStatusDB" ≡ "LOT_STATUS_DB"). A field that is absent from a
- * row is stored as null and reported as a mapping warning — never fabricated.
- */
-
 export type LiveFieldType = "string" | "decimal" | "boolean" | "date";
 
 export interface LiveLotFieldSpec {
-  /** Exact Live Data header label. */
   header: string;
-  /** Internal (database/API) field name. */
   field: LiveLotFieldKey;
-  /** Source column candidates, in priority order. */
   source: string[];
   type: LiveFieldType;
-  /** Human description of the transformation applied. */
   transform: string;
-  /** Rendered right-aligned in the table. */
   numeric?: boolean;
 }
 
@@ -91,5 +74,4 @@ export const LIVE_LOT_FIELDS: LiveLotFieldSpec[] = [
 
 export const LIVE_LOT_FIELD_KEYS = LIVE_LOT_FIELDS.map((f) => f.field);
 
-/** Sort keys the live-data API accepts (all typed columns plus the sync metadata). */
 export const LIVE_LOT_SORTABLE = new Set<string>([...LIVE_LOT_FIELD_KEYS, "lastSeenAt", "firstSeenAt", "updatedAt"]);

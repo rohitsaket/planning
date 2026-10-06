@@ -1,29 +1,3 @@
-/**
- * DETERMINISTIC ANALYSIS REVIEW FIXTURE DATASET (ANALYSIS_REVIEW_V1)
- *
- * Provides a comprehensive, realistic, reproducible dataset for local development
- * and isolated testing to evaluate every Analysis page.
- *
- * Pipeline:
- *   Deterministic Analysis fixture provider
- *       ↓
- *   Fantasy raw validation/synchronization (sync-service.ts)
- *       ↓
- *   Canonical current and immutable history (LotMasterRecord & LotHistoryRecord)
- *       ↓
- *   Classification and quantity/weight provenance (classification.ts & quantity-weight.ts)
- *       ↓
- *   Confirmed sales snapshot (confirmed-sales.ts)
- *       ↓
- *   Demand calculation (demand-service.ts)
- *       ↓
- *   Persisted metrics and traces (DemandMetric & DemandMetricTraceItem)
- *       ↓
- *   Analysis APIs and pages
- *
- * Server-only: for local development and test databases only.
- */
-
 import { db } from "@/lib/db";
 import { Prisma } from "@prisma/client";
 import { CanonicalRecord, CanonicalRemovalEvent, normalizeShape, resolveLabNormalization } from "./canonical";
@@ -52,10 +26,6 @@ export const NAMESPACE_PREFIX = "ARV1-";
 export const DEFAULT_BUSINESS_DATE = "2026-09-24";
 
 type DbClient = typeof db | Prisma.TransactionClient;
-
-// ---------------------------------------------------------------------------
-// 1. SAFETY & ENVIRONMENT CHECKS
-// ---------------------------------------------------------------------------
 
 export interface SafetyCheckOptions {
   profile: string;
@@ -90,31 +60,11 @@ export function assertSafeEnvironmentForFixtureLoad(options: SafetyCheckOptions)
     );
   }
 
-  // Positive proof, part by part.
-  //
-  // The previous check searched the whole connection string for substrings, so any URL
-  // whose database name contained `planning_sectest` counted as local — including a
-  // remote one. Host, port, protocol and database name are now parsed and checked
-  // separately, and anything that cannot be placed is refused.
   assertDisposableDatabase(options.databaseUrl ?? process.env.DATABASE_URL, "Analysis Review fixture load");
 }
 
-/**
- * Ensures standard weight bands, lab mappings, and shape mappings exist in the database
- * so category resolution functions deterministically without modifying existing records.
- */
 export async function ensureStandardDomainMappings(client: DbClient = db): Promise<string[]> {
   const realigned: string[] = [];
-  // Only the confirmed vocabulary. Nothing here invents an approval.
-  //
-  // The previous version also inserted mappings for `IGI`, `ASSCHER`, `EMERALD`,
-  // `CUSHION` and others so the fixture's scenarios would resolve. Adding a mapping to
-  // make a fixture pass is approving a business rule nobody confirmed, and it is how
-  // `IGI` came to normalize to the placeholder lab `Other` — silently merging it with
-  // every other unmapped lab into one valid-looking category.
-  //
-  // Every row below is inserted only when absent, so an operator's own mapping is never
-  // overwritten.
   for (const wb of CONFIRMED_WEIGHT_BANDS) {
     const existing = await client.weightBand.findFirst({ where: { code: wb.code } });
     if (!existing) {
@@ -131,12 +81,6 @@ export async function ensureStandardDomainMappings(client: DbClient = db): Promi
     }
   }
 
-  // A row that maps a confirmed raw value to something other than its confirmed
-  // normalization is realigned, and the realignment is reported. Leaving it in place
-  // would silently produce different categories than the confirmed vocabulary defines,
-  // which is how `ROUND` came to normalize to `ROUND` in one database and `Round` in
-  // another. Mappings the confirmed set says nothing about — `IGI`, for instance — are
-  // never touched: those are the operator's, and an undecided lab stays undecided.
   for (const lab of CONFIRMED_LAB_MAPPINGS) {
     const existing = await client.labMapping.findFirst({ where: { rawLab: lab.raw } });
     if (!existing) {
@@ -174,10 +118,6 @@ export async function ensureStandardDomainMappings(client: DbClient = db): Promi
 
   return realigned;
 }
-
-// ---------------------------------------------------------------------------
-// 2. DETERMINISTIC DOMAIN VOCABULARIES & FIXTURE ASSETS
-// ---------------------------------------------------------------------------
 
 export const COUNTRIES = ["INDIA", "USA", "BELGIUM", "UAE", "ISRAEL", "HONG KONG", "JAPAN"] as const;
 
@@ -249,10 +189,6 @@ export const CUSTOMERS = [
 export const COLORS = ["D", "E", "F", "G", "H", "I", "J"] as const;
 export const CLARITIES = ["IF", "VVS1", "VVS2", "VS1", "VS2", "SI1", "SI2"] as const;
 
-// ---------------------------------------------------------------------------
-// 3. DETERMINISTIC PRNG
-// ---------------------------------------------------------------------------
-
 export function createDeterministicRng(seed = 42424242) {
   let s = seed >>> 0;
   return function next(): number {
@@ -260,10 +196,6 @@ export function createDeterministicRng(seed = 42424242) {
     return s / 4294967296;
   };
 }
-
-// ---------------------------------------------------------------------------
-// 4. CATEGORY SCENARIOS SPECIFICATION (58 PLANNED CATEGORIES)
-// ---------------------------------------------------------------------------
 
 export type DemandOutcomeType =
   | "OUT_OF_STOCK"
@@ -281,13 +213,6 @@ export type TrendProfileType =
   | "ONE_TIME"
   | "DORMANT";
 
-/**
- * Why a scenario is deliberately unapprovable.
- *
- * These are not defects. A dataset for evaluating the Analysis section has to contain
- * records the system refuses to categorise, or the quarantine and review surfaces cannot
- * be exercised. Each reason names the dimension that is intentionally left unapproved.
- */
 export type QuarantineReason =
   | "LAB_NOT_APPROVED"
   | "SHAPE_NOT_APPROVED"
@@ -296,59 +221,24 @@ export type QuarantineReason =
 
 export interface CategoryScenarioSpec {
   id: string;
-  /** The raw lab the source emits. Approved only when a confirmed mapping exists. */
   labRaw: string;
-  /** The raw shape the source emits, from the confirmed shape vocabulary. */
   shapeRaw: string;
-  /** The confirmed band the nominal weight falls in, or null for a deliberate miss. */
   weightBandLabel: string | null;
   nominalWeight: number;
   outcomeType: DemandOutcomeType;
   trendProfile: TrendProfileType;
-  salesP1: number; // latest 30d
-  salesP2: number; // middle 30d
-  salesP3: number; // previous 30d
+  salesP1: number;
+  salesP2: number;
+  salesP3: number;
   stockCount: number;
   memoCount: number;
   reservedCount: number;
   wipCount: number;
-  /**
-   * Further stock for this same category, spread across other branches.
-   *
-   * Counted in the scenario's expected availability exactly like `stockCount`; it exists
-   * only so a category's holdings are not all in one branch.
-   */
   extraBranchStockCount?: number;
-  /** Set only on scenarios that are meant to be quarantined. */
   quarantineReason?: QuarantineReason;
 }
 
-/**
- * The scenarios this dataset is built to produce.
- *
- * ## Only confirmed vocabulary
- *
- * Every lab, shape and weight band below is one the business has confirmed:
- * `CONFIRMED_LAB_MAPPINGS`, `CONFIRMED_SHAPE_MAPPINGS` and `CONFIRMED_WEIGHT_BANDS`.
- *
- * The previous version used `IGI` and shapes such as `ASSCHER` and `EMERALD`, none of
- * which has a confirmed mapping, and then added mappings for them at load time so the
- * fixture would pass. Approving a mapping to make a fixture work is approving a business
- * rule nobody confirmed. `IGI` in particular resolved through a seeded row to the
- * placeholder lab `Other`, which silently merged it with every other unmapped lab.
- *
- * `IGI` and rough stock therefore appear below as deliberate quarantine scenarios rather
- * than as approved categories. Both are outstanding client decisions, recorded as such.
- *
- * ## No hardcoded expected results
- *
- * Nothing here states a target, a shortage or an excess. Those are derived from these
- * inputs by `expectedOutcomeFor`, which applies the real demand formula. The previous
- * version carried them in comments, and the comments were wrong: every excess scenario
- * claimed "Sales=3 -> Target=1" when the formula gives 2.
- */
 export const CATEGORY_SCENARIOS: CategoryScenarioSpec[] = [
-  // --- OUT OF STOCK (10): sales confirmed, target > 0, no physical stock -----
   { id: "OOS-1",  labRaw: "GIA", shapeRaw: "ROUND",          weightBandLabel: "1.00-1.09", nominalWeight: 1.05, outcomeType: "OUT_OF_STOCK", trendProfile: "STABLE",       salesP1: 2, salesP2: 2, salesP3: 2, stockCount: 0, memoCount: 2, reservedCount: 1, wipCount: 1 },
   { id: "OOS-2",  labRaw: "GIA", shapeRaw: "ROUND",          weightBandLabel: "1.50-1.59", nominalWeight: 1.55, outcomeType: "OUT_OF_STOCK", trendProfile: "GROWTH",       salesP1: 3, salesP2: 2, salesP3: 1, stockCount: 0, memoCount: 1, reservedCount: 0, wipCount: 2 },
   { id: "OOS-3",  labRaw: "GIA", shapeRaw: "LeoOval22",      weightBandLabel: "1.10-1.49", nominalWeight: 1.30, outcomeType: "OUT_OF_STOCK", trendProfile: "DECLINE",      salesP1: 1, salesP2: 2, salesP3: 3, stockCount: 0, memoCount: 0, reservedCount: 1, wipCount: 0 },
@@ -360,7 +250,6 @@ export const CATEGORY_SCENARIOS: CategoryScenarioSpec[] = [
   { id: "OOS-9",  labRaw: "GIA", shapeRaw: "CU.LONG",        weightBandLabel: "2.10-2.49", nominalWeight: 2.30, outcomeType: "OUT_OF_STOCK", trendProfile: "GROWTH",       salesP1: 3, salesP2: 2, salesP3: 1, stockCount: 0, memoCount: 1, reservedCount: 0, wipCount: 0 },
   { id: "OOS-10", labRaw: "",    shapeRaw: "LeoPear11",      weightBandLabel: "1.00-1.09", nominalWeight: 1.05, outcomeType: "OUT_OF_STOCK", trendProfile: "STABLE",       salesP1: 2, salesP2: 2, salesP3: 2, stockCount: 0, memoCount: 0, reservedCount: 0, wipCount: 0 },
 
-  // --- SHORTAGE (14): some stock, but less than the target -------------------
   { id: "SHT-1",  labRaw: "GIA", shapeRaw: "ROUND",          weightBandLabel: "1.10-1.49", nominalWeight: 1.30, outcomeType: "SHORTAGE", trendProfile: "GROWTH",       salesP1: 4, salesP2: 3, salesP3: 2, stockCount: 2, memoCount: 2, reservedCount: 1, wipCount: 2 },
   { id: "SHT-2",  labRaw: "GIA", shapeRaw: "ROUND",          weightBandLabel: "1.70-1.99", nominalWeight: 1.85, outcomeType: "SHORTAGE", trendProfile: "STABLE",       salesP1: 2, salesP2: 2, salesP3: 2, stockCount: 2, memoCount: 1, reservedCount: 1, wipCount: 1 },
   { id: "SHT-3",  labRaw: "GIA", shapeRaw: "ROUND",          weightBandLabel: "2.00-2.09", nominalWeight: 2.05, outcomeType: "SHORTAGE", trendProfile: "DECLINE",      salesP1: 1, salesP2: 2, salesP3: 3, stockCount: 1, memoCount: 2, reservedCount: 0, wipCount: 1 },
@@ -376,7 +265,6 @@ export const CATEGORY_SCENARIOS: CategoryScenarioSpec[] = [
   { id: "SHT-13", labRaw: "GIA", shapeRaw: "LIYO MQ",        weightBandLabel: "1.10-1.49", nominalWeight: 1.30, outcomeType: "SHORTAGE", trendProfile: "GROWTH",       salesP1: 2, salesP2: 2, salesP3: 2, stockCount: 1, memoCount: 0, reservedCount: 1, wipCount: 0 },
   { id: "SHT-14", labRaw: "GIA", shapeRaw: "RAD4(1)",        weightBandLabel: "1.50-1.59", nominalWeight: 1.55, outcomeType: "SHORTAGE", trendProfile: "STABLE",       salesP1: 2, salesP2: 2, salesP3: 2, stockCount: 1, memoCount: 1, reservedCount: 0, wipCount: 1 },
 
-  // --- COVERED (12): stock exactly meets the target --------------------------
   { id: "COV-1",  labRaw: "GIA", shapeRaw: "ROUND",          weightBandLabel: "2.10-2.49", nominalWeight: 2.30, outcomeType: "COVERED", trendProfile: "STABLE",       salesP1: 2, salesP2: 2, salesP3: 2, stockCount: 4, memoCount: 2, reservedCount: 1, wipCount: 1 },
   { id: "COV-2",  labRaw: "GIA", shapeRaw: "ROUND",          weightBandLabel: "2.50-2.59", nominalWeight: 2.55, outcomeType: "COVERED", trendProfile: "GROWTH",       salesP1: 3, salesP2: 2, salesP3: 1, stockCount: 4, memoCount: 1, reservedCount: 1, wipCount: 1 },
   { id: "COV-3",  labRaw: "GIA", shapeRaw: "ROUND",          weightBandLabel: "3.00-3.09", nominalWeight: 3.05, outcomeType: "COVERED", trendProfile: "DECLINE",      salesP1: 1, salesP2: 2, salesP3: 3, stockCount: 4, memoCount: 1, reservedCount: 0, wipCount: 1 },
@@ -390,7 +278,6 @@ export const CATEGORY_SCENARIOS: CategoryScenarioSpec[] = [
   { id: "COV-11", labRaw: "GIA", shapeRaw: "CU.LONG",        weightBandLabel: "1.10-1.49", nominalWeight: 1.30, outcomeType: "COVERED", trendProfile: "STABLE",       salesP1: 3, salesP2: 3, salesP3: 3, stockCount: 6, memoCount: 2, reservedCount: 1, wipCount: 1 },
   { id: "COV-12", labRaw: "",    shapeRaw: "LIYO MQ",        weightBandLabel: "1.10-1.49", nominalWeight: 1.30, outcomeType: "COVERED", trendProfile: "STABLE",       salesP1: 2, salesP2: 2, salesP3: 2, stockCount: 4, memoCount: 1, reservedCount: 0, wipCount: 0 },
 
-  // --- EXCESS (10): stock above the target -----------------------------------
   { id: "EXC-1",  labRaw: "GIA", shapeRaw: "ROUND",          weightBandLabel: "2.60-2.99", nominalWeight: 2.80, outcomeType: "EXCESS", trendProfile: "DECLINE", salesP1: 1, salesP2: 1, salesP3: 1, stockCount: 7, memoCount: 2, reservedCount: 1, extraBranchStockCount: 15, wipCount: 1 },
   { id: "EXC-2",  labRaw: "GIA", shapeRaw: "ROUND",          weightBandLabel: "3.10-3.49", nominalWeight: 3.30, outcomeType: "EXCESS", trendProfile: "STABLE",  salesP1: 1, salesP2: 1, salesP3: 1, stockCount: 6, memoCount: 1, reservedCount: 0, extraBranchStockCount: 15, wipCount: 1 },
   { id: "EXC-3",  labRaw: "GIA", shapeRaw: "ROUND",          weightBandLabel: "3.50-3.99", nominalWeight: 3.75, outcomeType: "EXCESS", trendProfile: "ONE_TIME", salesP1: 1, salesP2: 1, salesP3: 1, stockCount: 5, memoCount: 1, reservedCount: 1, extraBranchStockCount: 15, wipCount: 0 },
@@ -402,7 +289,6 @@ export const CATEGORY_SCENARIOS: CategoryScenarioSpec[] = [
   { id: "EXC-9",  labRaw: "",    shapeRaw: "ROUND",          weightBandLabel: "2.00-2.09", nominalWeight: 2.05, outcomeType: "EXCESS", trendProfile: "STABLE",  salesP1: 1, salesP2: 1, salesP3: 1, stockCount: 6, memoCount: 1, reservedCount: 0, extraBranchStockCount: 15, wipCount: 1 },
   { id: "EXC-10", labRaw: "GIA", shapeRaw: "CU.LONG",        weightBandLabel: "1.50-1.59", nominalWeight: 1.55, outcomeType: "EXCESS", trendProfile: "DECLINE", salesP1: 1, salesP2: 1, salesP3: 1, stockCount: 7, memoCount: 1, reservedCount: 1, extraBranchStockCount: 15, wipCount: 1 },
 
-  // --- STOCK WITH NO CONFIRMED TARGET (6): no sales, so no target ------------
   { id: "SNT-1", labRaw: "GIA", shapeRaw: "ROUND",      weightBandLabel: "4.00-4.09", nominalWeight: 4.05, outcomeType: "STOCK_NO_TARGET", trendProfile: "DORMANT", salesP1: 0, salesP2: 0, salesP3: 0, stockCount: 5, memoCount: 1, reservedCount: 1, extraBranchStockCount: 8, wipCount: 1 },
   { id: "SNT-2", labRaw: "GIA", shapeRaw: "ROUND",      weightBandLabel: "5.00-5.99", nominalWeight: 5.50, outcomeType: "STOCK_NO_TARGET", trendProfile: "DORMANT", salesP1: 0, salesP2: 0, salesP3: 0, stockCount: 4, memoCount: 1, reservedCount: 0, extraBranchStockCount: 8, wipCount: 0 },
   { id: "SNT-3", labRaw: "GIA", shapeRaw: "LeoOval22",  weightBandLabel: "3.00-3.09", nominalWeight: 3.05, outcomeType: "STOCK_NO_TARGET", trendProfile: "DORMANT", salesP1: 0, salesP2: 0, salesP3: 0, stockCount: 5, memoCount: 1, reservedCount: 1, extraBranchStockCount: 8, wipCount: 1 },
@@ -410,26 +296,14 @@ export const CATEGORY_SCENARIOS: CategoryScenarioSpec[] = [
   { id: "SNT-5", labRaw: "",    shapeRaw: "ROUND",      weightBandLabel: "3.00-3.09", nominalWeight: 3.05, outcomeType: "STOCK_NO_TARGET", trendProfile: "DORMANT", salesP1: 0, salesP2: 0, salesP3: 0, stockCount: 4, memoCount: 1, reservedCount: 1, extraBranchStockCount: 8, wipCount: 1 },
   { id: "SNT-6", labRaw: "GIA", shapeRaw: "RAD4(1)",    weightBandLabel: "2.00-2.09", nominalWeight: 2.05, outcomeType: "STOCK_NO_TARGET", trendProfile: "DORMANT", salesP1: 0, salesP2: 0, salesP3: 0, stockCount: 5, memoCount: 1, reservedCount: 0, extraBranchStockCount: 8, wipCount: 1 },
 
-  // --- DELIBERATE REVIEW / QUARANTINE (6) ------------------------------------
-  //
-  // Each of these is unapprovable on exactly one dimension, on purpose, so the review and
-  // quarantine surfaces have something real to show. None of them may become a category.
   { id: "REV-1", labRaw: "EGL_UNAPPROVED", shapeRaw: "ROUND",             weightBandLabel: "1.60-1.69", nominalWeight: 1.65, outcomeType: "REVIEW_REQUIRED", trendProfile: "STABLE", salesP1: 1, salesP2: 1, salesP3: 1, stockCount: 4, memoCount: 1, reservedCount: 0, wipCount: 0, quarantineReason: "LAB_NOT_APPROVED" },
   { id: "REV-2", labRaw: "IGI",            shapeRaw: "ROUND",             weightBandLabel: "4.10-4.49", nominalWeight: 4.30, outcomeType: "REVIEW_REQUIRED", trendProfile: "STABLE", salesP1: 1, salesP2: 1, salesP3: 1, stockCount: 3, memoCount: 0, reservedCount: 1, wipCount: 0, quarantineReason: "LAB_NOT_APPROVED" },
   { id: "REV-3", labRaw: "GIA",            shapeRaw: "CUSTOM_ROSE_CUT",   weightBandLabel: "4.50-4.99", nominalWeight: 4.75, outcomeType: "REVIEW_REQUIRED", trendProfile: "GROWTH", salesP1: 2, salesP2: 1, salesP3: 0, stockCount: 4, memoCount: 1, reservedCount: 0, wipCount: 0, quarantineReason: "SHAPE_NOT_APPROVED" },
   { id: "REV-4", labRaw: "GIA",            shapeRaw: "HEXAGON_TEST_SHAPE", weightBandLabel: "6.00-6.99", nominalWeight: 6.50, outcomeType: "REVIEW_REQUIRED", trendProfile: "STABLE", salesP1: 1, salesP2: 1, salesP3: 1, stockCount: 3, memoCount: 1, reservedCount: 0, wipCount: 0, quarantineReason: "SHAPE_NOT_APPROVED" },
-  // 0.25 ct falls below the smallest confirmed band, so no band resolves.
   { id: "REV-5", labRaw: "GIA",            shapeRaw: "ROUND",             weightBandLabel: null,        nominalWeight: 0.25, outcomeType: "REVIEW_REQUIRED", trendProfile: "STABLE", salesP1: 1, salesP2: 1, salesP3: 1, stockCount: 4, memoCount: 0, reservedCount: 0, wipCount: 0, quarantineReason: "WEIGHT_BAND_UNRESOLVED" },
   { id: "REV-6", labRaw: "EGL_UNAPPROVED", shapeRaw: "LeoOval22",         weightBandLabel: "7.00-7.99", nominalWeight: 7.50, outcomeType: "REVIEW_REQUIRED", trendProfile: "STABLE", salesP1: 1, salesP2: 1, salesP3: 1, stockCount: 3, memoCount: 1, reservedCount: 1, wipCount: 0, quarantineReason: "LAB_NOT_APPROVED" },
 ];
 
-/**
- * Categories used only by auxiliary lots.
- *
- * Disjoint from every planned scenario, in confirmed vocabulary, so history depth, paging
- * volume and removal events can be exercised without moving a planned outcome. Their own
- * figures are not asserted — they exist to be present, not to be a scenario.
- */
 export const AUXILIARY_SCENARIOS: CategoryScenarioSpec[] = [
   { id: "AUX-1", labRaw: "GIA", shapeRaw: "STEP MQ",   weightBandLabel: "8.00-8.99",   nominalWeight: 8.50, outcomeType: "STOCK_NO_TARGET", trendProfile: "DORMANT", salesP1: 0, salesP2: 0, salesP3: 0, stockCount: 0, memoCount: 0, reservedCount: 0, wipCount: 0 },
   { id: "AUX-2", labRaw: "GIA", shapeRaw: "ANT-OVAL",  weightBandLabel: "9.00-9.99",   nominalWeight: 9.50, outcomeType: "STOCK_NO_TARGET", trendProfile: "DORMANT", salesP1: 0, salesP2: 0, salesP3: 0, stockCount: 0, memoCount: 0, reservedCount: 0, wipCount: 0 },
@@ -438,19 +312,11 @@ export const AUXILIARY_SCENARIOS: CategoryScenarioSpec[] = [
   { id: "AUX-5", labRaw: "GIA", shapeRaw: "Kite_V2",   weightBandLabel: "20.00-24.99", nominalWeight: 22.0, outcomeType: "STOCK_NO_TARGET", trendProfile: "DORMANT", salesP1: 0, salesP2: 0, salesP3: 0, stockCount: 0, memoCount: 0, reservedCount: 0, wipCount: 0 },
 ];
 
-/**
- * The normalized lab a confirmed raw value resolves to.
- *
- * Only the confirmed vocabulary: `GIA` and its variants, and the empty string, which the
- * confirmed mapping resolves to `Non-Cert`. Anything else is not approved and the
- * scenario carrying it is a quarantine scenario.
- */
 function confirmedLabFor(labRaw: string): string | null {
   const match = CONFIRMED_LAB_MAPPINGS.find((m) => m.raw.toLowerCase() === labRaw.trim().toLowerCase());
   return match ? match.normalized : null;
 }
 
-/** The normalized shape a confirmed raw value resolves to, or null when unapproved. */
 function confirmedShapeFor(shapeRaw: string): string | null {
   const match = CONFIRMED_SHAPE_MAPPINGS.find((m) => m.raw.toUpperCase() === shapeRaw.trim().toUpperCase());
   return match ? match.normalized : null;
@@ -458,7 +324,6 @@ function confirmedShapeFor(shapeRaw: string): string | null {
 
 export interface ExpectedScenarioOutcome {
   readonly id: string;
-  /** The exact category this scenario must produce, or null when quarantined. */
   readonly categoryKey: string | null;
   readonly sales90d: number;
   readonly target: number;
@@ -471,14 +336,6 @@ export interface ExpectedScenarioOutcome {
   readonly outcome: DemandOutcomeType;
 }
 
-/**
- * What a scenario must produce, derived from its inputs by the real rules.
- *
- * Nothing here is hardcoded. The target is `roundHalfUpInt(sales90d / 3 * 2)` — the same
- * expression `demand-service.ts` evaluates — and shortage, excess and coverage follow
- * from it. Memo and WIP are reported separately and never deducted, because no approved
- * policy says they may be.
- */
 export function expectedOutcomeFor(s: CategoryScenarioSpec): ExpectedScenarioOutcome {
   const lab = confirmedLabFor(s.labRaw);
   const shape = confirmedShapeFor(s.shapeRaw);
@@ -513,17 +370,10 @@ export function expectedOutcomeFor(s: CategoryScenarioSpec): ExpectedScenarioOut
   };
 }
 
-/** Every scenario's expected outcome, in declaration order. */
 export function expectedScenarioOutcomes(): ExpectedScenarioOutcome[] {
   return CATEGORY_SCENARIOS.map(expectedOutcomeFor);
 }
 
-/**
- * Category keys that more than one scenario would produce.
- *
- * Two scenarios sharing a key is a specification error: their stock and sales merge and
- * neither outcome is what the table says. Empty is the only acceptable answer.
- */
 export function collidingScenarioKeys(): Array<{ key: string; ids: string[] }> {
   const byKey = new Map<string, string[]>();
   for (const expected of expectedScenarioOutcomes()) {
@@ -534,10 +384,6 @@ export function collidingScenarioKeys(): Array<{ key: string; ids: string[] }> {
     .filter(([, ids]) => ids.length > 1)
     .map(([key, ids]) => ({ key, ids }));
 }
-
-// ---------------------------------------------------------------------------
-// 5. DETERMINISTIC BATCH GENERATOR
-// ---------------------------------------------------------------------------
 
 export interface AnalysisReviewDatasetBatches {
   batch1: FantasyBatchPayload;
@@ -558,13 +404,11 @@ export function generateAnalysisReviewBatches(
   const refDateUtc = parseISTDateToUTC(businessDateIst);
   const dayMs = 24 * 60 * 60 * 1000;
 
-  // Window cutoffs
-  const p1Start = new Date(refDateUtc.getTime() - 29 * dayMs); // Latest 30d
-  const p2Start = new Date(refDateUtc.getTime() - 59 * dayMs); // Middle 30d
-  const p3Start = new Date(refDateUtc.getTime() - 89 * dayMs); // Previous 30d
+  const p1Start = new Date(refDateUtc.getTime() - 29 * dayMs);
+  const p2Start = new Date(refDateUtc.getTime() - 59 * dayMs);
+  const p3Start = new Date(refDateUtc.getTime() - 89 * dayMs);
   const outsideWindowDate = new Date(refDateUtc.getTime() - 110 * dayMs);
 
-  // Four batch timestamps
   const t1Cutoff = new Date(refDateUtc.getTime() - 80 * dayMs).toISOString();
   const t2Cutoff = new Date(refDateUtc.getTime() - 40 * dayMs).toISOString();
   const t3Cutoff = new Date(refDateUtc.getTime() - 10 * dayMs).toISOString();
@@ -600,46 +444,24 @@ export function generateAnalysisReviewBatches(
     return new Date(time).toISOString();
   }
 
-  /**
-   * The raw lab and shape the source emits for a scenario.
-   *
-   * Both are taken from the scenario verbatim: the scenario table already carries the raw
-   * source values, drawn from the confirmed vocabulary. Nothing is translated here and no
-   * normalized value is supplied — normalization is the synchronizer's single decision,
-   * and a fixture that pre-supplied one would be asserting an answer it does not own.
-   */
   function sourceValuesFor(scen: CategoryScenarioSpec) {
     return {
       labRaw: scen.labRaw,
       rawShape: scen.shapeRaw,
-      // Left undefined on purpose. `classifyCanonicalCategory` decides during sync.
       labNormalized: undefined as string | undefined,
       shapeNormalized: undefined as string | undefined,
     };
   }
 
-  // Scenarios for extra/auxiliary lots that won't distort OOS, Shortage, or Covered outcome counts
-  // Auxiliary lots — records outside the 90-day window, multi-version history and the
-  // removal batch — exist to exercise history, paging and data quality. They must never
-  // land in a planned scenario's category: adding their stock and sales to one changes
-  // the outcome the scenario was designed to produce. They previously reused the EXCESS
-  // scenarios, which is why those categories reported a target of 4 where the inputs
-  // give 2, and an excess of 26 where they give 5.
-  //
-  // So they get categories of their own, in confirmed vocabulary, disjoint from every
-  // planned scenario key.
   const auxiliaryScenarios: CategoryScenarioSpec[] = AUXILIARY_SCENARIOS;
 
-  // Iterate over each category scenario
   for (const scen of CATEGORY_SCENARIOS) {
     const dept = pick(DEPARTMENTS);
     const loc = pick(LOCATIONS);
     const color = pick(COLORS);
     const clarity = pick(CLARITIES);
     const { rawShape, shapeNormalized, labRaw, labNormalized } = sourceValuesFor(scen);
-    
 
-    // A. Generate Sales Lots (Sold within 90d periods P1, P2, P3)
     const salesPeriods = [
       { count: scen.salesP1, start: p1Start, end: refDateUtc, batchNum: 3 },
       { count: scen.salesP2, start: p2Start, end: p1Start, batchNum: 2 },
@@ -659,7 +481,6 @@ export function generateAnalysisReviewBatches(
         const weight = Number((scen.nominalWeight + (rng() * 0.02 - 0.01)).toFixed(2));
         const saleTotalUsd = Math.round(weight * (2000 + rng() * 3000));
 
-        // Batch 1: Ingest as initial Stock
         batch1Records.push({
           sourceType: "FIXTURE",
           sourceRecordId: srcId,
@@ -697,9 +518,8 @@ export function generateAnalysisReviewBatches(
           recordVersion: 1,
           isSimulated: true,
         });
-        totalHistoryRecords++; // v1
+        totalHistoryRecords++;
 
-        // Transition to SOLD in respective batch (Batch 2 or 3)
         const soldRecord: CanonicalRecord = {
           sourceType: "FIXTURE",
           sourceRecordId: srcId,
@@ -747,11 +567,10 @@ export function generateAnalysisReviewBatches(
         } else {
           batch3Records.push(soldRecord);
         }
-        totalHistoryRecords++; // v2
+        totalHistoryRecords++;
       }
     }
 
-    // B. Generate Physical Available Stock Lots (STOCK status, isCurrent = true)
     for (let st = 0; st < scen.stockCount; st++) {
       const lotId = formatLotId(lotSeq);
       const srcId = formatSrcId(lotSeq);
@@ -760,7 +579,6 @@ export function generateAnalysisReviewBatches(
       const createdAt = randomDateBetween(p3Start, p1Start);
       const weight = Number((scen.nominalWeight + (rng() * 0.02 - 0.01)).toFixed(2));
 
-      // Ingest in Batch 1
       batch1Records.push({
         sourceType: "FIXTURE",
         sourceRecordId: srcId,
@@ -795,9 +613,8 @@ export function generateAnalysisReviewBatches(
         recordVersion: 1,
         isSimulated: true,
       });
-      totalHistoryRecords++; // v1
+      totalHistoryRecords++;
 
-      // Some stock lots get location/status updates in Batch 3 to create 2nd version
       if (st % 2 === 0) {
         const movedDept = pick(DEPARTMENTS);
         const movedAt = randomDateBetween(p1Start, refDateUtc);
@@ -835,14 +652,10 @@ export function generateAnalysisReviewBatches(
           recordVersion: 2,
           isSimulated: true,
         });
-        totalHistoryRecords++; // v2
+        totalHistoryRecords++;
       }
     }
 
-    // Stock spread across additional branches, so a category's holdings are not all in one
-    // place. The count comes from the scenario's own declaration: an undeclared padding of
-    // 15 lots per EXCESS category used to be added here, which is why every excess
-    // scenario reported 20 where its inputs give 5. The declaration is the truth.
     const extraStockCount = scen.extraBranchStockCount ?? 0;
     for (let st = 0; st < extraStockCount; st++) {
       const lotId = formatLotId(lotSeq);
@@ -853,7 +666,6 @@ export function generateAnalysisReviewBatches(
       const weight = Number((scen.nominalWeight + (rng() * 0.02 - 0.01)).toFixed(2));
       const extraDept = pick(DEPARTMENTS);
 
-      // Ingest in Batch 1
       batch1Records.push({
         sourceType: "FIXTURE",
         sourceRecordId: srcId,
@@ -888,10 +700,9 @@ export function generateAnalysisReviewBatches(
         recordVersion: 1,
         isSimulated: true,
       });
-      totalHistoryRecords++; // v1
+      totalHistoryRecords++;
     }
 
-    // C. Generate Memo Lots (MEMO status, isCurrent = true)
     for (let m = 0; m < scen.memoCount; m++) {
       const lotId = formatLotId(lotSeq);
       const srcId = formatSrcId(lotSeq);
@@ -902,7 +713,6 @@ export function generateAnalysisReviewBatches(
       const memoDate = randomDateBetween(p2Start, refDateUtc);
       const weight = Number((scen.nominalWeight + (rng() * 0.02 - 0.01)).toFixed(2));
 
-      // v1 in Batch 1 as Stock
       batch1Records.push({
         sourceType: "FIXTURE",
         sourceRecordId: srcId,
@@ -937,9 +747,8 @@ export function generateAnalysisReviewBatches(
         recordVersion: 1,
         isSimulated: true,
       });
-      totalHistoryRecords++; // v1
+      totalHistoryRecords++;
 
-      // v2 in Batch 2 as MEMO
       batch2Records.push({
         sourceType: "FIXTURE",
         sourceRecordId: srcId,
@@ -978,10 +787,9 @@ export function generateAnalysisReviewBatches(
         recordVersion: 2,
         isSimulated: true,
       });
-      totalHistoryRecords++; // v2
+      totalHistoryRecords++;
     }
 
-    // D. Generate Reserved Lots (RESERVED status, isCurrent = true)
     for (let r = 0; r < scen.reservedCount; r++) {
       const lotId = formatLotId(lotSeq);
       const srcId = formatSrcId(lotSeq);
@@ -1026,7 +834,7 @@ export function generateAnalysisReviewBatches(
         recordVersion: 1,
         isSimulated: true,
       });
-      totalHistoryRecords++; // v1
+      totalHistoryRecords++;
 
       batch2Records.push({
         sourceType: "FIXTURE",
@@ -1066,10 +874,9 @@ export function generateAnalysisReviewBatches(
         recordVersion: 2,
         isSimulated: true,
       });
-      totalHistoryRecords++; // v2
+      totalHistoryRecords++;
     }
 
-    // E. Generate Manufacturing WIP Lots (WIP stages)
     for (let w = 0; w < scen.wipCount; w++) {
       const lotId = formatLotId(lotSeq);
       const srcId = formatSrcId(lotSeq);
@@ -1115,7 +922,7 @@ export function generateAnalysisReviewBatches(
         recordVersion: 1,
         isSimulated: true,
       });
-      totalHistoryRecords++; // v1
+      totalHistoryRecords++;
 
       if (stage !== "WIP_PLANNING") {
         batch2Records.push({
@@ -1153,12 +960,11 @@ export function generateAnalysisReviewBatches(
           recordVersion: 2,
           isSimulated: true,
         });
-        totalHistoryRecords++; // v2
+        totalHistoryRecords++;
       }
     }
   }
 
-  // F. Additional Rough Diamonds (~60 lots)
   for (let r = 0; r < 60; r++) {
     const lotId = `${NAMESPACE_PREFIX}ROUGH-${String(r + 1).padStart(4, "0")}`;
     const srcId = `${NAMESPACE_PREFIX}SRC-R-${String(r + 1).padStart(4, "0")}`;
@@ -1199,7 +1005,6 @@ export function generateAnalysisReviewBatches(
     totalHistoryRecords++;
   }
 
-  // G. Valid Sales Immediately Outside 90-Day Window (~20 lots, for boundary verification)
   for (let os = 0; os < 20; os++) {
     const lotId = formatLotId(lotSeq);
     const srcId = formatSrcId(lotSeq);
@@ -1208,7 +1013,7 @@ export function generateAnalysisReviewBatches(
     const targetScen = auxiliaryScenarios[os % auxiliaryScenarios.length];
     const { labRaw, rawShape, labNormalized, shapeNormalized } = sourceValuesFor(targetScen);
     const cust = pick(CUSTOMERS);
-    const outDate = randomDateBetween(outsideWindowDate, p3Start); // 95 to 110 days ago
+    const outDate = randomDateBetween(outsideWindowDate, p3Start);
     const weight = Number((targetScen.nominalWeight + (rng() * 0.02 - 0.01)).toFixed(2));
     const saleTotalUsd = Math.round(weight * 3500);
 
@@ -1246,7 +1051,7 @@ export function generateAnalysisReviewBatches(
       recordVersion: 1,
       isSimulated: true,
     });
-    totalHistoryRecords++; // v1
+    totalHistoryRecords++;
 
     batch2Records.push({
       sourceType: "FIXTURE",
@@ -1289,10 +1094,9 @@ export function generateAnalysisReviewBatches(
       recordVersion: 2,
       isSimulated: true,
     });
-    totalHistoryRecords++; // v2
+    totalHistoryRecords++;
   }
 
-  // H. Complex Version Transitions (3, 4, 5 versions) (~140 lots)
   for (let v = 0; v < 140; v++) {
     const lotId = formatLotId(lotSeq);
     const srcId = formatSrcId(lotSeq);
@@ -1308,7 +1112,6 @@ export function generateAnalysisReviewBatches(
     const cust = pick(CUSTOMERS);
     const weight = Number((targetScen.nominalWeight + (rng() * 0.02 - 0.01)).toFixed(2));
 
-    // v1: STOCK
     batch1Records.push({
       sourceType: "FIXTURE",
       sourceRecordId: srcId,
@@ -1343,9 +1146,8 @@ export function generateAnalysisReviewBatches(
       recordVersion: 1,
       isSimulated: true,
     });
-    totalHistoryRecords++; // v1
+    totalHistoryRecords++;
 
-    // v2: MEMO
     batch2Records.push({
       sourceType: "FIXTURE",
       sourceRecordId: srcId,
@@ -1383,9 +1185,8 @@ export function generateAnalysisReviewBatches(
       recordVersion: 2,
       isSimulated: true,
     });
-    totalHistoryRecords++; // v2
+    totalHistoryRecords++;
 
-    // v3: MEMO_RETURN back to STOCK
     batch3Records.push({
       sourceType: "FIXTURE",
       sourceRecordId: srcId,
@@ -1421,10 +1222,9 @@ export function generateAnalysisReviewBatches(
       recordVersion: 3,
       isSimulated: true,
     });
-    totalHistoryRecords++; // v3
+    totalHistoryRecords++;
 
     if (v < 60) {
-      // v4: RESERVED in Batch 4
       batch4Records.push({
         sourceType: "FIXTURE",
         sourceRecordId: srcId,
@@ -1462,11 +1262,10 @@ export function generateAnalysisReviewBatches(
         recordVersion: 4,
         isSimulated: true,
       });
-      totalHistoryRecords++; // v4
+      totalHistoryRecords++;
     }
 
     if (v < 30) {
-      // v5: INVOICE sale removal in Batch 4
       batch4Removals.push({
         lotId,
         removalReason: "EXPLICIT_SALE",
@@ -1476,11 +1275,10 @@ export function generateAnalysisReviewBatches(
         customerName: cust.name,
         notes: "Invoiced through Batch 4 lifecycle",
       });
-      totalHistoryRecords++; // v5
+      totalHistoryRecords++;
     }
   }
 
-  // I. Injected Removals in Batch 4 (Disappearance, Branch Transfer, etc.)
   for (let rm = 0; rm < 15; rm++) {
     const lotId = formatLotId(lotSeq);
     const srcId = formatSrcId(lotSeq);
@@ -1537,7 +1335,6 @@ export function generateAnalysisReviewBatches(
     totalHistoryRecords++;
   }
 
-  // Construct Batch Payloads
   const batch1: FantasyBatchPayload = {
     batchId: `${NAMESPACE_PREFIX}BATCH-001-BASELINE`,
     sourceMode: "FIXTURE",
@@ -1596,10 +1393,6 @@ export function generateAnalysisReviewBatches(
   };
 }
 
-// ---------------------------------------------------------------------------
-// 6. ANALYSIS REVIEW FIXTURE PROVIDER
-// ---------------------------------------------------------------------------
-
 export class AnalysisReviewFixtureProvider implements FantasyDataProvider {
   private batches: FantasyBatchPayload[];
   private startingOffset: number;
@@ -1628,10 +1421,6 @@ export class AnalysisReviewFixtureProvider implements FantasyDataProvider {
   }
 }
 
-// ---------------------------------------------------------------------------
-// 7. IN-MEMORY VERIFICATION MANIFEST & LOADER EXECUTION
-// ---------------------------------------------------------------------------
-
 export interface AnalysisReviewVerificationManifest {
   canonicalLotsTotal: number;
   activeCurrentLots: number;
@@ -1659,10 +1448,8 @@ export interface AnalysisReviewVerificationManifest {
   };
   passedAllInvariants: boolean;
   invariantsReport: string[];
-  /** Scenarios whose produced category and stored figures matched the derived expectation. */
   scenariosReconciled: number;
   scenarioMismatches: string[];
-  /** Mirror and classification coverage at the moment of verification. */
   projectionComplete: boolean;
   missingMirrors: number;
   unclassifiedRecords: number;
@@ -1678,14 +1465,6 @@ export interface AnalysisReviewLoadResult {
   manifest: AnalysisReviewVerificationManifest;
 }
 
-/**
- * Verifies the dataset produced by one specific demand run.
- *
- * `demandRunId` is required. The previous version selected "the latest simulated run",
- * which is not necessarily the run this invocation produced — a seeded demonstration run
- * created seconds earlier would be verified instead, and the manifest would describe a
- * dataset nobody had just loaded.
- */
 export async function verifyAnalysisReviewManifest(
   demandRunId: string,
   businessDateIst = DEFAULT_BUSINESS_DATE,
@@ -1763,8 +1542,6 @@ export async function verifyAnalysisReviewManifest(
     }
   }
 
-  // Current fixture records the classifier refused to categorise: an unapproved lab or
-  // shape, an unresolvable weight, or a source status with no approved mapping.
   const reviewRequiredRecords = canonicalLots.filter(
     (l) => l.isCurrent && l.categoryState === "REVIEW_REQUIRED",
   ).length;
@@ -1786,19 +1563,12 @@ export async function verifyAnalysisReviewManifest(
     if (!cond) passed = false;
   }
 
-  // Projection completeness first: every figure below is read from records whose derived
-  // state must exist. A dataset that fails this produced its numbers over records with no
-  // operational mirror, which is how a whole business once reported zero available stock.
   check(
     projection.satisfied,
     `Operational projection complete (missing mirrors: ${projection.missingMirrors}, unclassified: ${projection.unclassified})`,
   );
   check(canonicalLots.length >= 800 && canonicalLots.length <= 1300, `Canonical lot count in range 800-1300 (got ${canonicalLots.length})`);
   check(historyLots.length >= 1500 && historyLots.length <= 3200, `History version count in range 1500-3200 (got ${historyLots.length})`);
-  // Categories this fixture's own records produced — not every category in the database.
-  // A shared development or review database also holds records from other work, and
-  // counting those measured which datasets happened to coexist rather than what the
-  // fixture generated.
   check(
     fixtureCategoryKeys.size >= 40 && fixtureCategoryKeys.size <= 70,
     `Fixture planning category count in range 40-70 (got ${fixtureCategoryKeys.size})`,
@@ -1808,9 +1578,6 @@ export async function verifyAnalysisReviewManifest(
   check(cov >= 10, `At least 10 Covered / At Target categories (got ${cov})`);
   check(exc >= 8, `At least 8 Excess categories (got ${exc})`);
   check(snt >= 5, `At least 5 Stock with No Target categories (got ${snt})`);
-  // Review is measured in records, not categories. A quarantined record deliberately
-  // produces no category — that is the whole point of the change — so counting
-  // "review-required categories" now counts the absence of the thing being tested.
   check(
     reviewRequiredRecords >= 20,
     `Records quarantined for review (>=20, got ${reviewRequiredRecords})`,
@@ -1824,26 +1591,14 @@ export async function verifyAnalysisReviewManifest(
   check(buckets.memoCount > 50, `Memo stock populated (>50, got ${buckets.memoCount})`);
   check(buckets.reservedCount > 40, `Reserved stock populated (>40, got ${buckets.reservedCount})`);
   check(buckets.wipCount > 30, `WIP stock populated (>30, got ${buckets.wipCount})`);
-  // Rough stock is a deliberate quarantine population, not an approved bucket. The
-  // source status `ROUGH_AVAILABLE` has no mapping in the active classification profile,
-  // so the classifier fails closed and these records are excluded and flagged for review.
-  // Counting them as a populated "available rough" bucket, as the previous manifest did,
-  // reported a scenario the system had in fact refused.
   check(buckets.roughCount > 30, `Rough records present and quarantined (>30, got ${buckets.roughCount})`);
 
-  // --- Per-scenario reconciliation ------------------------------------------
-  //
-  // Every planned scenario must identify the exact category it produced, and that
-  // category's stored figures must match what the real rules derive from the scenario's
-  // own inputs. Nothing here is a hardcoded expected result: `expectedOutcomeFor` applies
-  // the same target formula the demand service evaluates.
   const metricsByCategory = new Map(metrics.map((m) => [m.planningCategory, m]));
   const scenarioMismatches: string[] = [];
   let scenariosReconciled = 0;
 
   for (const expected of expectedScenarioOutcomes()) {
     if (expected.categoryKey === null) {
-      // A quarantine scenario must NOT have produced a category.
       const leaked = [...metricsByCategory.keys()].filter((k) => k.includes(expected.id));
       if (leaked.length > 0) scenarioMismatches.push(`${expected.id}: quarantined but produced ${leaked.join(", ")}`);
       continue;
@@ -1926,10 +1681,8 @@ export async function runAnalysisReviewFixtureLoader(options: {
 
   const client = options.client ?? db;
 
-  // Ensure standard domain mappings (WeightBand, LabMapping, ShapeMapping) are present
   await ensureStandardDomainMappings(client);
 
-  // Check if profile is already loaded in DB
   const existingRuns = await client.integrationSyncRun.findMany({
     where: { batchId: `${NAMESPACE_PREFIX}BATCH-004-DATA-QUALITY`, status: "SUCCESS" },
   });
@@ -1938,11 +1691,6 @@ export async function runAnalysisReviewFixtureLoader(options: {
     where: { lotId: { startsWith: NAMESPACE_PREFIX } },
   });
 
-  // A previous load may have been interrupted, or an ordinary seed may have deleted the
-  // projections underneath it. Either way the canonical records are present and the
-  // synchronizer would report every one of them unchanged, so nothing would be rebuilt.
-  // Repair first, then verify — a resume must leave the dataset usable, not merely report
-  // that its lots still exist.
   const resumeProjection = await checkProjectionInvariant(client as typeof db);
 
   if (existingRuns.length > 0 && existingLotsCount >= 800) {
@@ -1954,10 +1702,6 @@ export async function runAnalysisReviewFixtureLoader(options: {
       await reconcileOperationalProjection({ actor: options.actor ?? "ARV1_FIXTURE_LOADER" });
     }
 
-    // Verification is bound to the demand run this dataset actually produced, identified
-    // by the synchronization run it was calculated from — never "the latest simulated
-    // run", which could be a seeded demonstration run created moments earlier, and never
-    // an actor name, which the caller chooses.
     const fixtureSyncRunIds = (
       await client.integrationSyncRun.findMany({
         where: { batchId: { startsWith: NAMESPACE_PREFIX }, status: "SUCCESS" },
@@ -1988,23 +1732,17 @@ export async function runAnalysisReviewFixtureLoader(options: {
         manifest,
       };
     }
-    // Lots exist but the run that described them does not. That is a partial load, so
-    // the demand calculation below re-runs over the repaired dataset rather than
-    // reporting a dataset nothing has verified.
     console.log("Canonical lots are present but no fixture demand run exists; recalculating.");
   }
 
-  // Get current system checkpoint
   const checkpointRow = await client.syncCheckpoint.findUnique({
     where: { source: "FANTASY" },
   });
   const currentCheckpoint = checkpointRow?.currentCheckpoint ?? 0;
 
-  // Generate deterministic batches
   const dataset = generateAnalysisReviewBatches(businessDate);
   const provider = new AnalysisReviewFixtureProvider(dataset.allBatches, currentCheckpoint);
 
-  // Synchronize each batch through the real pipeline
   for (let i = 0; i < dataset.allBatches.length; i++) {
     const syncRes = await runSynchronization({
       actor: options.actor ?? "ARV1_FIXTURE_LOADER",
@@ -2016,10 +1754,6 @@ export async function runAnalysisReviewFixtureLoader(options: {
     }
   }
 
-  // Every received record must be accounted for by exactly one outcome. A batch that
-  // reports 1011 received, 0 created, 35 updated and 347 unchanged has 629 records whose
-  // fate nobody recorded — which is what a silent replay of an already-loaded dataset
-  // looks like, and is why the previous load appeared to succeed while rebuilding nothing.
   const syncRuns = await client.integrationSyncRun.findMany({
     where: { batchId: { startsWith: NAMESPACE_PREFIX } },
     select: {
@@ -2049,9 +1783,6 @@ export async function runAnalysisReviewFixtureLoader(options: {
     throw new Error(`Synchronization counters do not reconcile — ${detail}`);
   }
 
-  // Complete the operational projection before calculating anything from it. The demand
-  // service does this too, but doing it here means the loader can report the repair and
-  // fail before a run is created rather than after.
   const repair = await reconcileOperationalProjection({ actor: options.actor ?? "ARV1_FIXTURE_LOADER" });
   if (!repair.complete) {
     throw new Error(
@@ -2061,7 +1792,6 @@ export async function runAnalysisReviewFixtureLoader(options: {
     );
   }
 
-  // Run authoritative demand calculation
   const parsedBusinessDate = parseISTDateToUTC(businessDate);
   const demandRes = await runDemandCalculation({
     actor: options.actor ?? "ARV1_FIXTURE_LOADER",
@@ -2075,7 +1805,6 @@ export async function runAnalysisReviewFixtureLoader(options: {
     throw new Error(`Authoritative demand calculation failed: ${demandRes.status}`);
   }
 
-  // Bound to the run this invocation just created.
   const manifest = await verifyAnalysisReviewManifest(demandRes.runId, businessDate, client);
 
   if (!manifest.passedAllInvariants) {
@@ -2095,10 +1824,6 @@ export async function runAnalysisReviewFixtureLoader(options: {
     manifest,
   };
 }
-
-// ---------------------------------------------------------------------------
-// 8. PROFILE-TARGETED CLEANUP (NAMESPACED ONLY)
-// ---------------------------------------------------------------------------
 
 export interface AnalysisReviewCleanResult {
   success: boolean;
@@ -2129,10 +1854,6 @@ export async function cleanAnalysisReviewFixture(options: {
     );
   }
 
-  // Cleanup deletes canonical records and their immutable history, so it runs only
-  // against a database this process can prove is a disposable test or review database.
-  // The development database is deliberately excluded: replacing review data there means
-  // reloading the fixture, not deleting the history of what was already synchronized.
   if (!isIsolatedTestDatabase(options.databaseUrl ?? process.env.DATABASE_URL)) {
     throw new Error(
       "Cleanup refused: deleting fixture canonical records and immutable history is only permitted " +
@@ -2143,22 +1864,18 @@ export async function cleanAnalysisReviewFixture(options: {
 
   const client = options.client ?? db;
 
-  // 1. Delete associated operational mirrors
   const mirrors = await client.polishedStone.deleteMany({
     where: { fantasyLotId: { startsWith: NAMESPACE_PREFIX } },
   });
 
-  // 2. Delete history records
   const histories = await client.lotHistoryRecord.deleteMany({
     where: { lotId: { startsWith: NAMESPACE_PREFIX } },
   });
 
-  // 3. Delete master records
   const masters = await client.lotMasterRecord.deleteMany({
     where: { lotId: { startsWith: NAMESPACE_PREFIX } },
   });
 
-  // 4. Delete DQ issues
   const dqIssues = await client.dataQualityIssue.deleteMany({
     where: {
       OR: [
@@ -2169,16 +1886,10 @@ export async function cleanAnalysisReviewFixture(options: {
     },
   });
 
-  // 5. Delete Sync runs
   const syncRuns = await client.integrationSyncRun.deleteMany({
     where: { batchId: { startsWith: NAMESPACE_PREFIX } },
   });
 
-  // 6. Delete the demand runs this fixture produced, and everything hanging off them.
-  //
-  // Leaving them behind is what orphaned a demand result whose categories referenced lots
-  // that no longer existed: the Analysis pages kept reading a run describing a dataset
-  // that had been deleted underneath it.
   const fixtureRuns = await client.demandRun.findMany({
     where: { actor: { startsWith: "ANALYSIS_REVIEW_LOADER" } },
     select: { id: true },

@@ -16,8 +16,6 @@ interface AuditRow {
   actor: string;
   action: string;
   entity: string;
-  // Nullable in the schema: LOGIN_FAILED for an unknown username has no entity to
-  // point at, so the API returns null here.
   entityId: string | null;
   reason: string | null;
   timestamp: string;

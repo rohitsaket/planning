@@ -1,16 +1,3 @@
-// Workbook Import as one Process File action: the page's own orchestration code
-// (sarin-processing.ts) driven through the real route handlers with real sessions, against
-// the isolated planning_sectest database, and the real views rendered to text.
-//
-// Covers: the simple form with no mapping choice; the shape mappings in effect captured once
-// per check and recorded in lineage (the state with no catalog is covered by
-// sarin-no-catalog.test.ts on its own database); Blue, White and synthetic Pink
-// processed end to end; real-style Pink blocked on EMERALD 4STEP with the shapes to map;
-// Process Again after a mapping is added; upload followed by a failed check and its retry
-// without duplicates; the structured workbook of a processed file; Recent Files;
-// partial-permission users; direct API denial; lab scope; and Sarin Shape Mapping under
-// Administration → Mappings. All data is synthetic.
-
 import { beforeAll, beforeEach, describe, expect, test } from "./harness";
 import { call, db, ensureLabRegistry, makeUser, resetDb } from "./helpers";
 import { renderPage, routeFetch, sessionUser } from "./ui-render";
@@ -48,10 +35,8 @@ let uploader: User, validator: User, generator: User, exporter: User, scoped: Us
 
 const SARIN_DATA = ["SarinPlanPiece", "SarinPlanOption", "SarinOutputVersion", "SarinRowInterpretation", "SarinValidationAttempt", "SarinIssueOverride", "SarinValidationIssue", "SarinStoneBlock", "SarinSourceRow", "SarinImportBatch", "SarinSourceFileContent", "SarinSourceFile"];
 const SHAPES = [["ROUND", "Round"], ["PEAR", "Pear"], ["OVAL", "Oval"], ["ASSCHER", "Asscher"], ["EMERALD", "Emerald"], ["RADIANT", "Radiant"], ["CUSHION", "Cushion Brilliant"], ["ANTIQUE CUSHION", "Antique Cushion"], ["HEART", "Heart"]] as const;
-// No EMERALD 4STEP rule: the client has not confirmed one.
 const SHAPE_RULES: CatalogRule[] = SHAPES.map(([rawShape, normalizedShape]) => ({ rawShape, normalizedShape }));
 
-// ---- synthetic files ------------------------------------------------------------------------
 let nonce = 0;
 const kapan = () => `9${String(++nonce).padStart(3, "0")}P`;
 interface Rec { name: string; shape?: string; est?: string; rough?: string }
@@ -60,7 +45,6 @@ const csvFile = (recs: Rec[], name = "sarin.csv") => new File([new TextEncoder()
 const rows = (name: string, ests: string[], o: Partial<Rec> = {}) => ests.map((est) => ({ ...o, name, est }));
 const details = (packetType: string, labId: string | null = null) => ({ packetType, labId, planningDate: "2026-09-28" });
 
-/** A Pink stone of 45 records in the confirmed order; `emerald` replaces the Emerald family's shape. */
 function pinkStone(name: string, emerald = "EMERALD"): Rec[] {
   const recs: Rec[] = [];
   for (const [shape] of SHAPES) {
@@ -72,7 +56,6 @@ function pinkStone(name: string, emerald = "EMERALD"): Rec[] {
   return recs;
 }
 
-// ---- sessions -------------------------------------------------------------------------------
 const sessions = new Map<User, Session>();
 const as = async (u: User): Promise<Session> => {
   if (!sessions.has(u)) sessions.set(u, { cookie: u.cookie, user: await sessionUser(u.cookie) });
@@ -86,7 +69,6 @@ const render = async <P extends object>(view: ComponentType<P>, props: P, u: Use
 const fileResult = async (batchId: string, u: User) =>
   render(SarinFileResult, { batchId, rights: await rights(u), failure: null, busy: false, onProcessAgain: () => {}, onProcessAnother: () => {} }, u);
 
-/** Process File exactly as the page runs it, as this user. */
 async function process(u: User, file: File, packetType: string, labId: string | null = null) {
   const stages: ProcessingStage[] = [];
   const result = await processFile(routeFetch(u.cookie), file, details(packetType, labId), await rights(u), (s) => stages.push(s));
@@ -122,7 +104,6 @@ beforeAll(async () => {
   reader = await makeUser("proc.reader", "PLANNING_VIEWER");
   manager = await makeUser("proc.manager", "PLANNING_MANAGER");
   mapper = await userWith("proc.mapper", ["sarin.mapping.read", "sarin.mapping.manage"]);
-  // Processes files and may open Mappings, but not change them.
   withRead = await userWith("proc.reader.mappings", ["sarin.import.read", "sarin.import.upload", "sarin.import.validate", "sarin.mapping.read"]);
   withManage = await userWith("proc.manager.mappings", ["sarin.import.read", "sarin.mapping.read", "sarin.mapping.manage"]);
   uploader = await userWith("proc.uploader", ["sarin.import.read", "sarin.import.upload"]);
@@ -132,20 +113,17 @@ beforeAll(async () => {
   scoped = await makeUser("proc.scoped", "PLANNER");
   await db.userAccessScope.create({ data: { userId: scoped.user.id, dimension: "LAB", value: "GIA" } });
 });
-// Every test starts from the catalog without EMERALD 4STEP; a test that adds one does so through the API.
 beforeEach(async () => {
   resetRateLimits();
   await applyCatalog(mapper.cookie, SHAPE_RULES);
 });
 
-// =========================================================================================
 describe("sarin processing: one simple form", () => {
   test("the page is one compact form with Process File; no stage interface and no mapping choice", async () => {
     const page = await render(WorkbookImportView, {}, planner);
     for (const label of ["Prepare Sarin Output", "Sarin CSV file", "Packet Type", "Lab (optional)", "Planning date", "Process File", "CSV without a header · Maximum 8.0 MB", "Recent Files"]) {
       expect([label, page.text.includes(label)]).toEqual([label, true]);
     }
-    // There is no country field and no stone-type wording for the packet classification.
     expect([/country/i.test(page.html.match(/<form[\s\S]*<\/form>/)![0]), /stone[ -]?type/i.test(page.text)]).toEqual([false, false]);
     expect(/Parse|Validate|Revalidate|Generate Output|Review and Export|Import summary|Upload a Sarin file|\b[1-5] · |validation run|profile|immutable|Shape Mappings|records?\b/i.test(page.text)).toBe(false);
     expect(/Approved shape mapping|Choose a mapping|mapping version|Shape mappings are not configured/i.test(page.text)).toBe(false);
@@ -162,7 +140,6 @@ describe("sarin processing: one simple form", () => {
   });
 });
 
-// =========================================================================================
 describe("sarin processing: end to end", () => {
   test("valid Blue: upload, check and output in one run, with the XLSX structure of Phase 9", async () => {
     const k = kapan();
@@ -178,7 +155,6 @@ describe("sarin processing: end to end", () => {
     const sheet = wb.rows(k);
     expect(sheet[0].map((c) => (c === null ? null : c.v))).toEqual([...WORKBOOK_HEADERS]);
     expect([WORKBOOK_HEADERS.length, WORKBOOK_HEADERS[7]]).toEqual([19, ""]);
-    // Leading-zero Packet as text, three-decimal weights, two-decimal yield, no formulas.
     expect([sheet[1][5]!.v, sheet[1][6]!.z, sheet[1][9]!.z, sheet[1][17]!.z, sheet[20][5]!.v]).toEqual(["001", "0.000", "0.000", "0.00%", "0450"]);
     expect([sheet.slice(1, 18).every((c) => c[7] === null), sheet[18][7]!.v, wb.merges(k).includes("H19:H20"), wb.merges(k).includes("R19:R20")]).toEqual([true, "2 Pcs", true, true]);
     expect(sheet.flat().some((c) => c !== null && (c as { f?: string }).f !== undefined)).toBe(false);
@@ -215,11 +191,9 @@ describe("sarin processing: end to end", () => {
     expect([r.failure, r.stages]).toEqual([null, ["uploading", "checking"]]);
     const detail = await detailOf(r.batchId!);
     expect([detail.batch.status, fileStatus(detail.batch), resultView(detail, await rights(planner)).kind, (await counts(r.batchId!)).outputs]).toEqual(["NEEDS_REVIEW", "Needs Attention", "attention", 0]);
-    // Output was never requested, so nothing was even refused.
     expect(await audits("SARIN_OUTPUT_REJECTED", r.batchId!)).toBe(0);
     const page = await fileResult(r.batchId!, planner);
     expect([page.text.includes("Output needs attention"), page.text.includes("Some shapes need mapping before output can be prepared."), page.text.includes("EMERALD 4STEP"), /SHAPE_UNMAPPED|\{"/.test(page.text)]).toEqual([true, true, true, false]);
-    // No Fantasy shape is proposed for it.
     expect(/Asscher|Emerald\b|suggest/i.test(page.text.replace(/EMERALD 4STEP/g, ""))).toBe(false);
     expect([page.text.includes(r.batchId!), page.text.includes((await effectiveSnapshotId())!)]).toEqual([false, false]);
   });
@@ -228,7 +202,6 @@ describe("sarin processing: end to end", () => {
     const ready = await process(planner, csvFile(rows(`${kapan()}-001 DC`, Array(17).fill("1.500")), "kept.csv"), "BLUE");
     const keptOutput = await db.sarinOutputVersion.findFirstOrThrow({ where: { batchId: ready.batchId! } });
     const r = await process(planner, csvFile(rows(`${kapan()}-001 DC`, Array(17).fill("1.500"), { shape: "HEXA CUT" }), "map-again.csv"), "BLUE");
-    // Design v1.7 §15.10: the unmapped shape is written as it is, with a warning.
     expect(fileStatus((await detailOf(r.batchId!)).batch)).toBe("Output Ready with Warnings");
     const firstOutput = (await detailOf(r.batchId!)).batch.currentOutputId;
     const before = await effectiveSnapshotId();
@@ -237,15 +210,12 @@ describe("sarin processing: end to end", () => {
     expect([again.failure, fileStatus((await detailOf(r.batchId!)).batch)]).toEqual([null, "Output Ready"]);
     const attempts = await db.sarinValidationAttempt.findMany({ where: { batchId: r.batchId! }, orderBy: { attemptNumber: "asc" } });
     expect(attempts.map((a) => a.shapeMappingSetId)).toEqual([before, after]);
-    // A new output version with the mapped shape; the earlier one is kept, superseded.
     const versions = await db.sarinOutputVersion.findMany({ where: { batchId: r.batchId! }, orderBy: { versionNumber: "asc" }, select: { id: true, status: true } });
     expect(versions.map((v) => [v.id === firstOutput, v.status])).toEqual([[true, "SUPERSEDED"], [false, "GENERATED"]]);
-    // The file that was already ready is not regenerated by the mapping change.
     expect(await db.sarinOutputVersion.findMany({ where: { batchId: ready.batchId! }, select: { id: true, shapeMappingSetId: true, status: true } })).toEqual([{ id: keptOutput.id, shapeMappingSetId: before, status: "GENERATED" }]);
   });
 });
 
-// =========================================================================================
 describe("sarin processing: partial completion and retries", () => {
   test("an upload followed by a failed check keeps the import; Try Again resumes it without duplicates", async () => {
     const file = csvFile(rows(`${kapan()}-001 DC`, Array(17).fill("1.500")), "retry.csv");
@@ -261,23 +231,20 @@ describe("sarin processing: partial completion and retries", () => {
     const batchId = first.batchId!;
     expect([first.failure?.stage, first.failure?.error.code, first.failure?.error.status]).toEqual(["checking", "VALIDATION_NOT_COMPLETED", 500]);
     const message = processingFailureMessage(first.failure!.error);
-    expect([message.startsWith("Output could not be prepared. Try again."), /Reference [0-9a-f]{8}\./.test(message), /injected|VALIDATION_|500|\/api\//.test(message.replace(/Reference [0-9a-f]{8}\./, ""))]).toEqual([true, true, false]); // the random hex reference may contain "500"
+    expect([message.startsWith("Output could not be prepared. Try again."), /Reference [0-9a-f]{8}\./.test(message), /injected|VALIDATION_|500|\/api\//.test(message.replace(/Reference [0-9a-f]{8}\./, ""))]).toEqual([true, true, false]);
     const failed = await detailOf(batchId);
     expect([failed.batch.status, resultView(failed, await rights(planner)).kind]).toEqual(["FAILED", "retry"]);
     const page = (await render(SarinFileResult, { batchId, rights: await rights(planner), failure: first.failure, busy: false, onProcessAgain: () => {}, onProcessAnother: () => {} }, planner)).text;
     expect([page.includes("The file was uploaded, but output could not be prepared."), page.includes("Try Again")]).toEqual([true, true]);
 
-    // Try Again continues the stored import against the mappings in effect.
     const retry = await continueProcessing(routeFetch(planner.cookie), batchId, false, await rights(planner));
     expect([retry.failure, fileStatus((await detailOf(batchId)).batch)]).toEqual([null, "Output Ready"]);
     expect(await counts(batchId)).toEqual({ attempts: 2, outputs: 1 });
 
-    // Processing the same file again is the same import, check and output: nothing is added.
     const again = await process(planner, file, "BLUE");
     expect([again.batchId, again.failure, again.stages]).toEqual([batchId, null, ["uploading"]]);
     expect(await counts(batchId)).toEqual({ attempts: 2, outputs: 1 });
     expect(await db.sarinImportBatch.count({ where: { sourceFile: { sanitizedFileName: "retry.csv" } } })).toBe(1);
-    // Resuming again from any state is idempotent.
     await continueProcessing(routeFetch(planner.cookie), batchId, true, await rights(planner));
     await continueProcessing(routeFetch(planner.cookie), batchId, false, await rights(planner));
     expect(await counts(batchId)).toEqual({ attempts: 2, outputs: 1 });
@@ -296,7 +263,6 @@ describe("sarin processing: partial completion and retries", () => {
     }
     const batchId = first.batchId!;
     expect([first.failure?.stage, first.failure?.error.code]).toEqual(["preparing", "OUTPUT_NOT_GENERATED"]);
-    // Rolled back whole: no partial output survived.
     expect([await counts(batchId), await db.sarinPlanOption.count({ where: { batchId } })]).toEqual([{ attempts: 1, outputs: 0 }, 0]);
     const detail = await detailOf(batchId);
     expect([detail.batch.status, resultView(detail, await rights(planner)).kind]).toEqual(["VALIDATED", "retry"]);
@@ -309,8 +275,6 @@ describe("sarin processing: partial completion and retries", () => {
     const r = await process(uploader, csvFile(rows(`${kapan()}-001 DC`, Array(17).fill("1.500")), "reprocess.csv"), "BLUE");
     const batchId = r.batchId!;
     const setId = (await effectiveSnapshotId())!;
-    // A completed, clean check recorded under an earlier set of validation rules, as an
-    // earlier release recorded one (the same fixture the workflow suite uses).
     const b = await db.sarinImportBatch.update({
       where: { id: batchId },
       data: { status: "VALIDATING", validationAttempt: { increment: 1 }, fencingVersion: { increment: 1 }, claimToken: randomUUID(), claimedAt: new Date(), leaseExpiresAt: new Date(Date.now() + 60_000), shapeMappingSetId: setId },
@@ -323,7 +287,6 @@ describe("sarin processing: partial completion and retries", () => {
     expect([fileStatus(detail.batch), resultView(detail, await rights(planner)).kind]).toEqual(["Needs Attention", "reprocess"]);
     const page = (await fileResult(batchId, planner)).text;
     expect([page.includes("This file needs to be processed again."), page.includes("Process Again"), /profile|V2|validat/i.test(page)]).toEqual([true, true, false]);
-    // Output is never prepared from the outdated check without checking it again.
     await continueProcessing(routeFetch(generator.cookie), batchId, false, await rights(generator));
     expect(await counts(batchId)).toEqual({ attempts: 1, outputs: 0 });
     const again = await continueProcessing(routeFetch(planner.cookie), batchId, true, await rights(planner));
@@ -344,7 +307,6 @@ describe("sarin processing: partial completion and retries", () => {
   });
 });
 
-// =========================================================================================
 describe("sarin processing: permissions and scope", () => {
   test("upload-only: File submitted for processing; no check can be started", async () => {
     const r = await process(uploader, csvFile(rows(`${kapan()}-001 DC`, Array(17).fill("1.500")), "up.csv"), "BLUE");
@@ -353,11 +315,9 @@ describe("sarin processing: permissions and scope", () => {
     expect([page.includes("File submitted for processing"), page.includes("Process File")]).toEqual([true, false]);
     const form = (await render(WorkbookImportView, {}, uploader)).text;
     expect(form.includes("Process File")).toBe(true);
-    // Directly at the API: refused.
     const denied = await routeFetch(uploader.cookie)(`/api/planning/sarin/imports/${r.batchId}/validate`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
     expect(denied.status).toBe(403);
 
-    // A validator checks it; output then waits for someone who may prepare it.
     const checked = await continueProcessing(routeFetch(validator.cookie), r.batchId!, true, await rights(validator));
     const detail = await detailOf(r.batchId!);
     expect([checked.failure, detail.batch.status, resultView(detail, await rights(validator)).kind, (await counts(r.batchId!)).outputs]).toEqual([null, "VALIDATED", "awaiting-output", 0]);
@@ -365,13 +325,11 @@ describe("sarin processing: permissions and scope", () => {
     const genDenied = await routeFetch(validator.cookie)(`/api/planning/sarin/imports/${r.batchId}/outputs`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
     expect(genDenied.status).toBe(403);
 
-    // The generator prepares it: the check is already current.
     const prepared = await continueProcessing(routeFetch(generator.cookie), r.batchId!, false, await rights(generator));
     const ready = await detailOf(r.batchId!);
     expect([prepared.failure, fileStatus(ready.batch), await counts(r.batchId!)]).toEqual([null, "Output Ready", { attempts: 1, outputs: 1 }]);
     expect((await fileResult(r.batchId!, generator)).text.includes("Export XLSX")).toBe(false);
 
-    // Export only: the export user downloads it; the generator may not.
     const url = `${outputPath(r.batchId!, ready.batch.currentOutputId!)}/workbook`;
     expect([(await routeFetch(exporter.cookie)(url)).status, (await routeFetch(generator.cookie)(url)).status]).toEqual([200, 403]);
     expect((await fileResult(r.batchId!, exporter)).text.includes("Export XLSX")).toBe(true);
@@ -380,7 +338,6 @@ describe("sarin processing: permissions and scope", () => {
   });
 
   test("Recent Files shows business statuses and only the actions each user may take", async () => {
-    // A file only uploaded (its uploader may not check it) is still Processing.
     await process(uploader, csvFile(rows(`${kapan()}-001 DC`, Array(17).fill("1.500")), "waiting.csv"), "BLUE");
     const list = (await (await routeFetch(planner.cookie)("/api/planning/sarin/imports?pageSize=100")).json()) as { rows: Array<Parameters<typeof fileStatus>[0] & { id: string; status: string }> };
     const statuses = new Set(list.rows.map((b) => fileStatus(b)));
@@ -391,7 +348,6 @@ describe("sarin processing: permissions and scope", () => {
     expect([plannerPage.html.includes('aria-label="Open '), plannerPage.html.includes('aria-label="Export output of '), plannerPage.html.includes('aria-label="Process ')]).toEqual([true, true, true]);
     expect([exporterPage.html.includes('aria-label="Export output of '), exporterPage.html.includes('aria-label="Process ')]).toEqual([true, false]);
     expect([readerPage.html.includes('aria-label="Open '), readerPage.html.includes('aria-label="Export output of '), readerPage.html.includes('aria-label="Process '), readerPage.text.includes("Process File")]).toEqual([true, false, false, false]);
-    // Raw backend states never show; there is no delete.
     expect(/VALIDATING|NEEDS_REVIEW|VALIDATED|UPLOADED|Delete/.test(plannerPage.text)).toBe(false);
   });
 
@@ -403,13 +359,11 @@ describe("sarin processing: permissions and scope", () => {
     expect((await routeFetch(scoped.cookie)(`${outputPath(be.batchId!, outputId)}/workbook`)).status).toBe(404);
     const listed = (await (await routeFetch(scoped.cookie)("/api/planning/sarin/imports?pageSize=100")).json()) as { rows: Array<{ id: string }> };
     expect(listed.rows.some((b) => b.id === be.batchId)).toBe(false);
-    // Uploading for a lab outside the scope is refused by the server.
     const outside = await process(scoped, csvFile(rows(`${kapan()}-001 DC`, Array(17).fill("1.500"))), "BLUE", "IGI");
     expect([outside.batchId, outside.failure?.error.status]).toEqual([null, 403]);
   });
 });
 
-// =========================================================================================
 describe("sarin processing: Sarin Shape Mapping under Mappings", () => {
   test("it is the Sarin Shape Mapping tab of Administration → Mappings, visible only with sarin.mapping.read", async () => {
     const asMapper = await render(SarinShapeMappingsView, {}, mapper);

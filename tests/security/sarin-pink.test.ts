@@ -1,13 +1,3 @@
-// Sarin Pink transformation: the 45-record positional contract, its validation findings and
-// advisories, the 27-option output, decimal yields, idempotency, concurrency, rollback,
-// authorization, scope and audit.
-//
-// Uploads, validations, generation and reads go through the real route handlers against
-// the isolated planning_sectest database. The generation service is called directly only
-// to vary its batch size. The shape mappings here are explicit, test-only rules saved through
-// the Mappings routes; no production EMERALD 4STEP mapping is seeded. Failures are injected by database triggers, so the service
-// has no test-only branch. All data is synthetic.
-
 import { beforeAll, beforeEach, describe, expect, test } from "./harness";
 import { call, db, ensureLabRegistry, makeUser, resetDb } from "./helpers";
 import { applyCatalog, type CatalogRule } from "./sarin-catalog";
@@ -37,7 +27,6 @@ type User = Awaited<ReturnType<typeof makeUser>>;
 let planner: User, viewer: User, planningViewer: User, admin: User, root: User, mapper: User;
 let pinkSetId = "";
 
-// ---- synthetic Pink records ---------------------------------------------------------------
 interface Rec {
   name: string;
   rough?: string;
@@ -55,8 +44,6 @@ const line = (r: Rec) =>
   [r.name, r.rough ?? "4.000", r.shape ?? "ROUND", r.est ?? "1.000", r.clarity ?? "VS1", r.color ?? "G", r.depth ?? "61.6", r.ratio ?? "1.000", r.length ?? "5.10", r.width ?? "5.05", r.depthMm ?? "3.12"].join(",");
 const file = (recs: Rec[]) => recs.map(line).join("\n") + "\n";
 
-// Raw Sarin shape and Ratio for each family. EMERALD 4STEP is Asscher or Emerald only by
-// its Ratio, resolved solely by the test-only conditional rules below.
 const ROUND = ["ROUND", "1.000"] as const;
 const OVAL = ["OVAL", "1.350"] as const;
 const EMERALD = ["EMERALD 4STEP", "1.435"] as const;
@@ -69,27 +56,24 @@ const FAMILY_SHAPES = ["Round", "Pear", "Oval", "Asscher", "Emerald", "Radiant",
 let nonce = 0;
 const kapan = () => `6${String(++nonce).padStart(3, "0")}`;
 
-/** A complete, valid 45-record Pink stone. Twins differ by 0, 0.001, 0.004, 0, 0 and 0.002 ct. */
 function pinkStone(name: string, rough = "4.000"): Rec[] {
   const recs: Rec[] = [];
   const add = ([shape, ratio]: readonly string[], est: string) => recs.push({ name, rough, shape, ratio, est });
   FAMILIES.forEach((family, i) => {
     const est = `1.0${i}0`;
-    add(family, est); // MK
-    add(family, est); // SL primary: the same candidate
-    add(ROUND, "0.200"); // SL remainder
+    add(family, est);
+    add(family, est);
+    add(ROUND, "0.200");
   });
-  add(EMERALD, "0.900"); add(ROUND, "0.500"); // BP Emerald + Round
-  add(OVAL, "0.800"); add(ROUND, "0.400"); // BP Oval + Round
-  add(EMERALD, "0.700"); add(OVAL, "0.601"); // BP Emerald + Oval
+  add(EMERALD, "0.900"); add(ROUND, "0.500");
+  add(OVAL, "0.800"); add(ROUND, "0.400");
+  add(EMERALD, "0.700"); add(OVAL, "0.601");
   const twins: Array<[readonly string[], string, string]> = [[ROUND, "0.600", "0.600"], [OVAL, "0.550", "0.551"], [EMERALD, "0.500", "0.504"], [RADIANT, "0.450", "0.450"], [CUSHION, "0.400", "0.400"], [ANTIQUE, "0.350", "0.352"]];
   for (const [shape, a, b] of twins) { add(shape, a); add(shape, b); }
   return recs;
 }
-/** The stone with the record at a 1-based position changed. */
 const withAt = (recs: Rec[], position: number, patch: Partial<Rec>) => recs.map((r, i) => (i === position - 1 ? { ...r, ...patch } : r));
 
-// ---- requests -------------------------------------------------------------------------------
 async function uploadBatch(content: string, fields: Record<string, string> = {}): Promise<string> {
   resetRateLimits();
   const fd = new FormData();
@@ -105,7 +89,6 @@ async function uploadBatch(content: string, fields: Record<string, string> = {})
   if (res.status !== 201) throw new Error(`upload failed: ${res.status} ${JSON.stringify(json)}`);
   return json.batch.id;
 }
-/** Checks a file against the shape mappings in effect. */
 const validate = (batchId: string, cookie = planner.cookie) => {
   resetRateLimits();
   return call(validateImport, { method: "POST", cookie, body: {}, params: { batchId } });
@@ -143,7 +126,6 @@ const PLAIN_RULES: CatalogRule[] = [
   { rawShape: "ANTIQUE CUSHION", normalizedShape: "Antique Cushion" },
   { rawShape: "HEART", normalizedShape: "Heart" },
 ];
-// Test-only thresholds. They are not the production EMERALD 4STEP rule, which is unconfirmed.
 const TEST_ONLY_EMERALD_4STEP: CatalogRule[] = [
   { rawShape: "EMERALD 4STEP", normalizedShape: "Asscher", conditionKind: "RATIO_RANGE" as const, ratioMin: "1.000", ratioMax: "1.030" },
   { rawShape: "EMERALD 4STEP", normalizedShape: "Emerald", conditionKind: "RATIO_RANGE" as const, ratioMin: "1.400", ratioMax: null },
@@ -181,8 +163,6 @@ beforeAll(async () => {
     if (r.status !== 200) throw new Error(`role assign failed ${r.status}`);
   }
 });
-// Every test starts from a catalog carrying the test-only EMERALD 4STEP rules; a test that
-// needs the production position (no confirmed rule) removes them through the API.
 beforeEach(async () => {
   resetRateLimits();
   pinkSetId = await applyCatalog(mapper.cookie, [...PLAIN_RULES, ...TEST_ONLY_EMERALD_4STEP]);
@@ -194,7 +174,6 @@ const EXPECTED_POSITIONS = [
   [28, 29], [30, 31], [32, 33], [34, 35], [36, 37], [38, 39], [40, 41], [42, 43], [44, 45],
 ];
 
-// =========================================================================================
 describe("sarin pink: positional contract", () => {
   test("27 options cover the 45 positions exactly once, in physical order", () => {
     expect(SARIN_PINK_LAYOUT.map((s) => s.sequence)).toEqual(Array.from({ length: 27 }, (_, i) => i + 1));
@@ -226,7 +205,6 @@ describe("sarin pink: positional contract", () => {
   });
 });
 
-// =========================================================================================
 describe("sarin pink: valid stones become 27 options of 45 pieces", () => {
   test("two stones validate with only advisories and produce exact, traceable output", async () => {
     const k = kapan();
@@ -237,7 +215,6 @@ describe("sarin pink: valid stones become 27 options of 45 pieces", () => {
     expect([v.status, v.json.batch.status]).toEqual([200, "VALIDATED"]);
     expect([v.json.validation.lastCompletedAttempt.issues.total, v.json.validation.lastCompletedAttempt.issues.blocking]).toEqual([6, 0]);
 
-    // Best Twin differences are advisories: visible, non-blocking, never labelled invalid.
     const advisories = await findings(batchId);
     expect(advisories.map((i) => [i.code, i.severity, i.blocking, i.block.sequence, i.sourceRowNumber, i.details])).toEqual([
       ["BT_WEIGHT_VARIANCE_UNCONFIRMED", "WARNING", false, 1, 37, { firstPosition: 36, secondPosition: 37, firstWeight: "0.550", secondWeight: "0.551", difference: "0.001" }],
@@ -250,7 +227,6 @@ describe("sarin pink: valid stones become 27 options of 45 pieces", () => {
     expect(/tolerance (is|was) (approved|confirmed)/i.test(JSON.stringify(advisories))).toBe(false);
     const completed = await db.auditLog.findFirstOrThrow({ where: { action: "SARIN_VALIDATION_COMPLETED", entityId: batchId } });
     expect(JSON.parse(completed.after!).advisoryCount).toBe(6);
-    // EMERALD 4STEP resolved only through the explicit (test-only) conditional rules.
     const interp = (await read(listInterpretations, { batchId }, "?pageSize=500")).json.rows;
     expect([interp[9].rawShape, interp[9].normalizedShape, interp[9].mappingResult, interp[12].normalizedShape]).toEqual(["EMERALD 4STEP", "Asscher", "CONDITIONALLY_MAPPED", "Emerald"]);
 
@@ -282,12 +258,10 @@ describe("sarin pink: valid stones become 27 options of 45 pieces", () => {
       expect(own.map((o: any) => o.optionSequence)).toEqual(Array.from({ length: 27 }, (_, i) => i + 1));
       expect(own.map((o: any) => o.kind)).toEqual(EXPECTED_CODES);
       expect(own.map((o: any) => o.pieceCount)).toEqual(EXPECTED_POSITIONS.map((p) => p.length));
-      // Physical record → option, and deterministic piece order within each option.
       const placed = own.map((o: any) => pieces.filter((p: any) => p.option.id === o.id));
       expect(placed.map((ps: any[]) => ps.map((p) => p.sourceRowNumber - offset))).toEqual(EXPECTED_POSITIONS);
       expect(placed.map((ps: any[]) => ps.map((p) => p.pieceSequence))).toEqual(EXPECTED_POSITIONS.map((p) => p.map((_, i) => i + 1)));
       expect(placed.map((ps: any[]) => ps.map((p) => p.normalizedShape))).toEqual(SARIN_PINK_LAYOUT.map((s) => s.pieces.map((p) => p.shape)));
-      // Best Twin: stored absolute difference, advisory only where it is not zero.
       const twins = own.filter((o: any) => o.kind === "BT");
       expect(twins.map((o: any) => [o.pairWeightDifference, o.advisory])).toEqual([
         ["0.000", null], ["0.001", "BT_WEIGHT_VARIANCE_UNCONFIRMED"], ["0.004", "BT_WEIGHT_VARIANCE_UNCONFIRMED"], ["0.000", null], ["0.000", null], ["0.002", "BT_WEIGHT_VARIANCE_UNCONFIRMED"],
@@ -295,17 +269,14 @@ describe("sarin pink: valid stones become 27 options of 45 pieces", () => {
       expect(own.filter((o: any) => o.kind !== "BT").every((o: any) => o.pairWeightDifference === null && o.advisory === null)).toBe(true);
     }
     expect(pieces.map((p: any) => p.outputRow)).toEqual(Array.from({ length: 90 }, (_, i) => i + 1));
-    // Original Sarin shape kept; three-decimal weights.
     expect([pieces[9].rawShape, pieces[9].normalizedShape, pieces[9].estimatedWeight, pieces[9].ratio]).toEqual(["EMERALD 4STEP", "Asscher", "1.030", "1.000"]);
 
-    // Yields: stored at ten places, displayed half-up at two. Rough 4.000 then 3.000.
     const y = (stone: number, seq: number) => options.find((o: any) => o.stone.sequence === stone && o.optionSequence === seq);
     expect([y(1, 1).totalEstimatedWeight, y(1, 1).yield]).toEqual(["1.000", { numerator: "1.000", denominator: "4.000", percent: "25.0000000000", display: "25.00" }]);
     expect([y(1, 2).totalEstimatedWeight, y(1, 2).yield.percent, y(1, 2).yield.display]).toEqual(["1.200", "30.0000000000", "30.00"]);
-    expect([y(1, 21).totalEstimatedWeight, y(1, 21).yield.percent, y(1, 21).yield.display]).toEqual(["1.301", "32.5250000000", "32.53"]); // half-up
+    expect([y(1, 21).totalEstimatedWeight, y(1, 21).yield.percent, y(1, 21).yield.display]).toEqual(["1.301", "32.5250000000", "32.53"]);
     expect([y(2, 1).yield.denominator, y(2, 1).yield.percent, y(2, 1).yield.display]).toEqual(["3.000", "33.3333333333", "33.33"]);
     expect([y(2, 3).totalEstimatedWeight, y(2, 3).yield.percent, y(2, 3).yield.display]).toEqual(["1.010", "33.6666666667", "33.67"]);
-    // Responses carry results, not the calculation behind them.
     expect(/numerator \/|\* 100|SUM\(|SELECT|round\(/i.test(JSON.stringify(options))).toBe(false);
   });
 
@@ -319,16 +290,15 @@ describe("sarin pink: valid stones become 27 options of 45 pieces", () => {
   });
 });
 
-// =========================================================================================
 describe("sarin pink: blocking structure findings", () => {
   test("MK/SL candidate mismatch, non-Round remainder, wrong MK, BP and BT shapes are each blocking", async () => {
     let recs = pinkStone(`${kapan()}-111_M`);
-    recs = withAt(recs, 3, { shape: "PEAR", ratio: "1.500" }); // SL remainder must be Round
-    recs = withAt(recs, 5, { est: "1.011" }); // Pear SL primary: another candidate's weight
-    recs = withAt(recs, 8, { clarity: "VS2" }); // Oval SL primary: another candidate's clarity
-    recs = withAt(recs, 16, { shape: "HEART", ratio: "0.950" }); // Radiant MK holds a Heart
-    recs = withAt(recs, 29, { shape: "OVAL", ratio: "1.350" }); // BP Emerald + Round holds an Oval
-    recs = withAt(recs, 37, { shape: "ROUND", ratio: "1.000" }); // Oval twin holds a Round
+    recs = withAt(recs, 3, { shape: "PEAR", ratio: "1.500" });
+    recs = withAt(recs, 5, { est: "1.011" });
+    recs = withAt(recs, 8, { clarity: "VS2" });
+    recs = withAt(recs, 16, { shape: "HEART", ratio: "0.950" });
+    recs = withAt(recs, 29, { shape: "OVAL", ratio: "1.350" });
+    recs = withAt(recs, 37, { shape: "ROUND", ratio: "1.000" });
     const batchId = await uploadBatch(file(recs));
     expect((await validate(batchId)).json.batch.status).toBe("NEEDS_REVIEW");
     expect(await pinkFindings(batchId)).toEqual([
@@ -391,7 +361,7 @@ describe("sarin pink: blocking structure findings", () => {
       expect([label, (await generate(batchId)).status]).toEqual([label, 422]);
     }
     const zero = await db.sarinStoneBlock.findFirstOrThrow({ where: { batch: { sourceFile: { originalFileName: "pink.csv" } }, roughWeight: null } });
-    expect(zero.roughWeight).toBe(null); // no Rough Weight is ever guessed
+    expect(zero.roughWeight).toBe(null);
   });
 
   test("a non-Pink Stone Name and a repeated stone identity are blocking", async () => {
@@ -410,7 +380,6 @@ describe("sarin pink: blocking structure findings", () => {
   });
 });
 
-// =========================================================================================
 describe("sarin pink: EMERALD 4STEP needs a client-confirmed rule", () => {
   test("without a rule, Asscher and Emerald positions stay unresolved and output is refused", async () => {
     const batchId = await uploadBatch(file(pinkStone(`${kapan()}-111_M`)));
@@ -419,10 +388,8 @@ describe("sarin pink: EMERALD 4STEP needs a client-confirmed rule", () => {
     const interp = (await read(listInterpretations, { batchId }, "?pageSize=500")).json.rows;
     const emerald4 = interp.filter((r: any) => r.rawShape === "EMERALD 4STEP");
     expect(emerald4.map((r: any) => r.sourceRowNumber)).toEqual([10, 11, 13, 14, 28, 32, 38, 39]);
-    expect(emerald4.every((r: any) => r.mappingResult === "UNMAPPED" && r.normalizedShape === null)).toBe(true); // never defaulted
+    expect(emerald4.every((r: any) => r.mappingResult === "UNMAPPED" && r.normalizedShape === null)).toBe(true);
     const codes = (await findings(batchId)).filter((i) => i.sourceRowNumber === 10).map((i) => i.code);
-    // One finding per record: Pink's positional contract needs a confirmed shape, so the
-    // unmapped shape blocks; the plan-level consequence is not recorded a second time.
     expect(codes).toEqual(["SHAPE_UNMAPPED"]);
     const refused = await generate(batchId);
     expect([refused.status, refused.json.error.code]).toEqual([422, "BLOCKING_FINDINGS_OPEN"]);
@@ -437,13 +404,11 @@ describe("sarin pink: EMERALD 4STEP needs a client-confirmed rule", () => {
   });
 
   test("no production EMERALD 4STEP rule is seeded", async () => {
-    // The migration-seeded baseline is built from the confirmed shape master only.
     const baseline = await db.sarinShapeMappingSet.findUniqueOrThrow({ where: { sourceSystem_version: { sourceSystem: "SARIN", version: 1 } }, select: { id: true } });
     expect(await db.sarinShapeMappingRule.count({ where: { mappingSetId: baseline.id, rawShapeKey: "EMERALD 4STEP" } })).toBe(0);
   });
 });
 
-// =========================================================================================
 describe("sarin pink: idempotency, concurrency and rollback", () => {
   const manyStones = (count: number) => {
     const k = kapan();
@@ -480,7 +445,6 @@ describe("sarin pink: idempotency, concurrency and rollback", () => {
     await db.$executeRawUnsafe(`CREATE TRIGGER test_inject_pink_failure BEFORE INSERT ON "SarinPlanPiece" FOR EACH ROW EXECUTE FUNCTION test_inject_pink_failure()`);
     let failure: any;
     try {
-      // One stone per round: two stones are written before the failure in the third.
       failure = await generateSarinOutput(serviceActor(), batchId, {}, { ...SARIN_OUTPUT_CONFIG, writeBatch: 1 }).catch((e) => e);
     } finally {
       await db.$executeRawUnsafe(`DROP TRIGGER IF EXISTS test_inject_pink_failure ON "SarinPlanPiece"`);
@@ -494,7 +458,6 @@ describe("sarin pink: idempotency, concurrency and rollback", () => {
   });
 });
 
-// =========================================================================================
 describe("sarin pink: database integrity", () => {
   test("the database refuses wrong Pink counts, Blue/White kinds and a wrong twin difference", async () => {
     const batchId = await validatedBatch(pinkStone(`${kapan()}-111_M`));
@@ -515,7 +478,6 @@ describe("sarin pink: database integrity", () => {
         await tx.sarinPlanOption.create({ data: option(v.id, { optionKind: "MAIN", mainOrdinal: 1, pieceCount: 1, lastOutputRow: 1, pairWeightDifference: null, totalEstimatedWeight: "0.550", yieldNumerator: "0.550", yieldPercent: "13.75" }) });
       }),
     ).rejects.toThrow(/packet type/);
-    // Twins at positions 36 and 37 weigh 0.550 and 0.551: a recorded 0.000 is refused.
     const rows = await db.sarinSourceRow.findMany({ where: { batchId, sourceRowNumber: { in: [36, 37] } }, orderBy: { sourceRowNumber: "asc" } });
     const interp = await db.sarinRowInterpretation.findMany({ where: { attemptId: attempt.id, sourceRowNumber: { in: [36, 37] } }, orderBy: { sourceRowNumber: "asc" } });
     await expect(
@@ -537,7 +499,6 @@ describe("sarin pink: database integrity", () => {
   });
 });
 
-// =========================================================================================
 describe("sarin pink: authorization, scope and safe responses", () => {
   test("validation and generation need their own permissions; previews need sarin.import.read", async () => {
     const batchId = await uploadBatch(file(pinkStone(`${kapan()}-111_M`)));
@@ -552,7 +513,6 @@ describe("sarin pink: authorization, scope and safe responses", () => {
       expect((await read(h, params, "", planningViewer.cookie)).status).toBe(200);
       expect((await read(h, params, "", viewer.cookie)).status).toBe(403);
     }
-    // Client-supplied actor, plan codes or yields are refused.
     for (const body of [{ userId: "x" }, { options: [{ kind: "MK" }] }, { yieldPercent: "99" }]) expect((await generate(batchId, planner.cookie, body)).status).toBe(400);
     expect((await read(listOptions, { batchId, versionId }, "?kind=XX")).status).toBe(400);
   });

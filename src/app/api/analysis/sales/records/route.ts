@@ -5,15 +5,6 @@ import { getSupportingRecords, resolveSalesSnapshot } from "@/lib/analytics/sale
 import { assertRequestedWindow, parseSalesFilters, parseSalesPaging, parseSort } from "@/lib/analytics/sales-history-request";
 import { withSalesScope } from "@/lib/analytics/sales-history";
 
-/**
- * Sales Analysis — the exact confirmed sale records behind a selected aggregate.
- *
- * Allowlisted business fields only. A raw Fantasy payload, a stored exclusion reason, a
- * free-text remark, an internal rule identifier and a calculation formula are all absent
- * by construction: the read service selects named columns and nothing else.
- *
- * Customer code and name are attached only for a principal holding customers.read.
- */
 export const GET = withApi({ permission: "sales.read", scoped: true }, async (req: Request, _ctx, api) => {
   const url = new URL(req.url);
   const snapshot = await resolveSalesSnapshot();

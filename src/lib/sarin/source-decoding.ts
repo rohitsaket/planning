@@ -1,16 +1,3 @@
-/**
- * Turns uploaded bytes into physical lines, refusing anything that is not a plain UTF-8
- * text file. The bytes themselves are never altered: this module only reads them, so the
- * stored content and its SHA-256 are exactly what was uploaded.
- *
- * Line rule, deterministic for CRLF, LF and any mix of the two: a record ends at LF, and
- * one CR immediately before that LF belongs to the terminator. A CR anywhere else is
- * refused, because it would make the record boundary depend on the reader. A single
- * terminator at the very end of the file does not open another record.
- *
- * Server-only.
- */
-
 import { ApiError } from "@/lib/api/errors";
 import type { SarinIngestionLimits } from "@/lib/sarin/ingestion-config";
 
@@ -18,7 +5,6 @@ if (typeof window !== "undefined") {
   throw new Error("sarin/source-decoding is server-only and must not be imported by client code.");
 }
 
-/** A refusal that is the uploader's to fix. The code is stable; the message is fixed text. */
 export class SarinUploadRejection extends ApiError {
   constructor(status: 400 | 411 | 413, code: string, message: string) {
     super(status, code, message);
@@ -27,7 +13,6 @@ export class SarinUploadRejection extends ApiError {
 
 const reject = (code: string, message: string) => new SarinUploadRejection(400, code, message);
 
-// Payloads that are recognisably not text, whatever the file is called.
 const SIGNATURES: Array<{ bytes: number[]; label: string }> = [
   { bytes: [0x50, 0x4b, 0x03, 0x04], label: "a ZIP or Excel archive" },
   { bytes: [0x50, 0x4b, 0x05, 0x06], label: "a ZIP or Excel archive" },
@@ -41,12 +26,10 @@ const SIGNATURES: Array<{ bytes: number[]; label: string }> = [
 const UTF8_BOM = [0xef, 0xbb, 0xbf];
 const startsWith = (b: Uint8Array, sig: number[]) => sig.every((v, i) => b[i] === v);
 
-// C0 controls other than TAB, LF and CR, plus DEL. Plain CSV text never contains them.
 const CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/;
 
 export interface DecodedSource {
   readonly encoding: "UTF-8" | "UTF-8-BOM";
-  /** Physical lines without their terminators, in file order. Line n is record n. */
   readonly lines: string[];
 }
 

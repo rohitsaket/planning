@@ -1,11 +1,3 @@
-// Encrypts a secret for storage in .env as an `enc:v1:` envelope (AES-256-GCM under SECRETS_KEY).
-// The plaintext is read from the SECRET_VALUE environment variable or from a file, never from
-// the command line, and is never echoed back.
-//
-// Usage:
-//   SECRET_VALUE='…' npx tsx --env-file-if-exists=.env scripts/encrypt-secret.ts
-//   npx tsx --env-file-if-exists=.env scripts/encrypt-secret.ts --file /path/to/plaintext.txt
-//   npx tsx scripts/encrypt-secret.ts --new-key        # prints a fresh SECRETS_KEY
 import { readFileSync } from "node:fs";
 import { encryptSecret, generateSecretsKey } from "../src/lib/security/secrets";
 

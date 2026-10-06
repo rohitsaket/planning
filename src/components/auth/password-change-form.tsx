@@ -9,28 +9,15 @@ import { PASSWORD_MAX_LENGTH, PASSWORD_REQUIREMENTS, passwordChangeProblems, typ
 
 type Field = keyof PasswordChangeInput;
 
-/**
- * Replaces the signed-in user's password through /api/auth/password. The server verifies the
- * current (or temporary) password, enforces the policy and rotates the session; the checks
- * here only explain a mistake before the request is sent.
- *
- * Passwords live only in this component's state for as long as the form is open. They are
- * never written to storage, the URL or the console, and are cleared as soon as a request
- * finishes.
- */
 export function PasswordChangeForm({
   username,
   temporary,
   onChanged,
   actions,
 }: {
-  /** The signed-in account, so a password manager saves the new password against it. */
   username: string;
-  /** True when the account is on a temporary password that must be replaced. */
   temporary: boolean;
-  /** Called after the server has accepted the change and issued the new session. */
   onChanged: () => void | Promise<void>;
-  /** Extra buttons shown next to the submit button (Cancel, Sign out). */
   actions?: React.ReactNode;
 }) {
   const [values, setValues] = useState<Record<Field, string>>({ current: "", next: "", confirm: "" });
@@ -64,7 +51,6 @@ export function PasswordChangeForm({
       });
       if (!res.ok) {
         const data = await res.json().catch(() => null);
-        // Server messages for this route name the rule that failed, never a password.
         if (res.status === 400 && data?.error?.code === "BAD_REQUEST") setError(data.error.message);
         else if (res.status === 400) setError("The new password does not meet the requirements.");
         else if (res.status === 429) setError("Too many attempts. Try again shortly.");

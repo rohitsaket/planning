@@ -10,16 +10,6 @@ import { DataTable, type Column } from "@/components/diamond/shared/data-table";
 import { NumberCell } from "@/components/diamond/shared/empty-state";
 import { isInventoryBucket } from "@/lib/analysis/bucket-vocabulary";
 
-/**
- * Where current stock sits, by inventory bucket and by location — the part of the former
- * Aging Dashboard that Stock Aging did not already show. It reads the same aging service
- * and holds no arithmetic of its own; the lot counts and quantities above it belong to
- * Stock Aging, so they are not repeated here.
- *
- * Because the aging date is unconfirmed, this groups by what is actually known — bucket
- * and location — rather than by age bands that do not exist.
- */
-
 interface DistributionRow {
   key: string;
   label: string;
@@ -62,7 +52,6 @@ export function AgingSummary() {
         <button
           type="button"
           className="text-left font-medium text-primary hover:underline"
-          // The typed bucket field is the vocabulary Stock Aging and its API accept.
           onClick={() => openCategoryView("analysis-aging", { bucket: isInventoryBucket(r.key) ? r.key : null })}
           title={r.label}
         >

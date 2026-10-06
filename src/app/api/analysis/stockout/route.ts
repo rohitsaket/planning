@@ -19,22 +19,6 @@ import {
 } from "@/lib/analysis/stockout";
 import { describeScope, describeScopeApplication, type EffectiveScope } from "@/lib/auth/access-scope";
 
-/**
- * STOCKOUT RISK — one bounded read endpoint.
- *
- * Replaces a route that read `ForecastPrediction` rows, subtracted a prediction from the
- * latest run's available stock inside the handler, and labelled the result CRITICAL /
- * HIGH / MEDIUM. None of that was a shortage: it was a forecast projection with an
- * invented risk ranking, and it disagreed with Demand Overview by construction.
- *
- * This route reports the shortage the approved demand engine already calculated and
- * persisted. It computes nothing, and it writes nothing — opening the page never repairs
- * or recalculates a run.
- *
- * Every field is mapped explicitly. No rule identifier, mapping fingerprint, batch id,
- * checkpoint, source-policy name or formula reaches the browser.
- */
-
 const SECTIONS = ["status", "categories", "detail"] as const;
 
 export const GET = withApi(
@@ -43,7 +27,6 @@ export const GET = withApi(
   const url = new URL(req.url);
   const section = qEnum(url, "section", SECTIONS, "status");
 
-  // A bookmarked link carries its run. Absent, the authoritative selector chooses.
   const requestedRunId = qStr(url, "runId", 64);
 
   const status = await readStockoutSnapshotStatus(undefined, requestedRunId);
@@ -53,7 +36,6 @@ export const GET = withApi(
   }
 
   if (!status.hasRun || !status.runId) {
-    // A state, not an empty table of zeros.
     return ok({
       section,
       available: false,
@@ -89,10 +71,6 @@ export const GET = withApi(
     runId: status.runId,
     unavailableMessage: null,
     activeFilters: describeFilters(filters),
-    // Only the lab half of the caller's scope can be applied here: the persisted demand
-    // result has no country column, because the target is calculated once per planning
-    // category for the whole business. Saying so is the alternative to letting a
-    // country-restricted caller read a business-wide figure as if it were their own.
     accessScope: describeScope(scope),
     scopeApplication: describeScopeApplication(scope, ["LAB"]),
     ...result,
@@ -100,7 +78,6 @@ export const GET = withApi(
   },
 );
 
-/** Every filter the stored result can actually honour. Unknown values are refused. */
 export function parseFilters(url: URL, scope: EffectiveScope): StockoutFilters {
   const state = qStr(url, "stockoutState", 40);
   if (state && !(STOCKOUT_STATES as readonly string[]).includes(state)) {
@@ -113,8 +90,6 @@ export function parseFilters(url: URL, scope: EffectiveScope): StockoutFilters {
 
   return {
     ...EMPTY_STOCKOUT_FILTERS,
-    // A required argument rather than a default: a route that forgets the caller's
-    // scope must fail to compile, not quietly serve the whole business.
     scope,
     lab: qStr(url, "lab", 60),
     shape: qStr(url, "shape", 60),
@@ -122,18 +97,10 @@ export function parseFilters(url: URL, scope: EffectiveScope): StockoutFilters {
     stockoutState: (state as StockoutState | null) ?? null,
     dataState: (dataState as StockoutDataState | null) ?? null,
     search: qStr(url, "search", 120),
-    // The page's purpose is categories that are short; the caller may widen it.
     shortageOnly: qStr(url, "shortageOnly", 10) !== "false",
   };
 }
 
-/**
- * The filters the caller chose, echoed back so the page can show them.
- *
- * `scope` is excluded: it is an authorization decision rather than something the
- * caller selected, and listing it as an active filter would invite an attempt to
- * clear it. The caller's own scope is disclosed separately and in full.
- */
 export function describeFilters(f: StockoutFilters): Array<{ key: string; value: string }> {
   return Object.entries(f)
     .filter(([key, v]) => key !== "scope" && v !== null && v !== "" && v !== false)

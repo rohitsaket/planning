@@ -14,7 +14,6 @@ import { resolveNumericEnv } from "@/lib/config/numeric-env";
 const MAX_JSON_BYTES = 64 * 1024;
 const DEFAULT_READ_LIMIT: RateLimit = { limit: 300, windowMs: 60_000 };
 const DEFAULT_WRITE_LIMIT: RateLimit = { limit: 60, windowMs: 60_000 };
-// Request fields that look like caller identity. They are never trusted; seeing one is logged.
 const IDENTITY_FIELDS = ["actor", "approver", "approvedBy", "reservedBy", "createdBy", "updatedBy", "userId", "allocatedBy"];
 
 type DbClient = Prisma.TransactionClient | typeof db;
@@ -26,9 +25,7 @@ export interface AuditInput {
   before?: unknown;
   after?: unknown;
   reason?: string | null;
-  /** Defaults to SUCCESS. DENIED records a refused sensitive attempt. */
   outcome?: "SUCCESS" | "DENIED" | "FAILED";
-  /** SECURITY for access changes, OPERATIONAL for everything else. */
   category?: "SECURITY" | "OPERATIONAL";
 }
 
@@ -38,15 +35,7 @@ export interface ApiContext<B> {
   url: URL;
   requestId: string;
   sourceIp: string | null;
-  /**
-   * The countries and labs this caller may see, from their session.
-   *
-   * On a route declared `scoped`, the wrapper has already refused a request that asked
-   * for a value outside it, so what remains for the handler is to pass this to the read
-   * service, which narrows the query itself. On an unscoped route it is unrestricted.
-   */
   scope: EffectiveScope;
-  // Writes an audit row whose actor is always the authenticated principal.
   audit: (client: DbClient, input: AuditInput) => Promise<void>;
 }
 
@@ -54,52 +43,26 @@ type RouteCtx<P> = { params: Promise<P> };
 type Handler<P, B> = (req: Request, routeCtx: RouteCtx<P>, api: ApiContext<B>) => Promise<Response> | Response;
 
 interface Options<B> {
-  // Exactly one of `permission`, `authenticated` or `public` must be given — there is no implicit default.
   permission?: Permission;
-  authenticated?: true; // any signed-in user (own-session endpoints only)
+  authenticated?: true;
   public?: true;
   body?: ZodType<B>;
   rateLimit?: RateLimit;
-  /**
-   * Reachable while the account is on a temporary password. Only the three endpoints a
-   * restricted session legitimately needs set this: own identity, password change and
-   * logout. Everything else is refused until the password is changed, so a temporary
-   * credential cannot be used to work in the application.
-   */
   allowPasswordChangeSession?: true;
-  /**
-   * Country and lab scope applies to this route.
-   *
-   * The wrapper reads the `country` and `lab` query parameters and refuses the request
-   * with 403 when either names a value the caller is not authorized for. It does NOT
-   * narrow the query — that happens in the read service, which is the only place that
-   * knows which column holds the country — so a scoped route must also pass
-   * `api.scope` into the filters it builds. The scope test suite asserts both halves for
-   * every route that declares this.
-   */
   scoped?: true;
-  /**
-   * The complete list of query parameters this route reads. A request carrying any other
-   * parameter, or any parameter more than once, is refused with 400 before the handler
-   * runs, so a caller cannot pass a value the handler would silently ignore or read
-   * differently from the scope check.
-   */
   query?: readonly string[];
 }
 
-// Re-exported for the route handlers that already import it from here. The definition
-// lives in its own module so a client-safe module can log without pulling this one in.
 export { log };
 
 export function clientIp(req: Request): string | null {
-  // Forwarded headers are only meaningful behind our own proxy, which overwrites them.
   if (process.env.TRUST_PROXY !== "true") return null;
   return req.headers.get("x-real-ip") || req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || null;
 }
 
 function sameOrigin(req: Request): boolean {
   const origin = req.headers.get("origin");
-  if (!origin) return true; // non-browser client; SameSite=Lax already blocks cross-site cookie use
+  if (!origin) return true;
   const allowed = (process.env.ALLOWED_ORIGINS || "").split(",").map((s) => s.trim()).filter(Boolean);
   if (allowed.includes(origin)) return true;
   try {
@@ -123,7 +86,6 @@ async function readJson(req: Request): Promise<unknown> {
   }
 }
 
-/** Missing table (P2021, SQLSTATE 42P01) or column (P2022, 42703): the schema is behind the code. */
 function isSchemaBehindCode(e: unknown): boolean {
   if (!(e instanceof Prisma.PrismaClientKnownRequestError)) return false;
   if (e.code === "P2021" || e.code === "P2022") return true;
@@ -152,8 +114,6 @@ function errorResponse(e: unknown, requestId: string, route: string, userId: str
     code = "CONFLICT";
     message = "The record changed or already exists. Reload and try again.";
   } else if (isSchemaBehindCode(e)) {
-    // The database is missing a table or column this build uses: its migrations have not
-    // been applied. Retrying cannot help, and the table name is not the caller's business.
     status = 503;
     code = "DATABASE_NOT_READY";
     message = "This feature is not available until its database update is applied. Ask an administrator to apply the pending database migrations.";
@@ -168,11 +128,6 @@ function errorResponse(e: unknown, requestId: string, route: string, userId: str
   return NextResponse.json({ error: { code, message, requestId, ...(status < 500 && details ? { details } : {}) } }, { status, headers });
 }
 
-/**
- * Wraps every API handler: authentication → authorization → rate limit → origin check →
- * body validation → handler → uniform error mapping. Deny by default: a handler that
- * declares neither `permission` nor `public` fails at module load.
- */
 export function withApi<P = Record<string, never>, B = undefined>(opts: Options<B>, handler: Handler<P, B>) {
   if ([opts.permission, opts.authenticated, opts.public].filter(Boolean).length !== 1) {
     throw new Error("withApi: declare exactly one of `permission`, `authenticated` or `public`.");
@@ -189,19 +144,12 @@ export function withApi<P = Record<string, never>, B = undefined>(opts: Options<
       if (!opts.public) {
         principal = await resolvePrincipal(req);
         if (!principal) throw unauthenticated();
-        // A session on a temporary password is restricted before any permission is even
-        // considered: holding a permission does not let it act.
         if (principal.mustChangePassword && !opts.allowPasswordChangeSession) {
           throw forbidden("A password change is required before this account can be used.");
         }
         if (opts.permission && !principal.permissions.includes(opts.permission)) throw forbidden();
         if (opts.query) assertQueryShape(url, opts.query);
-        // A request for a country or lab outside the caller's scope is refused rather
-        // than quietly narrowed: asking for data and receiving someone else's idea of
-        // what you meant is worse than being told no.
         if (opts.scoped) {
-          // The check below and the handler must read the same value. A repeated country or
-          // lab leaves "which one" to each reader, so it is refused rather than resolved.
           for (const name of ["country", "lab"]) {
             if (url.searchParams.getAll(name).length > 1) throw badRequest(`Query parameter '${name}' may be given only once.`);
           }
@@ -257,8 +205,6 @@ export function withApi<P = Record<string, never>, B = undefined>(opts: Options<
         url,
         requestId,
         sourceIp,
-        // A public route has no principal and therefore no scope. It also has no
-        // business reading scoped data, so unrestricted here is not a widening.
         scope: p?.scope ?? UNRESTRICTED_SCOPE,
         audit,
       });
@@ -271,11 +217,9 @@ export function withApi<P = Record<string, never>, B = undefined>(opts: Options<
   };
 }
 
-// ---------- query-string validation helpers ----------
 function assertQueryShape(url: URL, allowed: readonly string[]): void {
   const seen = new Set<string>();
   for (const name of url.searchParams.keys()) {
-    // The name is not echoed: it is caller-supplied text.
     if (!allowed.includes(name)) throw badRequest("The request has a query parameter this endpoint does not accept.");
     if (seen.has(name)) throw badRequest(`Query parameter '${name}' may be given only once.`);
     seen.add(name);
@@ -305,16 +249,8 @@ export function qEnum<T extends string>(url: URL, name: string, values: readonly
   return raw as T;
 }
 
-// Bounded list access. Response shape stays { rows, ... } with paging metadata added.
-//
-// Each ceiling is validated: an unreadable value resolves to the built-in default rather
-// than to NaN, because a NaN ceiling makes every `Math.min` clamp below it evaluate to
-// NaN and every `>` comparison against it false — which is a bound that does not bind.
 export const PAGE_DEFAULT = resolveNumericEnv("API_PAGE_DEFAULT", { fallback: 500, max: 10_000 }).value;
 export const PAGE_MAX = resolveNumericEnv("API_PAGE_MAX", { fallback: 2000, max: 10_000 }).value;
-// Hard ceiling for routes that aggregate rows in memory. Queries fetch SCAN_MAX + 1 rows and pass
-// the result through scanned(): exceeding the ceiling is an explicit error, never a silently
-// truncated total (security hardening must not change business numbers).
 const SCAN_LIMIT = resolveNumericEnv("API_SCAN_MAX", { fallback: 50_000, max: 1_000_000 }).value;
 export const SCAN_MAX = SCAN_LIMIT + 1;
 

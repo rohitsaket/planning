@@ -1,20 +1,3 @@
-/**
- * FANTASY RAW INGESTION (Phase 3A) — PERSISTENCE, IDEMPOTENCY, DRY-RUN, QUARANTINE
- *
- * Runs against the isolated security-test database only (planning_sectest).
- *
- * Proves: supported scalars round-trip exactly; keyed API rows keep their own field
- * names and their unknown fields; supplied header states stay distinguishable; hashes
- * are deterministic, content-derived and encoding-version-tagged; V1 payloads stay
- * readable and are never rewritten; exact replay is idempotent under concurrency;
- * concurrent submissions sharing a provider batch id but differing in content produce
- * exactly one original and the rest as conflicts; a failure inside the transaction
- * leaves nothing behind; dry run writes nothing; diagnostics carry no source values;
- * and no canonical operational table is touched.
- *
- * Usage: npm run test:fantasy-raw
- */
-
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { db } from "../src/lib/db";
@@ -22,10 +5,6 @@ import { SECTEST_DB } from "../tests/security/test-db";
 import { proveDisposableDatabase } from "../src/lib/fantasy/database-environment";
 import type { RawIngestionProvenance } from "../src/lib/fantasy/raw-ingestion";
 
-/**
- * Provenance for every batch these tests ingest. Ingestion requires it: a batch stored
- * without it could never be traced to the source state that produced it.
- */
 const FIXTURE_PROVENANCE: RawIngestionProvenance = {
   effectiveSourceState: "FIXTURE_SIMULATION",
   providerId: "fixture-raw-test",
@@ -63,7 +42,6 @@ import {
 } from "../src/lib/fantasy/raw-ingestion";
 
 const url = process.env.DATABASE_URL ?? "";
-// Loopback host, an approved isolated test database, no production or staging marker.
 if (!proveDisposableDatabase(url).proven) {
   console.error(`REFUSING TO RUN: DATABASE_URL must point at the isolated ${SECTEST_DB} database.`);
   process.exit(1);
@@ -94,7 +72,6 @@ function row(overrides: Record<string, unknown> = {}): unknown[] {
   return HEADERS.map((h) => (h in overrides ? overrides[h] : `v:${h}`));
 }
 
-/** A keyed API-shaped row: contract headers as property names, plus any extra fields. */
 function keyedRow(overrides: Record<string, unknown> = {}, extras: Record<string, unknown> = {}): Record<string, unknown> {
   const record: Record<string, unknown> = {};
   for (const h of HEADERS) record[h] = h in overrides ? overrides[h] : `v:${h}`;
@@ -115,7 +92,6 @@ function makeBatch(rows: FantasySourceRow[], overrides: Partial<FantasySourceBat
   };
 }
 
-/** Canonical tables that Phase 3A must never write to. */
 async function canonicalSnapshot() {
   const [
     lotMaster, lotHistory, polished, rough, sales, memo, requirements, plans, planPieces,
@@ -138,10 +114,6 @@ async function main() {
   console.log("FANTASY RAW INGESTION (Phase 3A) — SAFETY, PERSISTENCE & IDEMPOTENCY SUITE");
   console.log("===============================================================================");
 
-  // Scoped to this suite's own batches. A blanket delete would now fail anyway: raw rows
-  // cited by a projection candidate are protected by ON DELETE RESTRICT, which is the
-  // point of that constraint — the evidence behind a projection outlives it. Deleting
-  // another suite's rows was never this suite's business.
   const ownBatches = await db.fantasyRawBatch.findMany({
     where: { OR: [{ providerBatchId: { startsWith: "RAW-TEST-" } }, { providerBatchId: "RAW-LEGACY-V1" }] },
     select: { id: true },
@@ -152,7 +124,6 @@ async function main() {
     await db.fantasyRawBatch.deleteMany({ where: { id: { in: ownBatchIds } } });
   }
 
-  // A checkpoint row so "checkpoints unchanged" is a meaningful assertion.
   await db.syncCheckpoint.upsert({
     where: { source: "FANTASY" },
     create: { source: "FANTASY", mode: "FIXTURE", currentCheckpoint: 3, lastBatchId: "PRE-EXISTING" },
@@ -161,9 +132,7 @@ async function main() {
 
   const before = await canonicalSnapshot();
 
-  // =========================================================================
   section("A. Encoding preserves supported scalars exactly");
-  // =========================================================================
   const cells: Array<[string, unknown]> = [
     ["undefined", undefined], ["null", null], ["empty string", ""], ["zero", 0], ["false", false],
     ["true", true], ["text", "ROUND"], ["negative", -1.5], ["leading-zero id", "0012345"],
@@ -190,9 +159,7 @@ async function main() {
     "An unsupported object's contents never reach the encoded payload",
   );
 
-  // =========================================================================
   section("B. Hashing is deterministic, content-derived and version-tagged");
-  // =========================================================================
   const v2 = { encodingVersion: FANTASY_RAW_ENCODING_V2, contractVersion: FANTASY_ROW_CONTRACT_V1 } as const;
   const rowsA = [row({ "Lot ID": "LOT-A" }), row({ "Lot ID": "LOT-B" })];
   const encodedHeadersA = encodeHeaders(HEADERS);
@@ -225,9 +192,7 @@ async function main() {
   const distinctHashes = new Set([keyedHashOf(undefined), keyedHashOf(null), keyedHashOf(""), keyedHashOf(0), keyedHashOf(false)]);
   assert(distinctHashes.size === 5, `Missing, null, empty, zero and false fingerprint differently (got ${distinctHashes.size}/5)`);
 
-  // =========================================================================
   section("C. Keyed source rows keep their own field names");
-  // =========================================================================
   assert(encodeSourceRow(keyedRow()).form === "KEYED", "A keyed provider row is encoded in keyed form");
   assert(encodeSourceRow(row()).form === "POSITIONAL", "A spreadsheet row is encoded in positional form");
 
@@ -271,9 +236,7 @@ async function main() {
     "A nested keyed object is kept only as its safe type name",
   );
 
-  // =========================================================================
   section("D. Supplied header states stay distinguishable");
-  // =========================================================================
   const headerStates: Array<[string, unknown]> = [
     ["valid string", "Lot ID"], ["empty string", ""], ["null", null], ["undefined", undefined],
     ["false", false], ["zero", 0], ["other number", 7], ["object", { a: 1 }], ["array", [1]],
@@ -304,9 +267,7 @@ async function main() {
     "The valid exact 46-header list still round-trips unchanged",
   );
 
-  // =========================================================================
   section("E. Encoding version compatibility");
-  // =========================================================================
   assert(FANTASY_RAW_ENCODING_CURRENT === FANTASY_RAW_ENCODING_V2, "New ingestion writes encoding V2");
   const namedVersions: string[] = [FANTASY_RAW_ENCODING_V1, FANTASY_RAW_ENCODING_V2];
   assert(new Set(namedVersions).size === 2, "The two encoding versions are explicitly and distinctly named");
@@ -354,7 +315,6 @@ async function main() {
   });
   assert(v1BatchFingerprint !== v2BatchFingerprint, "The same batch fingerprints differently under V1 and V2");
 
-  // A genuinely stored V1 record, to prove new ingestion never rewrites it.
   const legacyBatch = await db.fantasyRawBatch.create({
     data: {
       contractVersion: FANTASY_ROW_CONTRACT_V1,
@@ -382,9 +342,7 @@ async function main() {
   const readBackLegacy = decodeStoredSourceRow(legacyRow.rawPayloadJson, legacyRow.encodingVersion);
   assert(readBackLegacy.form === "POSITIONAL", "A V1 row read from the database decodes through its stored version tag");
 
-  // =========================================================================
   section("F. DRY_RUN writes nothing");
-  // =========================================================================
   const dryBefore = await canonicalSnapshot();
   const rawBefore = { batches: await db.fantasyRawBatch.count(), rows: await db.fantasyRawRow.count() };
 
@@ -406,9 +364,7 @@ async function main() {
   const dryRepeat = await ingestFantasyRawBatch(dryBatch, { mode: "DRY_RUN", db, provenance: FIXTURE_PROVENANCE });
   assert(dryRepeat.batchHash === dry.batchHash, "Dry run hashes are stable across repeated calls");
 
-  // =========================================================================
   section("G. PERSIST stores the batch and its raw rows");
-  // =========================================================================
   const persistBatch = makeBatch(
     [
       row({ "Lot ID": "  LOT-P-1  ", Remark: null, "Metal Color": "", Qty: 0, "On Hold": false, "Certificate No": "0012345" }),
@@ -467,9 +423,7 @@ async function main() {
   assert(decodeCell(record2.onHoldRaw) === "v:On Hold", "No hold interpretation occurs");
   assert(decodeCell(record2.quantityRaw) === "v:Qty", "No quantity interpretation occurs");
 
-  // =========================================================================
   section("H. PERSIST stores keyed API rows without flattening them");
-  // =========================================================================
   const keyedBatch = makeBatch([
     keyedRow(
       { "Lot ID": "LOT-KEYED-1", Remark: null, "Metal Color": "", Qty: 0, "On Hold": false },
@@ -496,7 +450,6 @@ async function main() {
   assert(Object.keys(keyedRecord).length === 46, "The normalized record holds exactly the 46 contract fields");
   assert(decodeCell(keyedRecord.lotId) === "LOT-KEYED-1", "The normalized record holds mapped contract fields only");
 
-  // Keyed insertion order must not change identity.
   const orderedBatchA = makeBatch([keyedRow({ "Lot ID": "LOT-ORDER-A" }, { Alpha: 1, Beta: 2 })]);
   const reversedFields = (() => {
     const original = orderedBatchA.rows[0] as Record<string, unknown>;
@@ -539,9 +492,7 @@ async function main() {
   assert(!JSON.stringify(keyedSecret).includes("KEYED-STORED-SECRET"), "A nested keyed object's contents never reach the result or its diagnostics");
   assert(!keyedSecret.batchHash.includes("KEYED-STORED-SECRET"), "A nested keyed object's contents never reach a fingerprint");
 
-  // =========================================================================
   section("I. Headers are persisted without collapsing");
-  // =========================================================================
   const oddHeaders: unknown[] = [...HEADERS];
   oddHeaders[10] = null;
   oddHeaders[11] = 0;
@@ -577,9 +528,7 @@ async function main() {
     "Header diagnostics stay value-safe for an invalid header object",
   );
 
-  // =========================================================================
   section("J. Idempotency and batch-id conflict");
-  // =========================================================================
   const replay = await ingestFantasyRawBatch(persistBatch, { mode: "PERSIST", db, provenance: FIXTURE_PROVENANCE });
   assert(replay.idempotentReplay === true, "An exact replay reports that it reused an existing ingestion");
   assert(replay.batchId === persisted.batchId, "An exact replay returns the original batch identifier");
@@ -612,14 +561,11 @@ async function main() {
     "A later replay of the original still returns the original",
   );
 
-  // Identity must not depend on Fantasy business fields.
   const sameLotDifferentBatch = makeBatch([row({ "Lot ID": "LOT-P-1", "Doc ID": "v:Doc ID" })]);
   const independent = await ingestFantasyRawBatch(sameLotDifferentBatch, { mode: "PERSIST", db, provenance: FIXTURE_PROVENANCE });
   assert(independent.batchId !== null && !independent.idempotentReplay, "Idempotency does not key on Lot ID or Doc ID");
 
-  // =========================================================================
   section("K. Concurrency is database-enforced");
-  // =========================================================================
   const concurrentBatch = makeBatch([row({ "Lot ID": "LOT-CONC-1" }), row({ "Lot ID": "LOT-CONC-2" })]);
   const [c1, c2] = await Promise.all([
     ingestFantasyRawBatch(concurrentBatch, { mode: "PERSIST", db, provenance: FIXTURE_PROVENANCE }),
@@ -636,7 +582,6 @@ async function main() {
     "Concurrent submissions do not duplicate rows",
   );
 
-  // Different payloads racing under one provider batch id, repeated at several widths.
   for (const width of [2, 3, 5]) {
     const sharedId = `RAW-RACE-${width}-${Date.now()}`;
     const variants = Array.from({ length: width }, (_, i) =>
@@ -676,9 +621,7 @@ async function main() {
     );
   }
 
-  // =========================================================================
   section("L. A failure inside the transaction leaves nothing behind");
-  // =========================================================================
   const failingBatchId = `RAW-ROLLBACK-${Date.now()}`;
   const rollbackBatch = makeBatch([row({ "Lot ID": "LOT-ROLLBACK" })], { batchId: failingBatchId });
   const failingDb: RawIngestionDb = {
@@ -689,7 +632,6 @@ async function main() {
             $executeRaw: (query: TemplateStringsArray, ...values: unknown[]) => tx.$executeRaw(query, ...values),
             fantasyRawBatch: tx.fantasyRawBatch as unknown as RawIngestionTx["fantasyRawBatch"],
             fantasyRawRow: {
-              // A real failure inside the transaction, after the batch row was inserted.
               createMany: () => Promise.reject(new Error("injected raw-row failure quoting LOT-ROLLBACK")),
             },
           }),
@@ -719,9 +661,7 @@ async function main() {
     "A failure inside the transaction leaves no partial rows",
   );
 
-  // =========================================================================
   section("M. Quarantine and structural rejection");
-  // =========================================================================
   const shortRow = row().slice(0, 40);
   const quarantineBatch = makeBatch([row({ "Lot ID": "LOT-Q-OK" }), shortRow]);
   const quarantined = await ingestFantasyRawBatch(quarantineBatch, { mode: "PERSIST", db, provenance: FIXTURE_PROVENANCE });
@@ -766,9 +706,7 @@ async function main() {
     "The unsupported version is reported by code",
   );
 
-  // =========================================================================
   section("N. Diagnostics contain no source values");
-  // =========================================================================
   const sensitiveBatch = makeBatch([
     row({
       "Lot ID": "",
@@ -796,9 +734,7 @@ async function main() {
   assert(!JSON.stringify(sensitiveBatchRow).includes("CURSOR-TOKEN-SECRET"), "The raw cursor token is never stored");
   assert(!JSON.stringify(sensitive).includes("CONFIDENTIAL-REMARK"), "The service result carries no raw payload");
 
-  // =========================================================================
   section("O. Canonical isolation and untouched V1 data");
-  // =========================================================================
   const after = await canonicalSnapshot();
   assert(JSON.stringify(after.counts) === JSON.stringify(before.counts), "No canonical operational table changed during ingestion");
   assert(JSON.stringify(after.checkpoints) === JSON.stringify(before.checkpoints), "Sync checkpoints are unchanged");
@@ -830,9 +766,7 @@ async function main() {
   assert(!/console\.(log|info|warn|error|debug)/.test(encodingSource), "The encoding module logs nothing");
   assert(!/String\(value\)/.test(encodingSource), "Unsupported values are never stringified");
 
-  // =========================================================================
   section("P. No browser or API exposure");
-  // =========================================================================
   const walk = (dir: string, acc: string[] = []): string[] => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, entry.name);
@@ -849,14 +783,10 @@ async function main() {
   const apiImporters = apiFiles.filter((f) => /raw-ingestion|raw-encoding|fantasyRawBatch|fantasyRawRow/.test(readFileSync(f, "utf8")));
   assert(apiImporters.length === 0, `No API route exposes raw ingestion${apiImporters.length ? `: ${apiImporters.join(", ")}` : ""}`);
 
-  // Exactly one module may touch the raw models: the ingestion service that writes them.
-  // (The shadow projection that once read them is retired.) Anything else reaching these
-  // tables would be a second, unreviewed path to raw source payloads.
   const libFiles = walk(path.join(process.cwd(), "src", "lib"));
   const otherRawUsers = libFiles.filter((f) => !/raw-ingestion\.ts$/.test(f) && /fantasyRawBatch|fantasyRawRow/.test(readFileSync(f, "utf8")));
   assert(otherRawUsers.length === 0, `Raw models are reachable only from the ingestion service${otherRawUsers.length ? `: ${otherRawUsers.join(", ")}` : ""}`);
 
-  // The ingestion service appends evidence; it never alters or removes a stored raw row.
   const ingestionCode = serviceSource.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
   const rawRewrites = /fantasyRawRow\s*\.\s*(update|updateMany|upsert|delete|deleteMany)\b/.test(ingestionCode);
   assert(!rawRewrites, "Stored raw rows are never updated or deleted by the ingestion service");

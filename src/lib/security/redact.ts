@@ -1,7 +1,3 @@
-// Log/error redaction. Any object passed through redact() has credential-looking keys masked,
-// and any string has bearer tokens / password= fragments masked, so an accidentally logged
-// request config or upstream error never carries a secret.
-
 const SENSITIVE_KEY = /^(authorization|proxy-authorization|cookie|set-cookie|password|passwd|pwd|secret|secrets?_key|api[-_]?key|access[-_]?token|refresh[-_]?token|id[-_]?token|token|client[-_]?secret|private[-_]?key|tokenenc)$/i;
 const BEARER = /bearer\s+[a-z0-9\-._~+/=]+/gi;
 const KV = /\b(password|passwd|pwd|secret|token|access_token|refresh_token|api[_-]?key)\s*[=:]\s*[^\s&;,"']+/gi;
@@ -25,7 +21,6 @@ export function redact<T>(value: T, depth = 0): T {
   return value;
 }
 
-/** Message of an unknown error, safe to log or return to a client. */
 export function safeErrorMessage(e: unknown, max = 300): string {
   const m = e instanceof Error ? e.message : String(e);
   return redactString(m).replace(/\s+/g, " ").slice(0, max);

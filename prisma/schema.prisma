@@ -1,8 +1,3 @@
-// ============================================================================
-// DIAMOND MANUFACTURING — ANALYSIS, REQUIREMENT, PLANNING & TRACEABILITY
-// Prisma schema (SQLite). Decimal-safe where weight/currency precision matters.
-// ============================================================================
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -12,9 +7,6 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ---------------------------------------------------------------------------
-// ORGANIZATION HIERARCHY
-// ---------------------------------------------------------------------------
 model Group {
   id        String     @id @default(cuid())
   code      String     @unique
@@ -62,9 +54,6 @@ model Office {
   createdAt  DateTime  @default(now())
 }
 
-// ---------------------------------------------------------------------------
-// FANTASY ERP — authoritative source-of-truth entities
-// ---------------------------------------------------------------------------
 model FantasyDepartment {
   id            String   @id @default(cuid())
   fantasyDeptId String   @unique
@@ -92,16 +81,13 @@ model FantasyLocation {
 model FantasyStatusMapping {
   id              String   @id @default(cuid())
   fantasyStatus   String   @unique
-  planningClass   String   // PHYSICAL | PLANNING_AVAILABLE | RESERVED | HOLD | TRANSFER | MEMO | OTHER
+  planningClass   String
   countsAvailable Boolean  @default(false)
   notes           String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 }
 
-// ---------------------------------------------------------------------------
-// CUSTOMERS & SALES
-// ---------------------------------------------------------------------------
 model Customer {
   id              String   @id @default(cuid())
   customerCode    String   @unique
@@ -109,7 +95,7 @@ model Customer {
   country         String
   branch          String
   accountOwner    String?
-  businessPriority String? // Strategic | Key | Standard | New | Internal
+  businessPriority String?
   priorityReason  String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -126,7 +112,7 @@ model SalesRecord {
   id            String   @id @default(cuid())
   lotId         String   @unique
   docDate       DateTime
-  lotStatusDb   String   // Invoice | Memo | Stock
+  lotStatusDb   String
   qty           Decimal  @default(1)
   shape         String
   weight        Decimal
@@ -137,7 +123,7 @@ model SalesRecord {
   labRaw        String?
   labNormalized String?
   certificate   String?
-  treatment     String? // HPHT | CVD | NULL
+  treatment     String?
   saleTotalUsd  Decimal?
   customerId    String
   customer      Customer @relation(fields: [customerId], references: [id])
@@ -166,7 +152,7 @@ model MemoRecord {
   clarity       String?
   treatment     String?
   memoValueUsd  Decimal?
-  status        String   @default("OPEN") // OPEN | RETURNED | INVOICED
+  status        String   @default("OPEN")
   memoAgeDays   Int?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -186,8 +172,8 @@ model SalesOrder {
   promisedDate  DateTime?
   branch        String
   country       String
-  status        String   @default("OPEN") // OPEN | PARTIAL | FULFILLED | CANCELLED
-  priority      String   @default("NORMAL") // CRITICAL | HIGH | NORMAL | LOW | WATCH
+  status        String   @default("OPEN")
+  priority      String   @default("NORMAL")
   priorityReason String?
   notes         String?
   lines         SalesOrderLine[]
@@ -220,9 +206,6 @@ model SalesOrderLine {
   createdAt      DateTime @default(now())
 }
 
-// ---------------------------------------------------------------------------
-// POLISHED & ROUGH INVENTORY (Fantasy authoritative)
-// ---------------------------------------------------------------------------
 model PolishedStone {
   id                  String   @id @default(cuid())
   fantasyLotId       String   @unique
@@ -269,8 +252,6 @@ model RoughStone {
   fantasyStatus       String
   planningEligible    Boolean  @default(true)
   planningStatus      String   @default("AVAILABLE")
-  // State written by the retired legacy planning workflow and its seed. Nothing writes it now;
-  // kept only as history of the rows that planning cases and reservations still reference.
   parentRoughId      String?
   lastMovement        DateTime?
   lastUpdated        DateTime @default(now())
@@ -292,15 +273,10 @@ model RoughReservation {
   releasedAt    DateTime?
   notes         String?
   createdAt     DateTime @default(now())
-  // Equals roughId while the reservation is active, NULL once released/cancelled.
-  // The unique index makes a second active reservation of the same rough impossible.
   activeRoughKey String?  @unique
   reservedByUserId String?
 }
 
-// ---------------------------------------------------------------------------
-// PLANNING CATEGORY, WEIGHT BANDS, MASTER MAPPINGS
-// ---------------------------------------------------------------------------
 model WeightBand {
   id         String    @id @default(cuid())
   code       String    @unique
@@ -321,7 +297,7 @@ model WeightBand {
 model LabMapping {
   id            String   @id @default(cuid())
   rawLab        String   @unique
-  normalizedLab String   // GIA | Non-Cert | Other
+  normalizedLab String
   active        Boolean  @default(true)
   createdAt     DateTime @default(now())
 }
@@ -346,9 +322,6 @@ model PlanningCategory {
   createdAt     DateTime @default(now())
 }
 
-// ---------------------------------------------------------------------------
-// DEMAND & REQUIREMENTS
-// ---------------------------------------------------------------------------
 model DemandCalculationLock {
   id               String    @id @default("DEMAND_CALCULATION")
   isLocked         Boolean   @default(false)
@@ -371,8 +344,8 @@ model DemandRun {
   runDate            DateTime                @default(now())
   windowDays         Int                     @default(90)
   ruleVersion        String                  @default("DEMAND-V1")
-  status             String                  @default("COMPLETED") // RUNNING | COMPLETED | FAILED | PARTIAL | REVIEW_REQUIRED | BLOCKED_BY_DATA_QUALITY
-  sourcePolicy       String                  @default("CANONICAL_FANTASY") // CANONICAL_FANTASY | LEGACY_SALES
+  status             String                  @default("COMPLETED")
+  sourcePolicy       String                  @default("CANONICAL_FANTASY")
   totalShortage      Int                     @default(0)
   totalExcess        Int                     @default(0)
   startedAt          DateTime                @default(now())
@@ -382,13 +355,11 @@ model DemandRun {
   lookbackEnd        DateTime?
   mappingVersion     String?
   mappingFingerprint String?
-  // WIP coverage policy (BR-WIP-001) that was in force for this run. CONFIGURED means
-  // eligible WIP was deducted from the pipeline requirement; NOT_CONFIGURED means it was not.
   wipPolicyStatus    String                  @default("NOT_CONFIGURED")
   wipRuleVersion     String?
-  wipEligibleStages  String?                 // comma-separated normalized stages, empty when not configured
+  wipEligibleStages  String?
   lockToken          String?
-  sourceMode         String                  @default("FIXTURE") // FIXTURE | FILE_IMPORT | FANTASY_API
+  sourceMode         String                  @default("FIXTURE")
   isSimulated        Boolean                 @default(true)
   checkpoint         Int                     @default(0)
   lastBatchId        String?
@@ -442,14 +413,12 @@ model DemandMetric {
   approvedPlanCoverage Int        @default(0)
   remainingUnplanned   Int
   forecastSignal       Int        @default(0)
-  status               String     @default("COMPLETED") // COMPLETED | REVIEW_REQUIRED | BLOCKED_BY_DATA_QUALITY
-  traceJson            String?    // Legacy JSON support
+  status               String     @default("COMPLETED")
+  traceJson            String?
   createdAt            DateTime   @default(now())
 
   @@index([runId])
   @@index([planningCategory])
-  // Stockout Risk filters one run and orders by stored shortage, with the category key
-  // as the tie-breaker; the detail drill-down looks one category up inside one run.
   @@index([runId, physicalShortage])
   @@index([runId, planningCategory])
 }
@@ -460,7 +429,7 @@ model DemandMetricTraceItem {
   run              DemandRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
   demandMetricId   String?
   planningCategory String
-  traceType        String     // SALE | STOCK | MEMO | RESERVED | BLOCKED | WIP_ELIGIBLE | WIP_UNALLOCATED | PLAN_APPROVED | EXCLUSION
+  traceType        String
   lotId            String?
   sourceRecordId   String?
   eventKey         String?
@@ -492,9 +461,8 @@ model DemandMetricTraceItem {
 model Requirement {
   id                  String   @id @default(cuid())
   requirementCode     String   @unique
-  type                String   // STOCK_REPLENISHMENT | CUSTOMER_ORDER | BACKORDER | SPECIAL_REQUIREMENT | FORECAST | MANUAL_APPROVED
+  type                String
   status              String   @default("ACTIVE")
-  // DRAFT | ACTIVE | PARTIALLY_COVERED | FULLY_PLANNED | IN_MANUFACTURING | PARTIALLY_FULFILLED | FULFILLED | ON_HOLD | CANCELLED | EXPIRED
   customerId          String?
   customerName        String?
   salesOrderId        String?
@@ -527,11 +495,11 @@ model Requirement {
   daysOverdue         Int?
   customerPriority    String?
   orderPriority       String?
-  requirementPriority String? // CRITICAL | HIGH | NORMAL | LOW | WATCH
+  requirementPriority String?
   priorityReason      String?
   calculationRunId   String?
   businessRuleVersion String?
-  sourceRecords       String? // JSON-serialized lineage
+  sourceRecords       String?
   createdBy           String?
   updatedBy           String?
   createdAt           DateTime @default(now())
@@ -558,9 +526,6 @@ model RequirementAllocation {
   createdAt     DateTime @default(now())
 }
 
-// ---------------------------------------------------------------------------
-// PLANNING CASES, VERSIONS, OPTIONS, PIECES
-// ---------------------------------------------------------------------------
 model PlanningCase {
   id              String   @id @default(cuid())
   caseCode        String   @unique
@@ -574,7 +539,6 @@ model PlanningCase {
   planner         String
   planningDate    DateTime @default(now())
   status          String   @default("DRAFT")
-  // DRAFT | READY_FOR_REVIEW | SELECTED | APPROVAL_PENDING | APPROVED | RELEASED | REJECTED | CANCELLED | REPLAN_REQUIRED | SUPERSEDED
   currentVersion  Int      @default(1)
   requirementContext String?
   sourceFile      String?
@@ -620,7 +584,7 @@ model PlanOption {
   nonRequiredPieces Int    @default(0)
   expectedColor    String?
   expectedClarity  String?
-  certificationIntent String? // GIA | Non-Cert | Other | Undecided
+  certificationIntent String?
   potentialExcess  Int      @default(0)
   validationWarnings String?
   selected         Boolean  @default(false)
@@ -659,9 +623,6 @@ model PlanOptionPiece {
   updatedAt        DateTime @updatedAt
 }
 
-// ---------------------------------------------------------------------------
-// ACTUAL OUTPUTS, RECONCILIATION, PLAN-VS-ACTUAL
-// ---------------------------------------------------------------------------
 model ActualPolishedLink {
   id             String   @id @default(cuid())
   plannedPieceId String?
@@ -692,9 +653,6 @@ model PlanActualReconciliation {
   createdAt          DateTime @default(now())
 }
 
-// ---------------------------------------------------------------------------
-// FORECASTING & DATA SCIENCE
-// ---------------------------------------------------------------------------
 model ForecastRun {
   id           String   @id @default(cuid())
   modelVersion String
@@ -717,8 +675,8 @@ model ForecastPrediction {
   prediction60d Int
   prediction90d Int
   confidence    Decimal
-  trend         String   // Strong Growth | Growth | Stable | Declining | Strong Decline | New | Dormant | Volatile
-  stockoutRisk  String? // LOW | MEDIUM | HIGH | CRITICAL
+  trend         String
+  stockoutRisk  String?
   stockoutDate  DateTime?
   createdAt     DateTime @default(now())
 }
@@ -737,9 +695,6 @@ model ModelVersion {
   createdAt       DateTime @default(now())
 }
 
-// ---------------------------------------------------------------------------
-// BUSINESS RULES, FEATURE FLAGS, AUDIT, DATA QUALITY
-// ---------------------------------------------------------------------------
 model BusinessRule {
   id            String   @id @default(cuid())
   ruleId        String   @unique
@@ -747,8 +702,8 @@ model BusinessRule {
   name          String
   version       String
   effectiveDate DateTime
-  status        String   @default("PROPOSED") // CONFIRMED | PROPOSED | OPEN | DEPRECATED
-  configuration String?  // JSON
+  status        String   @default("PROPOSED")
+  configuration String?
   approvedBy    String?
   approvedAt    DateTime?
   notes         String?
@@ -777,7 +732,6 @@ model AuditLog {
   reason    String?
   timestamp DateTime @default(now())
   correlationId String?
-  // Server-derived identity (never taken from the request body)
   actorUserId String?
   actorRole   String?
   requestId   String?
@@ -802,8 +756,8 @@ model DataQualityIssue {
   recordId         String?
   rule             String
   message          String
-  severity         String   // INFO | WARNING | ERROR | BLOCKING
-  status           String   @default("OPEN") // OPEN | IN_REVIEW | RESOLVED | IGNORED
+  severity         String
+  status           String   @default("OPEN")
   syncRunId        String?
   batchId          String?
   checkpoint       Int?
@@ -835,10 +789,10 @@ model Notification {
 
 model IntegrationSyncRun {
   id                     String    @id @default(cuid())
-  source                 String    // Fantasy
-  entity                 String    // Department | Location | Rough | Polished | Movement | ALL | BATCH
-  status                 String    // RUNNING | SUCCESS | FAILED | PARTIAL
-  sourceMode             String    @default("FIXTURE") // FIXTURE | FILE_IMPORT | FANTASY_API
+  source                 String
+  entity                 String
+  status                 String
+  sourceMode             String    @default("FIXTURE")
   isSimulated            Boolean   @default(true)
   batchId                String?
   startingCheckpoint     Int       @default(0)
@@ -896,12 +850,9 @@ model CanonicalStateClaim {
   updatedAt     DateTime  @updatedAt
 }
 
-// Cached bearer token for a live integration (Fantasy OAuth2 password grant). Stored encrypted
-// under SECRETS_KEY so a database read never yields a usable token. Re-used across server
-// restarts because every fresh login signs the integration user out elsewhere.
 model IntegrationApiToken {
   id          String   @id @default(cuid())
-  source      String   @unique // FANTASY
+  source      String   @unique
   tokenEnc    String
   tokenType   String   @default("bearer")
   issuedTo    String?
@@ -910,15 +861,9 @@ model IntegrationApiToken {
   updatedAt   DateTime @updatedAt
 }
 
-// ---------------------------------------------------------------------------
-// FANTASY LIVE DATA — one row per Fantasy lot listing record, typed columns in the
-// Live Data header order plus the untouched source payload. Fed only by the live sync
-// (never by users); rows are upserted by sourceRecordKey and marked stale, never deleted,
-// when absent from a later snapshot.
-// ---------------------------------------------------------------------------
 model FantasyLiveLot {
   id                            String    @id @default(cuid())
-  sourceRecordKey               String    @unique // see live-mapper.ts: stableRecordKey()
+  sourceRecordKey               String    @unique
 
   metalId                       String?
   metalWeight                   Decimal?  @db.Decimal(18, 6)
@@ -968,7 +913,7 @@ model FantasyLiveLot {
   itemName                      String?
 
   sourcePayload                 Json
-  contentHash                   String   // sha-256 of the mapped fields; unchanged rows only touch lastSeenAt
+  contentHash                   String
   mappingWarnings               String[] @default([])
 
   sourceActive                  Boolean   @default(true)
@@ -997,7 +942,7 @@ model FantasyLiveLot {
 model SyncCheckpoint {
   id                String    @id @default(cuid())
   source            String    @unique @default("FANTASY")
-  mode              String    @default("FIXTURE") // FIXTURE | FILE_IMPORT | FANTASY_API
+  mode              String    @default("FIXTURE")
   currentCheckpoint Int       @default(0)
   lastBatchId       String?
   lastSyncAt        DateTime?
@@ -1017,9 +962,9 @@ model LotMasterRecord {
   id                  String    @id @default(cuid())
   lotId               String    @unique
   sourceRecordId      String?
-  sourceType          String    @default("FIXTURE") // FIXTURE | FILE_IMPORT | FANTASY_API
-  entityType          String    @default("POLISHED") // POLISHED | ROUGH | WIP | MEMO | INVOICE
-  currentStatus       String    // STOCK | MEMO | INVOICE | SOLD | TRANSFERRED | ARCHIVED | CANCELLED | WIP_PLANNING | WIP_LASER | WIP_POLISHING | WIP_GRADING | WIP_COMPLETED | REMOVED_UNKNOWN
+  sourceType          String    @default("FIXTURE")
+  entityType          String    @default("POLISHED")
+  currentStatus       String
   previousStatus      String?
   statusEffectiveDate DateTime
   docDate             DateTime
@@ -1060,9 +1005,9 @@ model LotMasterRecord {
   /// Written by the central classifier, never by a downstream service. Nullable because
   /// rows projected before this existed carry no classification; a null is treated as
   /// unclassified and therefore unavailable, not as a permissive default.
-  holdState                    String?  // HELD | NOT_HELD | UNKNOWN
+  holdState                    String?
   canonicalLifecycle           String?
-  inventoryClass               String?  // PHYSICAL_AVAILABLE | MEMO | RESERVED | WIP | EXCLUDED
+  inventoryClass               String?
   classificationAvailable      Boolean?
   classificationPlanningEligible Boolean?
   classificationReviewRequired Boolean?
@@ -1073,16 +1018,16 @@ model LotMasterRecord {
   /// after the mapping is later edited.
   classificationProfile        String?
   classificationProfileVersion Int?
-  classificationState          String?  // CLASSIFIED | BLOCKED | NOT_CONFIGURED
+  classificationState          String?
 
   /// --- Canonical category classification (Lab | Shape | Weight Band) --------
   /// Decided once at projection time by classifyCanonicalCategory and consumed by the
   /// demand calculation, so a committed run cannot be re-categorised later by editing a
   /// mapping row. An unapproved dimension leaves its normalized column null and records
   /// the reason here rather than storing the raw value as though it were normalized.
-  categoryLabState             String?  // APPROVED | UNMAPPED
-  categoryShapeState           String?  // APPROVED | UNMAPPED
-  categoryWeightBandState      String?  // APPROVED | UNRESOLVED
+  categoryLabState             String?
+  categoryShapeState           String?
+  categoryWeightBandState      String?
   /// APPROVED only when all three dimensions are approved; otherwise REVIEW_REQUIRED.
   categoryState                String?
   /// "Lab|Shape|Band". Null unless the category is fully approved.
@@ -1092,7 +1037,7 @@ model LotMasterRecord {
   weightBandId                 String?
   weightBandLabel              String?
   isCurrent           Boolean   @default(true)
-  removalReason       String?   // EXPLICIT_SALE | MEMO_RETURN | TRANSFERRED | ARCHIVED | CANCELLED | COMPLETED | CORRECTION | SOURCE_DISAPPEARANCE_UNKNOWN
+  removalReason       String?
   removedFromLiveAt   DateTime?
   firstSeenAt         DateTime  @default(now())
   lastSeenAt          DateTime  @default(now())
@@ -1172,9 +1117,9 @@ model LotHistoryRecord {
   /// Written by the central classifier, never by a downstream service. Nullable because
   /// rows projected before this existed carry no classification; a null is treated as
   /// unclassified and therefore unavailable, not as a permissive default.
-  holdState                    String?  // HELD | NOT_HELD | UNKNOWN
+  holdState                    String?
   canonicalLifecycle           String?
-  inventoryClass               String?  // PHYSICAL_AVAILABLE | MEMO | RESERVED | WIP | EXCLUDED
+  inventoryClass               String?
   classificationAvailable      Boolean?
   classificationPlanningEligible Boolean?
   classificationReviewRequired Boolean?
@@ -1185,7 +1130,7 @@ model LotHistoryRecord {
   /// after the mapping is later edited.
   classificationProfile        String?
   classificationProfileVersion Int?
-  classificationState          String?  // CLASSIFIED | BLOCKED | NOT_CONFIGURED
+  classificationState          String?
 
   /// The planning-category decision in force when this version was written. Carried on
   /// the immutable history so a committed demand run keeps the classification snapshot it
@@ -1216,9 +1161,6 @@ model LotHistoryRecord {
   @@index([sourceRecordId])
 }
 
-// ---------------------------------------------------------------------------
-// IDENTITY — users and server-side sessions
-// ---------------------------------------------------------------------------
 model User {
   id               String    @id @default(cuid())
   username         String    @unique
@@ -1227,7 +1169,7 @@ model User {
   passwordHash     String
   /// Legacy single-role column. Retained during the transition and still written so an
   /// unmigrated reader keeps working; principal resolution prefers UserRole.
-  role             String    // role code, see src/lib/auth/permissions.ts
+  role             String
   /// ACTIVE | SUSPENDED | DISABLED. A temporary login lockout (lockedUntil) is a
   /// failed-login consequence, not an administrative suspension.
   status           String    @default("ACTIVE")
@@ -1282,21 +1224,16 @@ model UserAccessScope {
   @@index([userId, dimension])
 }
 
-// Self-service registration. A request NEVER creates an account or grants access:
-// it is a queue item an administrator reviews and, on approval, provisions a User
-// from with an explicitly chosen role. Nobody self-assigns permissions.
 model AccessRequest {
   id               String    @id @default(cuid())
-  username         String // requested sign-in name, lowercased
+  username         String
   displayName      String
   email            String?
   department       String?
   justification    String
-  status           String    @default("PENDING") // PENDING | APPROVED | REJECTED
-  // Equals the username while PENDING, NULL once decided. The unique index makes a
-  // second open request for the same username impossible.
+  status           String    @default("PENDING")
   pendingKey       String?   @unique
-  createdUserId    String? // the User provisioned on approval
+  createdUserId    String?
   reviewedBy       String?
   reviewedByUserId String?
   reviewedAt       DateTime?
@@ -1310,7 +1247,7 @@ model AccessRequest {
 
 model Session {
   id         String    @id @default(cuid())
-  tokenHash  String    @unique // sha-256 of the opaque cookie token; the token itself is never stored
+  tokenHash  String    @unique
   userId     String
   user       User      @relation(fields: [userId], references: [id])
   createdAt  DateTime  @default(now())
@@ -1323,31 +1260,19 @@ model Session {
   @@index([userId])
 }
 
-// ---------------------------------------------------------------------------
-// FANTASY RAW INGESTION (staging) — Phase 3A
-//
-// Raw provider batches land here and go no further: nothing in this section feeds
-// inventory, demand, planning or history. Identity is ingestion metadata plus
-// surrogate ids only — no Fantasy business field (Lot ID, Doc ID, certificate,
-// company, metal or allocation account) is used as a uniqueness key, because the
-// scope and granularity of those values are not confirmed.
-//
-// JSON is stored as canonical text, matching the convention used elsewhere in this
-// schema, so stored payloads are byte-stable for hashing and comparison.
-// ---------------------------------------------------------------------------
 model FantasyRawBatch {
   id                    String    @id @default(cuid())
-  contractVersion       String    // e.g. FANTASY_ROW_CONTRACT_V1
-  encodingVersion       String    // e.g. FANTASY_RAW_ENCODING_V1
-  sourceMode            String    // FIXTURE | FILE_IMPORT | FANTASY_API
-  providerBatchId       String    // provider-supplied, never assumed unique on its own
-  batchHash             String    // SHA-256 over contract version, headers and encoded rows
-  headersJson           String    // canonical JSON array of the exact supplied headers, in order
-  cursorKind            String    // FULL_SNAPSHOT | PROVIDER_SUPPLIED
-  cursorTokenHash       String?   // hash only; an opaque cursor token is never stored
-  providerMetadataJson  String?   // allowlisted scalar metadata only
-  processingMode        String    @default("PERSIST") // DRY_RUN never reaches the database
-  status                String    // ACCEPTED | ACCEPTED_WITH_ISSUES | REJECTED | CONFLICT
+  contractVersion       String
+  encodingVersion       String
+  sourceMode            String
+  providerBatchId       String
+  batchHash             String
+  headersJson           String
+  cursorKind            String
+  cursorTokenHash       String?
+  providerMetadataJson  String?
+  processingMode        String    @default("PERSIST")
+  status                String
   receivedAt            DateTime  @default(now())
   processingStartedAt   DateTime?
   processingCompletedAt DateTime?
@@ -1356,12 +1281,8 @@ model FantasyRawBatch {
   rowsQuarantined       Int       @default(0)
   rowsRejected          Int       @default(0)
   rowsWithDrift         Int       @default(0)
-  diagnosticsJson       String?   // safe diagnostic codes and positions; never source values
-  // Soft reference to the earliest batch that used this providerBatchId with different
-  // content. Deliberately not a relation: both facts stay available for investigation.
+  diagnosticsJson       String?
   conflictsWithBatchId  String?
-  // Soft correlation to IntegrationSyncRun. Deliberately not a Prisma relation, so no
-  // existing query can accidentally serialize raw rows through it.
   integrationSyncRunId  String?
   /// --- Ingestion provenance (Master Phase 1 hardening) ---------------------
   /// The effective source state and provider identity AT THE MOMENT THIS BATCH WAS
@@ -1382,7 +1303,6 @@ model FantasyRawBatch {
   /// through it: every API uses an explicit `select`, proven by the projection tests.
   projectionRuns        FantasyProjectionRun[]
 
-  // Exact-replay key: identical content under the same provider batch id is stored once.
   @@unique([sourceMode, contractVersion, providerBatchId, batchHash])
   @@index([providerBatchId])
   @@index([status])
@@ -1395,14 +1315,14 @@ model FantasyRawRow {
   id                    String   @id @default(cuid())
   batchId               String
   batch                 FantasyRawBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
-  sourceRowNumber       Int      // one-based position within the delivered batch
+  sourceRowNumber       Int
   encodingVersion       String
-  rawPayloadJson        String   // canonical JSON of type-tagged positional cells
-  normalizedRecordJson  String?  // canonical JSON of type-tagged contract-keyed cells, when normalization succeeded
+  rawPayloadJson        String
+  normalizedRecordJson  String?
   rowHash               String
-  outcome               String   // ACCEPTED_RAW | QUARANTINED | REJECTED_STRUCTURE
-  diagnosticsJson       String?  // safe diagnostic codes and positions; never source values
-  quarantineReasonCodes String?  // comma-separated diagnostic codes, no values
+  outcome               String
+  diagnosticsJson       String?
+  quarantineReasonCodes String?
   createdAt             DateTime @default(now())
 
   /// Back-relation required by the projection-candidate foreign key. The RESTRICT on
@@ -1415,19 +1335,6 @@ model FantasyRawRow {
   @@index([rowHash])
 }
 
-// ---------------------------------------------------------------------------
-// Access administration (additive).
-//
-// Permission CODES stay in application code (src/lib/auth/permissions.ts): the route
-// wrapper takes a compile-time union, the route sweep proves every handler declares a
-// known code, and an unknown code fails closed. What becomes data is which codes a
-// CUSTOM role holds. System roles keep their code-defined permissions so there is no
-// second, mutable source of truth for them.
-//
-// User.role is retained during the transition and is still written, so an unmigrated
-// reader keeps working; principal resolution prefers UserRole assignments.
-// ---------------------------------------------------------------------------
-
 model Role {
   id              String    @id @default(cuid())
   /// Stable identifier. Immutable after creation; for a system role it equals the
@@ -1438,7 +1345,7 @@ model Role {
   /// A system role is defined in code: it cannot be renamed destructively, have its
   /// permissions edited from the UI, or be deleted. It may be cloned.
   isSystem        Boolean   @default(false)
-  status          String    @default("ACTIVE") // ACTIVE | INACTIVE
+  status          String    @default("ACTIVE")
   /// Optimistic concurrency. Every mutation supplies the version it read.
   version         Int       @default(0)
   createdByUserId String?
@@ -1483,21 +1390,6 @@ model UserRole {
   @@index([roleId])
 }
 
-// ---------------------------------------------------------------------------
-// Fantasy classification profiles (additive).
-//
-// `FantasyStatusMapping` above cannot carry these: its `fantasyStatus @unique`
-// constraint allows one row per status *globally*, so the same status cannot exist in a
-// simulation profile and a live profile at once. Dropping that constraint would be a
-// destructive migration, so the versioned model lives here instead. The older table is
-// retained for the fixture seed and the Sync Monitor "unmapped statuses" tile, and is
-// no longer consulted for classification — see `fantasy/classification.ts`.
-//
-// Retirement condition for `FantasyStatusMapping`: once the seed writes profiles
-// instead, and the Sync Monitor tile reads `FantasySourceStatusMapping`, the old model
-// can be removed in its own additive-then-drop migration.
-// ---------------------------------------------------------------------------
-
 model FantasyClassificationProfile {
   id            String   @id @default(cuid())
   /// Stable profile identifier, e.g. LEGACY_FIXTURE or FIXTURE_RAW_TEST.
@@ -1506,7 +1398,7 @@ model FantasyClassificationProfile {
   description   String?
   /// SIMULATION_ONLY may never classify non-simulated data. LIVE_ELIGIBLE requires the
   /// client to have confirmed the vocabulary it encodes; none exists yet.
-  applicability String   // SIMULATION_ONLY | LIVE_ELIGIBLE
+  applicability String
   /// Incremented on every mapping change. Stamped on every classified record so a past
   /// classification stays reproducible after the profile is edited.
   version       Int      @default(1)
@@ -1529,8 +1421,8 @@ model FantasySourceStatusMapping {
   profile           FantasyClassificationProfile @relation(fields: [profileId], references: [id])
   /// Exact source status, normalized only by trimming and upper-casing.
   sourceStatus      String
-  canonicalLifecycle String  // AVAILABLE | PLANNING_AVAILABLE | RESERVED | MEMO | MANUFACTURING_WIP | POLISHED_STOCK | SOLD | TRANSFERRED | CLOSED | UNKNOWN
-  inventoryClass    String   // PHYSICAL_AVAILABLE | MEMO | RESERVED | WIP | EXCLUDED
+  canonicalLifecycle String
+  inventoryClass    String
   countsAvailable   Boolean  @default(false)
   planningEligible  Boolean  @default(false)
   terminalState     Boolean  @default(false)
@@ -1567,32 +1459,12 @@ model FantasyHoldMapping {
   @@index([profileId, isActive])
 }
 
-// ---------------------------------------------------------------------------
-// Fantasy shadow projection (additive, structurally isolated).
-//
-// These two tables hold the canonical projection of raw Fantasy rows. They are
-// deliberately NOT joined to LotMasterRecord or LotHistoryRecord, and those models gain
-// no discriminator column, no nullable projection field and no back-relation. The
-// isolation is structural: there is no Prisma path from a canonical record into a
-// projection candidate, so no existing query, serializer or export can reach this data
-// by traversing a relation it already holds.
-//
-// References to the raw batch and row are soft (plain id columns, no relation), matching
-// the `integrationSyncRunId` convention above, so raw payload rows likewise cannot be
-// pulled through a projection include.
-//
-// Projection can run in DRY_RUN or SHADOW. There is no ACTIVE mode: a database CHECK
-// constraint rejects the value, so no application bug, migration ordering mistake or
-// direct write can make shadow output authoritative. Promotion is a separate, explicitly
-// designed piece of work that does not exist yet.
-// ---------------------------------------------------------------------------
-
 model FantasyProjectionRun {
   id                           String    @id @default(cuid())
   /// DRY_RUN (nothing persisted beyond this run row) | SHADOW (candidates persisted).
   /// ACTIVE is refused by a CHECK constraint, not merely by application code.
   mode                         String
-  status                       String    // RUNNING | COMPLETED | FAILED | ABORTED
+  status                       String
   /// Deterministic hash over every material input: batch id and content hash, mode,
   /// contract and encoding versions, classification profile and version, identity
   /// policy, measurement policy, quantity semantics and weight unit.
@@ -1643,8 +1515,8 @@ model FantasyProjectionRun {
   /// Measurement resolution policy in force. STRICT_ACTUAL_ONLY means no estimate was
   /// ever promoted into a usable value.
   measurementPolicy            String    @default("STRICT_ACTUAL_ONLY")
-  quantitySemantics            String    // NOT_CONFIGURED | PIECE_COUNT
-  weightUnit                   String    // UNIT_NOT_CONFIGURED | CARAT
+  quantitySemantics            String
+  weightUnit                   String
   rowsRead                     Int       @default(0)
   /// Rows whose ingestion outcome was ACCEPTED_RAW — the only rows that may be decoded
   /// and projected into canonical candidate fields.
@@ -1776,7 +1648,7 @@ model FantasyProjectionCandidate {
   weightDivergence             Decimal?
 
   /// --- Provenance ----------------------------------------------------------
-  shapeProvenance              String   @default("NONE") // ACTUAL | ESTIMATED | NONE
+  shapeProvenance              String   @default("NONE")
   colorProvenance              String   @default("NONE")
   clarityProvenance            String   @default("NONE")
   weightProvenance             String   @default("NONE")
@@ -1788,7 +1660,7 @@ model FantasyProjectionCandidate {
 
   /// --- Quantity and weight safety -----------------------------------------
   quantityRawValue             Decimal?
-  quantityState                String   // USABLE | SEMANTICS_NOT_CONFIGURED | UNSUPPORTED_VALUE | INVALID | MISSING
+  quantityState                String
   quantityPieces               Int?
   quantitySemantics            String
   weightUnit                   String
@@ -1829,32 +1701,6 @@ model FantasyProjectionCandidate {
   @@index([runId, inventoryClass])
   @@index([rowHash])
 }
-
-// ---------------------------------------------------------------------------
-// SARIN IMPORT FOUNDATION (additive).
-//
-// Persistence for the headerless Sarin CSV workflow:
-//   source file -> import batch -> source rows -> stone blocks -> validation issues ->
-//   reviewed overrides. Transformation and output versions arrive in later phases.
-//
-// Vocabulary (packet types, statuses, outcomes, kinds) lives in src/lib/sarin/domain.ts and
-// is enforced here by CHECK constraints, matching the repository's String-plus-CHECK
-// convention rather than Prisma enums.
-//
-// Rules Prisma cannot express are created in the migration and verified by
-// tests/security/sarin-foundation.test.ts:
-//   - immutability triggers on source files, file content, source rows and overrides;
-//   - status-transition, fencing and lineage triggers on batches, blocks and issues;
-//   - the lab-inclusive duplicate identity of a batch (expression unique index);
-//   - one override chain root per issue and one unconditional rule per raw shape
-//     (partial unique indexes);
-//   - non-overlapping ratio ranges within a mapping set (trigger);
-//   - the mapping-set content hash, computed by the database on approval.
-//
-// Actor ids (uploadedByUserId, appliedByUserId, ...) are deliberately not foreign keys,
-// matching AuditLog.actorUserId: deleting an account must neither destroy this history
-// nor be blocked by it. Every relation between Sarin tables is ON DELETE RESTRICT.
-// ---------------------------------------------------------------------------
 
 /// Immutable metadata of an uploaded Sarin file. The bytes live in
 /// SarinSourceFileContent so that no ordinary query on this model can load them.
@@ -1930,9 +1776,6 @@ model SarinImportBatch {
   attempts SarinValidationAttempt[]
   outputs  SarinOutputVersion[]
 
-  // Duplicate identity (sourceFileId, packetType, contractVersion, labScope,
-  // planningDate) is an expression unique index in the migration, because a NULL lab must
-  // still collide.
   @@index([labScope, status])
   @@index([status, createdAt])
   @@index([sourceFileId])
@@ -2080,7 +1923,6 @@ model SarinIssueOverride {
   supersededBy         SarinIssueOverride?  @relation("SarinOverrideChain")
   createdAt            DateTime             @default(now())
 
-  // One chain root per issue is a partial unique index in the migration.
   @@unique([id, issueId])
   @@unique([supersedesOverrideId, issueId])
   @@index([issueId, createdAt])
@@ -2208,7 +2050,6 @@ model SarinValidationAttempt {
   interpretations SarinRowInterpretation[]
   outputVersions  SarinOutputVersion[]
 
-  // At most one RUNNING attempt per batch is a partial unique index in the migration.
   @@unique([batchId, attemptNumber])
   @@unique([id, batchId])
   @@index([batchId, status])
@@ -2283,7 +2124,6 @@ model SarinOutputVersion {
   options                  SarinPlanOption[]
   pieces                   SarinPlanPiece[]
 
-  // At most one GENERATED version per batch is a partial unique index in the migration.
   @@unique([batchId, versionNumber])
   @@unique([batchId, inputsHash])
   @@unique([id, batchId])

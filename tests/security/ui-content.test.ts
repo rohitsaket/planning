@@ -1,17 +1,3 @@
-// Rendered UI content: what signed-in users actually read on the application's pages.
-//
-// Each page is rendered to HTML from its real component, with every data request answered
-// by the real route handler under a real session against the isolated planning_sectest
-// database (see ./ui-render). The assertions read the rendered text — never the source —
-// so a technical detail that reaches the screen fails here however it got there, while the
-// same words in a code comment or an internal identifier do not.
-//
-// Two halves: nothing technical is shown (API paths, rule and profile identifiers, formulas,
-// raw JSON, feature-flag codes, the old footer rules), and nothing the user needs was lost
-// with it (simulation and not-run disclosures, validation blockers with their next steps,
-// the Best Twin weight advisory, mapping edit controls, permission-dependent actions and
-// exports).
-
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "./harness";
 import { call, db, ensureCountryRegistry, makeUser, resetDb } from "./helpers";
 import { renderPage, sessionUser } from "./ui-render";
@@ -49,7 +35,6 @@ interface Session { cookie: string; user: SessionUser }
 const LOT_BATCH = "UI-CONTENT-TEST";
 const SARIN_DATA = ["SarinPlanPiece", "SarinPlanOption", "SarinOutputVersion", "SarinRowInterpretation", "SarinValidationAttempt", "SarinIssueOverride", "SarinValidationIssue", "SarinStoneBlock", "SarinSourceRow", "SarinImportBatch", "SarinSourceFileContent", "SarinSourceFile"];
 
-/** Text that must never reach a page, with the reason each is technical rather than business content. */
 const PROHIBITED: Array<[string, RegExp]> = [
   ["API path", /\/api\//],
   ["HTTP verb instruction", /\b(?:POSTs?|PATCH|PUT)\b/],
@@ -79,14 +64,12 @@ const render = async <P extends object>(view: ComponentType<P>, props: P, u: Use
   const s = await as(u);
   return renderPage(view, props, s.user, s.cookie);
 };
-/** One file's result area in Workbook Import, as this user sees it after opening the file. */
 const fileResult = async (batchId: string, u: User) => {
   const s = await as(u);
   const props = { batchId, rights: rightsOf(s.user.permissions), failure: null, busy: false, onProcessAgain: () => {}, onProcessAnother: () => {} };
   return renderPage(SarinFileResult, props, s.user, s.cookie);
 };
 
-/** A user whose only role holds exactly these permissions, created through the admin routes. */
 async function userWith(name: string, permissions: string[]) {
   const u = await makeUser(name, "VIEWER");
   const code = `UI_${name.toUpperCase().replace(/[^A-Z]/g, "_")}_${Date.now().toString(36).toUpperCase()}`;
@@ -98,7 +81,6 @@ async function userWith(name: string, permissions: string[]) {
   return u;
 }
 
-// ---- Sarin fixtures, through the real upload / validate / generate routes --------------------
 let nonce = 0;
 const kapan = () => `8${String(++nonce).padStart(3, "0")}R`;
 interface Rec { name: string; shape?: string; est?: string }
@@ -144,21 +126,17 @@ beforeAll(async () => {
   mapper = await userWith("mapper", ["sarin.mapping.read", "sarin.mapping.manage"]);
   mapReader = await userWith("mapreader", ["sarin.mapping.read"]);
 
-  // Shape mappings in effect for the Pink shape family, saved through the Mappings routes.
   await applyCatalog(mapper.cookie, SHAPES.map(([rawShape, normalizedShape]) => ({ rawShape, normalizedShape })));
 
-  // A Blue import with a record that has no shape: validation leaves it in review with a blocker.
   const blue = `${kapan()}-001 DC`;
   blockedBatch = await upload(Array.from({ length: 17 }, (_, i) => ({ name: blue, shape: i === 3 ? "" : "ROUND" })), "BLUE");
   await post(validateImport, planner.cookie, {}, { batchId: blockedBatch });
 
-  // A Blue import with one shape nobody mapped: its output keeps the raw shape, with a warning.
   const unmapped = `${kapan()}-001 DC`;
   warningBatch = await upload(Array.from({ length: 17 }, (_, i) => ({ name: unmapped, shape: i === 3 ? "MYSTERY STEP" : "ROUND" })), "BLUE");
   await post(validateImport, planner.cookie, {}, { batchId: warningBatch });
   await post(generateOutput, planner.cookie, {}, { batchId: warningBatch });
 
-  // A Pink stone whose Best Twin pieces differ by 0.004 ct: validated, advisory only, output generated.
   const pink = `${kapan().slice(0, 4)}-111_M`;
   const recs: Rec[] = [];
   SHAPES.forEach(([shape]) => recs.push({ name: pink, shape, est: "1.000" }, { name: pink, shape, est: "1.000" }, { name: pink, shape: "ROUND", est: "0.200" }));
@@ -169,8 +147,6 @@ beforeAll(async () => {
   if (validated.json.batch.status !== "VALIDATED") throw new Error(`pink validation ${validated.json.batch.status}`);
   pinkVersion = (await post(generateOutput, planner.cookie, {}, { batchId: pinkBatch })).json.output.version.id;
 
-  // Administration fixtures carrying the identifiers the pages must translate, and the retired
-  // settings rows a database that has not yet applied their withdrawal still holds.
   await db.featureFlag.createMany({
     data: [
       { code: "FF_COLOR_DIMENSION", name: "Enable Color as Requirement Dimension" },
@@ -182,7 +158,6 @@ beforeAll(async () => {
     data: { ruleId: "BR-DEMAND-001", domain: "DEMAND", name: "90-day rolling invoice window", version: "1.0", effectiveDate: new Date(), status: "CONFIRMED", configuration: JSON.stringify({ windowDays: 90, todayIncluded: true, excludes: ["0.90-0.99"], nested: { lotStatus: "Invoice" } }) },
   });
 
-  // Fixture-simulated inventory, so the simulation disclosure has something to disclose.
   await db.lotMasterRecord.createMany({
     data: Array.from({ length: 3 }, (_, i) => ({
       lotId: `${LOT_BATCH}-${i}`, currentStatus: "STOCK", statusEffectiveDate: new Date(), docDate: new Date(), shape: "ROUND", shapeNormalized: "ROUND",
@@ -198,7 +173,6 @@ afterAll(async () => {
   await db.lotMasterRecord.deleteMany({ where: { lastSyncBatchId: LOT_BATCH } });
 });
 
-// =========================================================================================
 describe("ui content: no technical detail reaches a rendered page", () => {
   test("Workbook Import, a file's result, its items to review and its preview; the mapping administration", async () => {
     const pages = [
@@ -212,7 +186,6 @@ describe("ui content: no technical detail reaches a rendered page", () => {
       await render(SarinOutputPreview, { batchId: pinkBatch, versionId: pinkVersion }, planner),
     ];
     expect(pages.map((p) => prohibited(p.text))).toEqual(pages.map(() => []));
-    // Profiles, run numbers, mapping lineage, attempts and storage wording never appear.
     const shown = pages.map((p) => p.text).join(" ");
     expect([/rules version|profile|validation run|attempt|Run \d|mapping set|lineage|transform|immutable|record \d/i.test(shown), /Source:/.test(pages[0].text)]).toEqual([false, false]);
   });
@@ -220,7 +193,6 @@ describe("ui content: no technical detail reaches a rendered page", () => {
   test("the dashboard; no retired planning, requirement or order wording", async () => {
     const pages = [await render(DashboardView, {}, root)];
     expect(pages.map((p) => prohibited(p.text))).toEqual(pages.map(() => []));
-    // The retired approval and plan-coverage workflow leaves no wording behind.
     for (const text of pages.map((p) => p.text)) expect(/Approval Queue|Planning Workbench|Approved Plan|Plan Coverage|Rough Reserved|Pending Approvals?|Critical Reqs|High Reqs|Overdue Reqs|Open Orders|Backorders|Unplanned by|not yet planned/i.test(text)).toBe(false);
     expect(pages[0].requested.some((r) => /\/api\/(requirements|analysis\/orders)/.test(r))).toBe(false);
   });
@@ -237,12 +209,8 @@ describe("ui content: no technical detail reaches a rendered page", () => {
     ];
     expect(pages.map((p) => prohibited(p.text))).toEqual(pages.map(() => []));
     const [mappings, statuses, permissions, sales, orders, sync] = pages.map((p) => p.text);
-    // Business Rules is no longer a page: Mappings carries its mapping tabs, without rule
-    // identifiers or formulas, and no generic settings.
     for (const tab of ["Weight Bands", "Lab Mapping", "Shape Mapping", "Status Mapping", "Sarin Shape Mapping"]) expect([tab, mappings.includes(tab)]).toEqual([tab, true]);
     expect(/Feature Flags|Planning Dimensions/.test(mappings)).toBe(false);
-    // The Permissions tab shows roles only: the plan approval policy is retired with plan
-    // approval, and retired settings never appear, even while their rows are still stored.
     expect([permissions.includes("Approval Policy"), permissions.includes("approve a plan"), permissions.includes("separate approver")]).toEqual([false, false, false]);
     expect(permissions).toContain("Roles");
     expect(/Feature Flag|production orders|Cross-Country|Color categorization|FF_/i.test(permissions)).toBe(false);
@@ -258,14 +226,12 @@ describe("ui content: no technical detail reaches a rendered page", () => {
   });
 });
 
-// =========================================================================================
 describe("ui content: what users need is still shown", () => {
   test("Workbook Import says what to do on a blocked file, and states its upload limit", async () => {
     const uploaderPage = (await render(WorkbookImportView, {}, planner)).text;
     expect([uploaderPage.includes("Prepare Sarin Output"), /CSV without a header · Maximum 8\.0 MB/.test(uploaderPage), uploaderPage.includes("Process File"), uploaderPage.includes("Recent Files")]).toEqual([true, true, true, true]);
     const blocked = (await fileResult(blockedBatch, planner)).text;
     expect([blocked.includes("Output needs attention"), blocked.includes("What to do:"), blocked.includes("Shape is missing")]).toEqual([true, true, true]);
-    // No backend issue code is shown alongside the finding.
     expect(/SHAPE_[A-Z_]+|MAPPING_[A-Z_]+/.test(blocked)).toBe(false);
   });
 
@@ -286,7 +252,6 @@ describe("ui content: what users need is still shown", () => {
   test("Output Ready keeps its counts and generation time; the preview shows the stored yields", async () => {
     const page = (await fileResult(pinkBatch, planner)).text;
     expect([page.includes("Output Ready"), /Stones 1\b/.test(page), /Output rows 45\b/.test(page), /Generated \d/.test(page)]).toEqual([true, true, true, true]);
-    // The preview shows the server's stored yield, not a recalculation.
     const preview = (await render(SarinOutputPreview, { batchId: pinkBatch, versionId: pinkVersion }, planner)).text;
     resetRateLimits();
     const options = await call(listOptions, { cookie: planner.cookie, path: "/api/x?stone=1&pageSize=500", params: { batchId: pinkBatch, versionId: pinkVersion } });
@@ -307,7 +272,6 @@ describe("ui content: what users need is still shown", () => {
     expect([uploader.includes("Process File"), viewer.includes("Process File"), viewer.includes("Sarin CSV file"), viewer.includes("Recent Files")]).toEqual([true, false, false, true]);
     const readOnlyResult = (await fileResult(blockedBatch, reader)).text;
     expect([/Choose Another Mapping|Process Again|Try Again|Open Mappings|\bMap\b/.test(readOnlyResult), /permission/i.test(readOnlyResult)]).toEqual([false, false]);
-    // The approval policy is retired: even the Super Admin is offered no approval switch.
     const permissions = await render(PermissionsTab, {}, root);
     expect([/Turn off|separate approver|Approval policy/i.test(permissions.text), permissions.requested.some((r) => r.startsWith("/api/admin/approval-policy"))]).toEqual([false, false]);
   });
@@ -315,7 +279,6 @@ describe("ui content: what users need is still shown", () => {
   test("Sarin Shape Mapping offers adding, editing and removing to managers only, and no approval or version workflow", async () => {
     const manager = await render(SarinShapeMappingsView, {}, mapper);
     const reader = await render(SarinShapeMappingsView, {}, mapReader);
-    // Both see the current mappings and the shape still unmapped in imported files.
     for (const page of [manager.text, reader.text]) {
       for (const label of ["Sarin Shape Mapping", "Current mappings", "Needs Mapping", "These shapes do not have a mapping yet.", "MYSTERY STEP", "Fantasy shape", "Applies to", "Updated"]) {
         expect([label, page.includes(label)]).toEqual([label, true]);
@@ -329,7 +292,6 @@ describe("ui content: what users need is still shown", () => {
   test("simulation, not-run and not-configured states are disclosed", async () => {
     const inventory = (await render(InventoryPositionTab, {}, root)).text;
     expect(inventory).toMatch(/Fixture Simulation|Simulated/);
-    // Other suites share this database, so the expected state is read from the same API.
     resetRateLimits();
     const readiness = (await call(salesSummary, { cookie: root.cookie, path: "/api/analysis/sales?page=1&pageSize=25" })).json.readiness;
     const STATUS: Record<string, [string, string | null]> = {
@@ -345,7 +307,6 @@ describe("ui content: what users need is still shown", () => {
     resetRateLimits();
     const health = (await call(dashboardKpis, { cookie: root.cookie, path: "/api/dashboard" })).json.fantasySyncHealth as string;
     const runs = await db.integrationSyncRun.count();
-    // Without a single synchronization the answer is NOT_RUN, never a healthy default.
     expect(runs > 0 || health === "NOT_RUN").toBe(true);
     const dashboard = (await render(DashboardView, {}, root)).text;
     const HEALTH: Record<string, string> = { HEALTHY: "Healthy", PARTIAL: "Partial", FAILED: "Failed", NOT_RUN: "Not Run" };

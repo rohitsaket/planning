@@ -1,17 +1,3 @@
-/**
- * MANUFACTURING WIP CLASSIFICATION — single authoritative implementation.
- *
- * Every consumer of WIP coverage (the demand calculation, the WIP Inventory page,
- * Demand Trace, country position, KPI tiles) classifies the same canonical
- * manufacturing records through this module, so the numbers cannot drift apart.
- *
- * Policy source: business rule BR-WIP-001. The rule is only treated as active when
- * it exists, is CONFIRMED, and carries a non-empty eligibleStages list. When it is
- * absent, unconfirmed or empty, WIP coverage is reported as NOT_CONFIGURED and
- * nothing is deducted from the pipeline requirement — no hardcoded stage list is
- * silently substituted.
- */
-
 import { Prisma } from "@prisma/client";
 import { resolveCanonicalQuantity, type CanonicalQuantityProvenance } from "@/lib/fantasy/quantity-weight";
 import { db } from "@/lib/db";
@@ -27,7 +13,6 @@ type DbClient = Prisma.TransactionClient | typeof db;
 
 export const WIP_RULE_ID = "BR-WIP-001";
 
-/** Stages that mean the WIP record has left manufacturing; they are never coverage. */
 const COMPLETED_STAGES = new Set(["COMPLETED", "FINISHED", "CLOSED"]);
 
 export type WipPolicyStatus = "CONFIGURED" | "NOT_CONFIGURED";
@@ -43,23 +28,14 @@ export interface WipPolicy {
   ruleId: string;
   status: WipPolicyStatus;
   reason: WipPolicyReason;
-  /** Operator-facing explanation. Safe to display verbatim. */
   message: string;
   ruleStatus: string | null;
   ruleVersion: string | null;
   effectiveDate: string | null;
-  /** Normalized eligible stages. Empty whenever status is NOT_CONFIGURED. */
   eligibleStages: string[];
-  /** True only when eligible WIP may be deducted from the pipeline requirement. */
   appliesCoverage: boolean;
 }
 
-/**
- * Deterministic stage normalization: upper-case, non-alphanumerics collapse to a
- * single underscore, and the transport prefix `WIP_` is dropped so that
- * "WIP_POLISHING", "wip polishing" and "Polishing" are one stage, while
- * "PRE_POLISHING" stays a different stage (no substring matching).
- */
 export function normalizeWipStage(raw: string | null | undefined): string {
   if (!raw) return "UNKNOWN";
   const collapsed = raw
@@ -91,7 +67,6 @@ function policy(
   };
 }
 
-/** Reads BR-WIP-001 and decides whether WIP coverage may be applied at all. */
 export async function loadWipPolicy(client: DbClient = db): Promise<WipPolicy> {
   const rule = await client.businessRule.findUnique({ where: { ruleId: WIP_RULE_ID } });
 
@@ -173,7 +148,6 @@ export interface WipSourceRecord {
   labNormalized: string | null;
   weight: Prisma.Decimal | number;
   quantity: Prisma.Decimal | number;
-  /** Needed to decide whether this source's quantity may be counted at all. */
   sourceType?: string | null;
   isSimulated?: boolean;
   country: string;
@@ -187,9 +161,7 @@ export interface WipClassificationResult {
   stageRaw: string | null;
   stage: string;
   outcome: WipOutcome;
-  /** True only for ELIGIBLE records under a configured policy. */
   countsAsCoverage: boolean;
-  /** Real WIP that exists but may not reduce shortage. */
   countsAsUnallocated: boolean;
   reason: string;
   categoryFailure: CategoryFailureReason | null;
@@ -198,9 +170,7 @@ export interface WipClassificationResult {
   shape: string;
   weightBandCode: string | null;
   weightBandLabel: string | null;
-  /** Pieces. Null when the source did not establish a countable quantity. */
   quantity: number | null;
-  /** Why the quantity may or may not be counted. */
   quantityProvenance: CanonicalQuantityProvenance;
   weight: number;
   country: string;
@@ -211,17 +181,13 @@ export interface WipClassificationResult {
 export interface WipClassificationContext {
   policy: WipPolicy;
   mappings: CategoryMappings;
-  /** Lot ids already represented as polished output; they must never be counted again as WIP. */
   polishedLotIds: Set<string>;
 }
 
-/** Classifies a single canonical WIP record. Pure — no database access. */
 export function classifyWipRecord(record: WipSourceRecord, ctx: WipClassificationContext): WipClassificationResult {
   const stageRaw = record.wipStage ?? record.currentStatus ?? null;
   const stage = normalizeWipStage(record.wipStage || record.currentStatus);
   const weight = Number(record.weight);
-  // No fallback to one piece: WIP whose quantity the source never established is
-  // reported as unconfirmed and stays out of every piece total.
   const quantityDecision = resolveCanonicalQuantity({
     quantity: record.quantity,
     sourceType: record.sourceType ?? null,
@@ -269,29 +235,24 @@ export function classifyWipRecord(record: WipSourceRecord, ctx: WipClassificatio
     weightBandLabel,
   });
 
-  // 1. Output that already exists as polished stock is counted there, never twice.
   if (ctx.polishedLotIds.has(record.lotId)) {
     return decided("ALREADY_POLISHED", "Already represented as polished inventory; excluded from WIP coverage.");
   }
 
-  // 2. Completed manufacturing has left WIP; it is neither coverage nor open WIP.
   if (COMPLETED_STAGES.has(stage)) {
     return decided("COMPLETED", `Manufacturing stage ${stage} is complete; the output is tracked as finished stock.`);
   }
 
-  // 3. Unmapped attributes are quarantined, never mapped into a valid category.
   if (!resolution.resolved) {
     return decided("AMBIGUOUS", `Ambiguous WIP attributes (${resolution.reason}); cannot be attributed to a planning category.`, {
       unallocated: true,
     });
   }
 
-  // 4. Without a confirmed policy nothing is deducted, but the WIP is still reported.
   if (!ctx.policy.appliesCoverage) {
     return decided("POLICY_NOT_CONFIGURED", ctx.policy.message, { unallocated: true });
   }
 
-  // 5. Exact stage membership — no substring matching.
   if (!ctx.policy.eligibleStages.includes(stage)) {
     return decided("INELIGIBLE_STAGE", `Stage ${stage} is not an eligible stage under ${ctx.policy.ruleId}.`, {
       unallocated: true,
@@ -312,9 +273,7 @@ export interface WipSummary {
   completedPieces: number;
   alreadyPolishedPieces: number;
   policyBlockedPieces: number;
-  /** Real WIP that does not reduce shortage: ineligible + ambiguous + policy-blocked. */
   unallocatedPieces: number;
-  /** Records whose quantity the source never established. Never counted as pieces. */
   unconfirmedQuantityRecords: number;
 }
 
@@ -334,7 +293,6 @@ export function summarizeWipClassifications(results: WipClassificationResult[]):
 
   for (const r of results) {
     if (r.quantity === null) {
-      // Counted as a record needing review, never as pieces.
       summary.unconfirmedQuantityRecords++;
       continue;
     }
@@ -372,7 +330,6 @@ export function classifyWipRecords(
   return records.map((r) => classifyWipRecord(r, ctx));
 }
 
-/** Loads policy, mappings and the polished-output index needed to classify WIP. */
 export async function loadWipClassificationContext(
   client: DbClient = db,
   preloaded: { mappings?: CategoryMappings } = {},
@@ -393,7 +350,6 @@ export async function loadWipClassificationContext(
 export interface WipInventoryFilter {
   country?: string | null;
   branch?: string | null;
-  /** Restricts to a single normalized lab after classification. */
   lab?: string | null;
 }
 
@@ -401,14 +357,9 @@ export interface ClassifiedWipInventory {
   policy: WipPolicy;
   results: WipClassificationResult[];
   summary: WipSummary;
-  /** Lot ids currently tracked as WIP — used to stop approved-plan coverage double-counting them. */
   eligibleLotIds: Set<string>;
 }
 
-/**
- * Loads and classifies current manufacturing WIP. This is the single entry point
- * used by both the demand calculation and the WIP Inventory API.
- */
 export async function classifyCurrentWip(
   client: DbClient = db,
   options: {
@@ -416,11 +367,6 @@ export async function classifyCurrentWip(
     take?: number;
     mappings?: CategoryMappings;
     context?: WipClassificationContext;
-    /**
-     * The caller's country and lab authorization scope. Defaults to unrestricted so
-     * that the demand engine — which classifies WIP for the whole business and is not
-     * acting for a user — is unaffected. An API route always passes its caller's.
-     */
     scope?: EffectiveScope;
   } = {},
 ): Promise<ClassifiedWipInventory> {
@@ -430,8 +376,6 @@ export async function classifyCurrentWip(
   const where: Prisma.LotMasterRecordWhereInput = {
     isCurrent: true,
     OR: [{ roughOrPolished: "WIP" }, { entityType: "WIP" }],
-    // The scope narrows the country in the database. The lab lives on the classified
-    // result rather than the record, so it is applied below with the lab filter.
     ...scopeWhere(scope, { country: "country", lab: null }),
   };
   if (options.filter?.country) where.country = options.filter.country;
@@ -444,8 +388,6 @@ export async function classifyCurrentWip(
   });
 
   let results = classifyWipRecords(records as WipSourceRecord[], ctx);
-  // The lab is derived by the classifier, so the scope is applied here rather than in the
-  // query. A record whose lab could not be normalized is outside any restricted lab scope.
   const allowedLabs = scope.labs;
   if (allowedLabs !== null) results = results.filter((r) => r.lab !== null && allowedLabs.includes(r.lab));
   if (options.filter?.lab) results = results.filter((r) => r.lab === options.filter!.lab);

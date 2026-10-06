@@ -3,12 +3,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuthStore, type SessionUser } from "@/stores/auth-store";
 
-/**
- * Shapes returned by the Users and Access APIs. What a page may offer is decided from the
- * server's own flags (canEditPermissions, canManageSuperAdmins, …) and the session's
- * permissions; every operation is authorized again on the server.
- */
-
 export type AccountStatus = "ACTIVE" | "SUSPENDED" | "DISABLED";
 export type DisplayStatus = AccountStatus | "INVITED";
 
@@ -31,7 +25,6 @@ export interface UserRow {
   permissions: string[];
   createdAt: string;
   mustChangePassword: boolean;
-  /** Null when the reader may not see scopes. Empty lists mean unrestricted. */
   accessScope: AccessScope | null;
 }
 
@@ -46,7 +39,6 @@ export interface UsersResponse {
   page: number;
   totalPages: number;
   canManageScope: boolean;
-  /** May suspend or reactivate Super Admin accounts. Nobody grants the role from here. */
   canManageSuperAdmins: boolean;
   canReadScope: boolean;
   scopeOptions: ScopeOptions | null;
@@ -80,10 +72,6 @@ export interface RolesResponse {
   canManageRoles: boolean;
 }
 
-/**
- * Super Admin is managed on the server only: it is never listed as a role or offered in a
- * picker, but an account that holds it still shows the name.
- */
 export const SUPER_ADMIN_CODE = "SUPER_ADMIN";
 export function roleLabel(code: string, roles: readonly RoleRow[]): string {
   if (code === SUPER_ADMIN_CODE) return "Super Admin";
@@ -121,11 +109,6 @@ export function formatWhen(iso: string | null): string {
   return Number.isNaN(d.getTime()) ? "—" : d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 
-/**
- * After any access change: refetch every Users and Access read, and — because the change
- * may have touched the signed-in user's own roles — refresh the session's permissions.
- * The server resolves access per request, so this only keeps the screen truthful.
- */
 export function useAccessRefresh() {
   const queryClient = useQueryClient();
   const setUser = useAuthStore((s) => s.setUser);

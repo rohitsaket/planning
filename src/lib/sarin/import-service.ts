@@ -1,23 +1,3 @@
-/**
- * Sarin CSV ingestion: stores one uploaded file as immutable evidence and one UPLOADED
- * import batch with every physical record, in a single transaction.
- *
- * Correctness under retries and concurrency comes from the database, not from this
- * process. The source file is unique by SHA-256 and each active (not archived) batch by
- * its duplicate identity (bytes, packet type, contract, lab, planning date). An
- * archived import is history: a new upload of the same file and details becomes a new
- * import beside it, never the archived one. Both are inserted with ON
- * CONFLICT DO NOTHING, so a concurrent identical upload waits on the first one's
- * uncommitted row, then finds it committed and reuses it; if the first one rolls back,
- * the waiter creates the batch instead. The in-memory rate limit in front of the route is
- * defence in depth only.
- *
- * Nothing here validates, parses Stone Names or normalizes shapes. A batch leaves this
- * service UPLOADED with validationAttempt 0 — stored, not validated.
- *
- * Server-only.
- */
-
 import { createHash, randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
@@ -63,10 +43,8 @@ export interface SarinUploadResult {
 
 const sha256Hex = (data: Uint8Array | string) => createHash("sha256").update(data).digest("hex");
 
-/** Bound on the upload lab choices; the lab registry is far smaller in practice. */
 const UPLOAD_CHOICES_MAX = 300;
 
-/** The labs this actor may declare: active normalized labs in the lab registry inside their scope. */
 export async function uploadLabs(scope: EffectiveScope): Promise<string[]> {
   const rows = await db.labMapping.findMany({
     where: { active: true, ...(scope.labs === null ? {} : { normalizedLab: { in: [...scope.labs] } }) },
@@ -78,11 +56,6 @@ export async function uploadLabs(scope: EffectiveScope): Promise<string[]> {
   return rows.map((r) => r.normalizedLab);
 }
 
-/**
- * Sarin imports carry no country; a declared lab must be inside the actor's lab scope. An
- * actor limited to particular labs must declare one: a batch without a lab would sit
- * outside their own scope, where they could never see it again.
- */
 export function assertUploadScope(scope: EffectiveScope, labId: string | null): void {
   assertWithinScope(scope, { lab: labId });
   if (scope.labs !== null && labId === null) {
@@ -90,7 +63,6 @@ export function assertUploadScope(scope: EffectiveScope, labId: string | null): 
   }
 }
 
-/** A declared lab must be active in the lab registry. Checked after scope, so an out-of-scope request is still refused with 403. */
 async function assertRegistered(labId: string | null): Promise<void> {
   if (labId !== null && !(await isLabRegistered(labId))) throw new SarinUploadRejection(400, "UNKNOWN_LAB", "The declared lab is not an active lab in the lab registry.");
 }
@@ -103,7 +75,6 @@ function assertFieldLengths(records: SarinRecordInterpretation[], limits: Pick<S
   }
 }
 
-/** Safe audit summary of a request that was refused: the reason code and validated facts only. */
 async function auditRejection(actor: SarinUploadActor, error: ApiError, request: SarinUploadRequest | null): Promise<void> {
   try {
     await actor.audit(db, {
@@ -122,7 +93,6 @@ async function auditRejection(actor: SarinUploadActor, error: ApiError, request:
   }
 }
 
-/** Handles POST /api/planning/sarin/imports end to end. */
 export async function uploadSarinImport(req: Request, actor: SarinUploadActor, limits: SarinIngestionLimits = SARIN_INGESTION_LIMITS): Promise<SarinUploadResult> {
   let request: SarinUploadRequest | null = null;
   let records: SarinRecordInterpretation[];
@@ -144,7 +114,6 @@ export async function uploadSarinImport(req: Request, actor: SarinUploadActor, l
   return ingestSarinSource(actor, request, { lines, records, encoding }, limits);
 }
 
-/** Persists an already-read upload. Exported for the ingestion tests that vary the batch size. */
 export async function ingestSarinSource(
   actor: SarinUploadActor,
   request: SarinUploadRequest,
@@ -188,8 +157,6 @@ export async function ingestSarinSource(
         });
 
         if (batch.count === 0) {
-          // The same active import already exists: it is returned, output and all. The
-          // identity index excludes archived imports, so an archived one never answers here.
           const existing = await tx.sarinImportBatch.findFirstOrThrow({ where: { sourceFileId: file.id, ...identity, status: { not: "ARCHIVED" } }, select: { id: true } });
           await actor.audit(tx, { action: SARIN_AUDIT_ACTIONS.duplicateReused, entity: AUDIT_ENTITY, entityId: existing.id, after: { ...facts, batchId: existing.id }, reason: "Identical Sarin upload returned the existing import" });
           return { created: false, batchId: existing.id };
@@ -227,7 +194,6 @@ export async function ingestSarinSource(
       { timeout: limits.transactionTimeoutMs, maxWait: 10_000 },
     );
   } catch (e) {
-    // Logged by class and code only: a database error message can quote the failing row.
     const code = e instanceof Prisma.PrismaClientKnownRequestError ? e.code : null;
     log("error", "sarin.import.failed", { requestId: actor.requestId, userId: actor.userId, error: e instanceof Error ? e.name : "unknown", code });
     try {
@@ -243,7 +209,6 @@ export async function ingestSarinSource(
   return { created: outcome.created, duplicate: !outcome.created, batch: summary };
 }
 
-/** Handles deletion/archival of an import batch atomically. */
 export async function deleteSarinImport(batchId: string, api: ApiContext<unknown>): Promise<void> {
   const batch = await db.sarinImportBatch.findUnique({
     where: { id: batchId },

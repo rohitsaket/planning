@@ -1,13 +1,5 @@
 "use client";
 
-// Workbook Import: turn a Sarin CSV into the structured output workbook. One form and one
-// Process File action; the server still uploads, checks, prepares and audits each step
-// under its own permission (see sarin/sarin-processing.ts). Shape mappings are
-// administered under Administration → Mappings → Sarin Shape Mapping.
-//
-// The page needs sarin.import.read. Every action has its own permission, mirrored on its
-// control and enforced by its API.
-
 import { useAuthStore } from "@/stores/auth-store";
 import { PageHeader } from "@/components/diamond/shared/page-header";
 import { SarinProcessCard, useSarinProcessing } from "./sarin/sarin-process-card";
@@ -30,7 +22,6 @@ export function WorkbookImportView() {
         selected={processing.open?.batchId ?? null}
         busy={processing.stage !== null}
         onOpen={(batchId) => processing.setOpen({ batchId, failure: null })}
-        // Processes the file again against the shape mappings in effect now.
         onProcessAgain={(batchId) => {
           processing.setOpen({ batchId, failure: null });
           void processing.run((onStage) => continueProcessing(fetch, batchId, true, rights, onStage));

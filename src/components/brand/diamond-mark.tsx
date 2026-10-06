@@ -1,13 +1,5 @@
 import type { SVGProps } from "react";
 
-/**
- * The product mark: a brilliant-cut diamond in front elevation (table, crown,
- * girdle, pavilion). Same geometry as the favicon in `src/app/icon.svg`, so the
- * browser tab and the app header read as one brand — keep the two in step.
- *
- * Stroked in `currentColor` rather than filled, so it inherits theme colour and
- * sits consistently beside the lucide icons used throughout the navigation.
- */
 export function DiamondMark({ strokeWidth = 2, ...props }: SVGProps<SVGSVGElement> & { strokeWidth?: number }) {
   return (
     <svg

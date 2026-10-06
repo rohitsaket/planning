@@ -1,23 +1,3 @@
-/**
- * ANALYSIS INVENTORY — current canonical stock, by the centralized classification.
- *
- * The authoritative source is `LotMasterRecord` where `isCurrent = true`, bucketed by
- * the classification the classifier already persisted. This module re-derives no status
- * rule: it reads `inventoryClass`, `holdState` and `classificationState` and files each
- * record under exactly one bucket.
- *
- * What is deliberately NOT a source here:
- *
- *   - `PolishedStone` / `RoughStone` / `MemoRecord` — legacy seeded operational mirrors.
- *     They may be compared against canonical stock for reconciliation, and they may
- *     restrict, but they can never promote an excluded canonical record into available
- *     stock.
- *   - `FantasyProjectionCandidate` — history of a retired shadow projection, never authoritative.
- *   - Non-current records — a sold, closed or superseded version is history, not stock.
- *
- * Server-only.
- */
-
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { num } from "@/lib/api-utils";
@@ -48,16 +28,6 @@ export const INVENTORY_PAGE_MAX = 200;
 export const INVENTORY_PAGE_DEFAULT = 25;
 const GROUP_CEILING = 5_000;
 
-// ---------------------------------------------------------------------------
-// Buckets
-// ---------------------------------------------------------------------------
-
-/**
- * The bucket vocabulary and the derivation itself now live in `inventory-buckets.ts`, so
- * Stock Aging, the Aging Dashboard and Transfer distribution file records exactly the way
- * this module does. They are re-exported here because this module was the original home
- * and every existing importer still names it.
- */
 export {
   BUCKET_LABELS,
   INVENTORY_BUCKETS,
@@ -69,45 +39,19 @@ export type { InventoryBucket };
 
 const BUCKET_SQL = inventoryBucketSql("m");
 
-/**
- * Resolves a bucket produced by `BUCKET_SQL`. The CASE is exhaustive, so this can only
- * disagree if the SQL and the vocabulary drift apart — in which case the record is filed
- * for review rather than presented under a bucket that no longer exists.
- */
 function resolveBucket(value: unknown): InventoryBucket {
   return isInventoryBucket(value) ? value : "REVIEW_REQUIRED";
 }
 
-// ---------------------------------------------------------------------------
-// Quantity and weight provenance
-// ---------------------------------------------------------------------------
-
-/**
- * A quantity counts as confirmed pieces only when the shared rule says so.
- *
- * There is no `?? 1` and no `> 0 ? q : 1`: a record whose quantity cannot be confirmed
- * keeps its row, is counted in the review figures, and contributes nothing to the piece
- * total. Its lot is still visible — only the number is withheld.
- *
- * `confirmedQuantitySql` yields NULL for a quantity that may not be counted; it is
- * coalesced to zero here so that summing behaves exactly as it did before, while the
- * boolean below reads the same decision rather than restating it.
- */
 const CONFIRMED_QUANTITY_SQL = Prisma.sql`COALESCE(${confirmedQuantitySql("m")}, 0)`;
 
-/** Weight counts only when measured and positive. No estimated weight exists on this model. */
 const MEASURED_WEIGHT_SQL = Prisma.sql`
   CASE WHEN "m"."weight" IS NOT NULL AND "m"."weight" > 0 THEN "m"."weight" ELSE 0 END`;
 
-/** True when the record's quantity could not be confirmed as pieces. */
 const UNCONFIRMED_QUANTITY_SQL = Prisma.sql`(${confirmedQuantitySql("m")} IS NULL)`;
 
 export type { QuantityProvenance };
 export { resolveQuantityProvenance };
-
-// ---------------------------------------------------------------------------
-// Filters
-// ---------------------------------------------------------------------------
 
 export interface InventoryFilters {
   readonly country: string | null;
@@ -123,13 +67,6 @@ export interface InventoryFilters {
   readonly holdState: string | null;
   readonly classificationState: string | null;
   readonly search: string | null;
-  /**
-   * The caller's country and lab authorization scope.
-   *
-   * It rides with the filters because it is applied in the same place they are, but it is
-   * not a filter: it comes from the authenticated server session and a request can only
-   * ever narrow within it, never widen past it.
-   */
   readonly scope: EffectiveScope;
 }
 
@@ -157,22 +94,11 @@ function filterSql(f: InventoryFilters): Prisma.Sql {
     const like = `%${f.search.replace(/[\\%_]/g, "\\$&")}%`;
     parts.push(Prisma.sql`AND ("m"."lotId" ILIKE ${like} OR COALESCE("m"."stoneName", '') ILIKE ${like})`);
   }
-  // Applied last and unconditionally: it narrows the set whether or not the request
-  // carried a country or lab of its own, so a scoped caller's default view is their own
-  // scope rather than the whole business.
   const scope = scopeSql(f.scope, { country: '"m"."country"', lab: '"m"."labNormalized"' });
   if (scope !== Prisma.empty) parts.push(scope);
   return parts.length ? Prisma.join(parts, " ") : Prisma.empty;
 }
 
-/**
- * The current canonical inventory, already filtered and bucketed.
- *
- * `currentStockSql` is the line between stock and history: a sold, transferred or closed
- * record is excluded here and cannot reappear as inventory downstream. It is stricter
- * than the bare `isCurrent` flag it replaces, because `isCurrent` records only that the
- * source feed still published the row.
- */
 function inventoryCte(f: InventoryFilters): Prisma.Sql {
   return Prisma.sql`
     WITH inv AS (
@@ -223,10 +149,6 @@ function pageMeta(p: Paging, total: number): PagingMeta {
   return { page: p.page, pageSize, total, hasMore: p.page * pageSize < total };
 }
 
-// ---------------------------------------------------------------------------
-// A. Readiness
-// ---------------------------------------------------------------------------
-
 export const READINESS_STATES = [
   "CURRENT", "SIMULATED", "STALE", "INCOMPLETE", "UNKNOWN",
   "UNAVAILABLE", "NOT_CONFIGURED", "BLOCKED_BY_DATA_QUALITY",
@@ -241,11 +163,9 @@ export interface InventoryReadiness {
   readonly rows: readonly ReadinessRow[];
   readonly isSimulated: boolean;
   readonly sourceLabel: string;
-  /** Where these figures came from. Rendered by the shared simulation banner. */
   readonly sourceDisclosure: SourceDisclosure;
   readonly currentRecordCount: number;
   readonly lastSourceUpdate: string | null;
-  /** True when inventory changed after the latest demand run finished. */
   readonly inventoryNewerThanDemandRun: boolean;
   readonly demandRunAtIst: string | null;
 }
@@ -289,7 +209,6 @@ export async function readInventoryReadiness(client: DbClient = db): Promise<Inv
   const lastSourceUpdate = c?.last_seen ?? null;
   const runFinishedAt = latestRun?.finishedAt ?? latestRun?.runDate ?? null;
 
-  // Reported, never acted on: this module does not recompute a stored demand result.
   const inventoryNewerThanDemandRun =
     lastSourceUpdate !== null && runFinishedAt !== null && lastSourceUpdate.getTime() > runFinishedAt.getTime();
 
@@ -318,8 +237,6 @@ export async function readInventoryReadiness(client: DbClient = db): Promise<Inv
     rows,
     isSimulated: simulated,
     sourceLabel: simulated ? "Source: Fixture Simulation" : total === 0 ? "No canonical inventory" : "Source: Live Fantasy",
-    // With no canonical records there is nothing to attribute, so the disclosure is
-    // `NOT_ESTABLISHED` rather than a claim in either direction.
     sourceDisclosure: resolveSourceDisclosure({ isSimulated: simulated, hasData: total > 0 }),
     currentRecordCount: total,
     lastSourceUpdate: lastSourceUpdate ? lastSourceUpdate.toISOString() : null,
@@ -327,10 +244,6 @@ export async function readInventoryReadiness(client: DbClient = db): Promise<Inv
     demandRunAtIst: runFinishedAt ? formatIST(runFinishedAt, false) : null,
   };
 }
-
-// ---------------------------------------------------------------------------
-// B. Inventory position
-// ---------------------------------------------------------------------------
 
 export const POSITION_GROUPINGS = ["bucket", "country", "branch", "lab", "shape", "weightBand"] as const;
 export type PositionGrouping = (typeof POSITION_GROUPINGS)[number];
@@ -365,12 +278,6 @@ export interface PositionResult {
   };
 }
 
-/**
- * The bucket summary, aggregated in the database.
- *
- * Piece quantity, carat weight and lot-record count are three separate columns
- * throughout — they answer three different questions and are never interchanged.
- */
 export async function readInventoryPosition(
   filters: InventoryFilters,
   grouping: PositionGrouping,
@@ -398,8 +305,6 @@ export async function readInventoryPosition(
 
   const mapped: PositionRow[] = rows.map((r) => {
     const key = r.group_key ?? "(unspecified)";
-    // The grouped key is the derived bucket only when the grouping asked for buckets,
-    // and even then it is resolved rather than asserted.
     const bucket = grouping === "bucket" && isInventoryBucket(key) ? key : null;
     return {
       groupKey: key,
@@ -410,7 +315,6 @@ export async function readInventoryPosition(
       reviewRequiredCount: r.review,
       unconfirmedQuantityCount: r.qty_unconfirmed,
       lastSourceUpdateIst: r.last_update ? formatIST(r.last_update, false) : null,
-      // Only one bucket may reduce finished-stock shortage; every row says which it is.
       shortageEligible: bucket === SHORTAGE_ELIGIBLE_BUCKET,
     };
   });
@@ -428,10 +332,6 @@ export async function readInventoryPosition(
 
   return { grouping, rows: mapped, totals };
 }
-
-// ---------------------------------------------------------------------------
-// C. Category inventory
-// ---------------------------------------------------------------------------
 
 export interface CategoryInventoryRow {
   readonly categoryId: string;
@@ -456,12 +356,6 @@ export interface CategoryInventoryResult {
   readonly paging: PagingMeta;
 }
 
-/**
- * Inventory per canonical category.
- *
- * Deliberately reports no target, shortage, excess, reorder or priority: those are the
- * demand engine's outputs and belong on the pages that own them.
- */
 export async function readCategoryInventory(
   filters: InventoryFilters,
   paging: Paging,
@@ -512,7 +406,6 @@ export async function readCategoryInventory(
       reserved: num(r.reserved),
       memo: num(r.memo),
       wip: num(r.wip),
-      // Rough is reported as its own count and quantity, never folded into a polished figure.
       roughCount: r.rough_count,
       roughQuantity: num(r.rough_qty),
       heldOrExcluded: r.held,
@@ -524,10 +417,6 @@ export async function readCategoryInventory(
     paging: pageMeta(paging, totalRows[0]?.total ?? 0),
   };
 }
-
-// ---------------------------------------------------------------------------
-// D. Lot-level inventory
-// ---------------------------------------------------------------------------
 
 export interface LotInventoryRow {
   readonly lotId: string;
@@ -541,7 +430,6 @@ export interface LotInventoryRow {
   readonly lab: string;
   readonly shape: string;
   readonly weightBand: string;
-  /** Null when the quantity could not be confirmed as pieces — never silently 1. */
   readonly confirmedQuantity: number | null;
   readonly measuredWeight: number | null;
   readonly country: string;
@@ -563,12 +451,6 @@ export interface LotInventoryResult {
 export const LOT_SORTS = ["lastSeen", "lotId", "measuredWeight", "bucket"] as const;
 export type LotSort = (typeof LOT_SORTS)[number];
 
-/**
- * The lot drill-down.
- *
- * An explicit allowlist: no raw payload, no remark, no internal database error and no
- * column whose business meaning is unconfirmed reaches this projection.
- */
 export async function readLotInventory(
   filters: InventoryFilters,
   paging: Paging,
@@ -604,14 +486,12 @@ export async function readLotInventory(
       const unconfirmed = r.qty_unconfirmed === true;
       return {
         lotId: String(r.lot_id),
-        // Withheld without the permission that authorizes source-record detail.
         sourceRecordId: canSeeSourceRecordId ? ((r.source_record_id as string | null) ?? null) : null,
         stockType: String(r.stock_type),
         lifecycle: (r.lifecycle as string | null) ?? null,
         bucket: resolveBucket(r.bucket),
         classificationState: (r.classification_state as string | null) ?? null,
         holdState: (r.hold_state as string | null) ?? null,
-        // A factual classification output, not a planning instruction.
         planningEligible: (r.planning_eligible as boolean | null) ?? null,
         lab: String(r.lab),
         shape: String(r.shape),
@@ -633,34 +513,16 @@ export async function readLotInventory(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Mirror reconciliation
-// ---------------------------------------------------------------------------
-
 export interface MirrorReconciliation {
   readonly canonicalCurrent: number;
   readonly polishedMirrorRows: number;
   readonly memoMirrorRows: number;
-  /** Mirror rows whose lot exists in current canonical storage. */
   readonly presentInBoth: number;
-  /** Canonical records with no operational mirror row. */
   readonly canonicalOnly: number;
-  /** Mirror rows with no current canonical record — legacy seed by definition. */
   readonly mirrorOnlyLegacySeed: number;
-  /** Lots where the mirror's planning class disagrees with the canonical classification. */
   readonly classificationDisagreements: number;
 }
 
-/**
- * Canonical stock against the operational mirrors.
- *
- * Reporting only. Nothing here merges a mirror row into canonical inventory or promotes
- * an excluded canonical record because a mirror says it is available — a mirror may
- * corroborate or restrict, never promote.
- *
- * Every count is narrowed to the caller's scope: a whole-business total would tell a
- * restricted reader how many records exist outside the places they may see.
- */
 export async function reconcileWithMirrors(scope: EffectiveScope, client: DbClient = db): Promise<MirrorReconciliation> {
   const inScope = (alias: string) => scopeSql(scope, { country: `${alias}."country"`, lab: `${alias}."labNormalized"` });
   const memoParts = memoPredicates({ scope, country: null, branch: null, lab: null, status: null }, "r");
@@ -697,14 +559,6 @@ export async function reconcileWithMirrors(scope: EffectiveScope, client: DbClie
   };
 }
 
-/**
- * Where the current canonical stock behind a page came from.
- *
- * One cheap aggregate over the same filtered set the page reads, so a tab that shows
- * simulated lots always carries the simulation notice — including the tabs that do not
- * read the readiness section. `BOOL_OR` answers "is any of this simulated", which is the
- * stricter and therefore honest reading for a mixed page.
- */
 export async function readInventorySourceDisclosure(
   f: InventoryFilters,
   client: DbClient = db,

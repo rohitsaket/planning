@@ -1,29 +1,3 @@
-/**
- * Sarin validation attempts: stone blocks, Stone Name identity, Rough Weight consistency
- * and shape resolution for one UPLOADED (or previously validated) batch, plus the plan
- * structure of its declared type: Blue/White (plan-structure.ts) or Pink (pink-structure.ts).
- *
- * Three short steps, each its own transaction:
- *
- *   1. Claim   — atomically moves the batch to VALIDATING with a new owner token, a higher
- *                fencing version and the next attempt number, bound to the EFFECTIVE
- *                mapping snapshot it captures, and records the attempt RUNNING. The whole
- *                attempt runs against that snapshot even if the catalog changes meanwhile.
- *                A live claim cannot be taken; an expired one is first recorded as ABANDONED.
- *   2. Run     — computes and writes the attempt's blocks, row interpretations and
- *                findings, supersedes the previous attempt's open findings, and finalizes
- *                the batch and attempt. All of it is one transaction whose final writes
- *                are conditioned on the owner token and fence: a stale worker changes
- *                nothing, and a failure leaves no partial result behind.
- *   3. Fail    — only after a real processing failure: records FAILED, again only with the
- *                owning token.
- *
- * Findings are data-quality results, never failures: an attempt with findings completes as
- * NEEDS_REVIEW. The immutable source rows are read, never written.
- *
- * Server-only.
- */
-
 import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
@@ -73,7 +47,6 @@ export interface SarinValidationClaim {
   readonly labScope: string | null;
 }
 
-/** The claim this worker holds is no longer the batch's current claim. */
 export class StaleClaimError extends Error {
   constructor() {
     super("The validation claim is no longer current.");
@@ -82,10 +55,6 @@ export class StaleClaimError extends Error {
 }
 
 const scopeOf = (scope: EffectiveScope) => scopeWhere(scope, { country: null, lab: "labScope" }) as Prisma.SarinImportBatchWhereInput;
-
-// ---------------------------------------------------------------------------------------
-// 1. Claim
-// ---------------------------------------------------------------------------------------
 
 export type ClaimOutcome =
   | { readonly kind: "CLAIMED"; readonly claim: SarinValidationClaim }
@@ -99,13 +68,9 @@ export async function claimSarinValidation(actor: SarinValidationActor, batchId:
     });
     if (!batch) throw notFound("Sarin import");
     if (batch.status === "ARCHIVED") throw conflict("IMPORT_ARCHIVED", "An archived import cannot be validated.");
-    // The mapping this attempt uses is the catalog in effect now; nobody chooses a version.
     const set = await captureEffectiveSnapshot(tx);
     if (!set) throw conflict("MAPPINGS_NOT_CONFIGURED", MAPPING_MESSAGES.notConfigured);
 
-    // Same source, same mapping snapshot, same validation contract, already completed: the
-    // existing result is the answer. An attempt made under an older profile does not prove
-    // that the current checks ran, so it is never reused.
     if ((batch.status === "VALIDATED" || batch.status === "NEEDS_REVIEW") && batch.shapeMappingSetId === set.id) {
       const last = await tx.sarinValidationAttempt.findUnique({
         where: { batchId_attemptNumber: { batchId, attemptNumber: batch.validationAttempt } },
@@ -121,8 +86,6 @@ export async function claimSarinValidation(actor: SarinValidationActor, batchId:
       if (batch.leaseExpiresAt && batch.leaseExpiresAt.getTime() > Date.now()) {
         throw conflict("VALIDATION_IN_PROGRESS", "This import is already being validated.");
       }
-      // The previous worker's lease has expired. Its attempt is recorded as abandoned, and
-      // because only this exact claim is matched, a concurrent reclaimer cannot both win.
       const abandoned = await tx.sarinImportBatch.updateMany({
         where: { id: batchId, status: "VALIDATING", claimToken: batch.claimToken, fencingVersion: batch.fencingVersion },
         data: { status: "FAILED", failureCode: "VALIDATION_LEASE_EXPIRED", claimToken: null, claimedAt: null, leaseExpiresAt: null },
@@ -160,8 +123,6 @@ export async function claimSarinValidation(actor: SarinValidationActor, batchId:
       select: { id: true },
     });
     await actor.audit(tx, { action: SARIN_VALIDATION_AUDIT.started, entity: ENTITY, entityId: batchId, after: { attempt: attemptNumber, mappingSetId: set.id, mappingSetVersion: set.version, validationProfile: SARIN_VALIDATION_PROFILE_VERSION }, reason: "Sarin validation started" });
-    // A batch whose last completed validation ran older rules is being revalidated: that
-    // is recorded explicitly, and the earlier attempt stays as history.
     const previous = await tx.sarinValidationAttempt.findFirst({ where: { batchId, status: "COMPLETED" }, orderBy: { attemptNumber: "desc" }, select: { attemptNumber: true, validationProfileVersion: true } });
     if (previous && previous.validationProfileVersion !== SARIN_VALIDATION_PROFILE_VERSION) {
       await actor.audit(tx, {
@@ -179,10 +140,6 @@ export async function claimSarinValidation(actor: SarinValidationActor, batchId:
     };
   });
 }
-
-// ---------------------------------------------------------------------------------------
-// 2. Run
-// ---------------------------------------------------------------------------------------
 
 interface RowLite {
   sourceRowNumber: number;
@@ -231,7 +188,6 @@ export async function runSarinValidationAttempt(actor: SarinValidationActor, cla
       };
       if (!(await holds())) throw new StaleClaimError();
 
-      // Findings of earlier attempts stop being current; they stay as history.
       await tx.sarinValidationIssue.updateMany({
         where: { batchId: claim.batchId, validationAttempt: { lt: claim.attemptNumber }, status: { in: ["OPEN", "OVERRIDDEN"] } },
         data: { status: "SUPERSEDED" },
@@ -245,8 +201,6 @@ export async function runSarinValidationAttempt(actor: SarinValidationActor, cla
       });
       const index = indexRules(rules);
 
-      // Blocks derive only from the immutable rows and the declared type, so an earlier
-      // attempt's blocks are reused; they are recomputed and must match exactly.
       const existing = await tx.sarinStoneBlock.findMany({
         where: { batchId: claim.batchId },
         orderBy: { blockSequence: "asc" },
@@ -274,7 +228,6 @@ export async function runSarinValidationAttempt(actor: SarinValidationActor, cla
             shapeMappingSetId: claim.shapeMappingSetId,
             code: i.code,
             severity: SARIN_ISSUE_CATALOG[i.code].severity,
-            // Advisories (WARNING) stay visible without blocking; only BLOCKING findings do.
             blocking: SARIN_ISSUE_CATALOG[i.code].severity === "BLOCKING",
             fieldPosition: i.fieldPosition,
             fieldName: i.fieldName,
@@ -287,7 +240,6 @@ export async function runSarinValidationAttempt(actor: SarinValidationActor, cla
         }
       };
 
-      // The batch's declared lab must still be in the lab registry.
       if (claim.labScope !== null && !(await isLabRegistered(claim.labScope, tx))) issue({ code: "LAB_NOT_IN_REGISTRY", stoneBlockId: null, sourceRowId: null, fieldPosition: null, fieldName: null, parameters: null });
 
       const quarantineIssues = (row: RowLite, stoneBlockId: string | null) => {
@@ -299,8 +251,6 @@ export async function runSarinValidationAttempt(actor: SarinValidationActor, cla
         }
       };
 
-      // Why a row cannot become a plan piece. Each consequence is its own finding, so a
-      // reviewer sees what the plan would lack, not only what the source lacks.
       const planStructureIssues = (row: RowLite, blockId: string, unusable: SarinIssueCode, noEstimate: SarinIssueCode, shapeResolved: boolean) => {
         if (row.outcome !== "ACCEPTED") {
           issue({ code: unusable, stoneBlockId: blockId, sourceRowId: row.id, fieldPosition: null, fieldName: null, parameters: { reason: "SOURCE_ROW_NOT_ACCEPTED" } });
@@ -316,9 +266,6 @@ export async function runSarinValidationAttempt(actor: SarinValidationActor, cla
         }
       };
 
-      // The Pink 45-record positional contract. Only a stone with exactly 45 records has
-      // positions at all; a shape a mapping could not resolve is already its own finding,
-      // so positional shape checks only compare confirmed shapes.
       const pinkPositionIssues = (rows: RowLite[], shapes: (string | null)[], blockId: string) => {
         const at = (position: number) => ({ row: rows[position - 1], shape: shapes[position - 1] });
         const raise = (code: SarinIssueCode, row: RowLite, parameters: PendingIssue["parameters"], field: { position: number; name: string } | null = { position: 3, name: "shape" }) =>
@@ -334,7 +281,7 @@ export async function runSarinValidationAttempt(actor: SarinValidationActor, cla
             const differing = SARIN_PINK_CANDIDATE_FIELDS.filter((f) => {
               const a = f === "normalizedShape" ? mk.shape : mk.row[f];
               const b = f === "normalizedShape" ? primary.shape : primary.row[f];
-              if (a === null || b === null) return false; // a missing value is its own finding
+              if (a === null || b === null) return false;
               return typeof a === "string" || typeof b === "string" ? a !== b : !a.equals(b);
             });
             if (differing.length) raise("PINK_SL_PRIMARY_MISMATCH", primary.row, { position: first.position, makeablePosition: first.position - 1, fields: [...differing] }, null);
@@ -374,7 +321,6 @@ export async function runSarinValidationAttempt(actor: SarinValidationActor, cla
         const blockId = prior?.id ?? randomUUID();
 
         const parsed = parseSarinStoneName(name, claim.packetType);
-        // Rough Weight: every record must carry a valid value and all values must be equal.
         const valid = rows.filter((r) => r.roughWeight !== null);
         const distinct = new Set(valid.map((r) => r.roughWeight!.toFixed(3)));
         const roughWeight = valid.length === rows.length && distinct.size === 1 ? valid[0].roughWeight!.toFixed(3) : null;
@@ -402,8 +348,6 @@ export async function runSarinValidationAttempt(actor: SarinValidationActor, cla
 
         if (!parsed.ok) issue({ code: parsed.code, stoneBlockId: blockId, sourceRowId: null, fieldPosition: 1, fieldName: "stoneName", parameters: null });
 
-        // Blue/White plan structure: the stone must reach its main-plan limit, and every row
-        // must be able to become a plan piece. Rows are positional: nothing is sorted.
         const mainLimit = isBlueWhite(claim.packetType) ? SARIN_MAIN_PLAN_LIMITS[claim.packetType] : null;
         if (mainLimit !== null && rows.length < mainLimit) {
           issue({ code: "STONE_BLOCK_SHORTER_THAN_MAIN_LIMIT", stoneBlockId: blockId, sourceRowId: null, fieldPosition: null, fieldName: null, parameters: { rows: rows.length, requiredRows: mainLimit } });
@@ -421,13 +365,8 @@ export async function runSarinValidationAttempt(actor: SarinValidationActor, cla
           }
           const resolved = resolveShape(index, row.shapeRaw, row.ratio);
           const codes = row.rejectionCodes ?? "";
-          // A present shape the mapping set has no rule for at all (design v1.7 §15.10): the
-          // output keeps the raw Sarin shape and the row carries a warning. Pink's positional
-          // contract needs confirmed shapes, so there it still blocks. Either way it is one
-          // finding: the plan-level "no confirmed shape" consequence is not recorded again.
           const unmapped = "issue" in resolved && resolved.issue === "SHAPE_UNMAPPED";
           if ("issue" in resolved) {
-            // A missing shape or unreadable Ratio is already reported from the source row.
             const alreadyReported = resolved.issue === "SHAPE_MISSING" || (resolved.issue === "MAPPING_RATIO_MISSING" && /(^|,)RATIO_/.test(codes));
             if (!alreadyReported) {
               issue({
@@ -463,8 +402,6 @@ export async function runSarinValidationAttempt(actor: SarinValidationActor, cla
         if (isPink && rows.length === SARIN_PINK_BLOCK_ROWS) pinkPositionIssues(rows, shapes, blockId);
       };
 
-      // Stream the rows in file order. Nothing groups rows by name: a block is only ever a
-      // run of adjacent records, and any record without a Stone Name ends the run.
       let after = 0;
       for (;;) {
         const page: RowLite[] = await tx.sarinSourceRow.findMany({
@@ -491,8 +428,6 @@ export async function runSarinValidationAttempt(actor: SarinValidationActor, cla
             closeBlock();
             current = { name: row.stoneNameRaw, rows: [row] };
           }
-          // Bounded memory: write whenever a buffer fills. Blocks are written before the
-          // interpretations and findings that reference them.
           const rowBudget = config.writeBatch * 20;
           if (blocks.length >= config.writeBatch || interpretations.length >= rowBudget || pendingIssues.length >= rowBudget) await flush();
         }
@@ -502,7 +437,6 @@ export async function runSarinValidationAttempt(actor: SarinValidationActor, cla
       if (existing.length && existing.length !== counts.blockCount) throw new Error("stored stone blocks do not match the source rows");
       await flush();
 
-      // A Stone Name that reappears after other records is a separate block and a finding.
       const repeats = await tx.$queryRaw<{ id: string; firstSequence: number }[]>`
         SELECT b."id", f."firstSequence"
           FROM "SarinStoneBlock" b
@@ -517,7 +451,6 @@ export async function runSarinValidationAttempt(actor: SarinValidationActor, cla
       await flush();
 
       const result = counts.blockingIssueCount > 0 ? "NEEDS_REVIEW" : "VALIDATED";
-      // Finalization is conditioned on the claim: a worker that lost its claim writes nothing.
       const finalized = await tx.sarinImportBatch.updateMany({
         where: { id: claim.batchId, status: "VALIDATING", claimToken: claim.claimToken, fencingVersion: claim.fencingVersion },
         data: { status: result, claimToken: null, claimedAt: null, leaseExpiresAt: null, blockCount: counts.blockCount, quarantinedBlockCount: counts.quarantinedBlockCount },
@@ -532,11 +465,6 @@ export async function runSarinValidationAttempt(actor: SarinValidationActor, cla
   );
 }
 
-// ---------------------------------------------------------------------------------------
-// 3. Fail
-// ---------------------------------------------------------------------------------------
-
-/** Records a real processing failure. Returns false, changing nothing, unless the claim is still this worker's. */
 export async function failSarinValidationAttempt(actor: SarinValidationActor, claim: SarinValidationClaim, failureCode: string): Promise<boolean> {
   return db.$transaction(async (tx) => {
     const released = await tx.sarinImportBatch.updateMany({
@@ -550,10 +478,6 @@ export async function failSarinValidationAttempt(actor: SarinValidationActor, cl
   });
 }
 
-// ---------------------------------------------------------------------------------------
-// Orchestration for POST /api/planning/sarin/imports/[batchId]/validate
-// ---------------------------------------------------------------------------------------
-
 export async function validateSarinImport(actor: SarinValidationActor, batchId: string, config: SarinValidationConfig = SARIN_VALIDATION_CONFIG) {
   const claimed = await claimSarinValidation(actor, batchId, config);
   if (claimed.kind === "REUSED") return { reused: true, attemptId: claimed.attemptId };
@@ -562,7 +486,6 @@ export async function validateSarinImport(actor: SarinValidationActor, batchId: 
     return { reused: false, attemptId: claimed.claim.attemptId };
   } catch (e) {
     if (e instanceof StaleClaimError) throw conflict("VALIDATION_CLAIM_SUPERSEDED", "This validation was taken over by another run and did not complete.");
-    // Logged by class only: a database error message can quote source data.
     log("error", "sarin.validation.failed", { requestId: actor.requestId, userId: actor.userId, batchId, error: e instanceof Error ? e.name : "unknown" });
     try {
       await failSarinValidationAttempt(actor, claimed.claim, "VALIDATION_PROCESSING_FAILED");

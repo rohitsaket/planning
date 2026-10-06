@@ -7,11 +7,6 @@ import type { SalesReadiness, SalesReadinessState } from "@/lib/analytics/sales-
 
 type Variant = React.ComponentProps<typeof Badge>["variant"];
 
-/**
- * The compact sales-data status: one state, the figures a reader needs to trust the page,
- * and at most one next action. Nothing is shown as ready on the strength of a check that
- * did not run; a figure the snapshot could not establish reads "Unavailable", never zero.
- */
 const STATUS: Record<SalesReadinessState, { label: string; variant: Variant; next: string | null }> = {
   CURRENT: { label: "Ready", variant: "success", next: null },
   SIMULATED: { label: "Simulated", variant: "warning", next: null },

@@ -5,11 +5,6 @@ import { notFound } from "@/lib/api/errors";
 import { withApi, qInt, idSchema } from "@/lib/api/with-api";
 import { describeScope, scopePredicates, scopeWhere } from "@/lib/auth/access-scope";
 
-// Customer 360 — monthly purchase timeline (last 12 months), preference breakdown
-// and a paginated transaction list.
-//
-// Monthly buckets and preferences are aggregated in PostgreSQL; the transaction
-// list is cut with skip/take and reports a real total.
 export const GET = withApi(
   { permission: "customers.read", scoped: true, query: ["page", "pageSize"] },
   async (req: Request, { params }: { params: Promise<{ id: string }> }, { scope }) => {
@@ -18,9 +13,6 @@ export const GET = withApi(
     const page = qInt(url, "page", { def: 1, min: 1, max: 1_000_000 });
     const pageSize = qInt(url, "pageSize", { def: 50, min: 1, max: 500 });
 
-    // A customer outside the caller's countries is answered exactly as one that does not
-    // exist, so the response never confirms the id or discloses the name. A customer has a
-    // country but no lab; the lab half of the scope applies to its records below.
     const customer = await db.customer.findFirst({
       where: { id, ...scopeWhere(scope, { country: "country", lab: null }) },
       select: { name: true, customerCode: true },
@@ -35,12 +27,8 @@ export const GET = withApi(
       customerId: id,
       lotStatusDb: "Invoice",
       docDate: { gte: since },
-      // One customer's history is still location data: a scoped reader sees only the part
-      // of it that falls inside their own countries and labs.
       ...scopeWhere(scope, { country: "country", lab: "labNormalized" }),
     };
-    // The monthly roll-up below is raw SQL over the same records, so it takes the same
-    // restriction as predicates rather than a second, divergent rule.
     const scopeParts = scopePredicates(scope, { country: '"country"', lab: '"labNormalized"' });
     const scopeWhereSql = scopeParts.length
       ? Prisma.sql` AND ${Prisma.join(scopeParts, " AND ")}`
@@ -75,7 +63,6 @@ export const GET = withApi(
 
     const bandLabel = new Map(bands.map((b) => [b.id, b.label]));
 
-    // 12-month skeleton so gaps render as zero rather than disappearing.
     const monthlyByKey = new Map(monthlyRows.map((r) => [r.month, r]));
     const monthly: Array<{ month: string; pieces: number; carats: number; value: number }> = [];
     for (let i = 11; i >= 0; i--) {

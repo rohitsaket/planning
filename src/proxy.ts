@@ -1,12 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-// First line of defence, deny by default: an /api request without a session cookie is
-// rejected here before any handler runs. The cookie's validity, the user's status and the
-// permission are then checked against the database inside withApi() in every handler.
-// The /api/public/* routes back the sign-in screen before a session exists:
-// branding, the daily quote, and access-request intake. None exposes user,
-// tenant or business data, and access-request only queues a row for an
-// administrator — it never creates an account.
 const PUBLIC_API = new Set(["/api", "/api/auth/login", "/api/auth/logout", "/api/public/login-context", "/api/public/daily-motivation", "/api/public/access-request"]);
 const SESSION_COOKIE = "dp_session";
 const isDev = process.env.NODE_ENV !== "production";
@@ -20,7 +13,6 @@ function securityHeaders(res: NextResponse, csp: string) {
   if (!isDev) {
     res.headers.set("Cross-Origin-Opener-Policy", "same-origin");
   }
-  // HSTS only where HTTPS is really in place — opt in per environment.
   if (process.env.ENABLE_HSTS === "true") res.headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
   return res;
 }
@@ -28,8 +20,6 @@ function securityHeaders(res: NextResponse, csp: string) {
 export function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  // A malformed percent-escape (e.g. "%E0") makes the framework's own route-parameter decoding
-  // throw and answer with a bare 500. Reject it here with a controlled 400 instead.
   try {
     decodeURIComponent(pathname);
   } catch {
@@ -59,12 +49,10 @@ export function proxy(req: NextRequest) {
   }
 
   const nonce = btoa(crypto.randomUUID());
-  // Development only: the local hot-reload socket. The application opens no other connections.
   const devReload = isDev ? " ws://localhost:* ws://127.0.0.1:*" : "";
   const csp = [
     "default-src 'self'",
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${isDev ? " 'unsafe-eval'" : ""}`,
-    // Radix and Recharts set inline style attributes; inline <script> stays blocked.
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob:",
     "font-src 'self'",

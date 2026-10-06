@@ -3,7 +3,6 @@ import { ok, num } from "@/lib/api-utils";
 import { withApi } from "@/lib/api/with-api";
 import { describeScope, describeScopeApplication } from "@/lib/auth/access-scope";
 
-// Forecast Analysis — clearly separate from confirmed demand
 export const GET = withApi(
   { permission: "analysis.read", scoped: true },
   async (_req: Request, _ctx, { scope }) => {
@@ -19,9 +18,6 @@ export const GET = withApi(
     });
   }
 
-  // A prediction is keyed by planning category — "Lab|Shape|WeightBand" — and carries no
-  // country column, so only the lab half of the caller's scope can be applied. The lab is
-  // the first segment of that canonical key, which is how every other surface reads it.
   const allowedLabs = scope.labs;
   const predictions = allowedLabs === null
     ? latestRun.predictions

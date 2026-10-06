@@ -4,11 +4,6 @@ import { ok } from "@/lib/api-utils";
 import { withApi, idSchema } from "@/lib/api/with-api";
 import { notFound } from "@/lib/api/errors";
 
-/**
- * Notification types of the retired legacy planning workflow (plan approval and replanning).
- * Their stored rows are kept as history but are never offered as current, actionable work.
- * Filtered by type only: the type is the one reliable marker of what a row was about.
- */
 const RETIRED_NOTIFICATION_TYPES = ["PLAN_APPROVAL_PENDING", "REPLAN_REQUIRED"];
 const LIVE = { type: { notIn: RETIRED_NOTIFICATION_TYPES } };
 

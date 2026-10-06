@@ -1,28 +1,18 @@
-// Reads a generated .xlsx for tests, without Excel: the parsed cells (values, types, number
-// formats), merges and column widths through SheetJS, and the raw XML parts for what a
-// parser hides (formulas, panes, print setup, quote-prefix styles, macros, links).
-
 import * as XLSX from "xlsx";
 
 export interface InspectedWorkbook {
   readonly sheetNames: string[];
   readonly parts: string[];
   part(name: string): string;
-  /** Rows of a sheet as [type, value, format] per column A..S; null for an absent cell. */
   rows(sheet: string): Array<Array<{ t: string; v: unknown; z?: string } | null>>;
   merges(sheet: string): string[];
   widths(sheet: string): number[];
-  /** Raw XML of the n-th worksheet (1-based, in workbook order). */
   sheetXml(index: number): string;
-  /** The style index of a cell, from the raw XML. */
   styleOf(index: number, ref: string): number | null;
-  /** Whether a cellXfs entry carries quotePrefix. */
   quotePrefixed(style: number): boolean;
-  /** Every written cell of the n-th worksheet with its solid fill colour (RRGGBB), or null. */
   cellFills(index: number): Array<{ ref: string; col: string; row: number; fill: string | null }>;
 }
 
-/** Entry names read directly from the ZIP central directory, independent of any parser. */
 export function zipEntryNames(bytes: Uint8Array): string[] {
   const buf = Buffer.from(bytes);
   const eocd = buf.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));

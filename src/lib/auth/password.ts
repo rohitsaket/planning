@@ -1,6 +1,5 @@
 import { randomBytes, scrypt as scryptCb, timingSafeEqual } from "node:crypto";
 
-// scrypt password hashing. Stored format: scrypt$N$r$p$<salt b64>$<hash b64>
 const N = 16384;
 const R = 8;
 const P = 1;
@@ -31,5 +30,4 @@ export async function verifyPassword(password: string, stored: string): Promise<
   return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
 
-// Used to equalise login timing when the username does not exist.
 export const DUMMY_HASH = "scrypt$16384$8$1$AAAAAAAAAAAAAAAAAAAAAA==$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";

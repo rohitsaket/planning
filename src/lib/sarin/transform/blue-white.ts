@@ -1,16 +1,3 @@
-/**
- * Blue/White plan construction for one validated stone. Pure: given the stone's rows in
- * source order, it returns its plan options. Nothing is sorted.
- *
- *   Rows 1..limit (17 Blue, 32 White) are MAIN options of one piece each.
- *   Later rows form ADDITIONAL groups, scanned in source order: the first later row starts
- *   group 1; each following row starts a new group only when its Estimated Weight is
- *   greater than the immediately preceding row's, and otherwise joins the current group.
- *   Weights are compared as exact three-decimal values.
- *
- * Server-only.
- */
-
 import { createHash } from "node:crypto";
 import { SARIN_MAIN_PLAN_LIMITS, type BlueWhitePacketType } from "@/lib/sarin/plan-structure";
 import type { TransformRow } from "@/lib/sarin/transform";
@@ -19,7 +6,6 @@ if (typeof window !== "undefined") {
   throw new Error("sarin/transform/blue-white is server-only and must not be imported by client code.");
 }
 
-/** The versioned rules this transformation applies. Its hash is stored on every output. */
 export const SARIN_BLUE_WHITE_TRANSFORM_PROFILE = {
   version: "SARIN_BLUE_WHITE_TRANSFORM_V1",
   mainPlanLimits: SARIN_MAIN_PLAN_LIMITS,
@@ -28,7 +14,6 @@ export const SARIN_BLUE_WHITE_TRANSFORM_PROFILE = {
   shapeNormalization: "APPROVED_SARIN_SHAPE_MAPPING_SET",
 } as const;
 
-/** Key order is fixed by the literal above, so the serialization is deterministic. */
 export const SARIN_BLUE_WHITE_TRANSFORM_PROFILE_HASH = createHash("sha256").update(JSON.stringify(SARIN_BLUE_WHITE_TRANSFORM_PROFILE)).digest("hex");
 
 export type PlannedOption<R> =

@@ -4,8 +4,6 @@ import { badRequest } from "@/lib/api/errors";
 import { listLiveLots } from "@/lib/fantasy/live-repository";
 import { LIVE_LOT_FIELDS, LIVE_LOT_SORTABLE } from "@/lib/fantasy/live-fields";
 
-// Fantasy Live Data — synchronized rows from the local database (never a live call to Fantasy).
-// Server-side pagination, search and filters; decimals are returned as strings to keep precision.
 export const GET = withApi({ permission: "fantasy.read" }, async (_req, _ctx, { url }) => {
   const page = qInt(url, "page", { def: 1, min: 1, max: 1_000_000 });
   const pageSize = qInt(url, "pageSize", { def: 100, min: 1, max: 500 });

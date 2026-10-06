@@ -1,24 +1,3 @@
-/**
- * EXCESS STOCK — bounded read service.
- *
- * One question: which planning categories hold more physically available finished
- * polished stock than the demand target the engine stored for them?
- *
- * The factual counterpart of Stockout Risk, and deliberately built from the same parts:
- * the same snapshot selection, the same filters, the same row projection. Both read
- * `DemandMetric.excessStock` and `DemandMetric.physicalShortage` — two values the
- * approved demand engine already decided — so the two pages cannot disagree about the
- * same category. Nothing here recomputes either.
- *
- * What the engine already decided, and this module does not revisit:
- *   - Memo is advisory and is neither availability nor excess.
- *   - Reserved, blocked, held and review-required stock are not availability.
- *   - WIP is reported separately and is not finished stock.
- *   - Rough is not finished stock at all.
- *
- * Server-only.
- */
-
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { formatIST } from "@/lib/fantasy/time";
@@ -42,17 +21,10 @@ type DbClient = typeof db;
 
 export const EXCESS_PAGE_DEFAULT = 25;
 export const EXCESS_PAGE_MAX = 200;
-/** Validated centrally: an unusable environment value never becomes the ceiling. */
 export const EXCESS_EXPORT_LIMIT = resolveExportRowLimit("EXCESS_EXPORT_MAX_ROWS", 20_000);
 export const EXCESS_EXPORT_ROW_LIMIT = EXCESS_EXPORT_LIMIT.rows;
 const EXPORT_READ_BATCH = 2_000;
 
-/**
- * Factual outcomes, each decidable from stored values alone.
- *
- * No ranking, no severity: how much stock is "too much" is a business judgement nobody
- * has made, and inventing a threshold would put an unapproved rule on the page.
- */
 export const EXCESS_STATES = ["EXCESS", "AT_TARGET", "BELOW_TARGET", "NO_TARGET", "REVIEW_REQUIRED"] as const;
 export type ExcessState = (typeof EXCESS_STATES)[number];
 
@@ -67,10 +39,8 @@ export const EXCESS_STATE_LABELS: Record<ExcessState, string> = {
 export const EXCESS_SORTS = ["excess", "available", "target", "sales90d", "category"] as const;
 export type ExcessSortKey = (typeof EXCESS_SORTS)[number];
 
-/** The same filter vocabulary as Stockout, with the page's own default view. */
 export interface ExcessFilters extends Omit<StockoutFilters, "stockoutState" | "shortageOnly"> {
   excessState: ExcessState | null;
-  /** The page's purpose: categories actually holding stock above target. */
   excessOnly: boolean;
 }
 
@@ -95,9 +65,7 @@ export interface ExcessRow {
   readonly targetQuantity: number;
   readonly physicalAvailable: number;
   readonly excessQuantity: number;
-  /** Advisory. Neither availability nor excess. */
   readonly memoQuantity: number;
-  /** Reported separately. Not finished stock. */
   readonly wipQuantity: number;
   readonly latestSaleDateIst: string | null;
   readonly excessState: ExcessState;
@@ -124,12 +92,6 @@ function dataStateOf(status: string): StockoutDataState {
   return status === "REVIEW_REQUIRED" ? "REVIEW_REQUIRED" : "CONFIRMED";
 }
 
-/**
- * The category's outcome, from stored values only.
- *
- * A category the engine flagged is reported as needing review rather than being given an
- * excess verdict its own figures cannot support.
- */
 function excessStateOf(m: {
   roundedTarget: number;
   availableStock: number;
@@ -138,11 +100,6 @@ function excessStateOf(m: {
   status: string;
 }): ExcessState {
   if (dataStateOf(m.status) !== "CONFIRMED") return "REVIEW_REQUIRED";
-  // "No target" is checked before "excess" on purpose. A category with no confirmed
-  // demand has a target of zero, so every piece it holds registers as excess against it —
-  // and the page would report stock nobody has asked for as stock held above a target
-  // that was never set. The absence of a target is the more truthful statement, and it is
-  // a statement about the demand side rather than a quantity derived from it.
   if (m.roundedTarget === 0) return "NO_TARGET";
   if (m.excessStock > 0) return "EXCESS";
   if (m.physicalShortage > 0) return "BELOW_TARGET";
@@ -152,8 +109,6 @@ function excessStateOf(m: {
 const CONFIRMED_STATUS = { notIn: ["REVIEW_REQUIRED", "BLOCKED_BY_DATA_QUALITY"] };
 
 function whereFor(runId: string, f: ExcessFilters): Prisma.DemandMetricWhereInput {
-  // Merged first so a filter below can only narrow within the caller's scope. There is no
-  // country column on this table, so only the lab half applies; the route discloses it.
   const where: Prisma.DemandMetricWhereInput = {
     runId,
     ...scopeWhere(f.scope, { country: null, lab: "labNormalized" }),
@@ -172,8 +127,6 @@ function whereFor(runId: string, f: ExcessFilters): Prisma.DemandMetricWhereInpu
       : f.dataState === "REVIEW_REQUIRED" ? "REVIEW_REQUIRED"
       : CONFIRMED_STATUS;
   }
-  // Expressed as column predicates rather than filtered after paging, so a page can
-  // never come back short.
   if (f.excessState) {
     switch (f.excessState) {
       case "REVIEW_REQUIRED":
@@ -204,7 +157,6 @@ function whereFor(runId: string, f: ExcessFilters): Prisma.DemandMetricWhereInpu
   return where;
 }
 
-/** Deterministic ordering: the chosen key, then the category key as a stable tie-break. */
 function orderFor(sort: { key: ExcessSortKey; dir: SortDirection }): Prisma.DemandMetricOrderByWithRelationInput[] {
   const column: Record<ExcessSortKey, keyof Prisma.DemandMetricOrderByWithRelationInput> = {
     excess: "excessStock",
@@ -238,8 +190,6 @@ function toRow(m: MetricRow, latestSale: string | null): ExcessRow {
     physicalAvailable: m.availableStock,
     excessQuantity: m.excessStock,
     memoQuantity: m.memoQty,
-    // Eligible plus unallocated: the whole WIP position, beside the excess rather than
-    // inside it.
     wipQuantity: m.wipCoverage + m.unallocatedWip,
     latestSaleDateIst: latestSale,
     excessState: excessStateOf(m),
@@ -247,12 +197,6 @@ function toRow(m: MetricRow, latestSale: string | null): ExcessRow {
   };
 }
 
-/**
- * The latest confirmed sale for each category on the page, in one grouped query.
- *
- * Deliberately not a per-row lookup: a page of 200 categories would otherwise issue 200
- * queries for a single display column.
- */
 async function latestSalesFor(
   client: DbClient,
   runId: string,
@@ -271,13 +215,6 @@ async function latestSalesFor(
   return map;
 }
 
-/**
- * One page of categories, filtered sorted and counted by the database.
- *
- * Totals are computed across every matching category, not the visible page, and exclude
- * rows the engine flagged — a figure that cannot be trusted must not be summed into one
- * presented as authoritative.
- */
 export async function readExcessCategories(
   runId: string,
   filters: ExcessFilters,
@@ -328,7 +265,6 @@ export async function readExcessCategories(
   };
 }
 
-/** Every matching row for an export, read in bounded batches. */
 export async function readExcessForExport(
   runId: string,
   filters: ExcessFilters,

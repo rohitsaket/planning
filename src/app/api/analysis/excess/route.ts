@@ -15,21 +15,6 @@ import {
 } from "@/lib/analysis/excess";
 import { describeScope, describeScopeApplication, type EffectiveScope } from "@/lib/auth/access-scope";
 
-/**
- * EXCESS STOCK — one bounded read endpoint.
- *
- * Replaces a route that read the latest usable run directly, returned every category in
- * one unpaged response, and shipped a `warning` field containing the shortage and excess
- * formulas. It now reports what the approved demand engine stored, through the same
- * snapshot selection Stockout and Demand Overview use, so the three cannot disagree
- * about the same category.
- *
- * Read-only: no write of any kind, and opening the page never recalculates a run.
- *
- * Every field is mapped explicitly. No rule identifier, mapping fingerprint, batch id,
- * checkpoint, source-policy name or formula reaches the browser.
- */
-
 const SECTIONS = ["status", "categories"] as const;
 
 export const GET = withApi(
@@ -38,7 +23,6 @@ export const GET = withApi(
   const url = new URL(req.url);
   const section = qEnum(url, "section", SECTIONS, "status");
 
-  // A bookmarked link carries its run. Absent, the authoritative selector chooses.
   const status = await readStockoutSnapshotStatus(undefined, qStr(url, "runId", 64));
 
   if (section === "status") {
@@ -46,7 +30,6 @@ export const GET = withApi(
   }
 
   if (!status.hasRun || !status.runId) {
-    // A state, not an empty table of zeros.
     return ok({
       section,
       available: false,
@@ -75,10 +58,6 @@ export const GET = withApi(
     runId: status.runId,
     unavailableMessage: null,
     activeFilters: describeExcessFilters(filters),
-    // Only the lab half of the caller's scope can be applied here: the persisted demand
-    // result has no country column, because the target is calculated once per planning
-    // category for the whole business. Saying so is the alternative to letting a
-    // country-restricted caller read a business-wide figure as if it were their own.
     accessScope: describeScope(scope),
     scopeApplication: describeScopeApplication(scope, ["LAB"]),
     ...result,
@@ -86,7 +65,6 @@ export const GET = withApi(
   },
 );
 
-/** Every filter the stored result can honour. An unknown value is refused. */
 export function parseExcessFilters(url: URL, scope: EffectiveScope): ExcessFilters {
   const state = qStr(url, "excessState", 40);
   if (state && !(EXCESS_STATES as readonly string[]).includes(state)) {
@@ -99,7 +77,6 @@ export function parseExcessFilters(url: URL, scope: EffectiveScope): ExcessFilte
 
   return {
     ...EMPTY_EXCESS_FILTERS,
-    // Required rather than defaulted, so a caller's scope cannot be forgotten.
     scope,
     lab: qStr(url, "lab", 60),
     shape: qStr(url, "shape", 60),
@@ -107,14 +84,11 @@ export function parseExcessFilters(url: URL, scope: EffectiveScope): ExcessFilte
     excessState: (state as ExcessState | null) ?? null,
     dataState: (dataState as StockoutDataState | null) ?? null,
     search: qStr(url, "search", 120),
-    // The page's purpose is categories holding stock above target; the caller may widen.
     excessOnly: qStr(url, "excessOnly", 10) !== "false",
   };
 }
 
-/** The scope actually applied, echoed back so the caller can show it. */
 export function describeExcessFilters(f: ExcessFilters): Array<{ key: string; value: string }> {
-  // `scope` is excluded: an authorization decision is not one of the caller's filters.
   return Object.entries(f)
     .filter(([key, v]) => key !== "scope" && v !== null && v !== "" && v !== false)
     .map(([key, value]) => ({ key, value: String(value) }));

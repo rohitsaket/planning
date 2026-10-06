@@ -1,19 +1,3 @@
-/**
- * ANALYSIS REVIEW FIXTURE DATASET LOADER CLI
- *
- * Usage:
- *   npm run db:test:fixture:analysis-review -- --profile=ANALYSIS_REVIEW_V1 --business-date=2026-09-24 --confirm-local
- *
- * Repair an existing dataset in place (rebuilds missing derived projections):
- *   npm run db:test:fixture:analysis-review -- --repair
- *
- * Cleanup (profile-targeted, isolated review databases only):
- *   npm run db:test:fixture:analysis-review -- --clean-profile=ANALYSIS_REVIEW_V1 --confirm-destructive-clean
- *
- * The exit code is non-zero whenever the dataset is not ready. The success banner is
- * earned by the manifest, never printed unconditionally.
- */
-
 import {
   runAnalysisReviewFixtureLoader,
   cleanAnalysisReviewFixture,
@@ -41,7 +25,6 @@ function parseArgs(args: string[]) {
 async function main() {
   const flags = parseArgs(process.argv.slice(2));
 
-  // ---------------------------------------------------------------- cleanup
   if (flags["clean-profile"]) {
     const profile = String(flags["clean-profile"]);
     const confirmDestructiveClean = flags["confirm-destructive-clean"] === true;
@@ -62,12 +45,6 @@ async function main() {
     return;
   }
 
-  // ---------------------------------------------------------------- repair
-  //
-  // Rebuilds the derived projections of an existing dataset without re-synchronizing.
-  // This is the path for a database where an ordinary seed deleted the operational
-  // mirrors and left the canonical records behind: nothing in the source changed, so a
-  // re-synchronization would report every record unchanged and rebuild nothing.
   if (flags["repair"] === true) {
     const proof = proveDisposableDatabase(process.env.DATABASE_URL);
     if (!proof.proven) {
@@ -105,7 +82,6 @@ async function main() {
     return;
   }
 
-  // ---------------------------------------------------------------- load
   const profile = (flags["profile"] as string) || FIXTURE_PROFILE_CODE;
   const businessDate = (flags["business-date"] as string) || DEFAULT_BUSINESS_DATE;
   const confirmLocal = flags["confirm-local"] === true;
@@ -161,9 +137,6 @@ async function main() {
     console.log(`  ${line}`);
   }
 
-  // The banner is earned, not printed unconditionally. The previous CLI announced
-  // "READY FOR EVALUATION" even on the already-loaded path where the manifest had just
-  // printed six failed invariants, and it exited zero either way.
   if (!result.success || !m.passedAllInvariants) {
     const failures = m.invariantsReport.filter((line) => !line.startsWith("✓"));
     console.error("\n===============================================================================");

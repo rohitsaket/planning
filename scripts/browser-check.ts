@@ -1,7 +1,3 @@
-// Real-browser check over the Chrome DevTools Protocol (no extra dependencies):
-// loads the app, confirms the sign-in gate renders under the CSP, signs in through the form,
-// opens views, and records console errors, CSP violations and failed requests.
-// Usage: CHROME_BIN=... BROWSER_BASE=http://127.0.0.1:3187 BROWSER_USER=u BROWSER_PASS=p node scripts/browser-check.ts
 import { spawn } from "node:child_process";
 import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -64,7 +60,6 @@ const record = (check: string, ok: boolean, detail = "") => results.push({ check
 await send("Page.navigate", { url: `${BASE}/` });
 const gate = await waitFor(`!!document.querySelector('input[autocomplete="current-password"]')`);
 record("sign-in gate renders and hydrates under the production CSP", gate);
-// The module list is the one public product claim: only modules that exist are advertised.
 const gateText = String(await evaluate(`document.body.textContent`));
 record("sign-in page lists Analysis and Planning and no retired module", gateText.includes("Analysis") && gateText.includes("Planning") && !/Traceability|Requirements/.test(gateText));
 
@@ -97,7 +92,6 @@ for (const view of VIEWS) {
 const csp = events.filter((e) => JSON.stringify(e.params).includes("Content Security Policy"));
 record("no Content-Security-Policy violations across all views", csp.length === 0, csp.slice(0, 3).map((e) => (e.params.entry?.text ?? "").slice(0, 200)).join(" ; "));
 
-// Sign out lives in the account menu opened from the profile chip.
 await evaluate(`document.querySelector('button[aria-label="Account menu"]').click(); true`);
 await waitFor(`[...document.querySelectorAll('button')].some(b => b.textContent.trim() === 'Sign out')`);
 await evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Sign out').click()`);
@@ -105,7 +99,6 @@ record("sign out returns to the sign-in gate", await waitFor(`!!document.querySe
 
 ws.close();
 chrome.kill();
-// Generated evidence, not source: it goes to the system temp directory, never the repository.
 const out = path.join(tmpdir(), "planning-browser-check");
 mkdirSync(out, { recursive: true });
 writeFileSync(path.join(out, "browser-check.md"), `# Browser check — headless Chrome via DevTools protocol against ${BASE}\n\nRun: ${new Date().toISOString()}\n\n| Result | Check | Detail |\n|---|---|---|\n${results.map((r) => `| ${r.ok ? "PASS" : "FAIL"} | ${r.check} | ${r.detail.replace(/\|/g, "\\|")} |`).join("\n")}\n`);

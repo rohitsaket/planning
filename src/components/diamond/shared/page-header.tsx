@@ -12,14 +12,6 @@ interface PageHeaderProps {
   className?: string;
 }
 
-/**
- * One concise header per page: title, an optional one-line description, and actions on the
- * same row where they fit.
- *
- * Inside a tabbed host the host already shows the page title and the tab label, so this
- * renders only what it adds — its description, metadata and actions — as a slim row, and
- * shows its title (as a sub-heading) only when it says something the tab label does not.
- */
 export function PageHeader({ title, subtitle, actions, meta, className }: PageHeaderProps) {
   const host = useHostTab();
 
@@ -60,26 +52,9 @@ interface SectionProps {
   children: ReactNode;
   className?: string;
   bodyClassName?: string;
-  /**
-   * "flow" (default): grows with its content; the page scrolls.
-   * "bounded": the body scrolls inside a viewport-aware height, for a long list that sits
-   * beside other panels. The body is then a focusable, named region for keyboard scrolling,
-   * and reaching either end hands the gesture back to the page.
-   */
   layout?: "flow" | "bounded";
 }
 
-/**
- * The shared panel: a subtle border, a slim header with actions on the same row, and a
- * compact body. A table placed at the edge of the default body runs flush to the panel
- * border instead of drawing a second card inside it.
- *
- * A Section grows with its content and never hides it: the page scrolls. Only a panel that
- * asks for `layout="bounded"` scrolls its body, and a table that needs its own scroll area
- * says so itself (DataTable `scroll="bounded"`).
- * `overflow-clip` only trims children to the rounded corners; unlike `overflow-hidden` it
- * does not make the section a scroll container, so sticky content still sticks to the page.
- */
 export function Section({ title, description, actions, children, className, bodyClassName, layout = "flow" }: SectionProps) {
   const [headerSlot, setHeaderSlot] = useState<HTMLDivElement | null>(null);
   const hasHeader = Boolean(title || actions);

@@ -5,16 +5,6 @@ import { getSalesPeriodTrend, resolveSalesSnapshot } from "@/lib/analytics/sales
 import { assertRequestedWindow, parseSalesFilters } from "@/lib/analytics/sales-history-request";
 import { withSalesScope } from "@/lib/analytics/sales-history";
 
-/**
- * Sales Analysis — confirmed sales per period for the authoritative snapshot.
- *
- * Descriptive only: period quantity, period weight, qualifying record count and the
- * number of distinct categories that contributed. No forecast, no predicted demand and
- * no manufacturing priority is produced here or anywhere on this page.
- *
- * The chart on the page renders these exact rows; there is no second series computed in
- * the browser.
- */
 export const GET = withApi({ permission: "sales.read", scoped: true }, async (req: Request, _ctx, api) => {
   const url = new URL(req.url);
   const interval = qEnum<TrendInterval>(url, "interval", TREND_INTERVALS, "window30");

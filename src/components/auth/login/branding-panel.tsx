@@ -5,8 +5,6 @@ import { erpBrand, brandCopyright, type ErpBrand } from "@/lib/branding";
 import { DiamondMark } from "@/components/brand/diamond-mark";
 import { DailyMotivation, type DailyMotivationProps } from "./daily-motivation";
 
-// Informational only — deliberately not links. Nothing here navigates before
-// authentication.
 const MODULE_ICONS: Record<string, typeof BarChart3> = {
   Analysis: BarChart3,
   Planning: Layers,
@@ -31,8 +29,6 @@ function ModuleIndicators({ modules }: { modules: readonly string[] }) {
   );
 }
 
-/** Low-opacity architectural geometry. Inline SVG — no image request, and it
- *  never sits above text. */
 function BackdropGeometry() {
   return (
     <svg
@@ -71,7 +67,6 @@ export function BrandingPanel({
       <BackdropGeometry />
 
       <div className="relative flex min-h-0 flex-1 flex-col">
-        {/* Brand Capsule matching AppShell header */}
         <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[#FED7AA]/95 dark:bg-[#25201D] border border-[#FB923C]/50 dark:border-[#3D322C] shadow-2xs mb-6 w-fit">
           <div className="h-6 w-6 rounded-lg bg-[#18181B] text-white flex items-center justify-center flex-shrink-0 shadow-xs">
             <DiamondMark className="h-3.5 w-3.5" />

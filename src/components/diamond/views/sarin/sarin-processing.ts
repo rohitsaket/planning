@@ -1,18 +1,3 @@
-// Process File: the single action of Workbook Import.
-//
-// It calls the existing Sarin APIs one after another — upload, check against the shape
-// mappings in effect (the server captures them; nobody picks a version), prepare the output
-// — and stops at the first point that needs a person. Each
-// call keeps its own server-side permission, scope, transaction and audit: there is no
-// combined transaction and nothing here parses, validates or calculates. Every server step
-// is idempotent (the same file and details are one import, a completed check against the
-// same mapping snapshot is reused, unchanged inputs return the existing output version), so running this
-// again resumes from what the server has stored instead of duplicating it. Nothing is
-// retried automatically.
-//
-// Business state shown to the user is derived from the server's own state after each run;
-// the outcome of this code is never trusted on its own.
-
 export interface Paged<T> {
   rows: T[];
   total: number;
@@ -23,7 +8,6 @@ export interface UploadConstraints {
   acceptedExtension: string;
   maxFileBytes: number;
   maxRecords: number;
-  /** The active registry labs within the session's scope. */
   labs: string[];
 }
 
@@ -37,7 +21,6 @@ export interface ImportSummary {
   createdAt: string;
   revalidationRequired: boolean;
   currentOutputId: string | null;
-  /** Rows of the current output showing a raw, unmapped Sarin shape. */
   currentOutputUnmappedRows: number;
 }
 
@@ -74,7 +57,6 @@ export interface OutputVersion {
   counts: { stones: number; options: number; pieces: number };
 }
 
-/** What the signed-in user may do, from the session's permissions. The server decides again. */
 export interface ProcessingRights {
   upload: boolean;
   validate: boolean;
@@ -102,7 +84,6 @@ export const STAGE_LABEL: Record<ProcessingStage | "ready", string> = {
   ready: "Output ready",
 };
 
-/** A refused or failed request: the server's error code and reference, never its internals. */
 export class SarinRequestError extends Error {
   constructor(
     readonly status: number,
@@ -120,7 +101,6 @@ const IMPORTS = "/api/planning/sarin/imports";
 export const importPath = (batchId: string) => `${IMPORTS}/${encodeURIComponent(batchId)}`;
 export const outputPath = (batchId: string, versionId: string) => `${importPath(batchId)}/outputs/${encodeURIComponent(versionId)}`;
 
-/** The error contract { error: { code, requestId } } of a failed response; the message is not kept. */
 export async function toRequestError(res: Response): Promise<SarinRequestError> {
   let code = "REQUEST_FAILED";
   let requestId: string | null = null;
@@ -158,20 +138,10 @@ export interface SarinFileDetails {
 }
 
 export interface ProcessingResult {
-  /** The import the file became, once the upload was stored; null if it was not. */
   batchId: string | null;
-  /** Where processing stopped with an error, if it did. */
   failure: { stage: ProcessingStage; error: SarinRequestError } | null;
 }
 
-/**
- * The next server step for an import. A check runs when none is current, or when `recheck`
- * asks for one against the mappings in effect now (the server reuses an unchanged result);
- * output is prepared only when the current check passed and no current output exists. An
- * output that shows unmapped shapes may be rechecked too, so a mapping added since is used
- * (a new output version); with the same mappings the server reuses the check and nothing
- * new is made.
- */
 export function nextStep(detail: ImportDetail, recheck: boolean, rights: ProcessingRights): "check" | "prepare" | null {
   const { batch, validation } = detail;
   if (batch.status === "ARCHIVED" || batch.status === "VALIDATING") return null;
@@ -182,11 +152,6 @@ export function nextStep(detail: ImportDetail, recheck: boolean, rights: Process
   return null;
 }
 
-/**
- * Continues an import from its stored state: checks it against the mappings in effect when
- * needed (or when `recheck` asks), then prepares its output when it passed. Stops at
- * blocking findings, at a missing permission, and at the first error.
- */
 export async function continueProcessing(
   fetcher: Fetcher,
   batchId: string,
@@ -204,7 +169,6 @@ export async function continueProcessing(
         onStage(stage);
         detail = await send<ImportDetail>(fetcher, `${importPath(batchId)}/validate`, postJson({}));
         again = false;
-        // A check that did not pass is not repeated here: the file needs attention.
         if (detail.batch.status !== "VALIDATED") break;
       } else {
         stage = "preparing";
@@ -219,10 +183,6 @@ export async function continueProcessing(
   }
 }
 
-/**
- * Uploads the file (the same file with the same details is the same import), then continues
- * it against the mappings in effect now.
- */
 export async function processFile(
   fetcher: Fetcher,
   file: Blob & { name: string },
@@ -245,14 +205,9 @@ export async function processFile(
   return continueProcessing(fetcher, batchId, true, rights, onStage);
 }
 
-// ---------------------------------------------------------------------------------------
-// What the user is told
-// ---------------------------------------------------------------------------------------
-
 const UNSUPPORTED = new Set(["NOT_A_CSV_FILE", "BINARY_CONTENT", "UNSUPPORTED_ENCODING", "INVALID_UTF8", "CONTROL_CHARACTERS", "BARE_CARRIAGE_RETURN"]);
 const TOO_LARGE = new Set(["FILE_TOO_LARGE", "RECORD_TOO_LARGE", "FIELD_TOO_LARGE"]);
 
-/** A support reference, only where an operator could use it (a server-side failure). */
 const reference = (error: SarinRequestError) => (error.status >= 500 && error.requestId ? ` Reference ${error.requestId.slice(0, 8)}.` : "");
 
 export function uploadFailureMessage(error: SarinRequestError, constraints: UploadConstraints | null): string {
@@ -284,12 +239,10 @@ export function exportFailureMessage(error: SarinRequestError): string {
 
 export type FileStatus = "Processing" | "Needs Attention" | "Output Ready" | "Output Ready with Warnings" | "Failed" | "Archived";
 
-/** The business status of an import, from the server's state only. */
 export function fileStatus(batch: Pick<ImportSummary, "status" | "revalidationRequired" | "currentOutputId" | "currentOutputUnmappedRows">): FileStatus {
   if (batch.status === "ARCHIVED") return "Archived";
   if (batch.status === "FAILED") return "Failed";
   if (batch.revalidationRequired || batch.status === "NEEDS_REVIEW") return "Needs Attention";
-  // Output with shapes written unmapped (design v1.7 §15.10) is never shown as a clean result.
   if (batch.status === "VALIDATED" && batch.currentOutputId) return batch.currentOutputUnmappedRows > 0 ? "Output Ready with Warnings" : "Output Ready";
   return "Processing";
 }
@@ -304,7 +257,6 @@ export type ResultView =
   | { kind: "checking" }
   | { kind: "archived" };
 
-/** What one import shows the user, from the server's state and the user's own permissions. */
 export function resultView(detail: ImportDetail, rights: ProcessingRights): ResultView {
   const { batch, validation } = detail;
   const last = validation.lastCompletedAttempt;
@@ -313,7 +265,6 @@ export function resultView(detail: ImportDetail, rights: ProcessingRights): Resu
   if (validation.revalidationRequired) return { kind: "reprocess" };
   if (batch.status === "NEEDS_REVIEW") return { kind: "attention", blocking: last?.issues.blocking ?? 0 };
   if (batch.status === "VALIDATED" && batch.currentOutputId) {
-    // Each unmapped row carries one warning; they are summarised by shape, not counted as items to review.
     return { kind: "ready", outputId: batch.currentOutputId, advisories: Math.max(0, (last?.issues.total ?? 0) - (last?.issues.blocking ?? 0) - batch.currentOutputUnmappedRows) };
   }
   if (batch.status === "VALIDATED") return rights.generate ? { kind: "retry" } : { kind: "awaiting-output" };

@@ -5,10 +5,6 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/diamond/shared/badges";
 import { STATUS_LABEL, STATUS_VARIANT, SUPER_ADMIN_CODE, scopeSummary, type PermissionMeta, type RoleRow, type UserRow } from "./shared";
 
-/**
- * What one account can do and why: each permission with the role(s) that grant it. Access
- * is only ever the union of the account's roles, so this is the whole explanation.
- */
 export function UserAccessInspector({
   user,
   roles,
@@ -26,13 +22,11 @@ export function UserAccessInspector({
 }) {
   const userRoles = roles.filter((r) => user.roles.includes(r.code));
   const holdsSuperAdmin = user.roles.includes(SUPER_ADMIN_CODE);
-  // Super Admin is not a listed role, so a held permission no listed role explains comes from it.
   const grantedBy = (permissionId: string) => {
     const names = userRoles.filter((r) => r.status === "ACTIVE" && r.permissions.includes(permissionId)).map((r) => r.name);
     return names.length === 0 && holdsSuperAdmin ? ["Super Admin"] : names;
   };
   const held = catalog.filter((p) => user.permissions.includes(p.id));
-  // Permissions no role of this account gives it — shown where they are withheld by design.
   const withheld = catalog.filter((p) => p.sensitive && p.capability === "Approve" && !user.permissions.includes(p.id));
 
   const restrictions: string[] = [];

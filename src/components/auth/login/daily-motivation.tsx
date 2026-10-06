@@ -4,12 +4,9 @@ import { Sun } from "lucide-react";
 import type { Motivation } from "@/lib/motivation";
 
 export interface DailyMotivationProps extends Motivation {
-  /** ZenQuotes' terms require visible credit when their free API supplied the quote. */
   attribution?: { text: string; url: string } | null;
 }
 
-// Compact motivation card. Reserves its own vertical space so swapping the
-// fallback for the API's quote never shifts the panel around it.
 export function DailyMotivation({ title, quote, subtitle, author, attribution }: DailyMotivationProps) {
   return (
     <section

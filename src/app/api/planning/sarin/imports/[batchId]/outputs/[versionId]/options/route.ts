@@ -4,8 +4,6 @@ import { notFound } from "@/lib/api/errors";
 import { SARIN_PLAN_OPTION_KINDS } from "@/lib/sarin/domain";
 import { listOutputOptions, SARIN_OUTPUT_OPTION_PAGE } from "@/lib/sarin/output-queries";
 
-// One page of an output version's plan options in output order, optionally for one stone
-// or one kind. Yields are the stored values; nothing is ranked.
 export const GET = withApi<{ batchId: string; versionId: string }>({ permission: "sarin.import.read" }, async (_req, { params }, api) => {
   const p = await params;
   const url = api.url;

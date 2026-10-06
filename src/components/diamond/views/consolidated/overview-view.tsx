@@ -11,8 +11,6 @@ import { useApi, apiPost } from "@/lib/api-client";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
-// The operational KPI dashboard and Executive Analysis, each still its own view with its own
-// data requests; this host only places them side by side.
 export const OVERVIEW_TABS: HostTabItem[] = [
   { id: "overview", label: "Overview", icon: <LayoutDashboard className="h-3.5 w-3.5" />, permission: "analysis.read", component: DashboardView },
   { id: "analysis", label: "Analysis", icon: <BarChart3 className="h-3.5 w-3.5" />, permission: "analysis.read", component: ExecutiveAnalysisView },

@@ -9,19 +9,7 @@ import {
 } from "@/lib/fantasy/classification-refresh";
 import { z } from "zod";
 
-/**
- * Classifies canonical fixture records that predate the classification columns.
- *
- * Guarded by `fantasy.sync.run` because it writes canonical records, and that is the
- * established authority for writing them. It is deliberately not a read permission: this
- * appends history versions and audit rows.
- *
- * Fixture-only by construction — the service refuses anything it cannot prove came from
- * the known fixture adapter, and this route adds no way to widen that.
- */
-
 const refreshSchema = z.object({
-  /** Compute and report without writing. */
   dryRun: z.boolean().optional(),
   limit: z.number().int().min(1).max(REFRESH_MAX_RECORDS).optional(),
 });
@@ -41,7 +29,6 @@ export const POST = withApi(
         limit: body?.limit,
       });
 
-      // The service writes a per-record audit row; this records the operation itself.
       await audit(db, {
         action: "FANTASY_CLASSIFICATION_REFRESH_RUN",
         entity: "LotMasterRecord",

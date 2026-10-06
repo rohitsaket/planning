@@ -9,7 +9,6 @@ import { testHasPermission, type TestRole } from "./fixture-roles";
 import { resetRateLimits } from "@/lib/api/rate-limit";
 
 const ROOT = process.cwd();
-// Recursive walk instead of Bun.Glob: the suite must run under plain Node/tsx.
 function findRouteFiles(dir: string, acc: string[] = []): string[] {
   for (const entry of readdirSync(path.join(ROOT, dir), { withFileTypes: true })) {
     const rel = `${dir}/${entry.name}`;
@@ -20,7 +19,6 @@ function findRouteFiles(dir: string, acc: string[] = []): string[] {
 }
 const files = findRouteFiles("src/app/api").sort();
 const PUBLIC = new Set(["GET /api", "POST /api/auth/login", "POST /api/auth/logout", "GET /api/public/login-context", "GET /api/public/daily-motivation", "POST /api/public/access-request"]);
-// Super Admin (built in) and fixture custom roles standing for typical least-privilege profiles.
 const SWEEP_ROLES: { label: string; role: TestRole }[] = [
   { label: "Viewer", role: "VIEWER" },
   { label: "Analyst", role: "DATA_ANALYST" },
@@ -35,10 +33,6 @@ const entries: Entry[] = [];
 for (const f of files) {
   const src = readFileSync(path.join(ROOT, f), "utf8");
   const route = "/" + f.replace(/^src\/app\//, "").replace(/\/route\.ts$/, "");
-  // Tolerates the options object starting on the next line and containing one level of
-  // nested braces (a `rateLimit: { ... }`). An earlier stricter pattern silently skipped
-  // any handler formatted across lines, which meant those handlers were never probed at
-  // all — the completeness assertion below now makes that failure impossible to miss.
   const re = /export const (GET|POST|PUT|PATCH|DELETE) = withApi(?:<[^(]*>)?\(\s*\{((?:[^{}]|\{[^{}]*\})*)\}/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(src))) {
@@ -60,8 +54,6 @@ describe("route inventory — no handler may be unclassified", () => {
     }
   });
   test("every wrapped handler is actually reachable by the sweep", () => {
-    // Without this, a handler whose options the parser fails to read is simply absent
-    // from `entries`, and the sweep reports a clean run having never called it.
     const declared = files.reduce(
       (n, f) => n + [...readFileSync(path.join(ROOT, f), "utf8").matchAll(/export const (GET|POST|PUT|PATCH|DELETE) = withApi/g)].length,
       0,
@@ -87,8 +79,6 @@ describe("runtime 401/403 sweep over every handler", () => {
     for (const e of entries) {
       const mod = await import(pathToFileURL(path.join(ROOT, e.file)).href);
       const handler = mod[e.method];
-      // Every dynamic segment the API declares. A missing entry leaves the parameter
-      // undefined, which is how a probe reached Prisma and produced a 500.
       const params = { id: "nonexistent", caseId: "nonexistent", lotId: "nonexistent", runId: "nonexistent", query: "zzzz-no-match" };
       const opts = { method: e.method, path: e.route.replace(/\[(\w+)\]/g, "x"), params, ...(e.method === "GET" ? {} : { body: {} }) };
       resetRateLimits();
@@ -101,12 +91,9 @@ describe("runtime 401/403 sweep over every handler", () => {
         expect({ r: `${e.method} ${e.route}`, anon }).toEqual({ r: `${e.method} ${e.route}`, anon: 401 });
       }
       for (let i = 0; i < SWEEP_ROLES.length; i++) {
-        if (e.route === "/api/auth/logout") { cells.push("n/a"); continue; } // would end the sweep user's session
+        if (e.route === "/api/auth/logout") { cells.push("n/a"); continue; }
         resetRateLimits();
         const status = (await call(handler, { ...opts, cookie: users[i].cookie })).status;
-        // A probe with a well-formed but absent identifier must never be a server error.
-        // 5xx here means the handler threw rather than answering, which is a defect
-        // whether or not the caller was authorized.
         expect({ r: `${e.method} ${e.route}`, role: SWEEP_ROLES[i].label, serverError: status >= 500 }).toEqual({ r: `${e.method} ${e.route}`, role: SWEEP_ROLES[i].label, serverError: false });
         const allowed = e.guard === "PUBLIC" || e.guard === "AUTHENTICATED" || testHasPermission(SWEEP_ROLES[i].role, e.guard as never);
         if (allowed) expect({ r: `${e.method} ${e.route}`, role: SWEEP_ROLES[i].label, denied: status === 401 || status === 403 }).toEqual({ r: `${e.method} ${e.route}`, role: SWEEP_ROLES[i].label, denied: false });
@@ -115,8 +102,6 @@ describe("runtime 401/403 sweep over every handler", () => {
       }
       rows.push(`| ${e.method} ${e.route} | ${e.guard} | ${anon} | ${cells.join(" | ")} |`);
     }
-    // Generated evidence, not source: written to the system temp directory so a run leaves
-    // nothing behind in the repository.
     const out = path.join(tmpdir(), "planning-route-sweep");
     mkdirSync(out, { recursive: true });
     writeFileSync(

@@ -4,8 +4,6 @@ import { withApi, qInt } from "@/lib/api/with-api";
 import { resolveFantasySourceStateWithHistory } from "@/lib/fantasy/config";
 import { readPublicFailure } from "@/lib/api/operational-failure";
 
-// Demand Run History — past demand runs, newest first, paginated on the server.
-// Summary aggregates are computed across every run, not only the visible page.
 export const GET = withApi({ permission: "analysis.read" }, async (req: Request) => {
   const sourceState = await resolveFantasySourceStateWithHistory(db);
   const url = new URL(req.url);
@@ -24,17 +22,11 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request)
     db.demandCalculationLock.findUnique({ where: { id: "DEMAND_CALCULATION" } }),
   ]);
 
-  // The summary always describes the newest run, on every page.
   const latestRun = await db.demandRun.findFirst({
     orderBy: [{ runDate: "desc" }, { id: "desc" }],
     include: { _count: { select: { metrics: true } } },
   });
 
-  // Explicit allow-list. The run row carries provenance the engine needs — the mapping
-  // fingerprint, the sync cursor, the batch key, the internal source-policy and rule
-  // version — none of which a planner can act on and all of which describe how the
-  // system is built. They stay server-side; what is published is the run's business
-  // identity, its window, its outcome and its honest state.
   const rows = runs.map((r) => ({
     id: r.id,
     runDate: r.runDate.toISOString(),
@@ -56,12 +48,7 @@ export const GET = withApi({ permission: "analysis.read" }, async (req: Request)
     actor: r.actor || "system",
     durationMs: r.durationMs,
     metricCount: r._count.metrics,
-    // Response boundary: the stored value is never returned as text. Runs recorded
-    // before failures were sanitized hold raw exception detail, so the column is
-    // re-sanitized on every read rather than trusted.
     failure: readPublicFailure(r.errorSummary),
-    // Policy status and the stages it covers are operationally relevant; the rule's
-    // internal version is not.
     wipPolicyStatus: r.wipPolicyStatus,
     wipEligibleStages: r.wipEligibleStages ? r.wipEligibleStages.split(",").filter(Boolean) : [],
   }));

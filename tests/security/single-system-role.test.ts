@@ -1,8 +1,3 @@
-// Super Admin is the only built-in role. Every narrower access profile is a custom role;
-// accounts are always created with an explicitly chosen role; access-request approval can
-// grant Super Admin or any active custom role, with Super Admin kept behind its separate
-// authority; a retired role code grants nothing. All through the real route handlers.
-
 import { beforeAll, describe, expect, test } from "./harness";
 import { call, db, makeUser, resetDb } from "./helpers";
 import { resetRateLimits } from "@/lib/api/rate-limit";
@@ -33,7 +28,6 @@ const pending = async () => {
 beforeAll(async () => {
   await resetDb();
   root = await makeUser("ssr.root", "SUPER_ADMIN");
-  // An administrator profile without the separate Super Admin authority (fixture custom role).
   admin = await makeUser("ssr.admin", "ADMIN");
   customCode = `SSR_READER_${Date.now().toString(36).toUpperCase()}`;
   const created = await post(rolesPost, root.cookie, { op: "createRole", code: customCode, name: "Mappings Reader", permissions: ["config.read", "analysis.read"] });
@@ -87,7 +81,6 @@ describe("single system role", () => {
     const unknown = await post(decideRequest, root.cookie, { op: "approve", id: r2.id, role: "SSR_NO_SUCH_ROLE" });
     expect([unknown.status, unknown.json.error.code]).toEqual([400, "UNKNOWN_ROLE"]);
     expect((await post(decideRequest, root.cookie, { op: "approve", id: r2.id, role: "viewer" })).status).toBe(400);
-    // Refused approvals change nothing: the request is still pending and no account exists.
     const still = await db.accessRequest.findUniqueOrThrow({ where: { id: r2.id } });
     expect([still.status, await db.user.count({ where: { username: r2.username } })]).toEqual(["PENDING", 0]);
   });

@@ -14,16 +14,6 @@ import {
 } from "@/lib/analysis/excess";
 import { describeExcessFilters, parseExcessFilters } from "../route";
 
-/**
- * EXCESS STOCK EXPORT — the visible table, as a business CSV.
- *
- * Same run, same filters and same ordering as the table, so a file cannot disagree with
- * the screen it was taken from. Approved business fields only: no rule identifier, no
- * mapping fingerprint, no batch id, no checkpoint and no internal row id. The run date
- * and source state travel because a recipient needs to know which calculation produced
- * the numbers.
- */
-
 const COLUMNS: CsvColumn<ExcessRow>[] = [
   { key: "categoryId", header: "Category" },
   { key: "lab", header: "Lab", exportValue: (r) => r.lab ?? "" },
@@ -54,7 +44,6 @@ export const GET = withApi(
       );
     }
 
-    // The same scope the on-screen table is narrowed by.
     const filters = parseExcessFilters(url, api.scope);
     const sort = {
       key: qEnum(url, "sort", EXCESS_SORTS, "excess") as ExcessSortKey,
@@ -73,8 +62,6 @@ export const GET = withApi(
         `${truncated ? " — row limit reached" : ""}`,
     });
 
-    // Notices precede the header row, so a recipient who opens only the file still
-    // learns the source state and whether the file is the whole result.
     const notices: string[] = [
       csvSafeCell(
         `SOURCE: ${status.sourceLabel} - demand calculation of ${status.runCompletedIst ?? "unknown date"}, ${status.periodLabel}`,
@@ -109,7 +96,6 @@ export const GET = withApi(
         "content-type": "text/csv; charset=utf-8",
         "content-disposition": `attachment; filename="${filename}"`,
         "cache-control": "no-store",
-        // Partial results are declared, never implied by a short file.
         "x-excess-export-rows": String(rows.length),
         "x-excess-export-total": String(total),
         "x-excess-export-limit": String(EXCESS_EXPORT_ROW_LIMIT),

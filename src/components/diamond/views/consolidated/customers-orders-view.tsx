@@ -6,18 +6,6 @@ import { OrderSourceView } from "@/components/diamond/views/customers-orders/ord
 import { CountryView } from "@/components/diamond/views/country-view";
 import { Users, ShoppingCart, Globe } from "lucide-react";
 
-/**
- * Customers and Orders.
- *
- * The Customers tab reports confirmed sales from the authoritative 90-day snapshot — the
- * same snapshot Sales Analysis reads, so the two agree by construction rather than by
- * coincidence.
- *
- * The Orders tab reports that Fantasy supplies no order entity. The previous tab showed
- * seeded demonstration orders as though they were synchronized data. Those rows are kept as
- * history only: the Requirements section that last displayed them is retired, and order
- * workflows are out of scope.
- */
 const TABS: HostTabItem[] = [
   { id: "customers", label: "Customers", icon: <Users className="h-3.5 w-3.5" />, permission: "customers.read", component: CustomerSalesView },
   { id: "orders", label: "Orders", icon: <ShoppingCart className="h-3.5 w-3.5" />, permission: "orders.read", component: OrderSourceView },

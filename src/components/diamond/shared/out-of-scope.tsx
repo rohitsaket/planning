@@ -4,14 +4,6 @@ import { Ban } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useNavStore } from "@/stores/nav-store";
 
-/**
- * Where a link to a retired page lands — manufacturing execution, traceability, plan versus
- * actual, forecasting and predictive models, reports, stock strategy, reorder or transfer
- * analysis, the legacy planning workbench and approvals, rough stock, and requirements and
- * orders. This says so
- * plainly instead of showing old or demonstration records or silently sending the reader
- * elsewhere. It shows no data and requests none.
- */
 const REASONS: Record<string, string> = {
   "rough-stock": "No authoritative rough-stock source is configured.",
   requirements: "Requirements and order workflows are not configured for this planning utility.",
@@ -23,7 +15,6 @@ const DEFAULT_REASON =
 
 export function OutOfScopeView() {
   const setView = useNavStore((s) => s.setView);
-  // An alias may name why the page is unavailable; the reason key is carried as the tab.
   const reason = useNavStore((s) => (s.tab ? REASONS[s.tab] : undefined)) ?? DEFAULT_REASON;
   return (
     <div data-page-body className="flex flex-col gap-section px-page-x py-page-y">

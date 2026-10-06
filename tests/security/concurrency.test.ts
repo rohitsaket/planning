@@ -1,6 +1,3 @@
-// Database guarantees that protect retained history. The legacy reserve, replan, approve and
-// allocate routes whose races these tables once refereed are retired (retired-features.test.ts),
-// but the tables and their rows remain, and so must the constraints that keep them consistent.
 import { beforeAll, describe, expect, test } from "./harness";
 import { db, makeCase, makeRough, resetDb } from "./helpers";
 

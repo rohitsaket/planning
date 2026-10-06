@@ -21,10 +21,7 @@ export function AccessRestricted({
   const setView = useNavStore((s) => s.setView);
 
   const perm = requiredPermission || (viewId ? viewPermission(viewId) : null);
-  // Only a business label is shown; a permission code never reaches the screen.
   const permLabel = perm ? PERMISSION_LABELS[perm] : undefined;
-  // A view with no permission mapping is denied to everyone. Say so plainly rather than
-  // implying the visitor is simply missing a role.
   const unmapped = Boolean(viewId) && !requiredPermission && perm === null;
 
   return (

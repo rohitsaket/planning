@@ -1,11 +1,3 @@
-// Sarin raw CSV ingestion: upload, idempotency, scope, parsing evidence and history reads.
-//
-// Every upload goes through the real POST route handler with a real multipart body and
-// Content-Length, and every read through the real GET handlers, against the isolated
-// planning_sectest database. The transaction-rollback test injects its failure with a
-// database trigger, so no test-only branch exists in the service. All CSV content is
-// synthetic and follows the confirmed 11-field contract; no customer file is used.
-
 import { createHash } from "node:crypto";
 import { beforeAll, beforeEach, describe, expect, test } from "./harness";
 import { call, db, ensureLabRegistry, makeUser, resetDb } from "./helpers";
@@ -27,9 +19,7 @@ const sha256 = (data: Uint8Array | string) => createHash("sha256").update(data).
 type User = Awaited<ReturnType<typeof makeUser>>;
 let planner: User, viewer: User, planningViewer: User, auditor: User, admin: User;
 
-// ---- synthetic Sarin records -----------------------------------------------------------
 let nonce = 0;
-/** A distinct kapan per call, so no two tests upload the same bytes by accident. */
 const kapan = () => `9${String(++nonce).padStart(3, "0")}X`;
 function record(k: string, i: number, o: Partial<Record<"name" | "rough" | "shape" | "est" | "depth" | "ratio" | "length" | "width" | "mm", string>> = {}) {
   return [o.name ?? `${k}-${String(i).padStart(3, "0")} ZZ`, o.rough ?? "5.413", o.shape ?? "ROUND", o.est ?? "1.664", "IF", "D", o.depth ?? "61.6", o.ratio ?? "1", o.length ?? "7.62", o.width ?? "7.62", o.mm ?? "4.69"].join(",");
@@ -39,7 +29,6 @@ function csv(count: number, eol = "\n") {
   return Array.from({ length: count }, (_, i) => record(k, i + 1)).join(eol) + eol;
 }
 
-// ---- requests --------------------------------------------------------------------------
 interface UploadOptions {
   cookie?: string;
   files?: Array<{ bytes: Uint8Array | string; name?: string; type?: string }>;
@@ -48,7 +37,7 @@ interface UploadOptions {
 }
 
 async function upload(o: UploadOptions = {}) {
-  resetRateLimits(); // the limiter is defence in depth, not what these tests exercise
+  resetRateLimits();
   const fd = new FormData();
   for (const f of o.files ?? []) fd.append("file", new File([(typeof f.bytes === "string" ? new TextEncoder().encode(f.bytes) : f.bytes) as BlobPart], f.name ?? "sarin.csv", { type: f.type ?? "text/csv" }));
   const fields = { packetType: "BLUE", planningDate: "2026-09-26", ...(o.fields ?? {}) };
@@ -101,7 +90,6 @@ beforeAll(async () => {
   await resetDb();
   await db.$executeRawUnsafe(`TRUNCATE ${SARIN_TABLES.map((t) => `"${t}"`).join(", ")}`);
   await db.userAccessScope.deleteMany({});
-  // Uploads are checked against the canonical registries since validation hardening.
   await ensureLabRegistry(["GIA", "IGI"]);
   planner = await makeUser("ingest.planner", "PLANNER");
   viewer = await makeUser("ingest.viewer", "VIEWER");
@@ -111,7 +99,6 @@ beforeAll(async () => {
 });
 beforeEach(() => resetRateLimits());
 
-// =========================================================================================
 describe("sarin ingestion: authorization and scope", () => {
   test("anonymous upload → 401", async () => {
     expect((await upload({ files: [{ bytes: csv(1) }] })).status).toBe(401);
@@ -135,7 +122,6 @@ describe("sarin ingestion: authorization and scope", () => {
     expect([b.status, b.validationAttempts, b.packetType, b.planningDate, b.labId, "country" in b]).toEqual(["UPLOADED", 0, "WHITE", "2026-09-01", null, false]);
     expect(b.counts).toEqual({ records: 3, accepted: 3, quarantined: 0, rejectedStructure: 0 });
     expect([b.sourceFile.fileName, b.sourceFile.byteSize, b.sourceFile.sha256]).toEqual(["sarin.csv", Buffer.byteLength(content), sha256(content)]);
-    // Stored, not validated: the response makes no claim beyond that.
     expect(/parsed cleanly|validated|ready/i.test(r.text)).toBe(false);
     const stored = await db.sarinImportBatch.findUniqueOrThrow({ where: { id: b.id } });
     expect([stored.uploadedByUserId, stored.status, stored.validationAttempt]).toEqual([planner.user.id, "UPLOADED", 0]);
@@ -144,7 +130,6 @@ describe("sarin ingestion: authorization and scope", () => {
   });
 
   test("an upload outside the actor's lab is refused with 403 and audited as denied; a country scope does not restrict Sarin uploads", async () => {
-    // Sarin imports carry no country: a country-scoped actor uploads, and a country field is not part of the contract.
     const scoped = await makeUser("ingest.scoped.in", "PLANNER");
     await grantScope(scoped.user.id, ["IN"], []);
     expect((await uploadCsv(scoped.cookie, csv(1))).status).toBe(201);
@@ -158,7 +143,6 @@ describe("sarin ingestion: authorization and scope", () => {
     expect(await counts()).toEqual(before);
     const denied = await db.auditLog.findFirstOrThrow({ where: { action: "SARIN_IMPORT_UPLOAD_REJECTED", actorUserId: labbed.user.id } });
     expect([denied.outcome, JSON.parse(denied.after!).reasonCode, "country" in JSON.parse(denied.after!)]).toEqual(["DENIED", "FORBIDDEN", false]);
-    // A lab-limited actor must declare a lab, or the batch would sit outside their own scope.
     expect((await uploadCsv(labbed.cookie, csv(1))).status).toBe(403);
     const ok = await uploadCsv(labbed.cookie, csv(1), { labId: "GIA" });
     expect([ok.status, ok.json.batch.labId]).toEqual([201, "GIA"]);
@@ -180,11 +164,9 @@ describe("sarin ingestion: authorization and scope", () => {
 
     expect((await detail(reader.cookie, igi.id)).status).toBe(404);
     expect((await rows(reader.cookie, igi.id)).status).toBe(404);
-    // A lab-limited reader cannot see a batch that declares no lab.
     expect((await detail(reader.cookie, noLab.id)).status).toBe(404);
     expect((await detail(reader.cookie, gia.id)).status).toBe(200);
 
-    // A country-limited reader sees every lab-free and lab import: Sarin imports carry no country.
     const countryReader = await makeUser("ingest.reader.country", "PLANNING_VIEWER");
     await grantScope(countryReader.user.id, ["IN"], []);
     expect([(await detail(countryReader.cookie, igi.id)).status, (await detail(countryReader.cookie, noLab.id)).status]).toEqual([200, 200]);
@@ -199,7 +181,6 @@ describe("sarin ingestion: authorization and scope", () => {
   });
 });
 
-// =========================================================================================
 describe("sarin ingestion: file safety", () => {
   test("LF, CRLF and mixed endings yield identical records; stored bytes stay exactly as uploaded", async () => {
     const k = kapan();
@@ -255,10 +236,8 @@ describe("sarin ingestion: file safety", () => {
   test("size and record limits answer 413 — declared length, actual file size, records, line and field", async () => {
     const before = await counts();
     const L = SARIN_INGESTION_LIMITS;
-    // Declared length alone: refused before the body is read.
     const declared = await upload({ cookie: planner.cookie, files: [{ bytes: csv(1) }], contentLength: String(L.maxRequestBytes + 1) });
     expect([declared.status, declared.json.error.code]).toEqual([413, "FILE_TOO_LARGE"]);
-    // A real file one byte over the limit, whose request still fits the multipart allowance.
     const big = new Uint8Array(L.maxFileBytes + 1).fill(0x61);
     const tooBig = await uploadCsv(planner.cookie, big);
     expect([tooBig.status, tooBig.json.error.code]).toEqual([413, "FILE_TOO_LARGE"]);
@@ -292,11 +271,8 @@ describe("sarin ingestion: file safety", () => {
     expect(/[\\/\r\n<>:]/.test(shown)).toBe(false);
     expect(shown.endsWith(".csv")).toBe(true);
     const stored = await db.sarinSourceFile.findUniqueOrThrow({ where: { sha256: r.json.batch.sourceFile.sha256 } });
-    // Multipart encoding may percent-escape CR/LF in a file name, so the stored original is
-    // whatever the server received; it is kept apart from the name that is ever shown.
     expect(stored.originalFileName.includes("evil")).toBe(true);
     expect(stored.sanitizedFileName).toBe(shown);
-    // The sanitizer itself, given a raw CR/LF and path segments, yields a header-safe name.
     const direct = sanitizeSarinFileName("../..\\x/evil\r\nSet-Cookie: a=b.csv");
     expect(direct).toBe("evilSet-Cookie_ a=b.csv");
   });
@@ -345,7 +321,6 @@ describe("sarin ingestion: file safety", () => {
   });
 });
 
-// =========================================================================================
 describe("sarin ingestion: strict 11-field contract", () => {
   test("every record is kept with its number, fields and an honest outcome; the first record is data", async () => {
     const k = kapan();
@@ -380,21 +355,16 @@ describe("sarin ingestion: strict 11-field contract", () => {
       [9, "REJECTED_STRUCTURE", 0, "MALFORMED_QUOTING"],
       [10, "REJECTED_STRUCTURE", 1, "FIELD_COUNT_MISMATCH"],
     ]);
-    // The header-looking first record is kept as data, with its text preserved.
     expect(page[0].values.stoneName).toBe("STONE.Name");
-    // Wrong field counts keep their fields but get no positional values: nothing is guessed.
     expect(page[2].fields).toEqual(fields11.slice(0, 10));
     expect([page[2].values.stoneName, page[3].values.roughWeight]).toEqual([null, null]);
     expect(page[4].fields[11]).toBe("");
-    // Quoting: a comma and a doubled quote inside quotes are data.
     expect([page[5].values.stoneName, page[6].values.stoneName]).toEqual([`${k}-002, ZZ`, `${k}-"003" ZZ`]);
     expect([page[7].fields, page[8].fields]).toEqual([null, null]);
-    // Parsed Stone Name identity is not produced in this phase.
     expect(await db.sarinStoneBlock.count({ where: { batchId: r.json.batch.id } })).toBe(0);
   });
 });
 
-// =========================================================================================
 describe("sarin ingestion: strict decimals", () => {
   test("weights and measurements are read exactly — never rounded, coerced or zeroed", async () => {
     const k = kapan();
@@ -431,14 +401,11 @@ describe("sarin ingestion: strict decimals", () => {
     expect([at(11).rejectionCodes, at(11).values.ratio, at(11).values.length]).toEqual([["RATIO_INVALID", "LENGTH_INVALID"], null, null]);
     expect(at(12).rejectionCodes).toEqual(["ROUGH_WEIGHT_INVALID"]);
     expect([at(13).values.roughWeight, at(13).values.estimatedWeight]).toEqual(["5.400", "1.000"]);
-    // Blank measurements are absent, not zero; the contract does not require them.
     expect([at(14).outcome, at(14).values.depthPct, at(14).values.ratio]).toEqual(["ACCEPTED", null, null]);
-    // The original text of every rejected value is preserved.
     expect([at(2).fields[1], at(3).fields[3], at(10).fields[6]]).toEqual(["5.4134", "1.2x", "abc"]);
   });
 });
 
-// =========================================================================================
 describe("sarin ingestion: idempotency and concurrency", () => {
   test("an identical upload returns the same batch without new rows or a second success audit", async () => {
     const content = csv(4);
@@ -459,7 +426,6 @@ describe("sarin ingestion: idempotency and concurrency", () => {
     const archived = await db.sarinImportBatch.findUniqueOrThrow({ where: { id: first.id } });
     const again = await uploadCsv(planner.cookie, content);
     expect([again.status, again.json.duplicate, again.json.batch.id === first.id, again.json.batch.status]).toEqual([201, false, false, "UPLOADED"]);
-    // A further identical upload now returns that new active import, never the archived one.
     const third = await uploadCsv(planner.cookie, content);
     expect([third.status, third.json.duplicate, third.json.batch.id]).toEqual([200, true, again.json.batch.id]);
     expect(await db.sarinImportBatch.findUniqueOrThrow({ where: { id: first.id } })).toEqual(archived);
@@ -537,12 +503,10 @@ describe("sarin ingestion: idempotency and concurrency", () => {
   });
 });
 
-// =========================================================================================
 describe("sarin ingestion: transaction rollback", () => {
   test("a failure after rows were inserted leaves nothing behind; the failure is audited; a retry succeeds", async () => {
     const content = csv(2500);
     const hash = sha256(content);
-    // A real database failure inside the transaction, after two full insert batches.
     await db.$executeRawUnsafe(`
       CREATE OR REPLACE FUNCTION test_inject_row_failure() RETURNS trigger AS $$
       BEGIN
@@ -573,7 +537,6 @@ describe("sarin ingestion: transaction rollback", () => {
   });
 });
 
-// =========================================================================================
 describe("sarin ingestion: bounded history and row pages", () => {
   test("row pages are ordered, bounded, filterable and report whether more remain", async () => {
     const k = kapan();

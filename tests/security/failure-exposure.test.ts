@@ -11,28 +11,6 @@ import {
 } from "@/lib/api/operational-failure";
 import { runSynchronization } from "@/lib/fantasy/sync-service";
 
-/**
- * Backend-detail exposure at the response boundary.
- *
- * Two separate guarantees are under test:
- *
- *   1. A failed operation never hands the browser exception text. The conversion happens
- *      once at the point of failure, and again when a stored value is read back — the
- *      second pass exists because rows written before the conversion existed still hold
- *      raw text.
- *   2. An ordinary-user analysis response never carries the mechanics behind a result:
- *      no formula, no statistical measure, no coefficient, no threshold.
- *
- * Every assertion runs against the real service or the real route handler, and inspects
- * the *serialized* response rather than the typed object, because a field can only leak
- * through what is actually written to the wire.
- */
-
-/**
- * Markers chosen to resemble what a real data-store exception carries. None of these is
- * a real credential or connection string — they exist so an assertion can prove the
- * shape of value that must not survive, not to place a secret in the repository.
- */
 const MARKERS = [
   "PrismaClientKnownRequestError",
   "DemandRun",
@@ -42,7 +20,6 @@ const MARKERS = [
   "Invalid `db.demandRun.update()` invocation",
 ];
 
-/** A raw value of the kind the column held before failures were sanitized. */
 const LEGACY_RAW_ERROR_SUMMARY = [
   "Invalid `db.demandRun.update()` invocation:",
   "Unique constraint failed on the constraint: `IntegrationSyncRun_batchId_key`",
@@ -55,8 +32,6 @@ function assertNoMarkers(serialized: string, where: string) {
   for (const marker of MARKERS) {
     expect(serialized.includes(marker)).toBe(false);
   }
-  // The word alone would produce false positives (a legitimate field may be named
-  // `failure`), so the check targets the shapes an exception actually leaves behind.
   expect(/\bat\s+async\s+\w+\s+\(/.test(serialized)).toBe(false);
   expect(serialized.includes(where)).toBe(false);
 }
@@ -81,7 +56,6 @@ describe("operational failure sanitization", () => {
     const serialized = serializePublicFailure(failure);
     assertNoMarkers(serialized, LEGACY_RAW_ERROR_SUMMARY);
 
-    // A safe, stable, actionable result is still produced.
     expect(failure.code).toBe("OPERATION_FAILED");
     expect(failure.message.length > 0).toBe(true);
     expect(/^[0-9A-F]{12}$/.test(failure.referenceId)).toBe(true);
@@ -92,8 +66,6 @@ describe("operational failure sanitization", () => {
     const recovered = readPublicFailure(LEGACY_RAW_ERROR_SUMMARY);
     expect(recovered !== null).toBe(true);
     assertNoMarkers(JSON.stringify(recovered), LEGACY_RAW_ERROR_SUMMARY);
-    // Legacy rows carry no reference, because none was ever generated for them. The
-    // failure is still reported honestly rather than hidden.
     expect(recovered?.code).toBe("OPERATION_FAILED");
     expect(recovered?.referenceId).toBe("");
   });
@@ -127,28 +99,22 @@ describe("failed synchronization leaves no exception text and no partial write",
     const lotsBefore = await db.lotMasterRecord.count();
     const historyBefore = await db.lotHistoryRecord.count();
 
-    // The failure is thrown inside the service's own `$transaction`, so this exercises
-    // the real rollback path rather than a hand-built FAILED row.
     const result = await runSynchronization({ actor: "failure-exposure-test", simulateFailure: true });
 
     expect(result.success).toBe(false);
-    // The status stays honest — a failed batch is never reported as anything else.
     expect(result.status).toBe("FAILED");
 
-    // No partial multi-step write survived the rollback.
     expect(await db.lotMasterRecord.count()).toBe(lotsBefore);
     expect(await db.lotHistoryRecord.count()).toBe(historyBefore);
 
     const run = await db.integrationSyncRun.findUnique({ where: { id: result.runId } });
     expect(run?.status).toBe("FAILED");
 
-    // The thrown message is exception text. Its absence from the column is the point.
     expect(run?.errorSummary?.includes("Controlled simulation failure")).toBe(false);
     const stored = readPublicFailure(run?.errorSummary ?? null);
     expect(stored?.code).toBe("OPERATION_FAILED");
     expect(/^[0-9A-F]{12}$/.test(stored?.referenceId ?? "")).toBe(true);
 
-    // The caller receives the same envelope, not the exception.
     expect(result.failure?.referenceId).toBe(stored?.referenceId);
     expect(JSON.stringify(result.failure).includes("Controlled simulation failure")).toBe(false);
   });
@@ -160,8 +126,6 @@ describe("route boundaries sanitize legacy stored failures", () => {
   beforeAll(async () => {
     await resetDb();
     resetRateLimits();
-    // VIEWER is the lowest read-only tier and holds analysis.read, so it is the correct
-    // account to prove the boundary against.
     analystCookie = (await makeUser("failure-exposure-viewer", "VIEWER")).cookie;
   });
 
@@ -186,7 +150,6 @@ describe("route boundaries sanitize legacy stored failures", () => {
     const serialized = JSON.stringify(res.json);
     assertNoMarkers(serialized, LEGACY_RAW_ERROR_SUMMARY);
 
-    // The failure is still reported — sanitizing is not hiding.
     const row = res.json.rows.find((r: any) => r.status === "FAILED");
     expect(row !== undefined).toBe(true);
     expect(row.failure.code).toBe("OPERATION_FAILED");
@@ -219,7 +182,6 @@ describe("route boundaries sanitize legacy stored failures", () => {
     expect(failedRun !== undefined).toBe(true);
     expect(failedRun.failure.code).toBe("OPERATION_FAILED");
     expect(failedRun.errorSummary).toBe(undefined);
-    // The old `errors.sample` field returned the raw text untruncated. It is gone.
     expect(serialized.includes('"sample"')).toBe(false);
   });
 });
@@ -227,7 +189,6 @@ describe("route boundaries sanitize legacy stored failures", () => {
 describe("analysis responses carry results, not mechanics", () => {
   let viewerCookie = "";
 
-  /** Anything that would let a reader reconstruct how a result was derived. */
   const MECHANICS = [
     "zScore",
     "z-score",
@@ -252,10 +213,8 @@ describe("analysis responses carry results, not mechanics", () => {
     const serialized = JSON.stringify(res.json);
     for (const m of MECHANICS) expect(serialized.includes(m)).toBe(false);
     expect(serialized.includes("formula")).toBe(false);
-    // The formula-bearing `warning` field the page used to return is gone entirely.
     expect(res.json.warning).toBe(undefined);
 
-    // The qualification a planner needs is still present, as an honest source state.
     expect(typeof res.json.sourceLabel).toBe("string");
     expect(typeof res.json.periodLabel).toBe("string");
   });
@@ -267,10 +226,8 @@ describe("analysis responses carry results, not mechanics", () => {
   });
 
   test("fantasy sync stays refused for a role without fantasy.read", async () => {
-    // VIEWER holds analysis.read but not fantasy.read.
     const res = await call(fantasySync, { path: "/api/fantasy/sync", cookie: viewerCookie });
     expect(res.status).toBe(403);
-    // A denial must not describe the server either.
     assertNoMarkers(JSON.stringify(res.json), LEGACY_RAW_ERROR_SUMMARY);
   });
 });

@@ -1,14 +1,3 @@
-// Manual pre-release API sweep: live HTTP security checks against a RUNNING local production
-// build (never in-process), signed in as the test-fixture roles.
-//
-// Usage: SWEEP_BASE=http://127.0.0.1:3100 SWEEP_CREDS=<path outside the repository> npm run test:runtime-sweep:manual
-//
-// SWEEP_CREDS names a file, kept outside the repository, with one "<username> <password>"
-// line per test role: VIEWER, DATA_ANALYST, PLANNER, PLANNING_MANAGER, ADMIN, SUPER_ADMIN.
-// Those accounts exist only in a test database (the non-Super-Admin roles are the fixture
-// custom roles of tests/security/fixture-roles.ts). The sweep refuses to start without that
-// file, against a non-loopback server, or under a production or staging marker. It never
-// prints a password or username; evidence goes to the system temp directory.
 import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { tmpdir } from "node:os";
@@ -38,7 +27,6 @@ const BASE = process.env.SWEEP_BASE || "http://127.0.0.1:3100";
 }
 const scriptDir = import.meta.dirname || (import.meta as any).dir || path.dirname(new URL(import.meta.url).pathname);
 const ROOT = path.resolve(scriptDir, "..");
-// Generated evidence, not source: it goes to the system temp directory, never the repository.
 const OUT = path.join(tmpdir(), "planning-runtime-sweep");
 const PUBLIC = new Set(["GET /api", "POST /api/auth/login", "POST /api/auth/logout"]);
 let failures = 0;
@@ -48,7 +36,6 @@ const check = (name: string, ok: boolean, detail = "") => {
   if (!ok) failures++;
 };
 
-// ---- sessions ----
 const creds = readFileSync(process.env.SWEEP_CREDS!, "utf8").split(/\r?\n/).map((l) => l.trim()).filter(Boolean).map((l) => l.split(/\s+/));
 if (creds.length === 0 || creds.some((c) => c.length !== 2)) refuse("the credentials file must hold one \"<username> <password>\" line per test role.");
 const sessions: { username: string; role: string; cookie: string }[] = [];
@@ -66,7 +53,6 @@ for (const [username, password] of creds) {
 const missingRoles = REQUIRED_ROLES.filter((role) => !sessions.some((s) => s.role === role));
 if (missingRoles.length) refuse(`no signed-in test account for ${missingRoles.join(", ")}.`);
 
-// ---- route inventory from source ----
 function findRouteFiles(dir: string, base = ""): string[] {
   const res: string[] = [];
   try {
@@ -122,10 +108,7 @@ for (const e of entries) {
 }
 check(`route sweep: ${entries.length} handlers × (anonymous + ${sessions.length} roles)`, failures === 0);
 
-// ---- targeted runtime checks ----
 const admin = sessions.find((s) => s.role === "ADMIN")!;
-// Any signed-in role that may change Sarin shape mappings: the live write used below. Every
-// mapping it adds is removed again, so the catalog's content is unchanged afterwards.
 const mapper = sessions.find((s) => testHasPermission(s.role, "sarin.mapping.manage"))!;
 const SWEEP_SHAPE = `RUNTIME SWEEP ${Date.now().toString(36).toUpperCase()}`;
 const MAPPINGS = "/api/planning/sarin/shape-mappings";
@@ -143,8 +126,6 @@ r = await j(admin.cookie, "/api/data-quality?pageSize=1");
 const paged = (await r.json()) as { rows: unknown[]; paging: { total: number; hasMore: boolean } };
 check("pageSize=1 → at most 1 row, hasMore matches the total", paged.rows.length <= 1 && paged.paging.hasMore === paged.paging.total > 1);
 
-// forged actor over real HTTP: identity fields in the body are refused, and a real save is
-// attributed to the session user.
 r = await j(mapper.cookie, MAPPINGS, { method: "POST", body: JSON.stringify({ sarinShape: SWEEP_SHAPE, fantasyShape: "Round", applyTo: "ALL_RATIOS", actor: "ceo", changedByUserId: "ceo" }) });
 check("forged identity fields in a write body → 400", r.status === 400, `status ${r.status}`);
 r = await j(mapper.cookie, MAPPINGS, { method: "POST", body: JSON.stringify({ sarinShape: SWEEP_SHAPE, fantasyShape: "Round", applyTo: "ALL_RATIOS" }) });
@@ -155,13 +136,11 @@ for (const m of added) await j(mapper.cookie, `${MAPPINGS}/${m.id}`, { method: "
 r = await fetch(BASE + MAPPINGS, { method: "POST", headers: { cookie: mapper.cookie, "content-type": "application/json", origin: "https://evil.example" }, body: "{}" });
 check("cross-origin POST with a valid cookie → 403", r.status === 403, `status ${r.status}`);
 
-// The retired legacy planning APIs are not served, whoever asks.
 for (const url of ["/api/planning/cases", "/api/planning/compare/x", "/api/planning/pieces", "/api/planning/workbench", "/api/planning/reservations", "/api/planning/approvals", "/api/planning/rough", "/api/admin/approval-policy", "/api/fantasy/rough", "/api/requirements", "/api/requirements/x", "/api/requirements/x/priority", "/api/analysis/orders"]) {
   const [get, post] = [await j(admin.cookie, url), await j(admin.cookie, url, { method: "POST", body: "{}" })];
   check(`retired ${url} → 404`, get.status === 404 && post.status === 404, `GET ${get.status}, POST ${post.status}`);
 }
 
-// headers
 const page = await fetch(`${BASE}/`);
 const html = await page.text();
 const csp = page.headers.get("content-security-policy") ?? "";
@@ -181,7 +160,6 @@ check("page: HSTS absent on plain HTTP (opt-in only)", !page.headers.get("strict
 const api = await fetch(`${BASE}/api/analysis/customers`);
 check("API 401: nosniff + no-store + x-request-id", api.headers.get("x-content-type-options") === "nosniff" && (api.headers.get("cache-control") ?? "").includes("no-store") && !!api.headers.get("x-request-id"));
 
-// logout
 const viewer = sessions[0];
 await fetch(`${BASE}/api/auth/logout`, { method: "POST", headers: { cookie: viewer.cookie } });
 r = await fetch(`${BASE}/api/auth/me`, { headers: { cookie: viewer.cookie } });

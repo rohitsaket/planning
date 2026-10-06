@@ -1,6 +1,3 @@
-// One CSV policy for the whole app: export business values (never rendered components)
-// and neutralise anything a spreadsheet would execute as a formula.
-
 export interface CsvColumn<T> {
   key: string;
   header: string;
@@ -13,8 +10,6 @@ const isPrimitive = (v: unknown): v is string | number | boolean => typeof v ===
 const PLAIN_NUMBER = /^-?\d+(\.\d+)?$/;
 const FORMULA_TRIGGER = /^[\s]*[=+\-@\t\r]/;
 
-// The value a column exports: explicit exportValue → primitive cell output → the row field
-// named by `key` → sortValue. A React element is never stringified.
 export function columnExportValue<T>(col: CsvColumn<T>, row: T): string | number | boolean | null {
   if (col.exportValue) return col.exportValue(row) ?? null;
   const rendered = col.cell?.(row);
@@ -26,8 +21,6 @@ export function columnExportValue<T>(col: CsvColumn<T>, row: T): string | number
   return isPrimitive(sort) ? sort : null;
 }
 
-// Text that starts with = + - @ TAB or CR is prefixed with an apostrophe so Excel, LibreOffice
-// and Sheets treat it as text. Real numbers (typed or plain numeric strings) are left alone.
 export function csvSafeCell(value: string | number | boolean | null | undefined): string {
   if (value === null || value === undefined) return '""';
   if (typeof value === "number") return Number.isFinite(value) ? String(value) : '""';

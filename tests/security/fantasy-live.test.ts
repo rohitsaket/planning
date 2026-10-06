@@ -1,5 +1,3 @@
-// Fantasy Live Data integration — database-backed checks on the throwaway sectest database.
-// Fantasy itself is never called: the sync service receives an injected client.
 import { beforeAll, beforeEach, describe, expect, test } from "./harness";
 import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -29,10 +27,10 @@ beforeAll(async () => {
   process.env.FANTASY_API_USERNAME = "test-user";
   process.env.FANTASY_API_PASSWORD = "test-password-never-shown";
   process.env.FANTASY_SYNC_STALE_GUARD_PERCENT = "25";
-  process.env.FANTASY_SYNC_CHAIN_PLANNING = "false"; // the planning sync has its own suite
+  process.env.FANTASY_SYNC_CHAIN_PLANNING = "false";
   admin = await makeUser("fl.admin", "SUPER_ADMIN");
   viewer = await makeUser("fl.viewer", "VIEWER");
-  analyst = await makeUser("fl.analyst", "DATA_ANALYST"); // fantasy.read, no fantasy.sync
+  analyst = await makeUser("fl.analyst", "DATA_ANALYST");
 });
 beforeEach(async () => {
   await db.$executeRawUnsafe(`TRUNCATE "FantasyLiveLot", "IntegrationSyncRun" CASCADE`);
@@ -80,12 +78,12 @@ describe("no credential ever leaves the server", () => {
     const example = readFileSync(path.join(ROOT, ".env.example"), "utf8");
     expect(example).toMatch(/^FANTASY_API_PASSWORD=$/m);
     expect(example).toMatch(/^FANTASY_API_USERNAME=$/m);
-    expect(example).not.toMatch(/enc:v1:[A-Za-z0-9+/=]{16,}/); // a real envelope, not the documentation mention
+    expect(example).not.toMatch(/enc:v1:[A-Za-z0-9+/=]{16,}/);
     let hits = "";
     try {
       hits = execSync(`git grep -l -E "FANTASY_API_PASSWORD=.+|SECRETS_KEY=.+" -- . ':!*.md'`, { cwd: ROOT }).toString().trim();
     } catch {
-      hits = ""; // git grep exits 1 when nothing matches
+      hits = "";
     }
     expect(hits).toBe("");
   });

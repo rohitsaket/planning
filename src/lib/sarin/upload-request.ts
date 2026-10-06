@@ -1,12 +1,3 @@
-/**
- * Reads and validates the multipart body of a Sarin upload. Nothing here trusts the
- * client beyond the four declared fields: an unknown or repeated field is refused, the
- * MIME type is ignored in favour of the content checks, and the file name is kept only as
- * untrusted metadata.
- *
- * Server-only.
- */
-
 import { SARIN_PACKET_TYPES, type SarinPacketType } from "@/lib/sarin/domain";
 import type { SarinIngestionLimits } from "@/lib/sarin/ingestion-config";
 import { SarinUploadRejection } from "@/lib/sarin/source-decoding";
@@ -17,23 +8,19 @@ if (typeof window !== "undefined") {
 
 export interface SarinUploadRequest {
   readonly bytes: Uint8Array;
-  /** As the client sent it. Never used as a path or in a response header. */
   readonly originalFileName: string;
   readonly sanitizedFileName: string;
   readonly packetType: SarinPacketType;
   readonly labId: string | null;
-  /** YYYY-MM-DD, as declared. */
   readonly planningDate: string;
 }
 
 const FIELDS = ["file", "packetType", "labId", "planningDate"] as const;
 const reject = (code: string, message: string) => new SarinUploadRejection(400, code, message);
 
-/** Scope values are compared verbatim, so the declared value must already be canonical. */
 const LAB = /^[A-Za-z0-9](?:[A-Za-z0-9._ -]{0,62}[A-Za-z0-9])?$/;
 const DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
-/** True for a real calendar date written as YYYY-MM-DD. */
 export function isCalendarDate(value: string): boolean {
   const m = DATE.exec(value);
   if (!m) return false;
@@ -42,11 +29,6 @@ export function isCalendarDate(value: string): boolean {
   return date.getUTCFullYear() === y && date.getUTCMonth() === mo - 1 && date.getUTCDate() === d;
 }
 
-/**
- * A display-safe name: the last path segment only, no control characters (so no CR/LF
- * header injection), no characters Windows or HTTP headers treat specially, no leading
- * dots, and bounded. Display and audit only — it is never a storage path.
- */
 export function sanitizeSarinFileName(original: string): string {
   const base = original.split(/[\\/]/).pop() ?? "";
   const cleaned = base
@@ -64,8 +46,6 @@ export async function readSarinUploadRequest(req: Request, limits: SarinIngestio
   if (!(req.headers.get("content-type") || "").toLowerCase().startsWith("multipart/form-data")) {
     throw reject("NOT_MULTIPART", "Send the upload as multipart/form-data.");
   }
-  // The declared length is checked before the body is read. Anything that could exceed
-  // the proxy's buffer is refused here, so the route never sees a silently truncated body.
   const declared = req.headers.get("content-length");
   if (declared === null || !/^\d{1,12}$/.test(declared)) {
     throw new SarinUploadRejection(411, "LENGTH_REQUIRED", "The upload must declare its Content-Length.");
@@ -100,7 +80,6 @@ export async function readSarinUploadRequest(req: Request, limits: SarinIngestio
   if (packetType === null || !(SARIN_PACKET_TYPES as readonly string[]).includes(packetType)) {
     throw reject("INVALID_PACKET_TYPE", "Declare the packet type as BLUE, WHITE or PINK.");
   }
-  // An empty lab field is the same as no lab: an optional form input submits "" when unused.
   const labRaw = text("labId");
   const labId = labRaw === null || labRaw === "" ? null : labRaw;
   if (labId !== null && !LAB.test(labId)) throw reject("INVALID_LAB", "The lab identifier is not valid.");

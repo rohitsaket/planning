@@ -2,7 +2,6 @@ import { db } from "@/lib/db";
 import { ok, num } from "@/lib/api-utils";
 import { withApi, qStr } from "@/lib/api/with-api";
 
-// Fantasy Polished Stock — read from authoritative Fantasy source (synced locally)
 export const GET = withApi({ permission: "fantasy.read" }, async (req: Request) => {
   const url = new URL(req.url);
   const planningClass = qStr(url, "planningClass");

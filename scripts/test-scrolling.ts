@@ -1,16 +1,3 @@
-// Scrolling regression suite, in a real browser under real input.
-//
-// One vertical page scroller (<main>), tables that scroll only horizontally unless they are
-// explicitly bounded, bounded regions that hand the gesture back to the page at their ends,
-// and no clipped content or second body scrollbar — checked on every retained page and tab at
-// six viewport sizes with mouse-wheel, trackpad, Shift+wheel, touch and keyboard input, plus
-// row-count boundary sets around the old 50-row switch. Scroll positions are read back after
-// each input; nothing is inferred from class names.
-//
-// Runs only against the isolated planning_sectest database and a production build:
-//   npm run build && npm run test:scrolling
-// Chrome is taken from CHROME_BIN or the usual install locations. `--viewports=1440x900,390x844`
-// limits the sizes; `--skip-seed` reuses data already seeded.
 import { click, consoleProblems, evaluate, eventCount, eventsSince, key, send, setViewport, sleep, startBrowser, touchScroll, signInAs, waitFor, wheel } from "./browser-harness";
 import { db } from "../tests/security/helpers";
 import { assertScrollingTestDatabase, BOUNDARY_COUNTS, boundaryToken, seedScrollingFixture } from "./scrolling-fixture";
@@ -22,7 +9,6 @@ const PAGES = [
   "dashboard", "analysis-sales", "analysis-customers-orders", "analysis-inventory-position", "fantasy-data", "data-quality-issues",
   "planning-workbook-import", "admin-users-access", "admin-mappings", "admin-audit-log",
 ];
-/** The final sidebar, exactly: every page above, grouped, and nothing retired. */
 const FINAL_SIDEBAR: Array<[string, string[]]> = [
   ["Dashboard", ["Overview"]],
   ["Analysis", ["Sales & Trends", "Customers & Orders", "Inventory"]],
@@ -30,7 +16,6 @@ const FINAL_SIDEBAR: Array<[string, string[]]> = [
   ["Planning", ["Workbook Import"]],
   ["Administration", ["Users & Access", "Mappings", "Audit Log"]],
 ];
-/** Old links to the retired planning pages, and the reason each must state. */
 const RETIRED_LINKS: Array<[string, RegExp]> = [
   ["#planning-workbench", /outside the current planning utility/],
   ["#planning-workbench?tab=comparison", /outside the current planning utility/],
@@ -58,7 +43,6 @@ const record = (check: string, ok: boolean, detail = "") => {
   if (!ok) console.log(`  FAIL ${check}${detail ? ` — ${detail}` : ""}`);
 };
 
-// In-page helpers, installed after every navigation. Plain JavaScript: this runs in the page.
 const PAGE_HELPERS = `
 window.__sc = {
   main() { return document.querySelector('main[data-scroll-owner="page"]'); },
@@ -116,7 +100,6 @@ async function navigate(hash: string) {
 const mainState = () => evaluate<{ top: number; sh: number; ch: number; left: number; docH: number; docW: number; ih: number; iw: number }>("window.__sc.state()");
 const setMainTop = (top: number) => evaluate(`window.__sc.main().scrollTop = ${top}; true`);
 
-// ---- Checks for one rendered page ----------------------------------------------------------
 async function checkPage(label: string, touch: boolean) {
   const from = eventCount();
   await setMainTop(0);
@@ -132,14 +115,12 @@ async function checkPage(label: string, touch: boolean) {
   if (!tall) notes.push(`${label}: content fits the viewport (no page scrolling needed)`);
 
   if (tall) {
-    // Wheel outside any table scrolls <main>.
     const g = await evaluate<{ x: number; y: number; inTable: boolean }>("window.__sc.gutter()");
     await wheel(g.x, g.y, 0, 300);
     const afterGutter = await mainState();
     record(`${label}: wheel outside tables scrolls the page`, afterGutter.top > 0, `top ${afterGutter.top}`);
     await setMainTop(0);
 
-    // Wheel over a flowing table scrolls the page, not the table.
     const flowIndex = tables.find((t) => t.mode === "flow")?.i;
     if (flowIndex !== undefined) {
       await evaluate(`(() => { const t = [...window.__sc.main().querySelectorAll('[data-table-root]')].filter((t) => t.offsetParent)[${flowIndex}]; const m = window.__sc.main(); m.scrollTop = Math.max(0, t.getBoundingClientRect().top - m.getBoundingClientRect().top + m.scrollTop - 120); return true; })()`);
@@ -157,7 +138,6 @@ async function checkPage(label: string, touch: boolean) {
       await setMainTop(0);
     }
 
-    // The page scrolls to its end, and every pager can be scrolled into view uncovered.
     await setMainTop(1e7);
     await sleep(200);
     const reach = await evaluate<{ bottom: boolean; pagers: number; hidden: number }>(`(() => {
@@ -178,7 +158,6 @@ async function checkPage(label: string, touch: boolean) {
     await setMainTop(0);
   }
 
-  // Horizontal: a wide flowing table scrolls sideways by trackpad and Shift+wheel, the page never does.
   const wide = tables.find((t) => t.sw > t.cw + 2);
   if (wide) {
     await evaluate(`(() => { const vp = [...window.__sc.main().querySelectorAll('[data-table-root] [data-table-viewport]')].filter((t) => t.offsetParent)[${wide.i}]; vp.scrollIntoView({ block: 'center' }); vp.scrollLeft = 0; return true; })()`);
@@ -196,7 +175,6 @@ async function checkPage(label: string, touch: boolean) {
     await setMainTop(0);
   }
 
-  // Bounded regions scroll themselves, respond to the keyboard, and hand the gesture back at their end.
   const regionCount = await evaluate<number>("window.__sc.regions().length");
   for (let r = 0; r < regionCount; r++) {
     const info = await evaluate<{ sh: number; ch: number } | null>(`(() => { const el = window.__sc.regions()[${r}]; el.scrollIntoView({ block: 'center' }); el.scrollTop = 0; return { sh: el.scrollHeight, ch: el.clientHeight }; })()`);
@@ -210,9 +188,6 @@ async function checkPage(label: string, touch: boolean) {
     const inner = await evaluate<number>(`window.__sc.regions()[${r}].scrollTop`);
     const mid = await mainState();
     record(`${label}: bounded region ${r + 1} scrolls internally under ${touch ? "touch" : "the wheel"}`, inner > 0 && mid.top === before.top, `region ${inner}, page ${before.top}→${mid.top}`);
-    // At the region's end, continued gestures reach the page. A gesture that starts while the
-    // region can still move (even by a sub-pixel remainder) stays with the region, as browsers
-    // do, so the page must move within a few gestures, not necessarily the first.
     await evaluate(`(() => { const el = window.__sc.regions()[${r}]; el.scrollTop = el.scrollHeight; return true; })()`);
     await sleep(300);
     const atEnd = await mainState();
@@ -256,10 +231,8 @@ async function openStoredOutput(): Promise<boolean> {
   return waitFor(`/Output Ready/.test(window.__sc.main().innerText) && !!window.__sc.main().querySelector('[aria-label^="Plans of stone"]')`, 15000);
 }
 
-// ---- Interaction checks that are not per page ----------------------------------------------
 async function interactionChecks(tag: string, width: number) {
   const mobile = width < 768;
-  // Switching tabs from deep in a page starts the new tab at the top.
   await navigate("#analysis-inventory-position");
   await setMainTop(600);
   const tabs = await tabsOnPage();
@@ -268,7 +241,6 @@ async function interactionChecks(tag: string, width: number) {
     record(`${tag}: switching tabs starts the new tab at the top`, (await mainState()).top === 0);
   }
 
-  // Keyboard: Page Down, End and Home scroll <main> after a click in the page.
   await navigate("#data-quality-issues");
   const g = await evaluate<{ x: number; y: number }>("window.__sc.gutter()");
   await click(g.x, g.y);
@@ -280,7 +252,6 @@ async function interactionChecks(tag: string, width: number) {
   const home = (await mainState()).top;
   record(`${tag}: Page Down, End and Home scroll the page`, pd > 0 && end.top + end.ch >= end.sh - 2 && home === 0, `pageDown ${pd}, end ${end.top}/${end.sh - end.ch}, home ${home}`);
 
-  // Tab navigation brings focus into view below the sticky header.
   await setMainTop(0);
   let visible = true;
   let deep = false;
@@ -298,7 +269,6 @@ async function interactionChecks(tag: string, width: number) {
   }
   record(`${tag}: Tab moves focus through the page and each focused control is visible, not under a sticky header`, visible && deep);
 
-  // A dialog and a popover leave no scroll lock behind.
   await navigate("#admin-users-access");
   const opened = await evaluate<boolean>(`(() => { const b = [...document.querySelectorAll('main button')].find((x) => /Add user/.test(x.textContent)); if (!b) return false; b.click(); return true; })()`);
   if (opened) {
@@ -318,7 +288,6 @@ async function interactionChecks(tag: string, width: number) {
   record(`${tag}: after a dialog and a popover close, the page still scrolls and nothing stays locked`, (await mainState()).top > 0 && lock.pointer !== "none" && lock.body !== "hidden", JSON.stringify(lock));
 
   if (!mobile) {
-    // Collapsing and expanding the sidebar keeps the page scroller working.
     await evaluate(`document.querySelector('button[aria-label="Collapse sidebar"]')?.click(); true`);
     await sleep(400);
     await setMainTop(0);
@@ -329,7 +298,6 @@ async function interactionChecks(tag: string, width: number) {
     await sleep(400);
     record(`${tag}: the page scrolls with the sidebar collapsed`, collapsed > 0);
   } else {
-    // The mobile drawer scrolls on its own; choosing a page closes it and the page scrolls again.
     await navigate("#data-quality-issues");
     await setMainTop(0);
     await evaluate(`document.querySelector('button[aria-label="Open navigation menu"]').click(); true`);
@@ -350,7 +318,6 @@ async function interactionChecks(tag: string, width: number) {
   }
 }
 
-// ---- Row-count boundaries -----------------------------------------------------------------
 async function setInput(placeholderStart: string, value: string) {
   return evaluate<boolean>(`(() => {
     const el = [...document.querySelectorAll('main input')].find((i) => (i.placeholder || '').startsWith(${JSON.stringify(placeholderStart)}));
@@ -371,7 +338,7 @@ async function boundaryChecks(tag: string, touch: boolean) {
     await waitFor("window.__sc.settled()");
     await sleep(500);
     const t = (await evaluate<Array<{ mode: string; sh: number; ch: number; overflowY: string; rows: number }>>("window.__sc.tables()"))[0];
-    const expected = n === 0 ? 1 : Math.min(n, IMPORT_PAGE_SIZE); // 0 rows shows one empty-state row
+    const expected = n === 0 ? 1 : Math.min(n, IMPORT_PAGE_SIZE);
     record(`${tag}: Import Issues with ${n} rows shows ${Math.min(n, IMPORT_PAGE_SIZE)} on the page and flows with the page`, !!t && t.rows === expected && t.mode === "flow" && t.sh <= t.ch + 1, JSON.stringify(t));
     if (t) flowShapes.push(`${t.mode}/${t.overflowY}`);
     if (n === 300) {
@@ -383,7 +350,6 @@ async function boundaryChecks(tag: string, touch: boolean) {
   record(`${tag}: Import Issues scrolling is the same at every row count`, new Set(flowShapes).size === 1, [...new Set(flowShapes)].join(", "));
 }
 
-/** The sidebar holds exactly the final pages, in order, with every group expanded. */
 async function sidebarChecks(tag: string) {
   const open = await evaluate<boolean>(`!!document.querySelector('aside')`);
   if (!open) {
@@ -401,7 +367,6 @@ async function sidebarChecks(tag: string) {
   record(`${tag}: no retired planning page is offered in the sidebar`, !/Planning Workbench|Approval Queue|Rough Availability|Reservations|Planned Pieces|Planning Cases|Requirement Matrix|Priority Queue|Order Exceptions|Replenishment/.test(text));
 }
 
-/** Every old link to a retired planning page shows Not available and asks the server for nothing. */
 async function retiredLinkChecks(tag: string, touch: boolean) {
   for (const [hash, reason] of RETIRED_LINKS) {
     await navigate("#dashboard");
@@ -419,7 +384,6 @@ async function retiredLinkChecks(tag: string, touch: boolean) {
   await checkPage(`${tag} retired link (Not available)`, touch);
 }
 
-// ---- Run ------------------------------------------------------------------------------------
 async function main() {
   await assertScrollingTestDatabase();
   const sessionToken = process.argv.includes("--skip-seed")

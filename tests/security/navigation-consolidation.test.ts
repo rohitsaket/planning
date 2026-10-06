@@ -1,9 +1,3 @@
-// Consolidated pages, rendered: each host shows its existing views as tabs, shows only the
-// tabs a user may open, never renders or requests an unpermitted tab's content even when
-// the URL names it, and Import Issues reports only what is persisted. Every page is
-// rendered from its real component with every data request answered by the real route
-// handler under a real session in the isolated planning_sectest database.
-
 import { beforeAll, describe, expect, test } from "./harness";
 import { call, db, makeUser, resetDb } from "./helpers";
 import { renderPage, sessionUser } from "./ui-render";
@@ -25,7 +19,6 @@ import { DataQualityView } from "@/components/diamond/views/data-quality-view";
 type User = Awaited<ReturnType<typeof makeUser>>;
 let root: User;
 
-/** A user whose only role holds exactly these permissions, assigned through the admin routes. */
 async function userWith(name: string, permissions: string[]): Promise<User> {
   const u = await makeUser(name, "VIEWER");
   const code = `NAV_${name.toUpperCase().replace(/[^A-Z]/g, "_")}_${Date.now().toString(36).toUpperCase()}`;
@@ -37,7 +30,6 @@ async function userWith(name: string, permissions: string[]): Promise<User> {
   return u;
 }
 
-/** Renders a page as `u` with the URL naming `tab`, exactly as a bookmarked link would. */
 async function renderAs(view: ComponentType<object>, u: User, tab: string | null, category: string | null = null) {
   const s = await sessionUser(u.cookie);
   const nav = useNavStore.getInitialState();
@@ -69,12 +61,10 @@ describe("consolidated pages render their existing views as tabs", () => {
     const aging = await renderAs(InventoryPositionView, root, "aging");
     expect(tabLabels(aging.html)).toEqual(["Position", "Categories", "Lots", "Reconciliation", "Stockout Risk", "Excess Stock", "Aging"]);
     for (const label of ["Stock Aging", "Stock by inventory bucket", "Stock by location", "Current stock"]) expect([label, aging.text.includes(label)]).toEqual([label, true]);
-    // The summary does not repeat the lot KPIs Stock Aging already shows.
     expect((aging.text.match(/Current lots/g) ?? []).length).toBe(1);
     const stockout = await renderAs(InventoryPositionView, root, "stockout");
     expect(stockout.text).toContain("Stockout Risk");
     expect(stockout.requested.some((r) => r.startsWith("/api/analysis/stockout"))).toBe(true);
-    // A bookmarked category drill-down before any demand calculation shows a state, not a crash.
     const drill = await renderAs(InventoryPositionView, root, "stockout", "GIA|HEART|1.70-1.99");
     expect(drill.text).toContain("No demand calculation yet");
     const excess = await renderAs(InventoryPositionView, root, "excess");
@@ -84,7 +74,6 @@ describe("consolidated pages render their existing views as tabs", () => {
   test("Fantasy Data: current data, integration status and historical data", async () => {
     const current = await renderAs(FantasyDataView, root, "current");
     expect(tabLabels(current.html)).toEqual(["Current Data", "Integration Status", "Historical Data"]);
-    // Current Data is polished stock only: no rough stock and no stock-type switch.
     expect([current.requested.some((r) => r.startsWith("/api/fantasy/polished")), current.requested.some((r) => r.startsWith("/api/fantasy/rough")), current.html.includes('aria-label="Stock type"'), /Rough stock/i.test(current.text)]).toEqual([true, false, false, false]);
     expect((await renderAs(FantasyDataView, root, "integration")).text).toContain("Integration Status");
     expect((await renderAs(FantasyDataView, root, "history")).text).toContain("Historical Data");
@@ -126,7 +115,7 @@ describe("only permitted tabs are shown, selected or requested", () => {
   test("a historical-data-only reader sees Fantasy Data as one page, even from a link to Current Data", async () => {
     const u = await userWith("history", ["overall.read"]);
     const page = await renderAs(FantasyDataView, u, "current");
-    expect(tabLabels(page.html)).toEqual([]); // one permitted tab: no tab strip
+    expect(tabLabels(page.html)).toEqual([]);
     expect(page.text).toContain("Historical Data");
     expect(page.requested.some((r) => /\/api\/fantasy\/(rough|polished|sync)/.test(r))).toBe(false);
     expect([page.text.includes("Rough stock"), page.text.includes("Integration Status")]).toEqual([false, false]);

@@ -10,8 +10,6 @@ export const GET = withApi({ permission: "overall.read" }, async (req: Request) 
   const p = paging(url);
   const sourceState = await resolveFantasySourceStateWithHistory(db);
 
-  // One parser for the list and its export, so a filtered export can never return rows
-  // the filtered list would have excluded.
   const where = overallLotWhere(parseOverallLotFilters(url));
 
   const [totalCount, activeCount, historicalCount, soldCount, removedUnknownCount] = await Promise.all([

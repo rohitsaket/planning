@@ -14,19 +14,6 @@ import {
 } from "@/lib/analysis/customers-orders";
 import { describeScope } from "@/lib/auth/access-scope";
 
-/**
- * CUSTOMER SALES — bounded read endpoint for the customer sections only.
- *
- * Read-only: the handler performs no write of any kind.
- *
- * Orders live at `./orders` under `orders.read`. They were previously a branch of this
- * handler, which meant its `customers.read` guard refused an orders-only user before the
- * branch could run, and the customer summary carried order diagnostics to every customer
- * reader. Each section now carries exactly its own permission.
- *
- * Customer names are withheld at the service, not hidden in the browser.
- */
-
 const SECTIONS = ["summary", "customers", "customer-detail"] as const;
 const SORTS = ["confirmedQuantity", "measuredWeight", "saleRecordCount", "latestSaleDate", "customerCode"] as const;
 const DIRECTIONS = ["asc", "desc"] as const;
@@ -38,8 +25,6 @@ export const GET = withApi(
   const section = qEnum(url, "section", SECTIONS, "summary");
 
   const filters: CustomerFilters = {
-    // The wrapper has already refused an out-of-scope request; carrying the scope here is
-    // what narrows the query, so an unfiltered request returns this caller's scope.
     scope,
     country: qStr(url, "country", 60),
     branch: qStr(url, "branch", 60),
@@ -59,17 +44,12 @@ export const GET = withApi(
     pageSize: qInt(url, "pageSize", { def: CUSTOMERS_PAGE_DEFAULT, min: 1, max: CUSTOMERS_PAGE_MAX }),
   };
 
-  // A customer NAME is personal information; the code is the business identifier. The
-  // wrapper has already established `customers.read`, which is what grants the name.
   const canSeeCustomerNames = principal.permissions.includes("customers.read");
 
-  // `scope` is excluded: an authorization decision is not one of the caller's filters.
   const activeFilters = Object.entries(filters)
     .filter(([key, v]) => key !== "scope" && v !== null && v !== "")
     .map(([key, value]) => ({ key, value: String(value) }));
   const accessScope = describeScope(scope);
-  // Every section carries it: the Customers tab fetches sections other than the summary,
-  // and an unlabelled tab would present simulated sales as live.
   const sourceDisclosure = (await readCustomerSnapshotSummary()).sourceDisclosure;
 
   switch (section) {
@@ -89,7 +69,6 @@ export const GET = withApi(
         throw e;
       });
       if (!result) {
-        // No snapshot is a state, not an empty table of zeros.
         return ok({ section, available: false, unavailableReason: "NOT_RUN", activeFilters, accessScope, sourceDisclosure, rows: [] });
       }
       return ok({ section, available: true, unavailableReason: null, sort, activeFilters, accessScope, sourceDisclosure, ...result });
@@ -106,8 +85,6 @@ export const GET = withApi(
     }
 
     default: {
-      // Customer provenance only. No order state is read here, so a customer reader
-      // never receives order information as a side effect.
       const summary = await readCustomerSnapshotSummary();
       return ok({ section: "summary", activeFilters, accessScope, ...summary });
     }

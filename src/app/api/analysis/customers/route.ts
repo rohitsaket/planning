@@ -5,13 +5,6 @@ import { withApi, qStr, qEnum, qInt } from "@/lib/api/with-api";
 import { describeScope, scopePredicates } from "@/lib/auth/access-scope";
 import { memoPredicates, readMemoFilters } from "@/lib/analysis/memo";
 
-// Customer 360 list — sales and memo exposure per customer. There is no order figure: the
-// only stored orders are seeded records, not a source anyone can act on.
-//
-// Aggregation and ordering happen in PostgreSQL and the page is cut with
-// LIMIT/OFFSET, so the browser never receives the whole customer book. Filters are
-// applied before paging and the response carries a real total.
-
 const SORTS = ["value", "pieces", "name", "recent"] as const;
 type Sort = (typeof SORTS)[number];
 
@@ -52,10 +45,6 @@ export const GET = withApi(
   const since = new Date();
   since.setDate(since.getDate() - 365);
 
-  // Customer-level filters (applied before paging).
-  // The caller's scope is merged into every filter list below, so a request that carries
-  // no country or lab of its own still returns only what this caller may see. A customer
-  // record has no lab, so only the country half applies to the customer list itself.
   const customerFilters: Prisma.Sql[] = [...scopePredicates(scope, { country: 'c."country"', lab: null })];
   if (country) customerFilters.push(Prisma.sql`c.country = ${country}`);
   if (branch) customerFilters.push(Prisma.sql`c.branch = ${branch}`);
@@ -65,7 +54,6 @@ export const GET = withApi(
   }
   const customerWhere = customerFilters.length ? Prisma.sql`WHERE ${Prisma.join(customerFilters, " AND ")}` : Prisma.empty;
 
-  // Sales scope: invoiced lots in the trailing 365 days, honouring the global filters.
   const salesFilters: Prisma.Sql[] = [
     Prisma.sql`s."lotStatusDb" = 'Invoice'`,
     Prisma.sql`s."docDate" >= ${since}`,
@@ -76,14 +64,12 @@ export const GET = withApi(
   if (lab) salesFilters.push(Prisma.sql`s."labNormalized" = ${lab}`);
   const salesWhere = Prisma.join(salesFilters, " AND ");
 
-  // Open memo exposure through the same filter as Memo Analysis, so both pages agree.
   const memoWhere = Prisma.join(memoPredicates({ ...locationFilters, status: "OPEN" }, "m"), " AND ");
 
   const [countRows, summaryRows, rows] = await Promise.all([
     db.$queryRaw<Array<{ total: number }>>(Prisma.sql`
       SELECT COUNT(*)::int AS total FROM "Customer" c ${customerWhere}
     `),
-    // Totals across every matching customer, not only the visible page.
     db.$queryRaw<Array<{ pieces: number; carats: number; total_value: number; memo_exposure: number }>>(Prisma.sql`
       SELECT COALESCE(SUM(sales.pieces), 0)::int AS pieces,
              COALESCE(SUM(sales.carats), 0)::float8 AS carats,

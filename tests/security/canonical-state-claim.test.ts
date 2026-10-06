@@ -19,19 +19,6 @@ import { GET as stockout } from "@/app/api/analysis/stockout/route";
 import { GET as demandTrace } from "@/app/api/analysis/demand-trace/route";
 import { resolveEffectiveAccess } from "@/lib/auth/effective-permissions";
 
-/**
- * Canonical-state coordination.
- *
- * Synchronization and the demand calculation each guarded their own operation and knew
- * nothing about the other, so a sync could commit a batch while a demand run was
- * part-way through reading the rows it was changing — producing one calculation whose
- * sales came from before the batch and whose inventory came from after it. Nothing in
- * the result would have looked wrong.
- *
- * Every claim here is taken through the real functions against the real row, and the
- * overlap tests start both operations before either finishes.
- */
-
 async function freeClaim() {
   await db.canonicalStateClaim.upsert({
     where: { id: CANONICAL_STATE_ID },
@@ -48,7 +35,6 @@ describe("claiming the canonical state", () => {
 
   test("two workers race for a free claim and exactly one wins", async () => {
     await freeClaim();
-    // Genuinely overlapping: both statements are in flight against the same row.
     const [a, b] = await Promise.all([
       claimCanonicalState("SYNC", "worker-a"),
       claimCanonicalState("DEMAND", "worker-b"),
@@ -59,7 +45,6 @@ describe("claiming the canonical state", () => {
     const loser = [a, b].find((r) => !r.acquired)!;
     expect(loser.acquired).toBe(false);
     if (!loser.acquired) {
-      // The refusal names the holder in business language and carries no token.
       expect(["SYNC", "DEMAND"].includes(loser.heldBy)).toBe(true);
       expect(loser.reason.includes("token")).toBe(false);
     }
@@ -97,14 +82,12 @@ describe("claiming the canonical state", () => {
 
   test("an expired claim is reclaimable without an administrator", async () => {
     await freeClaim();
-    // A lease already in the past: the worker that took it is gone.
     const stale = await claimCanonicalState("SYNC", "crashed-worker", db, -1_000);
     expect(stale.acquired).toBe(true);
 
     const reclaimed = await claimCanonicalState("DEMAND", "next-worker");
     expect(reclaimed.acquired).toBe(true);
     if (reclaimed.acquired) {
-      // A new generation, so the crashed worker is fenced.
       expect(stale.acquired && reclaimed.claim.fencingVersion > stale.claim.fencingVersion).toBe(true);
       await releaseCanonicalState(reclaimed.claim);
     }
@@ -149,9 +132,7 @@ describe("fencing a displaced worker", () => {
       holder: "DEMAND",
     });
 
-    // The worker still holds its own token, and is still refused: the generation moved.
     expect(await isClaimStillHeld(displaced)).toBe(false);
-    // And it cannot release a claim that is no longer its own.
     expect(await releaseCanonicalState(displaced)).toBe(false);
   });
 
@@ -160,7 +141,6 @@ describe("fencing a displaced worker", () => {
     const fresh = await claimCanonicalState("SYNC", "new-worker");
     expect(fresh.acquired).toBe(true);
 
-    // The displaced worker's release attempt must not free the new holder's claim.
     const displaced = {
       holder: "DEMAND" as const,
       ownerToken: "stale-token",
@@ -213,14 +193,12 @@ describe("synchronization and demand cannot overlap", () => {
     }
     expect(refused instanceof CanonicalStateBusyError).toBe(true);
     expect((refused as CanonicalStateBusyError).heldBy).toBe("SYNC");
-    // Business wording, no token, no row id, no SQL.
     const message = (refused as Error).message;
     expect(message.includes("being updated")).toBe(true);
     for (const leaked of ["token", "CanonicalStateClaim", "SELECT", "ownerToken"]) {
       expect(message.includes(leaked)).toBe(false);
     }
 
-    // The refused run released the demand lock again rather than holding it for a lease.
     const lock = await db.demandCalculationLock.findUnique({ where: { id: "DEMAND_CALCULATION" } });
     expect(lock?.isLocked ?? false).toBe(false);
 
@@ -242,7 +220,6 @@ describe("synchronization and demand cannot overlap", () => {
     expect(refused instanceof CanonicalStateBusyError).toBe(true);
     expect((refused as CanonicalStateBusyError).heldBy).toBe("DEMAND");
 
-    // Nothing was written, and the sync lock was handed back.
     expect(await db.lotMasterRecord.count()).toBe(lotsBefore);
     const checkpoint = await db.syncCheckpoint.findUnique({ where: { source: "FANTASY" } });
     expect(checkpoint?.isLocked ?? false).toBe(false);
@@ -308,7 +285,6 @@ describe("a demand run is bound to one committed synchronization", () => {
     });
     expect(unchanged.sourceSyncRunId).toBe(earlier.sourceSyncRunId);
     expect(unchanged.checkpoint).toBe(earlier.checkpoint);
-    // The newer sync is genuinely a different one, so the check is not vacuous.
     expect(laterSync.runId === earlier.sourceSyncRunId).toBe(false);
   });
 
@@ -333,9 +309,6 @@ describe("failure leaves no partial result", () => {
 
   test("a synchronization that fails inside its transaction writes nothing", async () => {
     await freeClaim();
-    // Rewind so the fixture provider actually has a batch to offer. Without this the
-    // run takes the "no new batch" path and never reaches the transaction the failure
-    // is injected into, and the test would pass without exercising rollback at all.
     await db.syncCheckpoint.update({
       where: { source: "FANTASY" },
       data: { currentCheckpoint: 0, isLocked: false, lockToken: null, lockExpiresAt: null },
@@ -346,8 +319,6 @@ describe("failure leaves no partial result", () => {
       checkpoint: (await db.syncCheckpoint.findUniqueOrThrow({ where: { source: "FANTASY" } })).currentCheckpoint,
     };
 
-    // The failure is thrown inside the service's own `$transaction`, so this exercises
-    // the real rollback rather than a hand-built FAILED row.
     const result = await runSynchronization({ actor: "sync-worker", simulateFailure: true });
     expect(result.status).toBe("FAILED");
 
@@ -357,8 +328,6 @@ describe("failure leaves no partial result", () => {
       checkpoint: (await db.syncCheckpoint.findUniqueOrThrow({ where: { source: "FANTASY" } })).currentCheckpoint,
     }).toEqual(before);
 
-    // The failed attempt produced a FAILED run, not a SUCCESS one — so no successful
-    // checkpoint can refer to the canonical writes that were rolled back.
     const thisAttempt = await db.integrationSyncRun.findUniqueOrThrow({
       where: { id: result.runId },
       select: { status: true, endingCheckpoint: true },
@@ -374,9 +343,6 @@ describe("failure leaves no partial result", () => {
     const metricsBefore = await db.demandMetric.count();
     const completedBefore = await db.demandRun.count({ where: { status: { in: ["COMPLETED", "REVIEW_REQUIRED"] } } });
 
-    // A real overlap: the calculation starts, an administrator force-releases its claim
-    // mid-flight, and the run must discard its own result rather than persist figures
-    // describing a state it no longer exclusively held.
     const calculation = runDemandCalculation({ actor: "demand-worker", windowDays: 90 });
     await new Promise((r) => setTimeout(r, 5));
     await forceReleaseCanonicalState("ADMIN_TEST");
@@ -389,19 +355,15 @@ describe("failure leaves no partial result", () => {
     }
 
     if (failed) {
-      // Fenced: nothing of this run survives.
       expect(await db.demandMetric.count()).toBe(metricsBefore);
       expect(
         await db.demandRun.count({ where: { status: { in: ["COMPLETED", "REVIEW_REQUIRED"] } } }),
       ).toBe(completedBefore);
-      // The message is safe for a browser: no token, no table, no SQL.
       const message = (failed as Error).message;
       for (const leaked of ["ownerToken", "CanonicalStateClaim", "SELECT", "prisma"]) {
         expect(message.includes(leaked)).toBe(false);
       }
     } else {
-      // The calculation committed before the release landed. That is a legitimate
-      // outcome of a genuine race — what must never happen is a half-written result.
       const run = await db.demandRun.findFirstOrThrow({ orderBy: { runDate: "desc" } });
       expect(["COMPLETED", "REVIEW_REQUIRED"].includes(run.status)).toBe(true);
     }
@@ -425,8 +387,6 @@ describe("persisted roles cannot re-grant operational access to ADMIN", () => {
     const systemRoles = await db.role.findMany({ where: { isSystem: true }, select: { code: true } });
     expect(systemRoles.map((r) => r.code)).toEqual(["SUPER_ADMIN"]);
 
-    // The decisive check: a row forged as a system role — a retired code, or Super Admin
-    // with an explicit-grant permission — contributes nothing beyond what code defines.
     const withForgedGrant = resolveEffectiveAccess(
       [
         { code: "ADMIN", isSystem: true, status: "ACTIVE", permissions: OPERATIONAL.map((permissionCode) => ({ permissionCode })) },
@@ -436,13 +396,10 @@ describe("persisted roles cannot re-grant operational access to ADMIN", () => {
     );
     expect(withForgedGrant.permissions).toEqual([]);
     const superAdmin = resolveEffectiveAccess([{ code: "SUPER_ADMIN", isSystem: true, status: "ACTIVE", permissions: [{ permissionCode: "sarin.output.approve" }] }], null);
-    // A stored grant of a code this build no longer defines is ignored, even on Super Admin.
     expect([(superAdmin.permissions as string[]).includes("sarin.output.approve"), OPERATIONAL.every((p) => superAdmin.permissions.includes(p))]).toEqual([false, true]);
   });
 
   test("an explicit custom-role grant is still honoured, so specialized access is preserved", () => {
-    // Custom roles keep their permissions in rows. An operator deliberately granted the
-    // permission must keep it; this is what "do not remove explicit assignments" means.
     const custom = resolveEffectiveAccess(
       [{
         code: "INTEGRATION_OPERATOR",
@@ -512,7 +469,6 @@ describe("Stockout and Demand Overview read the same bound source", () => {
     });
     expect(typeof bound.sourceSyncRunId).toBe("string");
 
-    // The named synchronization really did succeed — the binding is to a committed state.
     const sync = await db.integrationSyncRun.findUniqueOrThrow({
       where: { id: bound.sourceSyncRunId! },
       select: { status: true, endingCheckpoint: true },
@@ -540,7 +496,6 @@ describe("Stockout and Demand Overview read the same bound source", () => {
       metrics: await db.demandMetric.count(),
       claim: (await db.canonicalStateClaim.findUniqueOrThrow({ where: { id: CANONICAL_STATE_ID } })).holder,
     }).toEqual(before);
-    // Read-only pages never hold the execution claim.
     expect(before.claim).toBe(null);
   });
 
@@ -551,8 +506,6 @@ describe("Stockout and Demand Overview read the same bound source", () => {
 
     resetRateLimits();
     const res = await call(stockout, { path: "/api/analysis/stockout?section=status", cookie });
-    // The page is not blanked because a sync is in flight; it shows the last committed
-    // demand result, which is still the authoritative answer until a new one commits.
     expect(res.status).toBe(200);
     expect(res.json.hasRun).toBe(true);
 
@@ -568,18 +521,14 @@ describe("an abandoned demand lock expires with the canonical-claim lease", () =
 
   test("a lock left behind longer than the lease is taken over; a fresh lock still refuses a concurrent run", async () => {
     await freeClaim();
-    // A committed synchronization must exist; an earlier suite may already have committed
-    // the fixture batch, in which case this one is refused as a repeat and that is fine.
     await runSynchronization({ actor: "sync-worker" });
     expect(await db.integrationSyncRun.count({ where: { status: "SUCCESS" } })).toBeGreaterThan(0);
     const held = { isLocked: true, lockToken: "crashed-worker-token", lockedAt: new Date(), lockedBy: "crashed-worker" };
     await db.demandCalculationLock.upsert({ where: { id: "DEMAND_CALCULATION" }, update: held, create: { id: "DEMAND_CALCULATION", ...held } });
 
-    // Held just now by another worker: a concurrent run is refused and the lock is untouched.
     await expect(runDemandCalculation({ actor: "demand-worker", windowDays: 90 })).rejects.toThrow(/in progress/);
     expect((await db.demandCalculationLock.findUniqueOrThrow({ where: { id: "DEMAND_CALCULATION" } })).lockToken).toBe("crashed-worker-token");
 
-    // The same lock, abandoned for longer than the lease: the next run takes it over, completes and releases it.
     await db.demandCalculationLock.update({ where: { id: "DEMAND_CALCULATION" }, data: { lockedAt: new Date(Date.now() - CANONICAL_CLAIM_LEASE_MS - 60_000) } });
     const run = await runDemandCalculation({ actor: "demand-worker", windowDays: 90 });
     const lock = await db.demandCalculationLock.findUniqueOrThrow({ where: { id: "DEMAND_CALCULATION" } });

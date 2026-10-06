@@ -43,7 +43,6 @@ export function UsersTab() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
 
-  // Search runs on the server across every account; typing settles before it is sent.
   useEffect(() => {
     const t = setTimeout(() => {
       setSearch(searchInput.trim());
@@ -88,8 +87,6 @@ export function UsersTab() {
             )}
           </header>
 
-          {/* Positioned so the visually hidden "Actions" header stays inside the scroll area
-              rather than stretching the page on narrow screens. */}
           <div className="relative overflow-x-auto">
             <table className="w-full min-w-[880px] text-left text-xs">
               <thead className="bg-muted/40 text-[11px] uppercase tracking-wide text-muted-foreground">
@@ -160,7 +157,6 @@ export function UsersTab() {
         />
       )}
 
-      {/* Keyed by account so edits in progress never carry over to another user. */}
       <UserDetailsPanel
         key={selected?.id ?? "none"}
         user={selected}

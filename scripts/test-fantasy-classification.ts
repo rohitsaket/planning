@@ -1,19 +1,3 @@
-/**
- * FANTASY CLASSIFICATION — status, hold and availability (Master Phase 1, Checkpoint 2)
- *
- * Runs against the isolated security-test database only (planning_sectest).
- *
- * Proves: the classifier is the single authority; hold is tri-state and fails closed;
- * an unmapped or missing status can never become memo, stock or available; a status
- * mapping cannot override a hold; a simulation-only profile cannot classify live data;
- * the fixture compatibility sentinel is honoured only from the application's own adapter
- * and only for simulated data; a profile edit produces a new version without rewriting
- * past classifications; and the hardcoded `STOCK -> PHYSICAL, else MEMO` rule is gone
- * from the repository.
- *
- * Usage: npm run test:classification
- */
-
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { db } from "../src/lib/db";
@@ -38,7 +22,6 @@ import {
 } from "../src/lib/fantasy/classification-profile";
 
 const url = process.env.DATABASE_URL ?? "";
-// Loopback host, an approved isolated test database, no production or staging marker.
 if (!proveDisposableDatabase(url).proven) {
   console.error(`REFUSING TO RUN: DATABASE_URL must point at the isolated ${SECTEST_DB} database.`);
   process.exit(1);
@@ -63,7 +46,6 @@ function section(title: string) {
   console.log(`\n--- ${title} ---`);
 }
 
-/** A fixture-shaped input with one field overridden. */
 function input(overrides: Partial<ClassificationInput> = {}): ClassificationInput {
   return { ...legacyFixtureClassificationInput({ currentStatus: "STOCK" }), ...overrides };
 }
@@ -79,9 +61,7 @@ async function main() {
     process.exit(1);
   }
 
-  // =========================================================================
   section("A. Mapped fixture statuses produce the configured class");
-  // =========================================================================
   const stock = classifyFantasyRecord(input({ rawStatus: "STOCK" }), profile);
   assert(stock.state === "CLASSIFIED", "A mapped status classifies");
   assert(stock.inventoryClass === "PHYSICAL_AVAILABLE", "STOCK is physically available");
@@ -110,9 +90,7 @@ async function main() {
   assert(classifyFantasyRecord(input({ rawStatus: "stock" }), profile).available === true, "Status matching is case-insensitive by normalization");
   assert(classifyFantasyRecord(input({ rawStatus: "  STOCK  " }), profile).available === true, "Surrounding whitespace is trimmed");
 
-  // =========================================================================
   section("B. Unknown and missing statuses fail closed");
-  // =========================================================================
   for (const unknown of ["BANANA", "AVAILABLE", "PLANNING_AVAILABLE", "QC_HOLD", "IN_TRANSIT"]) {
     const r = classifyFantasyRecord(input({ rawStatus: unknown }), profile);
     assert(r.inventoryClass === "EXCLUDED", `Unmapped status "${unknown}" is excluded`);
@@ -129,9 +107,7 @@ async function main() {
     assert(r.exclusionReasons.includes("STATUS_MISSING"), `Missing status ${JSON.stringify(missing)} reports STATUS_MISSING`);
   }
 
-  // =========================================================================
   section("C. Hold is tri-state and blocks availability");
-  // =========================================================================
   const sentinelHold = resolveHoldState(
     { rawHold: LEGACY_FIXTURE_HOLD_SENTINEL, holdOrigin: "ADAPTER_SENTINEL", effectiveSourceState: "FIXTURE_SIMULATION" },
     profile,
@@ -159,15 +135,12 @@ async function main() {
     "Unknown hold reports why, by code",
   );
 
-  // A status mapping cannot rescue a held record.
   assert(
     classifyFantasyRecord(input({ rawStatus: "STOCK", rawHold: "ANYTHING", holdOrigin: "SOURCE_ROW" }), profile).available === false,
     "A status mapping cannot override hold",
   );
 
-  // =========================================================================
   section("D. The simulation sentinel cannot be used by live data");
-  // =========================================================================
   const sentinelFromRow = classifyFantasyRecord(
     input({ rawStatus: "STOCK", rawHold: LEGACY_FIXTURE_HOLD_SENTINEL, holdOrigin: "SOURCE_ROW" }),
     profile,
@@ -200,9 +173,7 @@ async function main() {
   assert((await loadProfileForSourceState("NOT_CONFIGURED")) === null, "No profile exists for an unconfigured source");
   assert((await loadProfileForSourceState("FIXTURE_SIMULATION")) !== null, "The fixture source does resolve a profile");
 
-  // =========================================================================
   section("E. No profile, or an inactive one, classifies nothing");
-  // =========================================================================
   const noProfile = classifyFantasyRecord(input({ rawStatus: "STOCK" }), null);
   assert(noProfile.state === "NOT_CONFIGURED", "With no profile the state is NOT_CONFIGURED, not a guess");
   assert(noProfile.available === false, "With no profile nothing is available");
@@ -219,7 +190,6 @@ async function main() {
   assert(viaInactive.available === false, "An inactive status mapping does not classify");
   assert(viaInactive.exclusionReasons.includes("STATUS_MAPPING_INACTIVE"), "An inactive mapping is reported by code");
 
-  // A mapping that contradicts itself is refused rather than half-applied.
   const contradictory: ClassificationProfile = {
     ...profile,
     statusMappings: profile.statusMappings.map((m) =>
@@ -241,9 +211,7 @@ async function main() {
     "Nothing terminal is available, whatever the mapping claims",
   );
 
-  // =========================================================================
   section("F. Structural and data-quality state excludes a mapped record");
-  // =========================================================================
   assert(
     classifyFantasyRecord(input({ rawStatus: "STOCK", structurallyValid: false }), profile).available === false,
     "A structurally invalid record is excluded despite a good status",
@@ -257,9 +225,7 @@ async function main() {
     "Structural invalidity is reported by code",
   );
 
-  // =========================================================================
   section("G. Mapping versions keep past classifications reproducible");
-  // =========================================================================
   const before = await db.fantasyClassificationProfile.findUniqueOrThrow({ where: { code: LEGACY_FIXTURE_PROFILE } });
   assert(before.version >= 1, "The profile carries a version");
   assert(before.applicability === "SIMULATION_ONLY", "The fixture profile is simulation-only");
@@ -268,8 +234,6 @@ async function main() {
   assert(classifiedAtV1.profileVersion === before.version, "A classification records the profile version that produced it");
   assert(classifiedAtV1.profileCode === LEGACY_FIXTURE_PROFILE, "A classification records the profile code");
 
-  // A record already classified keeps its stored answer; editing the profile does not
-  // silently reinterpret it.
   const storedAtV1 = {
     classificationState: "CLASSIFIED",
     holdState: "NOT_HELD",
@@ -293,7 +257,6 @@ async function main() {
   assert(reread.available === true, "A past classification is not rewritten by a later mapping change");
   assert(reread.profileVersion === before.version, "The stored classification keeps its original profile version");
 
-  // A record with no stored classification is classified on read by the same service.
   const unstored = {
     classificationState: null,
     holdState: null,
@@ -317,9 +280,7 @@ async function main() {
     "With no profile, an unclassified record is never available",
   );
 
-  // =========================================================================
   section("H. The operational mirror can only restrict, never promote");
-  // =========================================================================
   assert(
     resolveEffectiveClassification(unstored, profile, "RESERVED").inventoryClass === "RESERVED",
     "A mirror marked RESERVED restricts an otherwise-available record",
@@ -341,9 +302,7 @@ async function main() {
     "An unrecognised mirror class excludes the record",
   );
 
-  // =========================================================================
   section("I. Mirror gating matches what the removed gate admitted");
-  // =========================================================================
   assert(isMirroredInventoryClass("PHYSICAL_AVAILABLE"), "Physically available records get an operational mirror");
   assert(isMirroredInventoryClass("MEMO"), "Memo records get an operational mirror");
   assert(!isMirroredInventoryClass("RESERVED"), "Reserved records are not mirrored, exactly as before");
@@ -354,9 +313,7 @@ async function main() {
     "Analytics availability filter is sourced from the classifier",
   );
 
-  // =========================================================================
   section("J. The hardcoded rules are gone from the repository");
-  // =========================================================================
   const walk = (dir: string, acc: string[] = []): string[] => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, entry.name);
@@ -368,11 +325,6 @@ async function main() {
   const sources = walk(path.join(process.cwd(), "src"));
   const classificationFile = path.join(process.cwd(), "src", "lib", "fantasy", "classification.ts");
 
-  /**
-   * Source with comments removed. The scan below looks for the removed rules as *code*;
-   * the modules that replaced them describe what they replaced, and a doc comment is not
-   * a classification decision.
-   */
   const codeOf = (file: string) =>
     readFileSync(file, "utf8")
       .replace(/\/\*[\s\S]*?\*\//g, "")

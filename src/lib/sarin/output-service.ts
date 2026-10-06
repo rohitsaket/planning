@@ -1,31 +1,3 @@
-/**
- * Sarin structured output: turns one cleanly validated Sarin import into an immutable
- * output version of plan options and plan pieces, using its declared packet type's
- * transformation (Blue/White plan groups, or the Pink 45-record layout).
- *
- * One transaction does everything, after locking the batch row (FOR UPDATE) so that
- * generations of one batch, and a validation claim racing one, run one at a time:
- *
- *   1. Re-reads the batch and its current validation attempt under the lock and refuses
- *      anything that is not VALIDATED by a COMPLETED attempt under the current validation
- *      profile with no blocking finding, against the mapping snapshot it captured (still
- *      valid lineage; see SARIN_MAPPING_LINEAGE_STATUSES).
- *      Advisories (non-blocking findings) do not stop generation; they are counted.
- *   2. Hashes the exact inputs. A version with the same inputs is the answer (reused).
- *   3. Plans every stone once to count, supersedes the current version, records the new
- *      one, then plans again and writes every option and piece. Planning is deterministic,
- *      and the written totals must equal the recorded ones.
- *
- * Any failure rolls the whole transaction back: there is never a partial output. The
- * database independently refuses content that does not reproduce its source rows or that
- * is written outside the generating transaction.
- *
- * Nothing here takes a value from the client: the request carries at most the validation
- * attempt the caller reviewed, as a precondition.
- *
- * Server-only.
- */
-
 import { createHash, randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
@@ -51,7 +23,6 @@ export const SARIN_OUTPUT_AUDIT = {
 } as const;
 
 const ENTITY = "SarinImportBatch";
-/** Pieces per insert statement. */
 const PIECE_INSERT_CHUNK = 5000;
 
 export interface SarinOutputActor {
@@ -62,7 +33,6 @@ export interface SarinOutputActor {
 }
 
 export interface SarinOutputRequest {
-  /** The validation attempt the caller reviewed. Generation is refused if it is no longer current. */
   readonly validationAttemptId?: string;
 }
 
@@ -76,15 +46,10 @@ const scopeOf = (scope: EffectiveScope) => scopeWhere(scope, { country: null, la
 const inputsIncomplete = () =>
   new ApiError(422, "OUTPUT_INPUTS_INCOMPLETE", "The validated import does not have every value its structured output needs. Validate it again and review the findings.");
 
-// ---------------------------------------------------------------------------------------
-// Reading validated stones
-// ---------------------------------------------------------------------------------------
-
 interface PieceSource {
   readonly sourceRowId: string;
   readonly sourceRowNumber: number;
   readonly rawShape: string;
-  /** MAPPED: the rule's canonical shape. RAW_PASSTHROUGH: no rule exists; the output shows rawShape. */
   readonly shapeResolution: "MAPPED" | "RAW_PASSTHROUGH";
   readonly normalizedShape: string | null;
   readonly mappingRuleId: string | null;
@@ -104,11 +69,6 @@ interface ValidatedStone {
   readonly rows: PieceSource[];
 }
 
-/**
- * The batch's stones in file order, a page at a time, each with its rows in source order
- * and the shape its validation attempt resolved. Anything short of a complete, accepted,
- * interpreted row is refused rather than skipped: a stone is output whole or not at all.
- */
 async function* validatedStones(tx: Prisma.TransactionClient, batchId: string, attemptNumber: number, pageSize: number): AsyncGenerator<ValidatedStone[]> {
   let after = 0;
   for (;;) {
@@ -141,11 +101,8 @@ async function* validatedStones(tx: Prisma.TransactionClient, batchId: string, a
       for (; cursor < rows.length && rows[cursor].sourceRowNumber <= block.lastRowNumber; cursor++) {
         const r = rows[cursor];
         const it = interpretationOf.get(r.sourceRowNumber);
-        // A row between blocks, or any gap in what validation proved, stops generation.
         if (r.sourceRowNumber < block.firstRowNumber || r.outcome !== "ACCEPTED" || !it || it.stoneBlockId !== block.id) throw inputsIncomplete();
         const mapped = (it.mappingResult === "MAPPED" || it.mappingResult === "CONDITIONALLY_MAPPED") && it.normalizedShape !== null && it.mappingRuleId !== null;
-        // UNMAPPED with a shape key is validation's pass-through (a clean validation never has
-        // another kind of UNMAPPED row); the database guard proves the set has no rule for it.
         const passThrough = it.mappingResult === "UNMAPPED" && it.rawShapeKey !== null && it.normalizedShape === null && it.mappingRuleId === null;
         if (!mapped && !passThrough) throw inputsIncomplete();
         if (r.shapeRaw === null || r.estimatedWeight === null || r.clarity === null || r.color === null || r.depthPct === null || r.ratio === null || r.length === null || r.width === null || r.depthMm === null) {
@@ -164,11 +121,6 @@ async function* validatedStones(tx: Prisma.TransactionClient, batchId: string, a
   }
 }
 
-// ---------------------------------------------------------------------------------------
-// Generation
-// ---------------------------------------------------------------------------------------
-
-/** A lock wait that ran out: another generation or validation of this batch is running. */
 function isLockTimeout(e: unknown): boolean {
   if (!(e instanceof Prisma.PrismaClientKnownRequestError)) return false;
   return (e.meta as { code?: string } | undefined)?.code === "55P03" || /55P03|lock timeout/i.test(e.message);
@@ -218,9 +170,6 @@ export async function generateSarinOutput(actor: SarinOutputActor, batchId: stri
           throw conflict("MAPPING_WITHDRAWN", "The shape mapping this file was checked with was withdrawn. Process the file again.");
         }
 
-        // Key order is fixed here, so equal inputs always hash equally. The packet type keeps
-        // its original hash key "stoneType": stored versions are recognised as unchanged
-        // inputs by this hash, so renaming the key would regenerate every existing output.
         const inputsHash = inputsHashOf({
           sourceFileSha256: batch.sourceFile.sha256,
           contractVersion: batch.contractVersion,
@@ -239,7 +188,6 @@ export async function generateSarinOutput(actor: SarinOutputActor, batchId: stri
           return { reused: true, versionId: existing.id };
         }
 
-        // Pass 1: the totals the version records.
         let stoneCount = 0;
         let optionCount = 0;
         let pieceCount = 0;
@@ -278,7 +226,6 @@ export async function generateSarinOutput(actor: SarinOutputActor, batchId: stri
           select: { id: true },
         });
 
-        // Pass 2: the content. Output rows are numbered across the whole version.
         let outputRow = 0;
         const written = { stones: 0, options: 0, pieces: 0 };
         for await (const stones of validatedStones(tx, batchId, attempt.attemptNumber, config.writeBatch)) {
@@ -335,14 +282,11 @@ export async function generateSarinOutput(actor: SarinOutputActor, batchId: stri
       { timeout: config.transactionTimeoutMs, maxWait: 10_000 },
     );
   } catch (e) {
-    // The transaction has rolled back; its audit rows went with it. The outcome is
-    // recorded on its own so that refusals and failures still leave a trail.
     const refusal = e instanceof ApiError ? e : isLockTimeout(e) ? conflict("OUTPUT_GENERATION_IN_PROGRESS", "Another output generation or validation of this import is running. Retry shortly.") : null;
     if (refusal) {
       await recordOutcome(actor, batchId, SARIN_OUTPUT_AUDIT.rejected, "DENIED", { code: refusal.code });
       throw refusal;
     }
-    // Logged by class only: a database error message can quote source data.
     log("error", "sarin.output.failed", { requestId: actor.requestId, userId: actor.userId, batchId, error: e instanceof Error ? e.name : "unknown" });
     await recordOutcome(actor, batchId, SARIN_OUTPUT_AUDIT.failed, "FAILED", { code: "OUTPUT_NOT_GENERATED" });
     throw new ApiError(500, "OUTPUT_NOT_GENERATED", "Structured output was not generated. No partial output was kept; retry the generation.");

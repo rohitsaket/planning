@@ -1,14 +1,3 @@
-/**
- * Business vocabulary for recorded data-quality issues.
- *
- * Synchronization and the demand calculation record each issue under a fixed rule code.
- * Those codes are internal; readers see the issue type they belong to. A rule this build
- * does not know is reported as "Other issue" rather than folded into a neighbouring type,
- * so an unfamiliar problem is never presented as a familiar one.
- *
- * Client-safe: no database or permission imports.
- */
-
 export const ISSUE_TYPES = {
   INVALID_RECORD: { label: "Invalid records", rules: ["INVALID_CANONICAL_RECORD", "MISSING_CERTIFICATION_INTENT"] },
   UNMAPPED_VALUE: { label: "Unmapped source values", rules: ["UNMAPPED_LAB_WARNING"] },

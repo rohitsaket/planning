@@ -15,27 +15,11 @@ import {
   resolveSourceDisclosure,
 } from "@/lib/analysis/source-disclosure";
 
-/**
- * Simulation disclosure.
- *
- * Six Analysis views each carried their own copy of the "Fixture Simulation" banner, and
- * one editing pass removed all six while a thousand simulated lots were live in the
- * database. Every page then presented fixture output as though it were live Fantasy data.
- *
- * So the disclosure is resolved once on the server from the records the page read, and
- * rendered by one shared component. These tests hold both halves in place: the API must
- * say what the source is, and every view that can show fixture data must render the
- * shared banner rather than reinventing it.
- */
-
 const BATCH = "DISCLOSURE-TEST";
 
-/** Every Analysis surface that can display fixture-derived figures. */
 const ANALYSIS_VIEWS = [
   "src/components/diamond/views/stockout-view.tsx",
   "src/components/diamond/views/excess-view.tsx",
-  // Stock Aging also hosts the former Aging Dashboard's summary (aging-summary.tsx), which
-  // sits under this view's banner rather than repeating it.
   "src/components/diamond/views/aging-view.tsx",
   "src/components/diamond/views/country-view.tsx",
   "src/components/diamond/views/executive-analysis-view.tsx",
@@ -93,8 +77,6 @@ describe("Source disclosure — the three states are distinct", () => {
   });
 
   test("no data is NOT_ESTABLISHED — never a claim in either direction", () => {
-    // The previous code returned `sourceState: "SIMULATION"` when there was no demand run
-    // at all, which asserted something about data that did not exist.
     for (const flag of [true, false, null, undefined]) {
       const d = resolveSourceDisclosure({ isSimulated: flag, hasData: false });
       expect({ flag, mode: d.mode, simulated: d.simulated })
@@ -110,7 +92,6 @@ describe("Source disclosure — the three states are distinct", () => {
       resolveSourceDisclosure({ isSimulated: true, hasData: true }),
     ]);
     expect(merged.mode).toBe("FIXTURE_SIMULATION");
-    // And a page with nothing established stays unestablished.
     expect(mergeSourceDisclosures([UNESTABLISHED_SOURCE, UNESTABLISHED_SOURCE]).mode).toBe("NOT_ESTABLISHED");
   });
 
@@ -157,9 +138,6 @@ describe("Source disclosure — every Analysis API states its source", () => {
     resetRateLimits();
     const res = await call(stockout, { path: "/api/analysis/stockout?section=status", cookie });
     expect(res.status).toBe(200);
-    // Other suites share this database, so whether a run exists is not fixed. What is
-    // fixed is that the disclosure follows the run: no run means nothing attributed,
-    // never a claim of simulation. The previous code returned "SIMULATION" either way.
     if (res.json.hasRun) {
       expect(["FIXTURE_SIMULATION", "LIVE_FANTASY"].includes(res.json.sourceDisclosure.mode)).toBe(true);
     } else {
@@ -169,8 +147,6 @@ describe("Source disclosure — every Analysis API states its source", () => {
   });
 
   test("a status built for a missing run is unestablished, proven directly", async () => {
-    // The service decides this, so it is checked at the service boundary where the
-    // "no run" branch is reachable regardless of what other suites left behind.
     const { readStockoutSnapshotStatus } = await import("@/lib/analysis/stockout");
     const status = await readStockoutSnapshotStatus(undefined, "run-that-does-not-exist");
     expect(status.hasRun).toBe(false);
@@ -195,7 +171,6 @@ describe("Source disclosure — every Analysis API states its source", () => {
     expect(res.json.sourceDisclosure.mode).toBe("LIVE_FANTASY");
     expect(res.json.sourceDisclosure.simulated).toBe(false);
 
-    // And a single simulated record among live ones is enough to disclose simulation.
     await makeLots(true, 1);
     resetRateLimits();
     const mixed = await call(aging, { path: `/api/analysis/aging?section=lots&search=${BATCH}`, cookie });
@@ -213,16 +188,13 @@ describe("Source disclosure — every view renders the shared banner", () => {
     const offenders: string[] = [];
     for (const f of ANALYSIS_VIEWS) {
       const text = readFileSync(f, "utf8");
-      // The banner must be fed from a `sourceDisclosure` the server produced.
       if (!/<SimulationBanner\s+disclosure=\{[^}]*sourceDisclosure/.test(text)) offenders.push(f);
-      // And never from an environment or build-time assumption.
       if (/process\.env\.NODE_ENV/.test(text)) offenders.push(`${f} (NODE_ENV)`);
     }
     expect(offenders).toEqual([]);
   });
 
   test("no view re-implements the banner sentence by hand", () => {
-    // A hand-written copy is what allowed six of them to drift and then vanish together.
     const offenders = ANALYSIS_VIEWS.filter((f) => {
       const text = readFileSync(f, "utf8");
       return text.includes("not live Fantasy data") && !text.includes("<SimulationBanner");
@@ -236,21 +208,15 @@ describe("Source disclosure — every view renders the shared banner", () => {
   });
 
   test("the shared component actually renders the banner", () => {
-    // A component stubbed to `return null` would satisfy every other check here while
-    // disclosing nothing on any page, which is the failure mode this whole suite exists
-    // to prevent. So the render path itself is asserted.
     const source = readFileSync("src/components/diamond/shared/simulation-banner.tsx", "utf8");
     const body = source.slice(source.indexOf("export function SimulationBanner"));
     const fn = body.slice(0, body.indexOf("export function SourceBadge"));
     expect(fn.includes("<InfoBanner")).toBe(true);
     expect(fn.includes("{disclosure.bannerText}")).toBe(true);
-    // Exactly one early return, the guard above — not an unconditional one.
     expect(fn.split("return null;").length - 1).toBe(1);
   });
 
   test("exports keep their own simulated-data notice", () => {
-    // The screen banner and the file notice are separate disclosures: a CSV is read away
-    // from the page that produced it.
     const stockoutExport = readFileSync("src/app/api/analysis/stockout/export/route.ts", "utf8");
     expect(/SIMULATED\s*\/\s*TEST FIXTURE DATA/.test(stockoutExport)).toBe(true);
   });

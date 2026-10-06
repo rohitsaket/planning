@@ -1,21 +1,3 @@
-/**
- * The Sarin shape-mapping catalog: one current list of mappings, changed by saving.
- *
- * Every successful change — add, edit or remove one mapping — writes a new immutable
- * snapshot of the whole catalog and makes it EFFECTIVE in the same transaction, replacing
- * (SUPERSEDED) the previous one. Earlier snapshots are never modified or deleted, so every
- * validation and output keeps the exact mapping it was produced with. There is no draft,
- * review or approval step: the server's checks run on save, and a refused or failed save
- * leaves the effective catalog as it was.
- *
- * Concurrency: every change takes one transaction-scoped database lock, so saves on any
- * number of instances are applied one after another, each on the catalog the previous one
- * produced. The database also allows only one EFFECTIVE snapshot, freezes snapshots once
- * written, and refuses overlapping rules within a snapshot.
- *
- * Server-only.
- */
-
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { db } from "@/lib/db";
@@ -39,7 +21,6 @@ export const SARIN_MAPPING_AUDIT = {
 
 const ENTITY = "SarinShapeMappingSet";
 
-/** The Save request. Field names follow the form; unknown fields are refused. */
 export const SHAPE_MAPPING_SAVE_BODY = z
   .object({
     ruleId: z.string().min(1).max(64).optional(),
@@ -53,7 +34,6 @@ export const SHAPE_MAPPING_SAVE_BODY = z
   .strict();
 export type ShapeMappingSaveInput = z.infer<typeof SHAPE_MAPPING_SAVE_BODY>;
 
-/** Fixed, user-facing wording. Each refusal names the form field it belongs to. */
 export const MAPPING_MESSAGES = {
   saved: "Mapping saved",
   removed: "Mapping removed",
@@ -76,11 +56,9 @@ export interface MappingActor {
   readonly audit: ApiContext<unknown>["audit"];
 }
 
-/** Control, format, private-use and unassigned characters: invisible or direction-changing text is refused. */
 const UNSAFE_TEXT = /[\p{Cc}\p{Cf}\p{Co}\p{Cn}]/u;
 const RATIO = { integerDigits: 3, fractionDigits: 3, allowZero: true } as const;
 
-/** The PostgreSQL error code behind a Prisma error, when there is one. */
 function postgresCode(e: unknown): string | null {
   if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") return "23505";
   const m = e instanceof Error ? /code: "([0-9A-Z]{5})"/.exec(e.message) : null;
@@ -97,7 +75,6 @@ interface CheckedRule {
   note: string | null;
 }
 
-/** The server's input checks, with their user-facing refusals. */
 function checkInput(input: ShapeMappingSaveInput): CheckedRule {
   if (UNSAFE_TEXT.test(input.sarinShape) || UNSAFE_TEXT.test(input.fantasyShape) || (input.note && UNSAFE_TEXT.test(input.note))) {
     throw refuse(400, "UNSAFE_CHARACTERS", MAPPING_MESSAGES.unsafe, null);
@@ -128,7 +105,6 @@ type Condition = Pick<CheckedRule, "rawShapeKey" | "normalizedShape" | "ratioMin
 const sameMapping = (a: Condition, b: Condition) =>
   a.rawShapeKey === b.rawShapeKey && a.normalizedShape === b.normalizedShape && a.conditionKind === b.conditionKind && d3(a.ratioMin) === d3(b.ratioMin) && d3(a.ratioMax) === d3(b.ratioMax);
 
-/** Why `rule` cannot join `others` (rules of the same catalog), or null. */
 function clash(rule: CheckedRule, others: readonly StoredRule[]): ApiError | null {
   const lo = (v: Prisma.Decimal | null) => v ?? new Prisma.Decimal(-1);
   const hi = (v: Prisma.Decimal | null) => v ?? new Prisma.Decimal(1_000_000);
@@ -142,13 +118,8 @@ function clash(rule: CheckedRule, others: readonly StoredRule[]): ApiError | nul
   return null;
 }
 
-// ---------------------------------------------------------------------------------------
-// The effective snapshot
-// ---------------------------------------------------------------------------------------
-
 type Client = Prisma.TransactionClient | typeof db;
 
-/** Serializes every catalog change (see the module comment). */
 async function lockCatalog(tx: Prisma.TransactionClient) {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('sarin.shape-mapping.catalog'))`;
 }
@@ -156,11 +127,6 @@ async function lockCatalog(tx: Prisma.TransactionClient) {
 const rulesOf = (client: Client, setId: string): Promise<StoredRule[]> =>
   client.sarinShapeMappingRule.findMany({ where: { mappingSetId: setId }, select: RULE_SELECT, orderBy: [{ rawShapeKey: "asc" }, { ratioMin: { sort: "asc", nulls: "first" } }, { id: "asc" }] });
 
-/**
- * The current EFFECTIVE snapshot, share-locked for the caller's transaction: a validation
- * that captures it here runs entirely against it, and a concurrent save waits to replace it
- * until that capture commits. Null when no catalog has been configured.
- */
 export async function captureEffectiveSnapshot(tx: Prisma.TransactionClient): Promise<{ id: string; version: number } | null> {
   const rows = await tx.$queryRaw<{ id: string; version: number }[]>`
     SELECT "id", "version" FROM "SarinShapeMappingSet"
@@ -169,17 +135,12 @@ export async function captureEffectiveSnapshot(tx: Prisma.TransactionClient): Pr
   return rows[0] ?? null;
 }
 
-/** Whether an effective catalog exists. */
 export async function mappingsConfigured(): Promise<boolean> {
   return (await db.sarinShapeMappingSet.count({ where: { sourceSystem: "SARIN", status: "EFFECTIVE" } })) > 0;
 }
 
 type NextRule = CheckedRule & { changedAt: Date | null; changedByUserId: string | null };
 
-/**
- * Writes `next` as a new snapshot and makes it effective, replacing `current`. Unchanged
- * mappings keep the time and person of their last change.
- */
 async function writeSnapshot(tx: Prisma.TransactionClient, actor: MappingActor, current: { id: string } | null, next: NextRule[]) {
   const top = await tx.sarinShapeMappingSet.aggregate({ where: { sourceSystem: "SARIN" }, _max: { version: true } });
   const version = (top._max.version ?? 0) + 1;
@@ -205,7 +166,6 @@ const carried = (r: StoredRule): NextRule => ({
   changedByUserId: r.changedByUserId,
 });
 
-/** The mapping `ruleId` names in the current catalog: by id, or as the copy of a rule of an earlier snapshot. */
 async function locateRule(tx: Prisma.TransactionClient, ruleId: string, currentRules: StoredRule[]): Promise<StoredRule> {
   const direct = currentRules.find((r) => r.id === ruleId);
   if (direct) return direct;
@@ -217,22 +177,12 @@ async function locateRule(tx: Prisma.TransactionClient, ruleId: string, currentR
 
 function asStoreError(e: unknown): never {
   if (e instanceof ApiError) throw e;
-  // The database's own guards, reached only by a race the lock did not cover.
   const code = postgresCode(e);
   if (code === "23P01") throw refuse(409, "MAPPING_RATIO_OVERLAP", MAPPING_MESSAGES.overlap, "ratio");
   if (code === "23505") throw refuse(409, "MAPPING_DUPLICATE", MAPPING_MESSAGES.duplicate, "sarinShape");
   throw e;
 }
 
-// ---------------------------------------------------------------------------------------
-// Reading
-// ---------------------------------------------------------------------------------------
-
-/**
- * The Mappings page: the current mappings (the built-in master or its maintained successor,
- * independent of any imported file), the imported shapes they leave unmapped in the caller's
- * scope, and the known shapes still awaiting a client decision.
- */
 export async function readMappingCatalog(scope: EffectiveScope) {
   const effective = await db.sarinShapeMappingSet.findFirst({ where: { sourceSystem: "SARIN", status: "EFFECTIVE" }, select: { id: true } });
   const rules = effective ? await rulesOf(db, effective.id) : [];
@@ -254,19 +204,10 @@ export async function readMappingCatalog(scope: EffectiveScope) {
     })),
     needsMapping: needing.shapes,
     partialCounts: needing.partial,
-    // A shape already found in an imported file is listed once, under Needs Mapping.
     unconfirmed: unconfirmedShapes(rules).filter((shape) => !needing.shapes.some((s) => s.sarinShape === shape)),
   };
 }
 
-// ---------------------------------------------------------------------------------------
-// Changing
-// ---------------------------------------------------------------------------------------
-
-/**
- * Adds a mapping (no `ruleId`) or changes the one `ruleId` names, and makes the result the
- * effective catalog. Saving a mapping exactly as it already is changes nothing.
- */
 export async function saveShapeMapping(actor: MappingActor, input: ShapeMappingSaveInput) {
   const rule = checkInput(input);
   try {
@@ -301,7 +242,6 @@ export async function saveShapeMapping(actor: MappingActor, input: ShapeMappingS
   }
 }
 
-/** Removes the mapping `ruleId` names from the effective catalog. */
 export async function removeShapeMapping(actor: MappingActor, ruleId: string) {
   try {
     return await db.$transaction(async (tx) => {

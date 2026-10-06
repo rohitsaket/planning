@@ -1,9 +1,3 @@
-// Test-only access profiles. Super Admin is the application's only built-in role; every
-// narrower profile is a custom role. The security suites need least-privilege principals
-// to prove denials, so these fixtures recreate, as custom roles (Role rows with
-// isSystem = false and explicit RolePermission rows), the profiles the retired system roles
-// used to carry. They exist only in the isolated test database.
-
 import { db } from "@/lib/db";
 import { permissionsFor, ROLES, type Permission } from "@/lib/auth/permissions";
 
@@ -36,12 +30,10 @@ export const FIXTURE_ROLE_PERMISSIONS = {
 } as const satisfies Record<string, readonly Permission[]>;
 
 export type FixtureRole = keyof typeof FIXTURE_ROLE_PERMISSIONS;
-/** Super Admin (built in) or one of the fixture custom roles. */
 export type TestRole = (typeof ROLES)[number] | FixtureRole;
 export const FIXTURE_ROLES = Object.keys(FIXTURE_ROLE_PERMISSIONS) as FixtureRole[];
 export const TEST_ROLES: readonly TestRole[] = [...ROLES, ...FIXTURE_ROLES];
 
-/** What a test user holding this role may do: Super Admin from the application, a fixture from its definition. */
 export function testPermissionsFor(role: string): Permission[] {
   if (role in FIXTURE_ROLE_PERMISSIONS) return [...FIXTURE_ROLE_PERMISSIONS[role as FixtureRole]];
   return permissionsFor(role);
@@ -49,10 +41,6 @@ export function testPermissionsFor(role: string): Permission[] {
 export const testHasPermission = (role: string, permission: Permission) => testPermissionsFor(role).includes(permission);
 
 const synced = new Set<string>();
-/**
- * The fixture's custom role in the test database, active and holding exactly its
- * permissions. Synchronized once per process; returns its id.
- */
 export async function ensureFixtureRole(role: FixtureRole): Promise<string> {
   const want = FIXTURE_ROLE_PERMISSIONS[role] as readonly Permission[];
   const row = await db.role.upsert({

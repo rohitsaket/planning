@@ -69,7 +69,6 @@ export function StatusBadge({ status, className }: { status: string; className?:
     MEMO: "info",
     PHYSICAL: "neutral",
     PLANNING_AVAILABLE: "success",
-    // Honest states for checks that have not run or policies that are not configured.
     NOT_RUN: "neutral",
     NOT_CONFIGURED: "warning",
     UNAVAILABLE: "warning",

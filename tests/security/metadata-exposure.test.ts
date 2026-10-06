@@ -12,21 +12,6 @@ import { GET as overallList } from "@/app/api/fantasy/overall/route";
 import { ROLE_PERMISSIONS, ROLES } from "@/lib/auth/permissions";
 import { AUDITABLE_ENTITIES, ENTITY_LABELS, entityLabel } from "@/lib/domain/entity-labels";
 
-/**
- * Internal metadata at the ordinary-user boundary.
- *
- * The rule under test is narrow: a response an ordinary role can obtain describes what
- * happened in business terms and nothing about how the system is built. Provenance the
- * engine needs — mapping fingerprints, sync cursors, batch keys, rule identifiers,
- * internal source-policy names — stays server-side, and model methodology is reachable
- * only with a permission granted for that purpose.
- *
- * Every assertion inspects the serialized response through the real route handler, and
- * the field lists are allow-lists rather than a sample of forbidden names, so a field
- * added later fails the test instead of slipping through.
- */
-
-/** Never acceptable in a response an ordinary role can obtain. */
 const INTERNAL_FIELDS = [
   "mappingFingerprint",
   "mappingVersion",
@@ -54,7 +39,6 @@ function assertNoInternalFields(serialized: string) {
 describe("demand run history publishes business fields only", () => {
   let viewerCookie = "";
 
-  /** Exactly what an `analysis.read` caller may receive for a run. */
   const ALLOWED_ROW_FIELDS = [
     "id", "runDate", "businessDateIst", "windowDays", "lookbackStart", "lookbackEnd",
     "startedAt", "finishedAt", "status", "totalShortage", "totalExcess", "salesCount",
@@ -130,9 +114,6 @@ describe("policy status without rule identifiers", () => {
     const res = await call(countries, { path: "/api/analysis/countries", cookie: viewerCookie });
     expect(res.status).toBe(200);
     assertNoInternalFields(JSON.stringify(res.json));
-    // The WIP policy and transfer-rule blocks are gone with the figures they qualified:
-    // the page no longer derives anything per country from a business rule, so there is
-    // no rule status to publish and no rule identifier that could leak with it.
     expect(res.json.wipPolicy).toBe(undefined);
     expect(res.json.transfer).toBe(undefined);
     expect(res.json.geographicDemandAvailable).toBe(false);
@@ -162,7 +143,6 @@ describe("record types are named for people, and only known keys reach a query",
   test("an unrecognized stored value stays unknown instead of being relabelled", () => {
     expect(entityLabel("SomeRetiredModel")).toBe("Unknown entity");
     expect(entityLabel(null)).toBe("Unknown entity");
-    // It must not be folded into a neighbouring known type.
     expect(AUDITABLE_ENTITIES.includes("SomeRetiredModel" as never)).toBe(false);
   });
 
@@ -173,7 +153,6 @@ describe("record types are named for people, and only known keys reach a query",
     const okRes = await call(dataQuality, { path: "/api/data-quality?type=UNMAPPED_VALUE", cookie: dqCookie });
     expect(okRes.status).toBe(200);
     expect(okRes.json.rows.map((r: { type: string }) => r.type)).toContain("UNMAPPED_VALUE");
-    // Internal rule codes, batch and run identifiers and raw source values stay on the server.
     expect(JSON.stringify(okRes.json)).not.toMatch(/UNMAPPED_LAB_WARNING|batch-internal|sync-run-internal|raw-lab-value|issueCode|DQ-LABEL-TEST/);
     const bad = await call(dataQuality, { path: "/api/data-quality?type=DROP+TABLE", cookie: dqCookie });
     expect(bad.status).toBe(400);
@@ -221,7 +200,6 @@ describe("overall data export", () => {
     exporterCookie = (await makeUser("export-user", "ANALYSIS_MANAGER")).cookie;
     await db.lotMasterRecord.deleteMany({ where: { lotId: { startsWith: BATCH } } });
     for (let i = 0; i < 12; i++) await makeLot(i, i < 7 ? "IN" : "BE", i % 2 === 0 ? "GIA" : "IGI");
-    // A value a spreadsheet would execute if it were written through unescaped.
     await db.lotMasterRecord.create({
       data: {
         lotId: `${BATCH}-INJECT`,
@@ -279,7 +257,6 @@ describe("overall data export", () => {
     const countRows = (t: string) => t.split("\r\n").filter((l) => l.includes(`${BATCH}-`)).length;
     expect(countRows(scoped) < countRows(all)).toBe(true);
     expect(scoped.includes('"BE"')).toBe(true);
-    // Rows outside the requested country must not appear.
     expect(scoped.split("\r\n").filter((l) => l.includes(`"IN"`) && l.includes(BATCH)).length).toBe(0);
 
     const labScoped = await callText("/api/fantasy/overall/export?lab=IGI", exporterCookie);
@@ -309,7 +286,6 @@ describe("overall data export", () => {
     const res = await fetchExport("/api/fantasy/overall/export", exporterCookie);
     const total = Number(res.headers.get("x-overall-export-total"));
     const rows = Number(res.headers.get("x-overall-export-rows"));
-    // Every matching row is exported while the total is under the declared ceiling.
     expect(rows).toBe(Math.min(total, OVERALL_EXPORT_ROW_LIMIT));
     expect(res.headers.get("x-overall-export-truncated")).toBe(String(total > OVERALL_EXPORT_ROW_LIMIT));
   });
@@ -318,10 +294,8 @@ describe("overall data export", () => {
     resetRateLimits();
     const res = await fetchExport("/api/fantasy/overall/export", exporterCookie);
     const disposition = res.headers.get("content-disposition") ?? "";
-    // The name carries no user input: a fixed prefix, the declared source state and a date.
     expect(/^attachment; filename="overall-data-(simulated-)?\d{4}-\d{2}-\d{2}\.csv"$/.test(disposition)).toBe(true);
 
-    // Whatever the fixture source state is, the file and the headers must agree with it.
     const simulated = res.headers.get("x-overall-export-simulated") === "true";
     expect(disposition.includes("simulated-")).toBe(simulated);
     resetRateLimits();
@@ -337,7 +311,6 @@ describe("overall data export", () => {
 
   test("requires the export permission, not merely read access", async () => {
     resetRateLimits();
-    // VIEWER holds overall.read but not overall.export.
     const viewer = (await makeUser("export-denied", "VIEWER")).cookie;
     expect((await call(overallExport, { path: "/api/fantasy/overall/export", cookie: viewer })).status).toBe(403);
     expect((await call(overallExport, { path: "/api/fantasy/overall/export" })).status).toBe(401);
@@ -352,18 +325,14 @@ describe("overall data export", () => {
     });
     expect(entry !== null).toBe(true);
     expect(entry?.reason?.includes("country=IN")).toBe(true);
-    // Scope and counts only — never a lot identifier or a customer name.
     expect(entry?.reason?.includes(BATCH)).toBe(false);
     expect(entry?.reason?.includes("cmd|")).toBe(false);
   });
 });
 
-/** The line separator the export writes. */
 const CRLF = "\r\n";
 
 describe("export beyond the old 5,000-row ceiling", () => {
-  // Above the previous fixed `take: 5000` and above two read batches, so the batching
-  // path is genuinely exercised rather than assumed.
   const BULK = "BULK-EXPORT-TEST";
   const ROWS = 5_100;
   let cookie = "";
@@ -372,8 +341,6 @@ describe("export beyond the old 5,000-row ceiling", () => {
     await resetDb();
     resetRateLimits();
     cookie = (await makeUser("bulk-export", "ANALYSIS_MANAGER")).cookie;
-    // The runner refuses to start unless DATABASE_URL points at the isolated
-    // `planning_sectest` database, so this bulk data never reaches a real one.
     await db.lotMasterRecord.deleteMany({ where: { lotId: { startsWith: BULK } } });
     const now = new Date();
     await db.lotMasterRecord.createMany({
@@ -412,7 +379,6 @@ describe("export beyond the old 5,000-row ceiling", () => {
     })();
     const dataRows = text.split(CRLF).filter((l) => l.includes(`"${BULK}-`));
     expect(dataRows.length).toBe(ROWS);
-    // The row that the old ceiling would have dropped is present.
     expect(text.includes(`"${BULK}-5099"`)).toBe(true);
   });
 
@@ -471,7 +437,6 @@ describe("the demand source is chosen by the server", () => {
   });
 });
 
-/** The export returns CSV, not JSON, so these two helpers read the raw body. */
 async function fetchExport(path: string, cookie: string): Promise<Response> {
   return overallExport(
     new Request(`http://localhost:3000${path}`, { headers: { cookie } }),

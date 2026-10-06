@@ -10,20 +10,6 @@ import {
 import { proveDisposableDatabase, isIsolatedTestDatabase } from "@/lib/fantasy/database-environment";
 import { runDemandCalculation } from "@/lib/demand/demand-service";
 
-/**
- * Operational projection integrity.
- *
- * The audited failure, reproduced: an ordinary seed cleared `PolishedStone` while leaving
- * the canonical records, their history and their checkpoints in place. The next
- * synchronization saw every source record unchanged and rebuilt nothing, so 523 current,
- * classified, physically-available lots had no operational mirror. The demand run blocked
- * all of them, reported zero available stock in every category, and the loader announced
- * the dataset was ready for evaluation.
- *
- * These tests cover the whole sequence: the damage, the repair, the refusal to call a run
- * ready while it persists, and the guard that stops the seed causing it again.
- */
-
 const BATCH = "PROJECTION-TEST";
 const BASE = new Date("2026-06-15T00:00:00.000Z");
 
@@ -40,7 +26,6 @@ async function ensureReferenceData() {
   }
 }
 
-/** Canonical records across every class, so eligibility is exercised both ways. */
 async function seedCanonical() {
   const rows: Prisma.LotMasterRecordCreateManyInput[] = [];
   const spec: Array<{ n: number; cls: string; status: string; form: string; current: boolean }> = [
@@ -94,7 +79,6 @@ describe("Projection integrity — eligibility", () => {
     const cases = [
       { isCurrent: true, roughOrPolished: "POLISHED", inventoryClass: "PHYSICAL_AVAILABLE", expect: true },
       { isCurrent: true, roughOrPolished: "POLISHED", inventoryClass: "MEMO", expect: true },
-      // Everything the synchronizer would not have mirrored either.
       { isCurrent: true, roughOrPolished: "POLISHED", inventoryClass: "RESERVED", expect: false },
       { isCurrent: true, roughOrPolished: "WIP", inventoryClass: "WIP", expect: false },
       { isCurrent: true, roughOrPolished: "ROUGH", inventoryClass: "EXCLUDED", expect: false },
@@ -117,7 +101,6 @@ describe("Projection integrity — the audited sequence", () => {
 
   test("step 1 — reconciliation builds the mirrors the canonical records are owed", async () => {
     const before = await checkProjectionInvariant();
-    // Nine eligible records (6 stock + 3 memo) and every record unclassified.
     expect(before.missingMirrors).toBe(9);
     expect(before.satisfied).toBe(false);
 
@@ -125,16 +108,11 @@ describe("Projection integrity — the audited sequence", () => {
     expect(result.mirrorsCreated).toBe(9);
     expect(result.complete).toBe(true);
 
-    // And nothing was manufactured for a record that should not have one.
     const mirrors = await db.polishedStone.count({ where: { fantasyLotId: { startsWith: BATCH } } });
     expect(mirrors).toBe(9);
   });
 
   test("step 2 — no general-purpose seed exists; the demo fixture clears projections with their owners, on a test database only", () => {
-    // The general seed deleted projections but kept their canonical owners, which is what
-    // produced the audited damage. It is gone; the demo fixture that replaces it proves an
-    // isolated test database before it connects, and clears canonical records together
-    // with their projections, in one transaction.
     expect(existsSync("prisma/seed.ts")).toBe(false);
     const fixture = readFileSync("scripts/test-demo-fixture.ts", "utf8");
     const guardAt = fixture.indexOf("assertDisposableDatabase(process.env.DATABASE_URL");
@@ -143,7 +121,6 @@ describe("Projection integrity — the audited sequence", () => {
   });
 
   test("step 3 — a seed-shaped deletion is detected and repaired", async () => {
-    // Exactly what an ordinary seed did: delete the projections, keep their owners.
     await db.polishedStone.deleteMany({ where: { fantasyLotId: { startsWith: BATCH } } });
 
     const damaged = await checkProjectionInvariant();
@@ -151,8 +128,6 @@ describe("Projection integrity — the audited sequence", () => {
     expect(damaged.missingMirrors).toBe(9);
     expect(damaged.message !== null).toBe(true);
 
-    // The canonical records are untouched and unchanged, so a synchronization would
-    // rebuild nothing. Reconciliation does not depend on the source having changed.
     const repair = await reconcileOperationalProjection({ actor: "projection-test" });
     expect(repair.mirrorsCreated).toBe(9);
     expect(repair.complete).toBe(true);
@@ -167,9 +142,6 @@ describe("Projection integrity — the audited sequence", () => {
     const classifiedCurrent = await db.lotMasterRecord.count({
       where: { lastSyncBatchId: BATCH, isCurrent: true, categoryState: { not: null } },
     });
-    // Every record is still present, and every *current* one now carries a
-    // classification. Superseded versions are history: they are not current stock, are
-    // read through `LotHistoryRecord` rather than here, and are deliberately left alone.
     expect({ lots, current, classifiedCurrent }).toEqual({ lots: 17, current: 15, classifiedCurrent: 15 });
   });
 
@@ -193,20 +165,15 @@ describe("Projection integrity — demand refuses to declare an incomplete run r
 
   test("a run over a complete projection may reach COMPLETED", async () => {
     const run = await runDemandCalculation({ actor: "projection-ready", windowDays: 90, referenceDate: BASE });
-    // Demand completes the projection itself before reading it, so the invariant holds.
     const invariant = await checkProjectionInvariant();
     expect(invariant.satisfied).toBe(true);
     expect(["COMPLETED", "REVIEW_REQUIRED"].includes(run.status)).toBe(true);
   });
 
   test("the run records the reason when the projection could not be completed", () => {
-    // The refusal is wired to the invariant, not to a comment: the run status is derived
-    // from it and a data-quality issue names it.
     const source = readFileSync("src/lib/demand/demand-service.ts", "utf8");
     expect(source.includes("OPERATIONAL_PROJECTION_INCOMPLETE")).toBe(true);
     expect(source.includes("|| !projectionInvariant.satisfied")).toBe(true);
-    // And the projection is completed before the sale facts are read, not after — a
-    // repair that lands after the read leaves the run a version behind.
     const repairAt = source.indexOf("reconcileOperationalProjection");
     const salesAt = source.indexOf("loadConfirmedSaleFacts({");
     expect(repairAt < salesAt).toBe(true);
@@ -225,8 +192,6 @@ describe("Projection integrity — database environment proof", () => {
   });
 
   test("a remote host is refused however familiar its database name looks", () => {
-    // The previous check searched the whole connection string for substrings, so this
-    // exact URL passed as "local" because it contains `planning_sectest`.
     const proof = proveDisposableDatabase("postgresql://u:p@db.internal.corp:5432/planning_sectest");
     expect({ proven: proof.proven, refusal: proof.refusal }).toEqual({
       proven: false,
@@ -251,8 +216,6 @@ describe("Projection integrity — database environment proof", () => {
   });
 
   test("the development database is not treated as a disposable review database", () => {
-    // Cleanup deletes canonical records and immutable history, so it is permitted only
-    // on a throwaway database — never on the local development one.
     expect(isIsolatedTestDatabase("postgresql://u:p@localhost:5432/planning")).toBe(false);
     expect(isIsolatedTestDatabase("postgresql://u:p@localhost:5432/planning_sectest")).toBe(true);
   });
@@ -260,9 +223,7 @@ describe("Projection integrity — database environment proof", () => {
   test("the fixture cleanup refuses outside an isolated review database", () => {
     const source = readFileSync("src/lib/fantasy/analysis-review-fixture.ts", "utf8");
     expect(source.includes("isIsolatedTestDatabase")).toBe(true);
-    // And it no longer orphans the demand runs it created.
     expect(source.includes("cleanedDemandRuns")).toBe(true);
-    // The checkpoint is never moved backwards.
     expect(/never moved backwards/i.test(source)).toBe(true);
   });
 });
@@ -270,7 +231,6 @@ describe("Projection integrity — database environment proof", () => {
 describe("Projection integrity — reconciliation stays bounded", () => {
   test("it pages rather than reading the table", () => {
     const source = readFileSync("src/lib/fantasy/operational-projection.ts", "utf8");
-    // Keyset pagination with an explicit batch ceiling, not one unbounded findMany.
     expect(source.includes("RECONCILIATION_BATCH_SIZE")).toBe(true);
     expect(source.includes("RECONCILIATION_MAX_BATCHES")).toBe(true);
     expect(/LIMIT \$\{batchSize\}/.test(source)).toBe(true);

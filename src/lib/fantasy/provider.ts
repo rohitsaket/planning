@@ -1,10 +1,3 @@
-/**
- * Fantasy Data Provider Abstraction & Fixture Provider Implementation.
- * 
- * Implements deterministic fixture batches for testing and simulation
- * without coupling UI or business logic to fixtures.
- */
-
 import type { LegacyCanonicalSyncMode } from "./source-state";
 import {
   CanonicalSourceMode,
@@ -20,7 +13,7 @@ export interface FantasyBatchPayload {
   sourceMode: CanonicalSourceMode;
   startingCheckpoint: number;
   endingCheckpoint: number;
-  sourceCutoff: string; // ISO UTC
+  sourceCutoff: string;
   records: CanonicalRecord[];
   removals: CanonicalRemovalEvent[];
   isSimulated: boolean;
@@ -34,11 +27,6 @@ export interface FantasyDataProvider {
   getTotalAvailableBatches(): number;
 }
 
-// ---------------------------------------------------------------------------
-// DETERMINISTIC FIXTURE DATA (Batches 1 to 5)
-// ---------------------------------------------------------------------------
-
-// Reference deterministic base dates in UTC
 const T0_BASE = "2026-09-01T08:00:00.000Z";
 const T1_INCR = "2026-09-05T10:30:00.000Z";
 const T2_REMV = "2026-09-10T14:15:00.000Z";
@@ -53,7 +41,6 @@ const FIXTURE_BATCH_1: FantasyBatchPayload = {
   sourceCutoff: T0_BASE,
   isSimulated: true,
   records: [
-    // Finished Polished Stock
     {
       sourceType: "FIXTURE",
       sourceRecordId: "SRC-LOT-1001",
@@ -160,7 +147,6 @@ const FIXTURE_BATCH_1: FantasyBatchPayload = {
       recordVersion: 1,
       isSimulated: true,
     },
-    // Current Memo
     {
       sourceType: "FIXTURE",
       sourceRecordId: "SRC-LOT-2001",
@@ -199,7 +185,6 @@ const FIXTURE_BATCH_1: FantasyBatchPayload = {
       recordVersion: 1,
       isSimulated: true,
     },
-    // Rough Inventory
     {
       sourceType: "FIXTURE",
       sourceRecordId: "SRC-ROUGH-001",
@@ -231,7 +216,6 @@ const FIXTURE_BATCH_1: FantasyBatchPayload = {
       recordVersion: 1,
       isSimulated: true,
     },
-    // WIP Manufacturing
     {
       sourceType: "FIXTURE",
       sourceRecordId: "SRC-WIP-3001",
@@ -263,7 +247,6 @@ const FIXTURE_BATCH_1: FantasyBatchPayload = {
       recordVersion: 1,
       isSimulated: true,
     },
-    // Historical confirmed invoice
     {
       sourceType: "FIXTURE",
       sourceRecordId: "SRC-INV-4001",
@@ -315,7 +298,6 @@ const FIXTURE_BATCH_2: FantasyBatchPayload = {
   sourceCutoff: T1_INCR,
   isSimulated: true,
   records: [
-    // 1. New Stock Lot
     {
       sourceType: "FIXTURE",
       sourceRecordId: "SRC-LOT-1004",
@@ -350,7 +332,6 @@ const FIXTURE_BATCH_2: FantasyBatchPayload = {
       recordVersion: 1,
       isSimulated: true,
     },
-    // 2. Stock moved to Memo (LOT-F-1002)
     {
       sourceType: "FIXTURE",
       sourceRecordId: "SRC-LOT-1002",
@@ -389,7 +370,6 @@ const FIXTURE_BATCH_2: FantasyBatchPayload = {
       recordVersion: 2,
       isSimulated: true,
     },
-    // 3. Memo converted to Invoice (LOT-M-2001)
     {
       sourceType: "FIXTURE",
       sourceRecordId: "SRC-LOT-2001",
@@ -430,7 +410,6 @@ const FIXTURE_BATCH_2: FantasyBatchPayload = {
       recordVersion: 2,
       isSimulated: true,
     },
-    // 4. Location Change (LOT-F-1001 moved to Mumbai Vault)
     {
       sourceType: "FIXTURE",
       sourceRecordId: "SRC-LOT-1001",
@@ -465,7 +444,6 @@ const FIXTURE_BATCH_2: FantasyBatchPayload = {
       recordVersion: 2,
       isSimulated: true,
     },
-    // 5. WIP Stage change (WIP-SIM-3001 moves to Polishing)
     {
       sourceType: "FIXTURE",
       sourceRecordId: "SRC-WIP-3001",
@@ -510,7 +488,6 @@ const FIXTURE_BATCH_3: FantasyBatchPayload = {
   sourceCutoff: T2_REMV,
   isSimulated: true,
   records: [
-    // Explicitly sold Lot (LOT-F-1004 sold via Invoice)
     {
       sourceType: "FIXTURE",
       sourceRecordId: "SRC-LOT-1004",
@@ -551,7 +528,6 @@ const FIXTURE_BATCH_3: FantasyBatchPayload = {
       recordVersion: 2,
       isSimulated: true,
     },
-    // Archived Lot (LOT-F-1003 archived)
     {
       sourceType: "FIXTURE",
       sourceRecordId: "SRC-LOT-1003",
@@ -589,7 +565,6 @@ const FIXTURE_BATCH_3: FantasyBatchPayload = {
       recordVersion: 2,
       isSimulated: true,
     },
-    // Completed manufacturing WIP piece transitioning to polished stone LOT-F-3001
     {
       sourceType: "FIXTURE",
       sourceRecordId: "SRC-LOT-3001",
@@ -627,14 +602,12 @@ const FIXTURE_BATCH_3: FantasyBatchPayload = {
     },
   ],
   removals: [
-    // Unknown Disappearance of LOT-F-1001 (Critical sold-record test case: missing without explicit invoice)
     {
       lotId: "LOT-F-1001",
       removalReason: "SOURCE_DISAPPEARANCE_UNKNOWN",
       removedFromLiveAt: T2_REMV,
       notes: "Lot disappeared from Fantasy source feed without an explicit invoice or sale event.",
     },
-    // WIP-SIM-3001 completed & removed from WIP tracking
     {
       lotId: "WIP-SIM-3001",
       removalReason: "COMPLETED",
@@ -652,7 +625,6 @@ const FIXTURE_BATCH_4: FantasyBatchPayload = {
   sourceCutoff: T3_ERRS,
   isSimulated: true,
   records: [
-    // 1. Valid record in batch
     {
       sourceType: "FIXTURE",
       sourceRecordId: "SRC-LOT-4001",
@@ -686,7 +658,6 @@ const FIXTURE_BATCH_4: FantasyBatchPayload = {
       recordVersion: 1,
       isSimulated: true,
     },
-    // 2. Duplicate source event in same batch
     {
       sourceType: "FIXTURE",
       sourceRecordId: "SRC-LOT-4001",
@@ -720,7 +691,6 @@ const FIXTURE_BATCH_4: FantasyBatchPayload = {
       recordVersion: 1,
       isSimulated: true,
     },
-    // 3. Invalid Weight (negative weight anomaly)
     {
       sourceType: "FIXTURE",
       sourceRecordId: "SRC-ERR-WEIGHT",
@@ -750,7 +720,6 @@ const FIXTURE_BATCH_4: FantasyBatchPayload = {
       recordVersion: 1,
       isSimulated: true,
     },
-    // 4. Missing Shape
     {
       sourceType: "FIXTURE",
       sourceRecordId: "SRC-ERR-SHAPE",
@@ -780,7 +749,6 @@ const FIXTURE_BATCH_4: FantasyBatchPayload = {
       recordVersion: 1,
       isSimulated: true,
     },
-    // 5. Unknown Lab
     {
       sourceType: "FIXTURE",
       sourceRecordId: "SRC-ERR-LAB",
@@ -810,14 +778,13 @@ const FIXTURE_BATCH_4: FantasyBatchPayload = {
       recordVersion: 1,
       isSimulated: true,
     },
-    // 6. Out-of-order event (stale update with source timestamp older than current record)
     {
       sourceType: "FIXTURE",
       sourceRecordId: "SRC-LOT-1002-STALE",
       lotId: "LOT-F-1002",
       entityType: "POLISHED",
       currentStatus: "STOCK",
-      statusEffectiveDate: "2026-08-01T00:00:00.000Z", // Older than existing T1_INCR
+      statusEffectiveDate: "2026-08-01T00:00:00.000Z",
       docDate: "2026-08-01T00:00:00.000Z",
       quantity: 1,
       shape: "EMERALD",
@@ -852,7 +819,6 @@ const FIXTURE_BATCH_5: FantasyBatchPayload = {
   sourceCutoff: T4_RETR,
   isSimulated: true,
   records: [
-    // Recovery record 1
     {
       sourceType: "FIXTURE",
       sourceRecordId: "SRC-LOT-5001",
@@ -899,10 +865,6 @@ const FIXTURE_BATCHES = [
   FIXTURE_BATCH_5,
 ];
 
-// ---------------------------------------------------------------------------
-// FIXTURE FANTASY PROVIDER IMPLEMENTATION
-// ---------------------------------------------------------------------------
-
 export class FixtureFantasyProvider implements FantasyDataProvider {
   getSourceMode(): CanonicalSourceMode {
     return "FIXTURE";
@@ -920,14 +882,8 @@ export class FixtureFantasyProvider implements FantasyDataProvider {
   }
 }
 
-// ---------------------------------------------------------------------------
-// LIVE FANTASY PROVIDER — skylab.fantasy.mn Web API
-// ---------------------------------------------------------------------------
-
 export interface LiveProviderDeps {
-  /** Fetches the raw lot listing (default: src/lib/fantasy/live-api.ts). */
   fetchLots: () => Promise<Record<string, unknown>[]>;
-  /** Lot ids the app currently holds as live for this source (default: LotMasterRecord). */
   listCurrentLotIds: () => Promise<string[]>;
   defaultCountry: string;
   defaultBranch: string;
@@ -935,8 +891,6 @@ export interface LiveProviderDeps {
 }
 
 async function defaultLiveDeps(): Promise<LiveProviderDeps> {
-  // The Live Data sync (live-sync.ts) is the only caller of the Fantasy API; the planning sync
-  // reads the raw payloads it stored, so one fetch per cycle feeds both stores.
   const [{ loadActivePayloads }, { getLiveFantasyConfig }, { db }] = await Promise.all([import("./live-repository"), import("./config"), import("@/lib/db")]);
   const cfg = getLiveFantasyConfig();
   return {
@@ -948,12 +902,6 @@ async function defaultLiveDeps(): Promise<LiveProviderDeps> {
   };
 }
 
-/**
- * Every batch is a full snapshot of the live listing (as stored by the Live Data sync): rows become canonical records, and any
- * lot the app still holds as live that is absent from the snapshot becomes a
- * SOURCE_DISAPPEARANCE_UNKNOWN removal (never a sale — the engine records it as REMOVED_UNKNOWN
- * with a data-quality issue). Checkpoints advance by exactly one per successful batch.
- */
 export class LiveFantasyProvider implements FantasyDataProvider {
   constructor(private deps?: LiveProviderDeps) {}
 
@@ -1000,15 +948,6 @@ export class LiveFantasyProvider implements FantasyDataProvider {
   }
 }
 
-// ---------------------------------------------------------------------------
-// FACTORY
-// ---------------------------------------------------------------------------
-
-/**
- * `FILE_IMPORT` is unrepresentable here: no importer, route or provider ever existed
- * for it, and it is now refused during configuration validation rather than accepted
- * and thrown on at run time.
- */
 export function getFantasyProvider(mode: LegacyCanonicalSyncMode = "FIXTURE"): FantasyDataProvider {
   return mode === "FANTASY_API" ? new LiveFantasyProvider() : new FixtureFantasyProvider();
 }

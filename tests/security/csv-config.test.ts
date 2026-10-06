@@ -27,7 +27,7 @@ describe("CSV formula neutralisation (SEC-006)", () => {
 
 describe("CSV export values (FUNC-001): component-backed columns export the business value", () => {
   interface Row { status: string; reservedBy: string; weight: number; nested: { a: number } }
-  const element = { $$typeof: Symbol.for("react.element"), type: "span", props: {} }; // what a JSX cell returns
+  const element = { $$typeof: Symbol.for("react.element"), type: "span", props: {} };
   const columns: CsvColumn<Row>[] = [
     { key: "status", header: "Status", cell: () => element },
     { key: "reservedBy", header: "Reserved By", cell: () => element },
@@ -54,7 +54,7 @@ describe("CSV export values (FUNC-001): component-backed columns export the busi
   test("the shared DataTable uses the central policy", () => {
     const src = read("src/components/diamond/shared/data-table.tsx");
     expect(src).toContain('from "@/lib/csv-export"');
-    expect(src).not.toMatch(/replace\(\/"\/g/); // no second, local escaping routine
+    expect(src).not.toMatch(/replace\(\/"\/g/);
   });
 });
 
@@ -62,7 +62,7 @@ describe("no authentication shortcuts (SEC-001 regression guard)", () => {
   test("the guard has no environment-conditional or hard-coded principal", () => {
     const guard = read("src/lib/api/with-api.ts") + read("src/lib/auth/session.ts") + read("src/proxy.ts");
     expect(guard).not.toMatch(/dev-admin|dev-session|BYPASS|SKIP_AUTH/i);
-    expect(guard).not.toMatch(/principal\s*=\s*\{/); // a principal may only come from resolvePrincipal()
+    expect(guard).not.toMatch(/principal\s*=\s*\{/);
     expect(guard).not.toMatch(/headers\.get\("x-(user|role|admin|actor)"\)/i);
   });
 });
@@ -73,7 +73,6 @@ describe("proxy configuration (SEC-003)", () => {
     expect(caddy).not.toContain("XTransformPort");
     expect(caddy).not.toMatch(/reverse_proxy[^\n]*\{(query|http\.request|header|path|uri)/);
     const upstreams = [...caddy.matchAll(/reverse_proxy\s+(\S+)/g)].map((m) => m[1]).sort();
-    // The realtime notification upstream was retired with its service; only the app remains.
     expect(upstreams).toEqual(["127.0.0.1:3000"]);
     expect(caddy).not.toContain("socket.io");
   });

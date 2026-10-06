@@ -63,9 +63,6 @@ function formatDate(iso: string): string {
 }
 
 export function MemoView() {
-  // The memo API applies country/branch/lab filters, aggregates over the whole
-  // filtered set in PostgreSQL, and pages the detail rows. Nothing is re-filtered
-  // or re-aggregated in the browser.
   const globalFilter = useGlobalFilter();
   const [page, setPage] = useState(1);
   const url = useMemo(() => {

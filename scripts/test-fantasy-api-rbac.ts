@@ -1,6 +1,3 @@
-// Fantasy Data permissions and page access, from the permission definitions alone. Opens no
-// database connection. Usage: npm run test:fantasy-rbac
-// Roles other than SUPER_ADMIN are test fixture custom roles (tests/security/fixture-roles.ts).
 import { testHasPermission } from "../tests/security/fixture-roles";
 import { viewPermissions } from "../src/lib/auth/view-permissions";
 import { resolveViewAlias } from "../src/stores/nav-store";
@@ -18,14 +15,10 @@ async function main() {
   console.log("🔒 RBAC, PERMISSIONS & VIEW MAPPING AUTOMATED TEST SUITE");
   console.log("===============================================================================");
 
-  // 1. Check permissions definition
   console.log("\n[1/2] Verifying Permission Matrices...");
   assert(testHasPermission("ADMIN", "overall.read"), "ADMIN role has overall.read");
   assert(testHasPermission("ADMIN", "overall.export"), "ADMIN role has overall.export");
   assert(testHasPermission("ADMIN", "fantasy.read"), "ADMIN role has fantasy.read");
-  // Reading Fantasy data is administrative; running a synchronization is operational —
-  // it pulls real source data and advances the checkpoint — so it is assigned rather
-  // than inherited. FANTASY_INTEGRATION is the role that holds it.
   assert(!testHasPermission("ADMIN", "fantasy.sync.run"), "ADMIN role does NOT automatically have fantasy.sync.run");
   assert(!testHasPermission("ADMIN", "fantasy.sync.unlock"), "ADMIN role does NOT automatically have fantasy.sync.unlock");
   assert(testHasPermission("FANTASY_INTEGRATION", "fantasy.sync.run"), "FANTASY_INTEGRATION role has fantasy.sync.run");
@@ -39,10 +32,7 @@ async function main() {
   assert(!testHasPermission("VIEWER", "overall.export"), "VIEWER role does NOT have overall.export");
   assert(!testHasPermission("VIEWER", "fantasy.sync.run"), "VIEWER role does NOT have fantasy.sync.run");
 
-  // 2. View Permission Registry
   console.log("\n[2/2] Verifying View Permission Registry...");
-  // Current Data, Integration Status and Historical Data are tabs of Fantasy Data; each
-  // tab keeps its own permission and the page opens for any of them.
   assert(JSON.stringify([...viewPermissions("fantasy-data")].sort()) === JSON.stringify(["fantasy.read", "overall.read"]), "Fantasy Data is admitted by fantasy.read or overall.read; rough stock is retired");
   for (const [legacy, legacyTab, tab] of [["fantasy-live", "polished", "current"], ["fantasy-polished", null, "current"], ["fantasy-sync", null, "integration"], ["overall-data", null, "history"]] as const) {
     const r = resolveViewAlias(legacy, legacyTab);

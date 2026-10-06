@@ -1,16 +1,3 @@
-/**
- * Read-only checks over Sarin shape-mapping rules:
- *
- *   - `findConflicts`: every structural reason a set of rules could resolve a shape wrongly
- *     or ambiguously, re-derived from the rules alone. Saving refuses a change that would
- *     create one; the database refuses most of them on write as well.
- *   - `shapesNeedingMapping`: the Sarin shapes in imported records that the rules leave
- *     unresolved — a work list, never a suggestion. Imported values are aggregated in the
- *     database, bounded, and narrowed to the caller's lab scope.
- *
- * Nothing here writes. Server-only.
- */
-
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { scopeWhere, type EffectiveScope } from "@/lib/auth/access-scope";
@@ -21,15 +8,8 @@ if (typeof window !== "undefined") {
   throw new Error("sarin/mapping-analysis is server-only and must not be imported by client code.");
 }
 
-/**
- * Sarin shapes that occur in real exports but have no confirmed mapping. They were left out
- * of the confirmed baseline on purpose (migration 20260926090000) and need a client decision:
- * they are listed as needing mapping, with no target or ratio suggested. (RAD MODIFIED was
- * confirmed as Kriss Cut and is installed by migration 20260929130000.)
- */
 const SARIN_CLIENT_RULE_REQUIRED_SHAPES = ["EMERALD 4STEP", "NP-1235-6-KITE"] as const;
 
-/** Distinct (packet type, shape, Ratio) groups read per packet type. More are reported as partial, never silently dropped. */
 const MAX_VALUE_GROUPS = 20_000;
 
 const RATIO_MAX = new Prisma.Decimal("999.999");
@@ -54,7 +34,6 @@ export interface MappingConflict {
   readonly ruleIds: string[];
 }
 
-/** Every structural conflict in `rules`. An empty list of rules has none. */
 export function findConflicts(rules: readonly StoredRule[]): MappingConflict[] {
   const out: MappingConflict[] = [];
   for (const r of rules) {
@@ -90,10 +69,6 @@ export function findConflicts(rules: readonly StoredRule[]): MappingConflict[] {
   return out;
 }
 
-// ---------------------------------------------------------------------------------------
-// Imported values
-// ---------------------------------------------------------------------------------------
-
 interface ValueGroup {
   readonly packetType: SarinPacketType;
   readonly rawShapeKey: string;
@@ -101,7 +76,6 @@ interface ValueGroup {
   records: number;
 }
 
-/** Distinct (packet type, Sarin shape, Ratio) values of the imported records the caller may see, with record counts. */
 async function importedValues(scope: EffectiveScope) {
   const groups: ValueGroup[] = [];
   let partial = false;
@@ -139,11 +113,6 @@ export interface ShapeNeedingMapping {
   readonly observedRatio: { lowest: string; highest: string } | null;
 }
 
-/**
- * The Sarin shapes of imported records that `rules` leave unresolved for their Ratio, most
- * frequent first. Only shapes found in imported files are listed; see `unconfirmedShapes`
- * for the known shapes still awaiting a client decision.
- */
 export async function shapesNeedingMapping(scope: EffectiveScope, rules: readonly MappingRule[]): Promise<{ shapes: ShapeNeedingMapping[]; partial: boolean }> {
   const index = indexRules(rules);
   const { groups, partial } = await importedValues(scope);
@@ -171,10 +140,6 @@ export async function shapesNeedingMapping(scope: EffectiveScope, rules: readonl
   return { shapes, partial };
 }
 
-/**
- * The Sarin shapes known from real exports whose mapping the client has not confirmed, while
- * `rules` still has none for them. Listed on their own, never as imported records.
- */
 export function unconfirmedShapes(rules: readonly MappingRule[]): string[] {
   const index = indexRules(rules);
   return SARIN_CLIENT_RULE_REQUIRED_SHAPES.filter((shape) => !index.has(shape));

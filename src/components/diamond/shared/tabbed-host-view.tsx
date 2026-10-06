@@ -11,25 +11,12 @@ export interface HostTabItem {
   id: string;
   label: string;
   icon?: ReactNode;
-  /** The permission the tab needs, or several of which any one admits it. */
   permission?: string | readonly string[];
   badge?: string;
   badgeVariant?: "default" | "secondary" | "advisory" | "outline";
   component: React.ComponentType;
 }
 
-/**
- * Active tab for a host: the URL/nav tab when it belongs to this host, else the default,
- * else the first.
- *
- * When permissions are supplied, an unauthorized candidate is skipped rather than
- * selected. A page a user reaches through one tab's permission therefore opens on a tab
- * they may actually read, instead of opening on the default and showing Access
- * Restricted. The selected tab is still authorized again before it renders, and each
- * tab's API enforces its own permission, so this is navigation, not a security decision.
- *
- * Returns undefined when no tab is authorized — the caller shows Access Restricted.
- */
 export function isTabPermitted(permission: string | readonly string[] | undefined, userPerms: readonly string[]): boolean {
   if (!permission) return true;
   return typeof permission === "string" ? userPerms.includes(permission) : permission.some((p) => userPerms.includes(p));
@@ -69,8 +56,6 @@ export function TabbedHostView({
   const activeNavTab = useNavStore((s) => s.tab);
   const setNavTab = useNavStore((s) => s.setTab);
   const activeTab = resolveActiveTab(tabs, activeNavTab, defaultTab, userPerms);
-  // Tabs this user may not open are not shown at all, and a page left with a single tab
-  // shows no tab strip. Each tab's content and API still enforce their own permission.
   const visibleTabs = useMemo(() => tabs.filter((t) => isTabPermitted(t.permission, userPerms)), [tabs, userPerms]);
   const idBase = useId();
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
@@ -125,7 +110,6 @@ export function TabbedHostView({
     setNavTab(tabId);
   };
 
-  // Roving tabindex: Left/Right/Home/End move between tabs and activate them (WAI-ARIA tabs pattern).
   const handleTabKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key) || visibleTabs.length === 0) return;
     const idx = Math.max(0, visibleTabs.findIndex((t) => t.id === activeTab));
@@ -139,18 +123,14 @@ export function TabbedHostView({
     tabRefs.current[nextId]?.focus();
   };
 
-  // `activeTab` is undefined only when the user may read none of them.
   const currentTab = tabs.find((t) => t.id === activeTab);
   const isTabAuthorized = Boolean(currentTab) && isTabPermitted(currentTab!.permission, userPerms);
   const ActiveComponent = currentTab?.component;
 
   return (
     <div className="flex flex-col flex-1 min-h-0 w-full">
-      {/* Sleek Compact Tab Header with Frosted Glass */}
-      {/* Stays at the top of <main>, the page scroller, while the tab content scrolls under it. */}
       <div className="sticky top-0 z-30 flex flex-shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-border/70 bg-card/85 px-page-x py-1 backdrop-blur-md">
         <div className="flex items-center gap-3 min-w-0 flex-1 overflow-x-auto no-scrollbar">
-          {/* Page Title */}
           <div className="flex items-center gap-2 flex-shrink-0">
             <h1 className="truncate text-lg font-semibold tracking-tight text-foreground">{title}</h1>
             {advisory && (
@@ -164,14 +144,12 @@ export function TabbedHostView({
           <>
           <div className="h-5 w-px bg-border/80 hidden sm:block flex-shrink-0" />
 
-          {/* Unified Oval Segmented Tab Switch */}
           <div
             role="tablist"
             aria-label={title}
             onKeyDown={handleTabKeyDown}
             className="relative inline-flex items-center p-0.5 rounded-full border border-border/90 bg-muted/50 dark:bg-muted/30 shadow-2xs flex-shrink-0"
           >
-            {/* Smooth Sliding Active Pill Indicator */}
             {pillStyle.ready && (
               <span
                 aria-hidden="true"
@@ -233,7 +211,6 @@ export function TabbedHostView({
           )}
         </div>
 
-        {/* Source Badge & Actions */}
         {(actions || meta) && (
           <div className="flex items-center gap-2 flex-shrink-0 ml-auto">
             {meta}
@@ -242,8 +219,6 @@ export function TabbedHostView({
         )}
       </div>
 
-      {/* Tab body: flows with its content. <main> scrolls the page vertically; wide tables
-          scroll themselves horizontally; nothing here adds a second vertical scroller. */}
       <div
         role="tabpanel"
         id={currentTab ? panelId(currentTab.id) : undefined}
@@ -262,8 +237,6 @@ export function TabbedHostView({
             }
           />
         ) : ActiveComponent && currentTab ? (
-          // The page inside does not repeat the host title or the tab label; with the tab
-          // strip hidden it shows its own title, which is then the only place it appears.
           <HostTabContext.Provider value={{ hostTitle: title, tabLabel: visibleTabs.length > 1 ? currentTab.label : "" }}>
             <ActiveComponent />
           </HostTabContext.Provider>

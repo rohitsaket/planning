@@ -1,4 +1,3 @@
-// Central error contract: { error: { code, message, requestId } }
 export class ApiError extends Error {
   constructor(
     public status: number,

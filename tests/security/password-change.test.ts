@@ -1,7 +1,3 @@
-// Password change: the forced change after a temporary password, and the voluntary change from
-// the account menu. Every request goes through the real route handlers against the isolated
-// planning_sectest database; the forced screen is rendered from the real AuthGate.
-
 import { createElement, type ComponentType, type ReactNode } from "react";
 import { beforeAll, describe, expect, test } from "./harness";
 import { call, db, makeUser, testPassword } from "./helpers";
@@ -22,7 +18,6 @@ type User = Awaited<ReturnType<typeof makeUser>>;
 let root: User;
 const NEW_PASSWORD = "Closeout-Permanent-2026!";
 
-/** The session cookie a response set, as the browser would store it. */
 function sessionFrom(headers: Headers): string | null {
   const match = (headers.get("set-cookie") ?? "").match(new RegExp(`${SESSION_COOKIE}=([^;]*)`));
   return match && match[1] ? `${SESSION_COOKIE}=${match[1]}` : null;
@@ -45,7 +40,6 @@ const whoAmI = async (cookie: string) => {
   return call(me, { path: "/api/auth/me", cookie });
 };
 
-/** An account on a server-issued temporary password, and that password. */
 async function temporaryAccount(name: string) {
   const u = await makeUser(name, "VIEWER");
   resetRateLimits();
@@ -54,7 +48,6 @@ async function temporaryAccount(name: string) {
   return { username: name, temporary: res.json.temporaryPassword as string };
 }
 
-/** Collects everything the application logs while `work` runs. */
 async function captureLogs(work: () => Promise<void>): Promise<string> {
   const lines: string[] = [];
   const original = { log: console.log, warn: console.warn, error: console.error };
@@ -95,7 +88,6 @@ describe("forced password change after a temporary password", () => {
     for (const label of ["Set your password", "temporary password", "Temporary password", "New password", "Confirm new password", "At least 12 characters", "Show new password", "Change password", "Sign out"]) {
       expect([label, page.text.includes(label)]).toEqual([label, true]);
     }
-    // Nothing of the application behind it is rendered or requested.
     expect(/Overview|Workbook Import|Planning Workbench/.test(page.text)).toBe(false);
     expect(page.requested).toEqual([]);
   });
@@ -123,7 +115,7 @@ describe("forced password change after a temporary password", () => {
 
   test("a successful change rotates the session, lifts the restriction and retires the temporary password", async () => {
     const account = await temporaryAccount("pw.forced.d");
-    const other = await signIn(account.username, account.temporary); // a second device
+    const other = await signIn(account.username, account.temporary);
     const session = await signIn(account.username, account.temporary);
 
     let changed: Awaited<ReturnType<typeof change>> | null = null;
@@ -133,7 +125,6 @@ describe("forced password change after a temporary password", () => {
     expect([changed!.status, changed!.json]).toEqual([200, { ok: true, mustChangePassword: false }]);
     expect(changed!.cookie && changed!.cookie !== session.cookie).toBe(true);
 
-    // The session that made the change and the other device are both ended; the new one works.
     expect((await whoAmI(session.cookie!)).status).toBe(401);
     expect((await whoAmI(other.cookie!)).status).toBe(401);
     const identity = await whoAmI(changed!.cookie!);
@@ -145,7 +136,6 @@ describe("forced password change after a temporary password", () => {
     const again = await signIn(account.username, NEW_PASSWORD);
     expect([again.status, again.json.user.mustChangePassword]).toEqual([200, false]);
 
-    // Neither password, nor anything derived from one, reaches a response, a log line or the audit record.
     const audit = await db.auditLog.findFirstOrThrow({ where: { action: "USER_PASSWORD_CHANGED", actor: account.username } });
     const stored = JSON.stringify(audit);
     const stateHash = (await db.user.findUniqueOrThrow({ where: { username: account.username } })).passwordHash;

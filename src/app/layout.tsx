@@ -37,7 +37,6 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  // Reading the per-request nonce makes the page dynamic, which the nonce-based CSP requires.
   const nonce = (await headers()).get("x-nonce") ?? undefined;
   return (
     <html lang="en" suppressHydrationWarning className="h-full">

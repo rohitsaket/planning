@@ -5,16 +5,6 @@ import { GET as executive } from "@/app/api/analysis/executive/route";
 import { GET as demandTrace } from "@/app/api/analysis/demand-trace/route";
 import { UNRESTRICTED_SCOPE } from "@/lib/auth/access-scope";
 
-/**
- * Executive Analysis — authorization, snapshot honesty and the approved stock meaning.
- *
- * Every number the page shows comes from a stored demand run or a classified inventory
- * record, so the fixtures below write those rows directly and then assert the API
- * reports them unchanged. What is being tested is not arithmetic — there is none — but
- * that the page cannot turn an absent run into a zero, cannot present memo, reserved,
- * WIP or rough stock as available, and cannot be read by someone without analysis.read.
- */
-
 const CATEGORY_HEART = "GIA|HEART|1.00-1.49";
 const CATEGORY_ASSCHER = "GIA|ASSCHER|1.00-1.49";
 
@@ -30,8 +20,6 @@ async function makeDemandRun(opts: { finishedAt?: Date } = {}) {
       businessDateIst: "2026-09-23",
       lookbackStart: new Date(finishedAt.getTime() - 90 * 24 * 60 * 60 * 1000),
       lookbackEnd: finishedAt,
-      // Zero, and honest: these fixtures persist no sale trace, and a run claiming
-      // sales without evidence for them is rejected by the snapshot eligibility rule.
       salesCount: 0,
       inventoryCount: 8,
       isSimulated: true,
@@ -42,13 +30,6 @@ async function makeDemandRun(opts: { finishedAt?: Date } = {}) {
   });
 }
 
-/**
- * A category whose only stock is memo, reserved and WIP.
- *
- * The demand engine already applied the approved meaning when it persisted these rows:
- * `availableStock` counts physical only, so a shortage of the full target is exactly
- * what "memo and WIP do not reduce shortage, reserved is unavailable" produces.
- */
 async function makeMetric(
   runId: string,
   category: string,
@@ -98,8 +79,6 @@ describe("Executive Analysis — authorization", () => {
   });
 
   test("a user without analysis.read cannot read the page data directly", async () => {
-    // FANTASY_INTEGRATION holds fantasy and projection permissions but not analysis.read,
-    // so it is a real negative case rather than a role invented for the test.
     const integration = await makeUser("exec.integration", "FANTASY_INTEGRATION");
     resetRateLimits();
     const res = await call(executive, {
@@ -139,7 +118,6 @@ describe("Executive Analysis — honest states", () => {
       available: false,
       reason: "NOT_RUN",
     });
-    // The distinction that matters: an empty table would read as "nothing is short".
     expect(gaps.json.rows.length).toBe(0);
     expect(gaps.json.runId).toBe(null);
 
@@ -164,8 +142,6 @@ describe("Executive Analysis — honest states", () => {
 
   test("a run with no per-sale trace reports its 30-day windows as unavailable, not zero", async () => {
     const run = await makeDemandRun();
-    // sales90d of 5 with no SALE trace rows. Three zeros beside a 90-day total of 5
-    // would be an internal contradiction presented as fact.
     await makeMetric(run.id, CATEGORY_HEART, { sales90d: 5 });
 
     resetRateLimits();
@@ -200,7 +176,6 @@ describe("Executive Analysis — honest states", () => {
       value: "Fixture Simulation",
       state: "SIMULATED",
     });
-    // Nothing anywhere in the payload claims a live Fantasy connection.
     expect(/Live Fantasy/.test(JSON.stringify(res.json.rows.map((r: { value: string }) => r.value)))).toBe(false);
   });
 
@@ -216,12 +191,10 @@ describe("Executive Analysis — honest states", () => {
     });
 
     if (!latest) {
-      // Nothing has ever synchronized: the only honest answer is that it never happened.
       expect({ value: sync.value, state: sync.state }).toEqual({ value: "Never", state: "UNAVAILABLE" });
       return;
     }
 
-    // A stored run exists, so the reported time must be that run and not "now".
     expect(sync.value).not.toBe("Never");
     const stamp = (latest.finishedAt ?? latest.startedAt).getTime();
     const reportedIsRecentClock = Math.abs(Date.now() - stamp) < 2000;
@@ -257,7 +230,6 @@ describe("Executive Analysis — honest states", () => {
     const recalc = readiness.json.rows.find((r: { key: string }) => r.key === "recalculation");
     expect(recalc.state).toBe("STALE");
 
-    // The stored result is reported unchanged — the page does not silently recompute it.
     resetRateLimits();
     const gaps = await call(executive, { path: "/api/analysis/executive?section=shortage-excess", cookie });
     const heart = gaps.json.rows.find((r: { category: string }) => r.category === CATEGORY_HEART);
@@ -284,8 +256,6 @@ describe("Executive Analysis — the approved stock meaning", () => {
     const run = await makeDemandRun();
     runId = run.id;
 
-    // Target 10, nothing physical, everything else present. The engine persisted a
-    // shortage of the full target, which is the approved meaning made concrete.
     await makeMetric(runId, CATEGORY_HEART, {
       roundedTarget: 10,
       availableStock: 0,
@@ -302,7 +272,6 @@ describe("Executive Analysis — the approved stock meaning", () => {
       excessStock: 5,
     });
 
-    // Inventory across every bucket at one location, including rough.
     const buckets: Array<[string, string, string]> = [
       ["PHYSICAL_AVAILABLE", "POLISHED", "EXEC-PHYS"],
       ["MEMO", "POLISHED", "EXEC-MEMO"],
@@ -339,7 +308,6 @@ describe("Executive Analysis — the approved stock meaning", () => {
     const res = await call(executive, { path: "/api/analysis/executive?section=shortage-excess", cookie });
     const heart = res.json.rows.find((r: { category: string }) => r.category === CATEGORY_HEART);
 
-    // 6 memo + 4 reserved + 5 WIP are all present, and the shortage is still the full target.
     expect({
       target: heart.target,
       physicalAvailable: heart.physicalAvailable,
@@ -354,7 +322,6 @@ describe("Executive Analysis — the approved stock meaning", () => {
     const res = await call(executive, { path: "/api/analysis/executive?section=shortage-excess", cookie });
     expect(res.json.wipCoverage.appliedInRun).toBe(false);
     const heart = res.json.rows.find((r: { category: string }) => r.category === CATEGORY_HEART);
-    // Null, not 0: "0" would state there is nothing in manufacturing.
     expect(heart.wip).toBe(null);
   });
 
@@ -376,7 +343,6 @@ describe("Executive Analysis — the approved stock meaning", () => {
 
     const sum =
       l.physicalAvailablePolished + l.reserved + l.memo + l.wip + l.roughAvailable + l.heldOrExcluded + l.unclassified;
-    // Every record lands in exactly one bucket, so the buckets add up to the total.
     expect({ sum, total: l.totalClassified }).toEqual({ sum: 6, total: 6 });
     expect({ memo: l.memo, reserved: l.reserved, wip: l.wip, excluded: l.heldOrExcluded }).toEqual({
       memo: 1, reserved: 1, wip: 1, excluded: 1,
@@ -420,7 +386,6 @@ describe("Executive Analysis — the approved stock meaning", () => {
     });
     const categories = shortageOnly.json.rows.map((r: { category: string }) => r.category);
     expect(categories).toEqual([CATEGORY_HEART]);
-    // The total reflects the filter, so the pager cannot claim more rows than match.
     expect(shortageOnly.json.meta.total).toBe(1);
 
     resetRateLimits();
@@ -436,12 +401,10 @@ describe("Executive Analysis — the approved stock meaning", () => {
     const res = await call(executive, { path: "/api/analysis/executive?section=shortage-excess&pageSize=200", cookie });
     const heart = res.json.rows.find((r: { category: string }) => r.category === CATEGORY_HEART);
 
-    // The row carries the canonical key verbatim, which is what the trace link passes on.
     expect(heart.category).toBe(CATEGORY_HEART);
     expect(heart.category).not.toBe(CATEGORY_ASSCHER);
     expect(heart.label).toContain("HEART");
 
-    // Following that exact key into Demand Trace must select Heart.
     resetRateLimits();
     const trace = await call(demandTrace, {
       path: `/api/analysis/demand-trace?category=${encodeURIComponent(CATEGORY_HEART)}`,
@@ -493,8 +456,6 @@ describe("Executive Analysis — server-side paging and scope", () => {
 
     const run = await makeDemandRun();
     runId = run.id;
-    // Enough categories that a single page cannot hold them, so paging is exercised
-    // for real rather than asserted against a table that fits anyway.
     for (let i = 0; i < TOTAL; i++) {
       const lab = i % 2 === 0 ? "GIA" : "IGI";
       await makeMetric(runId, `${lab}|SHAPE${String(i).padStart(3, "0")}|1.00-1.49`, {
@@ -524,7 +485,6 @@ describe("Executive Analysis — server-side paging and scope", () => {
     });
     expect({ rows: page3.json.rows.length, hasMore: page3.json.meta.hasMore }).toEqual({ rows: 10, hasMore: false });
 
-    // No row appears on two pages and none is skipped.
     resetRateLimits();
     const page2 = await call(executive, {
       path: "/api/analysis/executive?section=shortage-excess&page=2&pageSize=25&sort=category",
@@ -535,8 +495,6 @@ describe("Executive Analysis — server-side paging and scope", () => {
   });
 
   test("the page size ceiling is enforced by the server", async () => {
-    // Out of range is refused outright rather than clamped, so a caller can never
-    // believe it asked for 99,999 rows and received a silently reduced page.
     resetRateLimits();
     const refused = await call(executive, {
       path: "/api/analysis/executive?section=shortage-excess&page=1&pageSize=99999",
@@ -547,7 +505,6 @@ describe("Executive Analysis — server-side paging and scope", () => {
       code: "BAD_REQUEST",
     });
 
-    // The largest accepted page is still bounded.
     resetRateLimits();
     const max = await call(executive, {
       path: "/api/analysis/executive?section=shortage-excess&page=1&pageSize=200",
@@ -564,7 +521,6 @@ describe("Executive Analysis — server-side paging and scope", () => {
       cookie,
     });
     const shortages = res.json.rows.map((r: { physicalShortage: number }) => r.physicalShortage);
-    // Descending by shortage across the whole dataset, not just within the page.
     expect(shortages).toEqual([59, 58, 57, 56, 55]);
   });
 
@@ -606,8 +562,6 @@ describe("Executive Analysis — server-side paging and scope", () => {
   });
 
   test("a bounded number of queries runs regardless of page size", async () => {
-    // A per-row query would scale with the page. The count is compared between a small
-    // page and a large one: equal counts mean the work is grouped, not per row.
     const counts: number[] = [];
     for (const pageSize of [5, 50]) {
       let queries = 0;
@@ -634,7 +588,6 @@ describe("Executive Analysis — server-side paging and scope", () => {
       large: counts[1],
       equal: true,
     });
-    // Run lookup + count + page + three window buckets.
     expect(counts[0] <= 8).toBe(true);
   });
 

@@ -7,10 +7,6 @@ import { conflict, notFound } from "@/lib/api/errors";
 import { hashPassword } from "@/lib/auth/password";
 import { assertDelegable, assertNotSuperAdminChange, isSuperAdmin, permissionsGrantedByRoles, replaceUserRoles, resolveAssignableRoles } from "@/lib/auth/role-service";
 
-// Review queue for self-service registration requests. Governed by
-// `access_request.review`, which is separate from the rest of account administration:
-// deciding who gets an account is not the same authority as resetting a password.
-
 export const GET = withApi({ permission: "access_request.review" }, async (_req, _ctx, api) => {
   const p = paging(api.url);
   const status = qEnum(api.url, "status", ["PENDING", "APPROVED", "REJECTED", "ALL"] as const, "PENDING");
@@ -21,8 +17,6 @@ export const GET = withApi({ permission: "access_request.review" }, async (_req,
     take: p.take,
   });
   const pendingCount = await db.accessRequest.count({ where: { status: "PENDING" } });
-  // The roles a reviewer may grant on approval: active custom roles. Super Admin is managed
-  // on the server only; the approve operation refuses it again.
   const assignableRoles = await db.role.findMany({
     where: { status: "ACTIVE", isSystem: false },
     select: { code: true, name: true },
@@ -52,9 +46,6 @@ export const GET = withApi({ permission: "access_request.review" }, async (_req,
 });
 
 const bodySchema = z.discriminatedUnion("op", [
-  // The role is chosen here, by a human, at approval time. It is never taken from
-  // the request itself — the applicant has no say in their own permissions. Any active
-  // custom role, never Super Admin; the code is checked against the Role table when assigned.
   z.object({ op: z.literal("approve"), id: idSchema, role: z.string().regex(/^[A-Z0-9_]{1,64}$/), note: z.string().trim().max(500).optional() }),
   z.object({ op: z.literal("reject"), id: idSchema, reason: reasonSchema }),
 ]);
@@ -77,14 +68,11 @@ export const POST = withApi({ permission: "access_request.review", body: bodySch
     return ok({ id: b.id, status: "REJECTED" });
   }
 
-  // Approval mints a real account — the same guard the admin create path uses.
   assertNotSuperAdminChange([b.role]);
   if (await db.user.findUnique({ where: { username: reqRow.username }, select: { id: true } })) {
     throw conflict("USERNAME_TAKEN", "An account with that username now exists. Reject this request instead.");
   }
 
-  // Issued once, shown to the approving admin to hand over, and never stored in
-  // plaintext. Mirrors `scripts/create-user.ts --generate`.
   const temporaryPassword = randomBytes(18).toString("base64url");
   const passwordHash = await hashPassword(temporaryPassword);
 
@@ -92,7 +80,6 @@ export const POST = withApi({ permission: "access_request.review", body: bodySch
     const claimed = await tx.accessRequest.updateMany({ where: { id: b.id, status: "PENDING" }, data: { status: "APPROVED" } });
     if (claimed.count !== 1) throw conflict("ALREADY_DECIDED", "That request has already been decided.");
     const roles = await resolveAssignableRoles(tx, [b.role]);
-    // A reviewer cannot hand a new account access the reviewer does not hold.
     if (!isSuperAdmin(api.principal)) {
       assertDelegable(api.principal.permissions, await permissionsGrantedByRoles(tx, roles.map((r) => r.id)));
     }
@@ -103,7 +90,6 @@ export const POST = withApi({ permission: "access_request.review", body: bodySch
         email: reqRow.email,
         role: b.role,
         passwordHash,
-        // Issued password is temporary: the account is restricted until it is changed.
         mustChangePassword: true,
         passwordChangedAt: new Date(),
         createdByUserId: api.principal.userId,
@@ -120,8 +106,6 @@ export const POST = withApi({ permission: "access_request.review", body: bodySch
       data: { pendingKey: null, createdUserId: u.id, reviewedBy: api.principal.username, reviewedByUserId: api.principal.userId, reviewedAt: new Date(), decisionNote: b.note ?? null },
     });
     await api.audit(tx, { action: "ACCESS_REQUEST_APPROVED", entity: "AccessRequest", entityId: b.id, before: { status: "PENDING" }, after: { status: "APPROVED", userId: u.id, role: b.role }, reason: b.note ?? null, category: "SECURITY" });
-    // Second row against the User, so account creation is visible when auditing
-    // by entity=User regardless of how the account came about.
     await api.audit(tx, { action: "USER_CREATED", entity: "User", entityId: u.id, after: { username: u.username, roles: roles.map((r) => r.code), via: "ACCESS_REQUEST" }, category: "SECURITY" });
     return u;
   });

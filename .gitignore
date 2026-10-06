@@ -1,62 +1,44 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+# Dependencies
+node_modules/
 
-# dependencies
-node_modules
-/.pnp
-.pnp.*
-.yarn/*
-!.yarn/patches
-!.yarn/plugins
-!.yarn/releases
-!.yarn/versions
-
-# testing
-/coverage
-
-# next.js
-/.next/
-/out/
-
-# production
-/build
-
-# misc
-.DS_Store
-*.pem
-
-# debug
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-.pnpm-debug.log*
-
-# env files (can opt-in for committing if needed)
+# Environment and secrets
 .env*
 !.env.example
+*.pem
+*.key
 
-# vercel
-.vercel
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
 
-
-# typescript
-*.tsbuildinfo
-next-env.d.ts
-local-*
-.claude
+# AI development tools
+.agent/
+.agents/
+.ai/
+.aider*
+.claude/
+.cline/
+.codeartsdoer/
+.codex/
+.continue/
+.cursor/
+.gemini/
+.roo/
+.trae/
+.windsurf/
 .z-ai-config
-*.log
-dev.log
-dev.out.log
-test
-prompt
-
-server.log
-# Skills directory
 /skills/
-# runtime databases — use migrations + seed instead
-db/*.db
-db/*.db-journal
-*.sqlite
+/prompt
+/local-*
+
+# Build output
+/.next/
+/out/
+/build/
+next-env.d.ts
 
 # isolated verification builds (NEXT_DIST_DIR). Must stay ignored: Tailwind v4's
 # automatic source detection scans every non-ignored file, and a build directory
@@ -64,3 +46,48 @@ db/*.db-journal
 # producing invalid CSS and breaking the dev server.
 .next-*/
 
+# Caches
+*.tsbuildinfo
+.eslintcache
+.cache/
+.turbo/
+/tmp/
+/temp/
+
+# Test output
+/coverage/
+/test/
+.nyc_output/
+test-results/
+playwright-report/
+blob-report/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Generated audit and verification evidence
+/security-audit/
+
+# Runtime / temporary files
+*.tmp
+*.bak
+*.orig
+
+# OS generated files
+.DS_Store
+._*
+Thumbs.db
+Desktop.ini
+
+# Local databases — use migrations + seed instead
+/db/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# Deployment
+.vercel

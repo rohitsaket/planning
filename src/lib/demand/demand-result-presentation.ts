@@ -1,16 +1,3 @@
-/**
- * DEMAND RESULT — BROWSER PRESENTATION MAPPING
- *
- * The demand engine stores internal codes, rule identifiers and free-text reasons
- * so runs stay reproducible and auditable. None of that may reach the browser.
- *
- * This module is the single translation point between the internal calculation
- * record and the safe, business-facing values served to the frontend. It maps
- * codes to business language and never passes stored free text through, because
- * that text can contain rule identifiers and implementation wording.
- */
-
-/** Business record categories shown as tabs on Demand Result Details. */
 export const RECORD_TYPES = [
   "CONFIRMED_SALE",
   "AVAILABLE_STOCK",
@@ -33,10 +20,6 @@ export const RECORD_TYPE_LABELS: Record<RecordType, string> = {
   EXCLUDED: "Excluded Records",
 };
 
-/**
- * Internal record classes behind each business record type. Kept server-side only:
- * the browser sends and receives the business record type, never these values.
- */
 const RECORD_TYPE_TO_INTERNAL: Record<RecordType, string[]> = {
   CONFIRMED_SALE: ["SALE"],
   AVAILABLE_STOCK: ["STOCK"],
@@ -56,22 +39,16 @@ export function isRecordType(value: string): value is RecordType {
   return (RECORD_TYPES as readonly string[]).includes(value);
 }
 
-/** Internal record classes to query for a requested business record type. */
 export function internalRecordClasses(recordType: RecordType): string[] {
   return RECORD_TYPE_TO_INTERNAL[recordType];
 }
 
-/** Business record type for a stored record class; unknown classes are treated as excluded. */
 export function toRecordType(internal: string): RecordType {
   return INTERNAL_TO_RECORD_TYPE.get(internal) ?? "EXCLUDED";
 }
 
 export type InclusionStatus = "INCLUDED" | "EXCLUDED";
 
-/**
- * Business-facing exclusion reasons. The stored reason text is only used to pick
- * one of these; it is never returned to the browser.
- */
 const REASON_PATTERNS: Array<{ match: RegExp; reason: string }> = [
   { match: /unmapped_shape|shape could not|ambiguous.*shape/i, reason: "Shape could not be confirmed" },
   { match: /unmapped_lab|lab_requires_review|lab could not/i, reason: "Lab could not be confirmed" },
@@ -96,10 +73,6 @@ const REASON_PATTERNS: Array<{ match: RegExp; reason: string }> = [
 
 const DEFAULT_EXCLUSION_REASON = "Excluded after data review";
 
-/**
- * Business reason for an excluded record. Included records carry no reason.
- * Stored free text never leaves the server: it only selects a safe message.
- */
 export function toBusinessReason(isIncluded: boolean, storedReason: string | null | undefined): string | null {
   if (isIncluded) return null;
   if (!storedReason) return DEFAULT_EXCLUSION_REASON;
@@ -122,10 +95,6 @@ export interface DemandCategoryStatus {
   intent: "critical" | "warning" | "success" | "info" | "neutral";
 }
 
-/**
- * Business status for one category, decided on the server so the browser never
- * derives it from the numbers.
- */
 export function toBusinessStatus(input: {
   metricStatus: string;
   physicalShortage: number;
@@ -147,20 +116,12 @@ export function toBusinessStatus(input: {
   return { code: "COVERED", label: "Covered", intent: "success" };
 }
 
-// Source labelling lives in `@/lib/fantasy/source-state`. It is the single derivation
-// for every page and route, so it is deliberately not duplicated here.
-
 export interface WipCoverageState {
   available: boolean;
-  /** True when this particular run applied manufacturing coverage. */
   appliedInRun: boolean;
   message: string;
 }
 
-/**
- * Manufacturing (WIP) coverage availability in business language. The underlying
- * rule identifier, version and configured stage list stay on the server.
- */
 export function toWipCoverageState(input: { policyConfigured: boolean; appliedInRun: boolean }): WipCoverageState {
   if (input.policyConfigured && input.appliedInRun) {
     return {
@@ -185,22 +146,10 @@ export function toWipCoverageState(input: { policyConfigured: boolean; appliedIn
   };
 }
 
-/** Display label for a category, built from confirmed business dimensions only. */
 export function toCategoryLabel(lab: string, shape: string, weightBand: string): string {
   return [lab, shape, weightBand].filter(Boolean).join(" | ");
 }
 
-// ---------------------------------------------------------------------------
-// Sales trend direction
-// ---------------------------------------------------------------------------
-
-/**
- * Trend labels derived from two factual sales windows.
- *
- * This is a description of what already happened, not a prediction: it compares the
- * count of sales in the earliest 30 days of a window with the count in the latest 30.
- * No forecast, no model, no confidence.
- */
 export const SALES_TREND_DIRECTIONS = [
   "Strong Growth",
   "Growth",
@@ -213,17 +162,9 @@ export const SALES_TREND_DIRECTIONS = [
 ] as const;
 export type SalesTrendDirection = (typeof SALES_TREND_DIRECTIONS)[number];
 
-/**
- * Classifies the direction between an earlier and a later 30-day sales count.
- *
- * Extracted so Sales Trends and Executive Analysis cannot drift apart: two copies of
- * these thresholds would eventually disagree about the same category.
- */
 export function toSalesTrendDirection(earliest30: number, latest30: number): SalesTrendDirection {
   if (earliest30 === 0 && latest30 === 0) return "Dormant";
   if (earliest30 === 0 && latest30 > 0) return "New Demand";
-  // One side zero with the other non-zero, after the two cases above, means the later
-  // window collapsed to nothing — reported as volatile rather than as a clean decline.
   if (earliest30 === 0 || latest30 === 0) return "Volatile";
 
   const pct = ((latest30 - earliest30) / earliest30) * 100;

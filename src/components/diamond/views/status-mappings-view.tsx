@@ -13,7 +13,6 @@ interface StatusMappingRow {
   updatedAt: string;
 }
 
-/** Business names for the planning classes; an unknown class shows as stored. */
 const PLANNING_CLASS_LABEL: Record<string, string> = {
   PHYSICAL: "Physical stock",
   PLANNING_AVAILABLE: "Available for planning",

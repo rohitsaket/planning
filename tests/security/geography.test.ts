@@ -11,24 +11,8 @@ import {
   readSalesByGeography,
 } from "@/lib/analysis/geography";
 
-/**
- * Country & Branch.
- *
- * The defect these tests pin is a contradiction rather than a miscalculation. The
- * authoritative demand result has no country and no branch column, so a location-level
- * shortage cannot be derived from it. The Transfer Analyzer said so on screen; the
- * Country page reported a shortage, an excess and a transfer-candidate count anyway,
- * taken from seeded demonstration tables. Two pages on the same data, two answers.
- *
- * So the assertions below are mostly about absence: no geographic demand figure reaches
- * the browser, however the data is arranged to tempt one out. What remains is checked for
- * being real — the same snapshot Customers & Orders reads, and the same inventory summary
- * every other stock surface reads.
- */
-
 const BATCH = "GEO-TEST";
 
-/** Every object key anywhere in a response, so a leak is found by name, not by prose. */
 function responseKeys(value: unknown, acc: Set<string> = new Set()): Set<string> {
   if (Array.isArray(value)) {
     for (const item of value) responseKeys(item, acc);
@@ -41,11 +25,6 @@ function responseKeys(value: unknown, acc: Set<string> = new Set()): Set<string>
   return acc;
 }
 
-/**
- * Requirements and polished mirror rows in the shape that used to produce a country
- * shortage of 7, an excess of 5 and a cross-country transfer candidate. They exist here
- * purely so their absence from the response means something.
- */
 async function seedTemptingGeographicData() {
   const band = await db.weightBand.findFirst({ where: { active: true }, select: { id: true } });
   if (!band) return;
@@ -66,8 +45,6 @@ async function seedTemptingGeographicData() {
 async function seedCurrentStock() {
   await db.lotMasterRecord.createMany({
     data: [
-      // Country codes no other suite writes, so these assertions count the records this
-      // suite created rather than whatever else the shared database happens to hold.
       { country: "ZA", branch: "Geo Alpha" },
       { country: "ZA", branch: "Geo Alpha" },
       { country: "ZB", branch: "Geo Beta" },
@@ -148,8 +125,6 @@ describe("Country & Branch — no geographic demand is invented", () => {
     const analyst = await makeUser("geo.fields", "DATA_ANALYST");
     resetRateLimits();
     const res = await call(countries, { path: "/api/analysis/countries", cookie: analyst.cookie });
-    // Field names, not substrings: the explanatory text legitimately contains the words
-    // "shortage", "excess" and "target" while saying that none of them can be computed.
     const leaked = [...responseKeys(res.json)].filter((key) =>
       [
         "physicalShortage",
@@ -171,7 +146,6 @@ describe("Country & Branch — no geographic demand is invented", () => {
   });
 
   test("seeded requirements and the polished mirror do not reach the response", async () => {
-    // The seeded rows above are exactly what the previous implementation read.
     const analyst = await makeUser("geo.seeded", "DATA_ANALYST");
     resetRateLimits();
     const res = await call(countries, { path: "/api/analysis/countries", cookie: analyst.cookie });
@@ -242,15 +216,11 @@ describe("Country & Branch — what it does report is factual", () => {
   });
 
   test("sales are either a real snapshot or an explicit unavailable state, never a zero", async () => {
-    // Whether a completed demand run exists depends on what else has run against this
-    // database, so both outcomes are checked for internal consistency rather than one of
-    // them being assumed.
     const result = await readSalesByGeography(EMPTY_GEOGRAPHY_FILTERS, true);
     if (result.available) {
       expect(result.snapshot !== null).toBe(true);
       expect(result.unavailableMessage).toBe(null);
       expect(typeof result.snapshot?.businessDateIst).toBe("string");
-      // The totals describe the same rows the breakdown does.
       const summed = result.byCountry.reduce((s, r) => s + r.saleRecordCount, 0);
       expect(result.rows.truncated ? true : summed === result.totals.saleRecordCount).toBe(true);
     } else {
@@ -269,20 +239,16 @@ describe("Country & Branch — customer identity obeys its permission", () => {
   });
 
   test("the distinct-customer figure is withheld without customers.read", async () => {
-    // Withheld means null, never zero: zero would be a claim about the data.
     const withPermission = await readSalesByGeography(EMPTY_GEOGRAPHY_FILTERS, true);
     const withoutPermission = await readSalesByGeography(EMPTY_GEOGRAPHY_FILTERS, false);
     const nulls = withoutPermission.byCountry.map((r) => r.distinctCustomers);
     expect(nulls.filter((n) => n !== null)).toEqual([]);
-    // And the shape is otherwise identical, so the permission withholds one figure rather
-    // than changing what the page is about.
     expect(withoutPermission.byCountry.length).toBe(withPermission.byCountry.length);
   });
 
   test("the handler derives the permission from the session, never from the request", () => {
     const source = readFileSync("src/app/api/analysis/countries/route.ts", "utf8");
     expect(/principal\.permissions\.includes\("customers\.read"\)/.test(source)).toBe(true);
-    // No request-supplied identity or role is read anywhere in the handler.
     const code = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
     expect(/qStr\(url,\s*"(role|actor|userId|permissions)"/.test(code)).toBe(false);
   });

@@ -7,16 +7,6 @@ import { ROLES, isPermission } from "@/lib/auth/permissions";
 import { PERMISSION_AREAS, PERMISSION_CAPABILITIES, PERMISSION_CATALOG } from "@/lib/auth/permission-catalog";
 import { isSuperAdmin } from "@/lib/auth/role-service";
 
-/**
- * Roles and the permissions they carry.
- *
- * Super Admin is the one built-in role: fixed in code and managed on the server only, it is
- * not listed here and cannot be renamed, edited, retired or deleted. Every role listed is a
- * custom role whose permissions only a Super Admin may choose. Roles are never deleted — they are retired once unused — so
- * their audit history always refers to something that still exists. Every change carries
- * the version it read; a stale write is refused, and an identical save changes nothing.
- */
-
 interface RoleView {
   id: string;
   code: string;
@@ -49,15 +39,12 @@ function toView(r: {
 }
 
 export const GET = withApi({ permission: "role.read" }, async (_req, _ctx, api) => {
-  // Custom roles only. Super Admin is managed on the server and is not shown or offered here.
   const roles = (await db.role.findMany({ where: { isSystem: false }, include: ROLE_INCLUDE, orderBy: { name: "asc" } })).map(toView);
   const superAdmin = isSuperAdmin(api.principal);
   return ok({
     roles,
     total: roles.length,
-    // Safe descriptive metadata for the permission editor; codes remain the only vocabulary.
     catalog: { areas: PERMISSION_AREAS, capabilities: PERMISSION_CAPABILITIES, permissions: PERMISSION_CATALOG },
-    // What the page may offer this caller. The operations below enforce the same rules.
     canEditPermissions: superAdmin && api.principal.permissions.includes("role.permissions.assign"),
     canManageRoles: api.principal.permissions.includes("role.manage"),
   });
@@ -77,12 +64,10 @@ const bodySchema = z.discriminatedUnion("op", [
   z.object({
     op: z.literal("updateRole"),
     id: idSchema,
-    /** The version the editor read. A role changed since then is refused, never overwritten. */
     version: z.number().int().min(0),
     name: z.string().trim().min(2).max(100).optional(),
     description: z.string().trim().max(500).optional(),
     permissions: permissionsSchema.optional(),
-    /** INACTIVE retires an unused role; ACTIVE brings a retired role back. */
     status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
   }),
 ]);
@@ -93,7 +78,6 @@ export const POST = withApi({ permission: "role.read", body: bodySchema }, async
   const b = api.body;
   if (!api.principal.permissions.includes("role.manage")) throw forbidden();
   const touchesPermissions = b.op === "createRole" ? b.permissions.length > 0 : b.permissions !== undefined;
-  // Choosing what a role may do is a Super Admin decision, whatever else the caller holds.
   if (touchesPermissions && !(isSuperAdmin(api.principal) && api.principal.permissions.includes("role.permissions.assign"))) {
     throw forbidden("Only a Super Admin can choose role permissions.");
   }
@@ -138,7 +122,6 @@ export const POST = withApi({ permission: "role.read", body: bodySchema }, async
   if (next.status === "INACTIVE" && target.status !== "INACTIVE" && before.userCount > 0) {
     throw conflict("ROLE_IN_USE", `This role is assigned to ${before.userCount} user(s). Reassign them before retiring it.`);
   }
-  // Saving what is already stored changes nothing: no new version, no audit event.
   if (next.name === target.name && next.description === target.description && next.status === target.status && sameSet(next.permissions, before.permissions)) {
     return ok({ role: before, changed: false });
   }
@@ -146,7 +129,6 @@ export const POST = withApi({ permission: "role.read", body: bodySchema }, async
   const added = next.permissions.filter((p) => !before.permissions.includes(p));
   const removed = before.permissions.filter((p) => !next.permissions.includes(p));
   const updated = await db.$transaction(async (tx) => {
-    // Optimistic concurrency, decided by the database: only the version that was read may change.
     const claimed = await tx.role.updateMany({
       where: { id: target.id, version: target.version },
       data: { name: next.name, description: next.description, status: next.status, updatedByUserId: api.principal.userId, version: { increment: 1 } },
@@ -168,8 +150,6 @@ export const POST = withApi({ permission: "role.read", body: bodySchema }, async
     });
     return tx.role.findUniqueOrThrow({ where: { id: target.id }, include: ROLE_INCLUDE });
   });
-  // Access is resolved from the database on every request, so assigned users see the new
-  // permissions on their next request; no session needs revoking.
   return ok({ role: toView(updated), changed: true, added, removed, affectedUsers: before.userCount });
 });
 

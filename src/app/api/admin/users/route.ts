@@ -23,12 +23,8 @@ import { SCOPE_DIMENSIONS, assertKnownScopeValues, assertScopeGrantable, readEff
 
 export const GET = withApi({ permission: "user.read" }, async (_req, _ctx, api) => {
   const p = paging(api.url);
-  // Which countries and labs an account may see is access information in its own right,
-  // so it is withheld from a reader who may look at accounts but not at their data scope.
   const canSeeScope = api.principal.permissions.includes("user.scope.read");
-  // Search runs in the database so it covers every account, not just the loaded page.
   const search = qStr(api.url, "q", 100)?.trim();
-  // One account by id, for the access inspector. Same authorization and shape as the list.
   const rawId = qStr(api.url, "id", 64);
   const onlyId = rawId === null ? null : idSchema.safeParse(rawId);
   if (onlyId && !onlyId.success) throw badRequest("Invalid user id.");
@@ -56,7 +52,6 @@ export const GET = withApi({ permission: "user.read" }, async (_req, _ctx, api) 
 
   const totalCount = await db.user.count({ where });
 
-  // One query for the page rather than one per user.
   const scopeRows = canSeeScope
     ? await db.userAccessScope.findMany({
       where: { userId: { in: users.map((u) => u.id) } },
@@ -85,16 +80,12 @@ export const GET = withApi({ permission: "user.read" }, async (_req, _ctx, api) 
       role: u.role,
       roles: roleCodes,
       status: u.status,
-      // An account that has never signed in and still holds its temporary password is
-      // awaiting activation; it is ACTIVE in storage and "Invited" to a reader.
       displayStatus: u.status === "ACTIVE" && u.lastLoginAt === null && u.mustChangePassword ? "INVITED" : u.status,
       lastActive: u.lastLoginAt?.toISOString() ?? null,
       permissionCount: effective.permissions.length,
       permissions: effective.permissions,
       createdAt: u.createdAt.toISOString(),
       mustChangePassword: u.mustChangePassword,
-      // An empty list is unrestricted, not "no access". Null means the reader is not
-      // authorized to see the scope at all — which is a different statement again.
       accessScope: canSeeScope
         ? {
           countries: scopeByUser.get(u.id)?.countries ?? [],
@@ -106,17 +97,13 @@ export const GET = withApi({ permission: "user.read" }, async (_req, _ctx, api) 
     };
   });
 
-  // The values the scope selectors may offer, already bounded by the caller's own scope.
   const canManageScope = api.principal.permissions.includes("user.scope.assign");
   const scopeOptions = canManageScope ? await scopeVocabulary(api.principal.scope) : null;
 
   return ok({
     rows: formattedUsers,
-    // The UI uses this to decide whether to offer scope management at all. It is UX: the
-    // POST below makes its own authorization decision regardless of what the UI shows.
     canManageScope,
     scopeOptions,
-    // Whether this caller may suspend or reactivate Super Admin accounts; the POST decides again.
     canManageSuperAdmins: api.principal.permissions.includes("user.super_admin.assign"),
     canReadScope: canSeeScope,
     scopeDimensions: SCOPE_DIMENSIONS,
@@ -138,9 +125,7 @@ const bodySchema = z.discriminatedUnion("op", [
     email: z.string().email().max(200).optional().or(z.literal("")),
     role: z.string().optional(),
     roles: z.array(z.string()).min(1).optional(),
-    /** Omitted: the server issues a one-time temporary password. Either way the user must change it at first sign-in. */
     password: password.optional(),
-    /** Optional initial country/lab scope; omitted means unrestricted. Needs user.scope.assign. */
     scope: z.object({ countries: scopeValues, labs: scopeValues }).optional(),
   }),
   z.object({
@@ -167,24 +152,17 @@ const bodySchema = z.discriminatedUnion("op", [
   z.object({
     op: z.literal("resetPassword"),
     id: idSchema,
-    /** Omitted: the server issues a one-time temporary password, returned once. */
     password: password.optional(),
   }),
   z.object({
     op: z.literal("setScope"),
     id: idSchema,
-    // The complete intended scope per dimension, not a delta: replacing the set makes the
-    // operation idempotent and makes a revocation impossible to forget. An empty array is
-    // an explicit grant of unrestricted access to that dimension.
     countries: scopeValues,
     labs: scopeValues,
     reason: z.string().trim().min(1).max(500),
   }),
 ]);
 
-/**
- * Operation-level permissions.
- */
 const OPERATION_PERMISSION = {
   create: "user.create",
   update: "user.update",
@@ -192,8 +170,6 @@ const OPERATION_PERMISSION = {
   setRole: "user.roles.assign",
   setRoles: "user.roles.assign",
   resetPassword: "user.password.reset",
-  // Deliberately its own permission. Deciding how much of the business an account can
-  // read is a data-access boundary, not a consequence of being allowed to edit accounts.
   setScope: "user.scope.assign",
 } as const satisfies Record<z.infer<typeof bodySchema>["op"], Permission>;
 
@@ -202,8 +178,6 @@ export const POST = withApi({ permission: "user.read", body: bodySchema }, async
   if (!api.principal.permissions.includes(OPERATION_PERMISSION[b.op])) throw forbidden();
 
   if (b.op === "create") {
-    // No default role: the only built-in role is Super Admin, so an account's access is
-    // always chosen explicitly (Super Admin or a custom role).
     const rawRoles = b.roles && b.roles.length > 0 ? b.roles : b.role ? [b.role] : [];
     if (rawRoles.length === 0) throw badRequest("Choose at least one role for the new account.");
     assertNotSuperAdminChange(rawRoles);
@@ -220,8 +194,6 @@ export const POST = withApi({ permission: "user.read", body: bodySchema }, async
       throw conflict("EMAIL_TAKEN", "That email address is already used by another account.");
     }
 
-    // Activation: a password the new user must replace at first sign-in. When none is
-    // supplied the server issues one, shown once to the administrator and never stored.
     const temporaryPassword = b.password ? null : randomBytes(18).toString("base64url");
     const passwordHash = await hashPassword(b.password ?? temporaryPassword!);
     const user = await db.$transaction(async (tx) => {
@@ -355,7 +327,6 @@ export const POST = withApi({ permission: "user.read", body: bodySchema }, async
 
   if (b.op === "setScope") {
     if (target.id === api.principal.userId) {
-      // The same rule as roles: nobody widens their own access.
       throw forbidden("You cannot change your own data access scope.");
     }
 
@@ -366,8 +337,6 @@ export const POST = withApi({ permission: "user.read", body: bodySchema }, async
     const before = await readEffectiveScope(target.id);
 
     await db.$transaction(async (tx) => {
-      // The stored set is replaced wholesale, so what is written is exactly what was
-      // asked for and a value left out is genuinely revoked.
       await tx.userAccessScope.deleteMany({ where: { userId: b.id } });
       const rows = [
         ...countries.map((value) => ({ dimension: "COUNTRY", value })),
@@ -396,8 +365,6 @@ export const POST = withApi({ permission: "user.read", body: bodySchema }, async
       });
     });
 
-    // The scope is resolved from the database on every request, so the change takes
-    // effect on the target's very next request without revoking their session.
     return ok({
       id: b.id,
       accessScope: { countries, labs, unrestricted: countries.length === 0 && labs.length === 0 },
@@ -414,7 +381,6 @@ export const POST = withApi({ permission: "user.read", body: bodySchema }, async
 
     await db.$transaction(async (tx) => {
       const assignableRoles = await resolveAssignableRoles(tx, requestedRoles);
-      // Nobody hands out access they could not use themselves; a Super Admin chooses freely.
       if (!isSuperAdmin(api.principal)) {
         assertDelegable(api.principal.permissions, await permissionsGrantedByRoles(tx, assignableRoles.map((r) => r.id)));
       }
@@ -430,8 +396,6 @@ export const POST = withApi({ permission: "user.read", body: bodySchema }, async
         assignedByUserId: api.principal.userId,
         reason: "Roles updated by administrator",
       });
-      // Judged on the state just written: a reassignment that keeps the account able to
-      // manage access is fine; one that leaves nobody able to is refused and rolled back.
       await assertSecurityAdminFloor(tx, { excludingUserId: "" });
 
       await api.audit(tx, {
@@ -447,7 +411,6 @@ export const POST = withApi({ permission: "user.read", body: bodySchema }, async
     return ok({ id: b.id, op: b.op, roles: requestedRoles });
   }
 
-  // Password reset. Either way the account must choose a new password at next sign-in.
   const issuedPassword = b.password ? null : randomBytes(18).toString("base64url");
   const resetHash = await hashPassword(b.password ?? issuedPassword!);
   await db.$transaction(async (tx) => {

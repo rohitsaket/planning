@@ -10,21 +10,9 @@ interface KpiCardProps {
   trend?: number;
   trendLabel?: string;
   intent?: "default" | "critical" | "warning" | "success" | "info";
-  /**
-   * One line under the value saying what it *means* to the business: its scope, where it
-   * came from, or a status that qualifies it — "Stock held above target", "Confirmed
-   * invoiced sales only", "Advisory until the transfer policy is approved".
-   *
-   * It renders to the page, so it is subject to the same rule as any other visible text:
-   * it must not carry a formula, a query fragment, a database or source-code identifier,
-   * a threshold, a coefficient or an internal rule identifier. Those belong in the
-   * service that applies them. This prop was where most of them reached the browser.
-   */
   hint?: string;
   icon?: LucideIcon;
   sparkline?: number[];
-  // Describes what the sparkline plots, for assistive technology. Without it the sparkline
-  // carries no text: a rising/declining label is only meaningful for chronological data.
   sparklineTitle?: string;
   onClick?: () => void;
   subtitle?: string;
@@ -102,10 +90,6 @@ function Sparkline({ data, color, title }: { data: number[]; color: string; titl
   );
 }
 
-/**
- * A compact KPI: label with a small inline icon, a prominent value with its unit, and at
- * most one supporting line. Clickable cards are real keyboard targets.
- */
 export function KpiCard({ label, value, unit, trend, trendLabel, intent = "default", hint, icon: Icon, sparkline, sparklineTitle, onClick, subtitle }: KpiCardProps) {
   return (
     <div
@@ -157,7 +141,6 @@ export function KpiCard({ label, value, unit, trend, trendLabel, intent = "defau
   );
 }
 
-// Compact KPI variant for inline use in section headers
 export function KpiPill({ label, value, intent = "default", icon: Icon }: { label: string; value: string | number; intent?: "default" | "critical" | "warning" | "success" | "info"; icon?: LucideIcon }) {
   const colors = {
     default: "bg-muted/60 text-foreground border-border",

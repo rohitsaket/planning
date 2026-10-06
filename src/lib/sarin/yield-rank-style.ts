@@ -1,19 +1,8 @@
-/**
- * The three yield-rank highlights of a Sarin output (design v1.7 §15.13 and the client's
- * Blue, White and Pink output workbooks), shared by the on-screen preview and the XLSX
- * export so the two can never drift. The rank itself is always computed on the server
- * (sarin/yield-rank.ts); this module only names and colours it.
- *
- * Client-safe: no server imports.
- */
-
 export type SarinYieldRank = 1 | 2 | 3;
 
 export interface SarinYieldRankStyle {
-  /** ARGB-free hex fill, exactly as the client's reference workbooks use it. */
   readonly fill: string;
   readonly short: string;
-  /** Text for the rank, so colour is never the only indication. */
   readonly label: string;
 }
 

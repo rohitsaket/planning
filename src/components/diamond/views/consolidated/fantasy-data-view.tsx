@@ -7,10 +7,6 @@ import { FantasySyncView } from "@/components/diamond/views/fantasy-sync-view";
 import { OverallDataView } from "@/components/diamond/views/overall-data-view";
 import { Boxes, HardDrive, RefreshCw } from "lucide-react";
 
-/**
- * Current Data is polished stock from the last synchronization. There is no rough stock tab:
- * no authoritative rough-stock source is configured, and the only rough records were seeded.
- */
 export const FANTASY_DATA_TABS: HostTabItem[] = [
   { id: "current", label: "Current Data", icon: <Boxes className="h-3.5 w-3.5" />, permission: "fantasy.read", component: FantasyPolishedView },
   { id: "integration", label: "Integration Status", icon: <RefreshCw className="h-3.5 w-3.5" />, permission: "fantasy.read", component: FantasySyncView },

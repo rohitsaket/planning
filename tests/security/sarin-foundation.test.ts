@@ -1,14 +1,3 @@
-// Sarin import foundation: persistence integrity and permission defaults.
-//
-// Every database test here writes through Prisma or raw SQL against the isolated
-// planning_sectest database and asserts what the database itself accepts or refuses:
-// the rules live in the migration, so they are proven where they are enforced. Permission
-// tests cross the real server boundary — principal resolution through withApi on
-// /api/auth/me, and the existing role- and user-administration routes. Denial of the
-// Sarin upload and read routes themselves is covered by sarin-ingestion.test.ts.
-//
-// All data is synthetic. No customer file or stone name is used.
-
 import { createHash, randomUUID } from "node:crypto";
 import { beforeAll, describe, expect, test } from "./harness";
 import { call, db, makeUser, resetDb } from "./helpers";
@@ -50,8 +39,6 @@ const SARIN_TABLES = [
   "SarinSourceFile",
 ];
 
-// TRUNCATE bypasses the row-level immutability triggers by design; mapping sets are not
-// truncated, so the migration's baseline set survives and test sets use unique versions.
 async function resetSarin() {
   await db.$executeRawUnsafe(`TRUNCATE ${SARIN_TABLES.map((t) => `"${t}"`).join(", ")}`);
 }
@@ -110,8 +97,6 @@ function makeRow(batchId: string, sourceRowNumber: number, o: RowInput = {}) {
       fieldCount,
       rowHash: o.rowHash ?? sha256(rawLine),
       outcome,
-      // Row evidence required since the ingestion migration: the fields as read, and a
-      // reason whenever the row is not ACCEPTED.
       rawFieldsJson: JSON.stringify(Array.from({ length: fieldCount }, (_, i) => `f${i + 1}`)),
       rejectionCodes: outcome === "ACCEPTED" ? null : "SYNTHETIC_REASON",
       stoneNameRaw: o.stoneNameRaw === undefined ? "900X-001 ZZ" : o.stoneNameRaw,
@@ -163,12 +148,10 @@ function addRule(mappingSetId: string, r: { key: string; shape: string; kind?: s
   });
 }
 
-/** A new snapshot made EFFECTIVE, replacing the current one — the lifecycle the catalog service writes. */
 function effectiveSet(rules: Parameters<typeof makeSet>[0] = [{ key: "ROUND", shape: "Round" }]) {
   return makeEffectiveSnapshot(rules, "mapper-synthetic");
 }
 
-// A worker claims the batch and starts the next validation attempt.
 function startValidation(batchId: string, shapeMappingSetId: string | null = null) {
   return db.sarinImportBatch.update({
     where: { id: batchId },
@@ -232,7 +215,6 @@ beforeAll(async () => {
   await resetSarin();
 });
 
-// ---------------------------------------------------------------------------------------
 describe("sarin foundation: migration", () => {
   test("every Sarin table and integrity trigger exists", async () => {
     const tables = await db.$queryRaw<{ t: string }[]>`
@@ -294,7 +276,6 @@ describe("sarin foundation: migration", () => {
 
   test("the confirmed shape master became the initial effective catalog, never approved, with no unconfirmed values", async () => {
     const set = await db.sarinShapeMappingSet.findUniqueOrThrow({ where: { sourceSystem_version: { sourceSystem: "SARIN", version: 1 } }, include: { rules: true } });
-    // Effective at migration (or already replaced by a later saved snapshot); nobody is recorded as its approver.
     expect([["EFFECTIVE", "SUPERSEDED"].includes(set.status), set.origin, set.approvedAt, set.approvedByUserId, set.effectiveAt !== null]).toEqual([true, "MIGRATION_BASELINE", null, null, true]);
     expect(set.contentHash).toMatch(/^[0-9a-f]{64}$/);
     expect(set.rules).toHaveLength(32);
@@ -320,7 +301,6 @@ describe("sarin foundation: migration", () => {
   });
 });
 
-// ---------------------------------------------------------------------------------------
 describe("sarin foundation: immutable source files", () => {
   test("content must match the recorded SHA-256 and byte size", async () => {
     const bytes = Buffer.from("synthetic,content\n");
@@ -373,14 +353,12 @@ describe("sarin foundation: immutable source files", () => {
   });
 });
 
-// ---------------------------------------------------------------------------------------
 describe("sarin foundation: import batches", () => {
   test("the packet type has no default and only BLUE, WHITE and PINK are accepted; imports carry no country", async () => {
     const f = await makeSourceFile();
-    // The insert omits only the packet type, so the NOT NULL violation can only be that column.
     await expect(db.$executeRaw`
       INSERT INTO "SarinImportBatch" ("id", "sourceFileId", "contractVersion", "planningDate", "uploadedByUserId", "updatedAt")
-      VALUES (${randomUUID()}, ${f.id}, 'SARIN_RAW_CSV_V1', DATE '2026-09-26', 'u', now())`).rejects.toThrow(/23502/); // not_null_violation: packetType
+      VALUES (${randomUUID()}, ${f.id}, 'SARIN_RAW_CSV_V1', DATE '2026-09-26', 'u', now())`).rejects.toThrow(/23502/);
     for (const bad of ["UNKNOWN", "white", "", "GREEN"]) {
       await expect(makeBatch({ sourceFileId: f.id, packetType: bad })).rejects.toThrow(/packetType_check/);
     }
@@ -411,7 +389,6 @@ describe("sarin foundation: import batches", () => {
     const f = await makeSourceFile();
     await makeBatch({ sourceFileId: f.id, packetType: "WHITE" });
     await expect(makeBatch({ sourceFileId: f.id, packetType: "WHITE" })).rejects.toThrow(/Unique constraint|duplicate_identity/);
-    // Each identity component distinguishes a batch.
     await makeBatch({ sourceFileId: f.id, packetType: "WHITE", labScope: "GIA" });
     await expect(makeBatch({ sourceFileId: f.id, packetType: "WHITE", labScope: "GIA" })).rejects.toThrow(/Unique constraint|duplicate_identity/);
     await makeBatch({ sourceFileId: f.id, packetType: "BLUE" });
@@ -449,7 +426,6 @@ describe("sarin foundation: import batches", () => {
     ).rejects.toThrow(/must advance fencingVersion/);
     const claimed = await startValidation(b.id);
     await expect(db.sarinImportBatch.update({ where: { id: b.id }, data: { fencingVersion: claimed.fencingVersion - 1 } })).rejects.toThrow(/fencingVersion is monotonic/);
-    // A half-written claim is not a state.
     await expect(db.sarinImportBatch.update({ where: { id: b.id }, data: { leaseExpiresAt: null } })).rejects.toThrow(/claim_consistent_check/);
   });
 
@@ -486,7 +462,6 @@ describe("sarin foundation: import batches", () => {
     const root = await makeUser("sarin.root.delete", "SUPER_ADMIN");
     const leaver = await makeUser("sarin.leaver", "PLANNER");
     const b = await makeBatch({ uploader: leaver.user.id });
-    // Accounts with history are never hard-deleted; the admin route no longer offers it.
     const del = await call(usersPost, { method: "POST", cookie: root.cookie, body: { op: "delete", id: leaver.user.id } });
     expect(del.status).toBe(400);
     const r = await call(usersPost, { method: "POST", cookie: root.cookie, body: { op: "setStatus", id: leaver.user.id, status: "DISABLED" } });
@@ -497,7 +472,6 @@ describe("sarin foundation: import batches", () => {
   });
 });
 
-// ---------------------------------------------------------------------------------------
 describe("sarin foundation: immutable source rows", () => {
   test("weights persist as fixed three-decimal values and the original line is kept exactly", async () => {
     const b = await makeBatch();
@@ -521,7 +495,6 @@ describe("sarin foundation: immutable source rows", () => {
     await expect(makeRow(b.id, 3, { roughWeight: "0" })).rejects.toThrow(/roughWeight_positive_check/);
     await expect(makeRow(b.id, 4, { estimatedWeight: "-0.001" })).rejects.toThrow(/estimatedWeight_non_negative_check/);
     await expect(makeRow(b.id, 0)).rejects.toThrow(/sourceRowNumber_positive_check/);
-    // A quarantined row keeps the raw line and leaves the unreadable values NULL.
     const q = await makeRow(b.id, 5, { outcome: "QUARANTINED", fieldCount: 10, roughWeight: null, estimatedWeight: null });
     expect([q.roughWeight, q.estimatedWeight]).toEqual([null, null]);
   });
@@ -552,7 +525,6 @@ describe("sarin foundation: immutable source rows", () => {
   });
 });
 
-// ---------------------------------------------------------------------------------------
 describe("sarin foundation: stone blocks", () => {
   test("packet is text with leading zeros kept; parsing happens once and then freezes", async () => {
     const b = await makeBatch({ packetType: "WHITE" });
@@ -588,7 +560,6 @@ describe("sarin foundation: stone blocks", () => {
   });
 });
 
-// ---------------------------------------------------------------------------------------
 describe("sarin foundation: validation issues", () => {
   test("an issue records the attempt and mapping set that raised it", async () => {
     const set = await effectiveSet();
@@ -636,7 +607,6 @@ describe("sarin foundation: validation issues", () => {
   });
 });
 
-// ---------------------------------------------------------------------------------------
 describe("sarin foundation: append-only reviewed overrides", () => {
   test("decisions form one linear chain; the issue status follows the effective decision", async () => {
     const b = await makeBatch();
@@ -648,7 +618,6 @@ describe("sarin foundation: append-only reviewed overrides", () => {
     await expect(addOverride(issue.id)).rejects.toThrow(/Unique constraint|one_root_per_issue/);
 
     const second = await addOverride(issue.id, { supersedes: first.id, decision: { normalizedShape: "Oval" } });
-    // The superseded decision cannot be superseded again: the chain has one head.
     await expect(addOverride(issue.id, { supersedes: first.id })).rejects.toThrow(/Unique constraint/);
 
     await expect(db.sarinValidationIssue.update({ where: { id: issue.id }, data: { status: "OPEN" } })).rejects.toThrow(/reopens only after its override is revoked/);
@@ -657,7 +626,6 @@ describe("sarin foundation: append-only reviewed overrides", () => {
     const reopened = await db.sarinValidationIssue.update({ where: { id: issue.id }, data: { status: "OPEN" } });
     expect([reopened.status, reopened.resolvedAt, reopened.resolvedByUserId]).toEqual(["OPEN", null, null]);
 
-    // Walk the chain from its root: every decision is still there, in order, unchanged.
     const all = await db.sarinIssueOverride.findMany({ where: { issueId: issue.id } });
     const chain = [all.find((o) => o.supersedesOverrideId === null)!];
     for (let next = all.find((o) => o.supersedesOverrideId === chain[0].id); next; next = all.find((o) => o.supersedesOverrideId === chain[chain.length - 1].id)) {
@@ -687,7 +655,6 @@ describe("sarin foundation: append-only reviewed overrides", () => {
     await expect(addOverride(blocking.id, { reason: "ok" })).rejects.toThrow(/reason_check/);
     await expect(addOverride(blocking.id, { kind: "WAIVE" })).rejects.toThrow(/kind_check/);
     await expect(addOverride(blocking.id, { decision: null })).rejects.toThrow(/kind_payload_check/);
-    // A decision cannot supersede another issue's decision.
     await expect(addOverride(blocking.id, { supersedes: ack.id })).rejects.toThrow(/Foreign key|foreign key/);
     const resolved = await makeIssue(b.id, { severity: "INFO", blocking: false });
     await db.sarinValidationIssue.update({ where: { id: resolved.id }, data: { status: "RESOLVED" } });
@@ -704,7 +671,6 @@ describe("sarin foundation: append-only reviewed overrides", () => {
   });
 });
 
-// ---------------------------------------------------------------------------------------
 describe("sarin foundation: versioned shape mappings", () => {
   test("a version exists once per source system and a set is born a DRAFT", async () => {
     const v = nextVersion();
@@ -730,7 +696,6 @@ describe("sarin foundation: versioned shape mappings", () => {
     await expect(addRule(set.id, { key: "OVAL", shape: "Oval", min: "1.000" })).rejects.toThrow(/none_has_no_bounds_check/);
     await expect(addRule(set.id, { key: "oval ", shape: "Oval" })).rejects.toThrow(/rawShapeKey_canonical_check/);
     await expect(addRule(set.id, { key: "OVAL", shape: "Oval", kind: "SHAPE_LIKE" })).rejects.toThrow(/conditionKind_check/);
-    // Every condition kind in the shared vocabulary is storable.
     let k = 0;
     for (const kind of SARIN_SHAPE_MAPPING_CONDITION_KINDS) {
       const r = await addRule(set.id, { key: `VOCAB ${++k}`, shape: "Vocabulary", kind, min: kind === "RATIO_RANGE" ? "1.000" : null });
@@ -745,7 +710,7 @@ describe("sarin foundation: versioned shape mappings", () => {
         await tx.sarinShapeMappingRule.create({
           data: { mappingSetId: set.id, rawShapeKey: "EMERALD 5STEP", sourceRawShape: "EMERALD 5STEP", normalizedShape: "Asscher", conditionKind: "RATIO_RANGE", ratioMin: min, ratioMax: max },
         });
-        await sleep(300); // hold the transaction open so the other writer genuinely overlaps
+        await sleep(300);
       });
     const results = await Promise.allSettled([writer("1.000", "1.030"), writer("1.010", "1.050")]);
     expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
@@ -762,11 +727,9 @@ describe("sarin foundation: versioned shape mappings", () => {
     const b = await effectiveSet([...rules].reverse());
     expect(a.contentHash).toMatch(/^[0-9a-f]{64}$/);
     expect(b.contentHash).toBe(a.contentHash);
-    // Effective, not approved: no approver or approval time is ever recorded.
     expect([a.effectiveAt !== null, a.approvedAt, a.approvedByUserId]).toEqual([true, null, null]);
     const different = await effectiveSet([{ key: "ROUND", shape: "Round Brilliant" }]);
     expect(different.contentHash === a.contentHash).toBe(false);
-    // An empty catalog is a legitimate state: every shape then needs mapping.
     const empty = await effectiveSet([]);
     expect(empty.contentHash).toMatch(/^[0-9a-f]{64}$/);
 
@@ -786,23 +749,17 @@ describe("sarin foundation: versioned shape mappings", () => {
     const draft = await makeSet([{ key: "ROUND", shape: "Round" }]);
     await expect(db.sarinShapeMappingSet.update({ where: { id: draft.id }, data: { status: "APPROVED", approvedByUserId: "approver-synthetic" } })).rejects.toThrow(/(cannot move from DRAFT to APPROVED|immutable)/);
     await expect(db.sarinShapeMappingSet.update({ where: { id: draft.id }, data: { status: "RETIRED", retiredByUserId: "x" } })).rejects.toThrow(/(cannot move from DRAFT to RETIRED|immutable)/);
-    // A second EFFECTIVE snapshot is refused while one is effective.
     await effectiveSet();
     await expect(db.sarinShapeMappingSet.update({ where: { id: draft.id }, data: { status: "EFFECTIVE" } })).rejects.toThrow(/one_effective_per_source|Unique constraint/);
-    // Replacement names the newer snapshot saved from this one, and nothing else.
     const current = await db.sarinShapeMappingSet.findFirstOrThrow({ where: { status: "EFFECTIVE" } });
     await expect(db.sarinShapeMappingSet.update({ where: { id: current.id }, data: { status: "SUPERSEDED", supersededBySetId: draft.id } })).rejects.toThrow(/replaced only by a newer snapshot saved from it/);
-    // A draft nothing uses can be archived.
     const archived = await db.sarinShapeMappingSet.update({ where: { id: draft.id }, data: { status: "ARCHIVED" } });
     expect([archived.status, archived.archivedAt !== null]).toEqual(["ARCHIVED", true]);
   });
 });
 
-// ---------------------------------------------------------------------------------------
 const SARIN_PERMISSIONS = PERMISSIONS.filter((p) => p.startsWith("sarin.")) as Permission[];
 
-// The default policy of the one built-in role: every Sarin permission. Output approval is
-// retired (approval is not part of the confirmed workflow), so there is nothing to withhold.
 const EXPECTED_SARIN: Record<(typeof ROLES)[number], Permission[]> = {
   SUPER_ADMIN: SARIN_PERMISSIONS,
 };
@@ -839,13 +796,10 @@ describe("sarin foundation: permission defaults", () => {
     const root = await makeUser("sarin.root.assign", "SUPER_ADMIN");
     const admin = await makeUser("sarin.admin.assign", "ADMIN");
     const planner = await makeUser("sarin.planner.assign", "PLANNER");
-    // Roles are not reset between suite runs, so the code is unique per run.
     const code = `SARIN_OUTPUT_APPROVER_${Date.now().toString(36).toUpperCase()}`;
     const body = { op: "createRole", code, name: "Sarin Output Approver", permissions: ["sarin.import.read", "sarin.output.approve"] };
 
-    // ADMIN administers the system but cannot define what a role may do, even with live permissions.
     expect((await call(rolesPost, { method: "POST", cookie: admin.cookie, body: { ...body, permissions: ["sarin.import.read"] } })).status).toBe(403);
-    // Nobody, not even the Super Admin, can grant a permission that no longer exists; nothing is written.
     for (const u of [admin, root]) expect((await call(rolesPost, { method: "POST", cookie: u.cookie, body })).status).toBe(400);
     expect(await db.role.count({ where: { code } })).toBe(0);
 

@@ -1,12 +1,3 @@
-// Sarin Blue/White transformation: plan structure validation, validation-profile binding,
-// output versions, grouping, yield, idempotency, concurrency, rollback and preview reads.
-//
-// Uploads, validations, generation and reads go through the real route handlers against
-// the isolated planning_sectest database. The generation service is also called directly
-// where a test must vary its batch size or lock wait. Failures are injected by database
-// triggers and a real row lock, so the service has no test-only branch. All data is
-// synthetic.
-
 import { beforeAll, beforeEach, describe, expect, test } from "./harness";
 import { call, db, ensureLabRegistry, makeUser, resetDb } from "./helpers";
 import { randomUUID } from "node:crypto";
@@ -36,7 +27,6 @@ let planner: User, viewer: User, planningViewer: User, admin: User, manager: Use
 let mapper: User;
 let standardSetId = "";
 
-// ---- synthetic records ---------------------------------------------------------------------
 let nonce = 0;
 const kapan = () => `8${String(++nonce).padStart(3, "0")}W`;
 interface Rec {
@@ -55,12 +45,9 @@ interface Rec {
 const rec = (o: Rec) =>
   [o.name, o.rough ?? "3.000", o.shape ?? "ROUND", o.est ?? "1.500", o.clarity ?? "VS1", o.color ?? "G", o.depth ?? "61.6", o.ratio ?? "1", o.length ?? "7.62", o.width ?? "7.62", o.depthMm ?? "4.69"].join(",");
 const file = (lines: string[]) => lines.join("\n") + "\n";
-/** A stone of `count` identical records. */
 const stone = (o: Rec, count = 17) => Array.from({ length: count }, () => rec(o));
-/** A stone whose records carry the given Estimated Weights in order. */
 const stoneOf = (name: string, ests: string[], o: Omit<Rec, "name" | "est"> = {}) => ests.map((est) => rec({ ...o, name, est }));
 
-// ---- requests -------------------------------------------------------------------------------
 async function upload(cookie: string, content: string, fields: Record<string, string> = {}) {
   resetRateLimits();
   const fd = new FormData();
@@ -79,7 +66,6 @@ async function uploadBatch(content: string, fields: Record<string, string> = {})
   if (r.status !== 201) throw new Error(`upload failed: ${r.status} ${JSON.stringify(r.json)}`);
   return r.json.batch.id;
 }
-/** Checks a file against the shape mappings in effect. */
 const validate = (batchId: string, cookie = planner.cookie) => {
   resetRateLimits();
   return call(validateImport, { method: "POST", cookie, body: {}, params: { batchId } });
@@ -149,13 +135,11 @@ beforeAll(async () => {
     if (r.status !== 200) throw new Error(`role assign failed ${r.status}`);
   }
 });
-// Every test starts from the standard catalog; a test that changes it does so through the API.
 beforeEach(async () => {
   resetRateLimits();
   standardSetId = await applyCatalog(mapper.cookie, STANDARD_RULES);
 });
 
-// =========================================================================================
 describe("sarin output: shape mappings in effect", () => {
   test("processing learns only whether mappings are configured, never their content", async () => {
     const r = await read(listImports, {}, "?pageSize=1");
@@ -164,11 +148,9 @@ describe("sarin output: shape mappings in effect", () => {
   });
 });
 
-// =========================================================================================
 describe("sarin output: validation reuse is bound to the validation profile", () => {
   test("an attempt made under an older profile is never reused, and never feeds output", async () => {
     const batchId = await uploadBatch(file(stone({ name: `${kapan()}-001 DC` })));
-    // A completed Phase 4 (V1) attempt, driven through the same lifecycle the triggers allow.
     await db.sarinImportBatch.update({
       where: { id: batchId },
       data: { status: "VALIDATING", validationAttempt: { increment: 1 }, fencingVersion: { increment: 1 }, claimToken: randomUUID(), claimedAt: new Date(), leaseExpiresAt: new Date(Date.now() + 60_000), shapeMappingSetId: standardSetId },
@@ -187,7 +169,6 @@ describe("sarin output: validation reuse is bound to the validation profile", ()
     expect([again.status, again.json.reused, again.json.batch.status, again.json.validation.lastCompletedAttempt.number]).toEqual([200, false, "VALIDATED", 2]);
     const attempts = await db.sarinValidationAttempt.findMany({ where: { batchId }, orderBy: { attemptNumber: "asc" }, select: { validationProfileVersion: true } });
     expect(attempts.map((a) => a.validationProfileVersion)).toEqual(["SARIN_VALIDATION_V1", SARIN_VALIDATION_PROFILE_VERSION]);
-    // Now the current profile has run: the same set and profile are reused, and output works.
     expect((await validate(batchId)).json.reused).toBe(true);
     expect((await generate(batchId)).status).toBe(201);
   });
@@ -199,7 +180,6 @@ describe("sarin output: validation reuse is bound to the validation profile", ()
   });
 });
 
-// =========================================================================================
 describe("sarin output: Blue/White plan structure validation", () => {
   test("a stone shorter than its main-plan limit is a blocking finding; exactly the limit validates", async () => {
     const cases: Array<[string, number, string]> = [["BLUE", 16, "NEEDS_REVIEW"], ["BLUE", 17, "VALIDATED"], ["WHITE", 31, "NEEDS_REVIEW"], ["WHITE", 32, "VALIDATED"]];
@@ -222,11 +202,11 @@ describe("sarin output: Blue/White plan structure validation", () => {
   test("every row that would become a plan piece must be usable; each gap is its own stable finding", async () => {
     const name = `${kapan()}-001 DC`;
     const lines = stone({ name }, 20);
-    lines[2] = rec({ name, est: "" }); // row 3: main plan, no Estimated Weight
-    lines[4] = rec({ name, shape: "EMERALD 5STEP", ratio: "1.200" }); // row 5: Ratio outside every mapped range, so no confirmed shape
-    lines[6] = rec({ name, clarity: "" }); // row 7: accepted, but no clarity to show
-    lines[8] = rec({ name, depthMm: "" }); // row 9: accepted, but no depth (mm)
-    lines[18] = rec({ name, est: "" }); // row 19: additional plan, cannot be grouped
+    lines[2] = rec({ name, est: "" });
+    lines[4] = rec({ name, shape: "EMERALD 5STEP", ratio: "1.200" });
+    lines[6] = rec({ name, clarity: "" });
+    lines[8] = rec({ name, depthMm: "" });
+    lines[18] = rec({ name, est: "" });
     const batchId = await uploadBatch(file(lines));
     const v = await validate(batchId);
     expect(v.json.batch.status).toBe("NEEDS_REVIEW");
@@ -242,10 +222,8 @@ describe("sarin output: Blue/White plan structure validation", () => {
       [19, "GROUPING_INPUT_INVALID", 4, "estimatedWeight"],
     ]);
     expect(issues.every((i: any) => i.blocking && typeof i.title === "string" && i.block.sequence === 1)).toBe(true);
-    // The findings speak plainly: no pattern, formula or query behind them.
     expect(/\\|\^|regex|SELECT|round\(/.test(JSON.stringify(issues))).toBe(false);
 
-    // A batch with open blocking findings is never transformed.
     const refused = await generate(batchId);
     expect([refused.status, refused.json.error.code, refused.json.error.details?.blockingFindings > 0]).toEqual([422, "BLOCKING_FINDINGS_OPEN", true]);
     expect(await outputRows(batchId)).toEqual({ versions: 0, options: 0, pieces: 0 });
@@ -265,7 +243,6 @@ describe("sarin output: Blue/White plan structure validation", () => {
   });
 });
 
-// =========================================================================================
 describe("sarin output: plan construction and yield", () => {
   test("grouping follows file order and a strict three-decimal increase; nothing is sorted", () => {
     const w = (v: string) => ({ estimatedWeight: new Prisma.Decimal(v), tag: v });
@@ -279,7 +256,6 @@ describe("sarin output: plan construction and yield", () => {
       [3, ["0.700", "0.700"]],
       [4, ["0.701"]],
     ]);
-    // Exactly the limit: no additional group. Below it: refused, never padded.
     expect(planBlueWhiteStone("WHITE", Array.from({ length: 32 }, () => w("1"))).every((o) => o.kind === "MAIN")).toBe(true);
     expect(() => planBlueWhiteStone("WHITE", Array.from({ length: 31 }, () => w("1")))).toThrow();
   });
@@ -288,7 +264,6 @@ describe("sarin output: plan construction and yield", () => {
     const y = planYield([new Prisma.Decimal("0.500"), new Prisma.Decimal("0.4"), new Prisma.Decimal("0.400")], new Prisma.Decimal("3.000"));
     expect([y.numerator.toFixed(3), y.denominator.toFixed(3), y.percent.toFixed(10), displayYield(y.percent)]).toEqual(["1.300", "3.000", "43.3333333333", "43.33"]);
     expect(planYield([new Prisma.Decimal("1.4")], new Prisma.Decimal("3")).percent.toFixed(10)).toBe("46.6666666667");
-    // Binary floating point rounds 0.075 down; the confirmed rule is half-up.
     expect((0.075).toFixed(2)).toBe("0.07");
     const trap = planYield([new Prisma.Decimal("0.003")], new Prisma.Decimal("4.000"));
     expect([trap.percent.toFixed(10), displayYield(trap.percent)]).toEqual(["0.0750000000", "0.08"]);
@@ -301,7 +276,7 @@ describe("sarin output: plan construction and yield", () => {
     const s1 = `${k}-001 DC`;
     const s2 = `${k}-002 DC`;
     const s1Lines = stoneOf(s1, [...Array(17).fill("1.500"), "0.500", "0.4", "0.400", "0.600", "0.300", "0.700", "0.700"]);
-    s1Lines[1] = rec({ name: s1, shape: "EMERALD 5STEP", ratio: "1.02" }); // conditionally mapped
+    s1Lines[1] = rec({ name: s1, shape: "EMERALD 5STEP", ratio: "1.02" });
     const s2Lines = stoneOf(s2, Array(17).fill("0.003"), { rough: "4.000" });
     const batchId = await validatedBatch(file([...s1Lines, ...s2Lines]));
     const attempt = await db.sarinValidationAttempt.findFirstOrThrow({ where: { batchId, status: "COMPLETED" }, orderBy: { attemptNumber: "desc" } });
@@ -359,7 +334,6 @@ describe("sarin output: plan construction and yield", () => {
   });
 });
 
-// =========================================================================================
 describe("sarin output: API contract, authorization and scope", () => {
   test("the same inputs return the same version (200, reused); the body carries no calculation", async () => {
     const batchId = await validatedBatch(file(stone({ name: `${kapan()}-001 DC` }, 19)));
@@ -371,7 +345,6 @@ describe("sarin output: API contract, authorization and scope", () => {
     for (const body of [{ yieldPercent: "99.9" }, { options: [] }, { userId: "someone" }, { packetType: "WHITE" }, { validationAttemptId: "bad id!" }]) {
       expect([body, (await generate(batchId, planner.cookie, body)).status]).toEqual([body, 400]);
     }
-    // Naming the reviewed attempt is a precondition, not an input.
     const attempt = await db.sarinValidationAttempt.findFirstOrThrow({ where: { batchId } });
     expect((await generate(batchId, planner.cookie, { validationAttemptId: attempt.id })).status).toBe(200);
   });
@@ -423,7 +396,6 @@ describe("sarin output: API contract, authorization and scope", () => {
   });
 });
 
-// =========================================================================================
 describe("sarin output: versions, supersession and stale requests", () => {
   test("a new validation leads to a new version that supersedes the old; history stays readable", async () => {
     const name = `${kapan()}-001 DC`;
@@ -433,11 +405,9 @@ describe("sarin output: versions, supersession and stale requests", () => {
 
     const secondSet = await applyCatalog(mapper.cookie, [...STANDARD_RULES, { rawShape: "HEXAGON", normalizedShape: "Kite" }]);
     expect((await validate(batchId)).json.batch.status).toBe("VALIDATED");
-    // Still GENERATED, but no longer derived from the current validation.
     const between = (await read(listOutputs, { batchId })).json.rows;
     expect(between.map((v: any) => [v.versionNumber, v.status, v.isCurrent])).toEqual([[1, "GENERATED", false]]);
 
-    // A caller who reviewed the old validation is refused rather than silently served.
     const stale = await generate(batchId, planner.cookie, { validationAttemptId: firstAttempt.id });
     expect([stale.status, stale.json.error.code]).toEqual([409, "VALIDATION_CHANGED"]);
 
@@ -488,7 +458,6 @@ describe("sarin output: versions, supersession and stale requests", () => {
   });
 });
 
-// =========================================================================================
 describe("sarin output: concurrency, rollback and batch size", () => {
   const manyStones = (count: number, rows = 20) => {
     const k = kapan();
@@ -504,7 +473,6 @@ describe("sarin output: concurrency, rollback and batch size", () => {
     expect(outcomes.every((o) => o === "NEW" || o === "REUSED" || o === "OUTPUT_GENERATION_IN_PROGRESS")).toBe(true);
     const ids = new Set(results.filter((r) => r.status < 300).map((r) => r.json.output.version.id));
     expect(ids.size).toBe(1);
-    // Each stone: 17 main plans and one group (0.400, 0.300, 0.200 never increase).
     expect(await outputRows(batchId)).toEqual({ versions: 1, options: 60 * 18, pieces: 60 * 20 });
   });
 
@@ -514,7 +482,6 @@ describe("sarin output: concurrency, rollback and batch size", () => {
     let release!: () => void;
     const isLocked = new Promise<void>((r) => (locked = r));
     const held = new Promise<void>((r) => (release = r));
-    // A real competing holder of the batch row lock, in its own transaction.
     const holder = db.$transaction(
       async (tx) => {
         await tx.$queryRaw`SELECT "id" FROM "SarinImportBatch" WHERE "id" = ${batchId} FOR UPDATE`;
@@ -536,7 +503,7 @@ describe("sarin output: concurrency, rollback and batch size", () => {
       return r;
     });
     await new Promise((r) => setTimeout(r, 1000));
-    expect(settled).toBe(false); // genuinely blocked behind the holder
+    expect(settled).toBe(false);
     release();
     await holder;
     const r = await waiting;
@@ -559,7 +526,6 @@ describe("sarin output: concurrency, rollback and batch size", () => {
     await db.$executeRawUnsafe(`CREATE TRIGGER test_inject_piece_failure BEFORE INSERT ON "SarinPlanPiece" FOR EACH ROW EXECUTE FUNCTION test_inject_piece_failure()`);
     let failure: unknown;
     try {
-      // Two stones per round: rows 1-80 are written in earlier rounds before the failure.
       failure = await generateSarinOutput(serviceActor(), batchId, {}, { ...SARIN_OUTPUT_CONFIG, writeBatch: 2 }).catch((e) => e);
     } finally {
       await db.$executeRawUnsafe(`DROP TRIGGER IF EXISTS test_inject_piece_failure ON "SarinPlanPiece"`);
@@ -600,7 +566,6 @@ describe("sarin output: concurrency, rollback and batch size", () => {
   });
 });
 
-// =========================================================================================
 describe("sarin output: bounded preview reads", () => {
   test("previews are paginated, filtered, validated and free of internals", async () => {
     const k = kapan();

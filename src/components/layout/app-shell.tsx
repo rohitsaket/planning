@@ -31,11 +31,6 @@ export interface NavGroup {
   items: NavItem[];
 }
 
-// The planning utility's sidebar. Manufacturing execution, production tracking, quality
-// assurance and plan-versus-actual are outside its scope, and advisory or unconfirmed pages
-// (reorder signals, transfer analysis, data science, reports, system settings) are not
-// listed either — not shown locked. Former page ids resolve through LEGACY_VIEW_ALIASES in
-// the nav store.
 export const NAV: NavGroup[] = [
   {
     id: "dashboard-group",
@@ -84,16 +79,10 @@ export const NAV: NavGroup[] = [
   },
 ];
 
-/** The pages of a group this reader may open. Nothing else in the group is rendered. */
 export function authorizedItems(group: NavGroup, perms: readonly string[] | undefined): NavItem[] {
   return group.items.filter((i) => isViewAuthorized(perms ? [...perms] : undefined, i.id));
 }
 
-/**
- * One sidebar group. Every group expands and collapses — a group with a single page, or
- * with a single page this reader may open, is still a group and never turns into a direct
- * link. Pages the reader cannot open are not rendered, and a group with none is hidden.
- */
 function NavGroupItem({ group }: { group: NavGroup }) {
   const perms = useAuthStore((s) => s.user?.permissions);
   const collapsed = useNavStore((s) => !!s.collapsedGroups[group.id]);
@@ -105,13 +94,9 @@ function NavGroupItem({ group }: { group: NavGroup }) {
   const items = authorizedItems(group, perms);
   const hasActive = items.some((i) => i.id === view);
 
-  // The group of the page being opened (from a link, a bookmark or the palette) opens with
-  // it. Otherwise the reader's choice stands: a group closed while its page is open stays
-  // closed until another navigation.
   const openedFor = useRef<string | null>(null);
   useEffect(() => {
     if (!hasActive) {
-      // Leaving the group: the next arrival at one of its pages opens it again.
       openedFor.current = null;
       return;
     }
@@ -128,7 +113,6 @@ function NavGroupItem({ group }: { group: NavGroup }) {
 
   const handleItemClick = (id: ViewId) => {
     setView(id);
-    // On a phone, opening a page closes the drawer; expanding a group does not.
     if (typeof window !== "undefined" && window.innerWidth < 768) {
       setSidebarOpen(false);
     }
@@ -191,9 +175,6 @@ function NavGroupItem({ group }: { group: NavGroup }) {
   );
 }
 
-// Collapsed state on desktop: a narrow rail of group icons. Choosing a group opens the
-// sidebar with that group expanded, so even a single-page group shows its page rather than
-// navigating silently.
 function NavRail() {
   const perms = useAuthStore((s) => s.user?.permissions);
   const view = useNavStore((s) => s.view);
@@ -208,7 +189,6 @@ function NavRail() {
 
   return (
     <aside className="hidden md:flex md:w-14 md:flex-shrink-0 md:my-2 md:ml-2 md:flex-col md:rounded-xl border border-sidebar-border bg-sidebar shadow-xs overflow-hidden">
-      {/* Brand Logo in collapsed rail */}
       <div className="p-2 flex-shrink-0 flex items-center justify-center border-b border-sidebar-border/50">
         <button
           type="button"
@@ -309,7 +289,7 @@ function GlobalSearch() {
       {open && query.trim().length >= 2 && (
         <div
           className="absolute top-full mt-1.5 left-0 right-0 z-50 rounded-xl border border-border/80 bg-popover/90 backdrop-blur-xl shadow-2xl overflow-hidden max-h-80 overflow-y-auto animate-in fade-in-50 zoom-in-95"
-          onMouseDown={(e) => e.preventDefault()} // Prevent input blur when clicking items
+          onMouseDown={(e) => e.preventDefault()}
         >
           {isFetching && !searchResults && (
             <div className="px-3 py-4 text-center text-xs text-muted-foreground">Searching...</div>
@@ -465,16 +445,12 @@ export function AppShell({ children }: { children: ReactNode }) {
   const view = useNavStore((s) => s.view);
   const tab = useNavStore((s) => s.tab);
   const mainRef = useRef<HTMLElement>(null);
-  // The bell reads /api/notifications, which needs notification.read: without it there is
-  // nothing to show and the request would only be refused.
   const canReadNotifications = useAuthStore((s) => !!s.user?.permissions.includes("notification.read"));
 
-  // <main> is the page's only vertical scroller: another page or tab starts at its top.
   useEffect(() => {
     mainRef.current?.scrollTo({ top: 0 });
   }, [view, tab]);
 
-  // Close mobile sidebar on view change (via hash change)
   useEffect(() => {
     const closeOnMobile = () => {
       if (typeof window !== "undefined" && window.innerWidth < 768) {
@@ -485,14 +461,12 @@ export function AppShell({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("hashchange", closeOnMobile);
   }, [setSidebarOpen]);
 
-  // Auto-close sidebar on mobile initial load
   useEffect(() => {
     if (typeof window !== "undefined" && window.innerWidth < 768) {
       setSidebarOpen(false);
     }
   }, [setSidebarOpen]);
 
-  // Auto-close sidebar when viewport shrinks below md (768px)
   useEffect(() => {
     const handleResize = () => {
       if (window.innerWidth < 768) {
@@ -504,10 +478,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [setSidebarOpen]);
 
   return (
-    // A viewport-high frame that never scrolls itself: the sidebar scrolls its navigation and
-    // <main> scrolls the page, so there is exactly one page scrollbar and none on the body.
     <div data-app-shell className="flex w-full overflow-hidden bg-white dark:bg-[#0E1117] text-foreground">
-      {/* Mobile backdrop when sidebar open */}
       {sidebarOpen && (
         <div
           className="md:hidden fixed inset-0 bg-black/50 z-40 backdrop-blur-xs"
@@ -515,18 +486,14 @@ export function AppShell({ children }: { children: ReactNode }) {
         />
       )}
 
-      {/* Sidebar — overlay on mobile, static rounded panel on desktop */}
       {sidebarOpen && (
         <aside
           className={cn(
             "bg-sidebar flex flex-col border border-sidebar-border shadow-xs overflow-hidden transition-all",
-            // Mobile: fixed drawer overlay
             "fixed inset-y-2 left-2 w-72 max-w-[85vw] rounded-2xl shadow-2xl z-50",
-            // Desktop: a side-by-side rounded panel as tall as the frame, less its margin
             "md:static md:my-2 md:ml-2 md:w-sidebar md:max-w-none md:flex-shrink-0 md:rounded-xl md:z-auto md:shadow-xs"
           )}
         >
-          {/* Differentiated Project Header Capsule */}
           <div className="p-2 flex-shrink-0 border-b border-sidebar-border/50">
             <div className="flex items-center justify-between gap-2 rounded-xl bg-white/70 dark:bg-[#221C18] border border-white/90 dark:border-[#3D322C] p-2 shadow-2xs backdrop-blur-sm">
               <div className="flex min-w-0 items-center gap-2.5">
@@ -555,8 +522,6 @@ export function AppShell({ children }: { children: ReactNode }) {
             </div>
           </div>
 
-          {/* Navigation Items */}
-          {/* Scrolls on its own; reaching its end never scrolls the page behind the mobile drawer. */}
           <nav aria-label="Main navigation" className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-1 py-1">
             {NAV.map((g) => (
               <NavGroupItem key={g.id} group={g} />
@@ -566,14 +531,10 @@ export function AppShell({ children }: { children: ReactNode }) {
         </aside>
       )}
 
-      {/* Collapsed: icon rail on desktop */}
       {!sidebarOpen && <NavRail />}
 
-      {/* Right Content Area: Top Bar + Main View + Bottom Footer */}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-white dark:bg-[#0E1117]">
-        {/* Top bar: outside the scroller, so it never scrolls away and never covers content. */}
         <header className="relative z-30 flex h-bar flex-shrink-0 items-center gap-1.5 border-b border-border/80 bg-white/95 dark:bg-[#131720]/95 px-2 backdrop-blur-md sm:gap-2 sm:px-page-x shadow-2xs">
-          {/* Mobile hamburger toggle (only when sidebar is closed) */}
           <Button
             variant="ghost"
             size="icon"
@@ -584,20 +545,16 @@ export function AppShell({ children }: { children: ReactNode }) {
             <ChevronRight className="h-4 w-4" />
           </Button>
 
-          {/* Search */}
           <div className="hidden sm:block w-48 xl:w-56 2xl:w-64 flex-shrink-0">
             <GlobalSearch />
           </div>
 
-          {/* Global Filter Bar inside top bar */}
           <div className="hidden md:flex items-center flex-shrink-0">
             <GlobalFilterBar />
           </div>
 
-          {/* Spacer to push actions right */}
           <div className="flex-1" />
 
-          {/* Right actions */}
           <div className="flex items-center gap-1 sm:gap-1.5 ml-auto flex-shrink-0">
             <ThemeToggle />
             {canReadNotifications && <NotificationsBell />}
@@ -605,16 +562,12 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
         </header>
 
-        {/* Center Main Workspace */}
-        {/* scroll-pt keeps anything scrolled into view (keyboard focus, a table's first row) clear of
-            the sticky page or tab header. */}
         <main ref={mainRef} data-scroll-owner="page" className="min-h-0 min-w-0 flex-1 flex flex-col overflow-y-auto overflow-x-hidden scroll-pt-16 bg-white dark:bg-[#0E1117]">
           {children}
         </main>
 
       </div>
 
-      {/* Command palette (Cmd+K / Ctrl+K) */}
       <CommandPalette />
     </div>
   );

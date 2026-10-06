@@ -22,7 +22,6 @@ import { ReactNode } from "react";
 
 interface PaletteItem {
   id: ViewId;
-  /** A tab of a host page; its label names the host, e.g. "Inventory → Stockout Risk". */
   tab?: string;
   label: string;
   group: string;
@@ -30,7 +29,6 @@ interface PaletteItem {
   keywords: string[];
 }
 
-// Tabs of each host page, so a tab entry is offered only to someone that tab would admit.
 const HOST_TABS: Partial<Record<ViewId, readonly HostTabItem[]>> = {
   dashboard: OVERVIEW_TABS,
   "analysis-sales": SALES_ANALYSIS_TABS,
@@ -39,7 +37,6 @@ const HOST_TABS: Partial<Record<ViewId, readonly HostTabItem[]>> = {
   "admin-mappings": MAPPINGS_TABS,
 };
 
-/** Offered only when the page — and, for a tab entry, that tab — is open to this user. */
 export function isPaletteItemAllowed(item: Pick<PaletteItem, "id" | "tab">, perms: readonly string[] | undefined): boolean {
   if (!isViewAuthorized(perms ? [...perms] : undefined, item.id)) return false;
   if (!item.tab) return true;
@@ -47,13 +44,9 @@ export function isPaletteItemAllowed(item: Pick<PaletteItem, "id" | "tab">, perm
   return !!tab && isTabPermitted(tab.permission, perms ?? []);
 }
 
-// Mirrors the sidebar (src/components/layout/app-shell.tsx), plus the tabs worth reaching
-// directly. Pages kept out of the sidebar are kept out of here too.
 export const PALETTE_ITEMS: PaletteItem[] = [
-  // Dashboard
   { id: "dashboard", label: "Overview", group: "Dashboard", icon: <LayoutDashboard className="h-4 w-4" />, keywords: ["home", "dashboard", "kpi", "overview"] },
   { id: "dashboard", tab: "analysis", label: "Overview → Analysis", group: "Dashboard", icon: <BarChart3 className="h-4 w-4" />, keywords: ["executive analysis", "summary", "demand", "shortage"] },
-  // Analysis
   { id: "analysis-sales", label: "Sales & Trends", group: "Analysis", icon: <TrendingUp className="h-4 w-4" />, keywords: ["sales", "sales analysis", "invoices", "revenue", "category"] },
   { id: "analysis-sales", tab: "trends", label: "Sales & Trends → Sales Trends", group: "Analysis", icon: <Activity className="h-4 w-4" />, keywords: ["trends", "30 day", "90 day", "velocity"] },
   { id: "analysis-customers-orders", label: "Customers & Orders", group: "Analysis", icon: <Users className="h-4 w-4" />, keywords: ["customers", "orders", "country", "branch", "buyer"] },
@@ -61,14 +54,11 @@ export const PALETTE_ITEMS: PaletteItem[] = [
   { id: "analysis-inventory-position", tab: "stockout", label: "Inventory → Stockout Risk", group: "Analysis", icon: <AlertTriangle className="h-4 w-4" />, keywords: ["stockout", "shortage", "risk"] },
   { id: "analysis-inventory-position", tab: "excess", label: "Inventory → Excess Stock", group: "Analysis", icon: <Package className="h-4 w-4" />, keywords: ["excess", "surplus", "overstock"] },
   { id: "analysis-inventory-position", tab: "aging", label: "Inventory → Aging", group: "Analysis", icon: <CalendarClock className="h-4 w-4" />, keywords: ["aging", "stock aging", "bucket", "location"] },
-  // Data
   { id: "fantasy-data", label: "Fantasy Data", group: "Data", icon: <Boxes className="h-4 w-4" />, keywords: ["fantasy", "current data", "polished stock"] },
   { id: "fantasy-data", tab: "integration", label: "Fantasy Data → Integration Status", group: "Data", icon: <RefreshCw className="h-4 w-4" />, keywords: ["sync", "synchronization", "integration", "freshness", "retry"] },
   { id: "fantasy-data", tab: "history", label: "Fantasy Data → Historical Data", group: "Data", icon: <HardDrive className="h-4 w-4" />, keywords: ["historical", "archive", "lots", "overall data"] },
   { id: "data-quality-issues", label: "Import Issues", group: "Data", icon: <FileWarning className="h-4 w-4" />, keywords: ["import issues", "invalid records", "unmapped", "reconciliation", "rejected records", "data quality"] },
-  // Planning
   { id: "planning-workbook-import", label: "Workbook Import", group: "Planning", icon: <FileText className="h-4 w-4" />, keywords: ["workbook", "import", "sarin", "csv", "output", "export"] },
-  // Administration
   { id: "admin-users-access", label: "Users & Access", group: "Administration", icon: <Users className="h-4 w-4" />, keywords: ["users", "roles", "permissions", "access requests"] },
   { id: "admin-mappings", label: "Mappings", group: "Administration", icon: <Shapes className="h-4 w-4" />, keywords: ["mappings", "weight bands", "lab mapping", "shape mapping", "status mapping"] },
   { id: "admin-mappings", tab: "sarin-shape-mapping", label: "Mappings → Sarin Shape Mapping", group: "Administration", icon: <Shapes className="h-4 w-4" />, keywords: ["sarin shape", "fantasy shape", "needs mapping"] },
@@ -115,7 +105,6 @@ export function CommandPalette() {
       })
     : visible;
 
-  // Group by category
   const grouped = filtered.reduce<Record<string, PaletteItem[]>>((acc, item) => {
     (acc[item.group] = acc[item.group] || []).push(item);
     return acc;

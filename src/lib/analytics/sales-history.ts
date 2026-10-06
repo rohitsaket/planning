@@ -1,36 +1,3 @@
-/**
- * SALES HISTORY — BOUNDED SERVER READ SERVICE (server-only)
- *
- * Answers, for confirmed historical sales only: what sold, when, in which category,
- * how recent activity changed, who and where contributed, which exact records support
- * each number, and whether the underlying history can be trusted at all.
- *
- * ONE ELIGIBILITY POLICY
- * ----------------------
- * This module does not decide what a confirmed sale is. That decision belongs to the
- * demand calculation, which applies the approved lifecycle mapping, the IST business
- * window, the cancellation/reversal and non-sale-removal exclusions, the lifecycle
- * episode deduplication and the canonical category normalization — and then *persists
- * the admitted sale events* as `DemandMetricTraceItem` rows of trace type SALE.
- *
- * This service reads those rows back. There is therefore no second sales calculation to
- * drift: the 90-day confirmed quantity here is the same set of rows that produced the
- * demand result's sales input, from the same snapshot, under the same policy.
- *
- * WHAT THIS COSTS, STATED PLAINLY
- * -------------------------------
- * The page can never be newer than the last authoritative run, and it says so. It never
- * claims to be live and never invents a figure for a run that has not happened.
- *
- * SCALE
- * -----
- * Row-level filtering and every aggregate run in the database. Only grouped rows or one
- * page of records ever reach this process. The category dimension (lab x shape x weight
- * band) is bounded by configuration rather than by sales volume, and the one query that
- * returns a whole grouped set is still guarded by an explicit ceiling: it errors rather
- * than truncating.
- */
-
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { num } from "@/lib/api-utils";
@@ -77,12 +44,6 @@ if (typeof window !== "undefined") {
   throw new Error("analytics/sales-history is server-only and must not be imported by client code.");
 }
 
-/**
- * Advisory freshness threshold for the sales snapshot, in hours. No business rule fixes
- * this number, so it is operator-configurable and labelled as advisory in the UI rather
- * than presented as an authoritative cutoff. An unusable value falls back to the
- * default instead of making every snapshot look permanently fresh or permanently stale.
- */
 const DEFAULT_SNAPSHOT_FRESHNESS_HOURS = 24;
 
 export function snapshotFreshnessThresholdHours(env: NodeJS.ProcessEnv = process.env): number {
@@ -90,17 +51,11 @@ export function snapshotFreshnessThresholdHours(env: NodeJS.ProcessEnv = process
   return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_SNAPSHOT_FRESHNESS_HOURS;
 }
 
-/**
- * Ceiling on the number of *grouped* category rows one request may materialise.
- * Exceeding it is an explicit error, never a silently shortened table.
- */
 const GROUP_CEILING = resolveExportRowLimit("SALES_GROUP_MAX", 5_000).rows;
 
-/** Row ceiling for a single server-side export, validated centrally. */
 export const SALES_EXPORT_LIMIT = resolveExportRowLimit("SALES_EXPORT_MAX_ROWS", 10_000);
 export const EXPORT_ROW_LIMIT = SALES_EXPORT_LIMIT.rows;
 
-/** Run statuses that produced a persisted, authoritative sale trace. */
 const AUTHORITATIVE_RUN_STATUSES = ["COMPLETED", "REVIEW_REQUIRED"] as const;
 
 export interface SalesPageRequest {
@@ -123,15 +78,6 @@ export interface SalesSnapshot {
   excludedCount: number;
 }
 
-// ---------------------------------------------------------------------------
-// Snapshot resolution
-// ---------------------------------------------------------------------------
-
-/**
- * The authoritative sales snapshot: the most recent demand run that finished and
- * persisted its sale trace. A RUNNING or FAILED run is never read — a half-written
- * trace is not a sales history.
- */
 export async function resolveSalesSnapshot(): Promise<SalesSnapshot | null> {
   const run = await db.demandRun.findFirst({
     where: { status: { in: [...AUTHORITATIVE_RUN_STATUSES] }, finishedAt: { not: null }, businessDateIst: { not: null } },
@@ -155,20 +101,12 @@ export async function resolveSalesSnapshot(): Promise<SalesSnapshot | null> {
   return { ...run, businessDateIst: run.businessDateIst };
 }
 
-/** Calendar arithmetic on "YYYY-MM-DD" strings. Timezone-free by construction. */
 export function addDays(date: string, days: number): string {
   const d = new Date(`${date}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
 }
 
-/**
- * The approved three-window layout for a cutoff business date.
- *
- * Boundaries are inclusive on both ends and are pure IST calendar dates. Window i covers
- * [D - 30i - 29, D - 30i], so consecutive windows touch without overlapping and without
- * leaving a gap, across month and year boundaries alike.
- */
 export function salesWindows(cutoffIst: string): SalesWindowBounds[] {
   return SALES_WINDOW_KEYS.map((key) => {
     const i = WINDOW_INDEX[key];
@@ -212,33 +150,12 @@ function snapshotMeta(run: SalesSnapshot | null): SalesSnapshotMeta {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Shared SQL
-// ---------------------------------------------------------------------------
-
-/**
- * IST business date of a stored UTC instant. Canonical timestamps stay in UTC; only the
- * business calendar is evaluated in IST, in one place.
- */
 const istDateSql = Prisma.sql`((("t"."docDate" AT TIME ZONE 'UTC') AT TIME ZONE ${BUSINESS_TIMEZONE})::date)`;
 
-/**
- * Row-level predicates. Values are always bound parameters; no identifier and no value
- * is ever concatenated from a request.
- */
-/**
- * The request filters plus the caller's authorization scope.
- *
- * The scope is deliberately NOT a field of `SalesHistoryFilterValues`: that type lives in
- * the shared contract, which the browser imports to build query strings, and an
- * authorization decision has no business being constructible on a client. It is added
- * here, on the server side of the boundary, by `withSalesScope`.
- */
 export interface ScopedSalesFilters extends SalesHistoryFilterValues {
   readonly scope: EffectiveScope;
 }
 
-/** Attaches a caller's scope to the filters they asked for. Server-side only. */
 export function withSalesScope(
   filters: SalesHistoryFilterValues,
   scope: EffectiveScope,
@@ -256,20 +173,11 @@ function filterSql(f: ScopedSalesFilters): Prisma.Sql {
   if (f.weightBand) parts.push(Prisma.sql`AND "t"."weightBand" = ${f.weightBand}`);
   if (f.categoryId) parts.push(Prisma.sql`AND "t"."planningCategory" = ${f.categoryId}`);
   if (f.search) parts.push(Prisma.sql`AND "t"."planningCategory" ILIKE ${`%${f.search}%`}`);
-  // The country is on the canonical lot the sale is joined to; the lab is on the trace
-  // row. Applied unconditionally, so an unfiltered request returns the caller's scope.
   const scope = scopeSql(f.scope, { country: '"m"."country"', lab: '"t"."lab"' });
   if (scope !== Prisma.empty) parts.push(scope);
   return parts.length ? Prisma.join(parts, " ") : Prisma.empty;
 }
 
-/**
- * The confirmed sales of one snapshot, already filtered, with the IST business date and
- * the 30-day window index attached. Everything else in this module builds on it.
- *
- * `LotMasterRecord.lotId` is unique, so the join adds location and customer identity
- * without ever multiplying a sale row.
- */
 function saleCte(run: SalesSnapshot, f: ScopedSalesFilters): Prisma.Sql {
   return Prisma.sql`
     WITH base AS (
@@ -330,10 +238,6 @@ const cmp = (a: number | string | null, b: number | string | null): number => {
   if (typeof a === "number" && typeof b === "number") return a - b;
   return String(a).localeCompare(String(b));
 };
-
-// ---------------------------------------------------------------------------
-// A. Readiness
-// ---------------------------------------------------------------------------
 
 interface ReadinessAggRow {
   records: number;
@@ -398,9 +302,6 @@ export async function getSalesReadiness(now: Date = new Date()): Promise<SalesRe
       FROM "DemandMetricTraceItem"
       WHERE "runId" = ${run.id} AND "traceType" = 'SALE' AND "isIncluded" = TRUE`,
     db.demandMetricTraceItem.count({ where: { runId: run.id, traceType: "EXCLUSION" } }),
-    // Sale records the centralized policy could not attribute to a confirmed category.
-    // The demand calculation records each one as an open data-quality issue; counting
-    // them here reads that record rather than re-deciding what "unmapped" means.
     db.dataQualityIssue.count({
       where: { source: "DEMAND_CALCULATION", entity: "SaleEvent", status: { in: ["OPEN", "IN_REVIEW"] } },
     }),
@@ -443,10 +344,6 @@ export async function getSalesReadiness(now: Date = new Date()): Promise<SalesRe
   };
 }
 
-// ---------------------------------------------------------------------------
-// B / D. Category summary and movement (one grouped aggregate, two presentations)
-// ---------------------------------------------------------------------------
-
 interface CategoryAggRow {
   category_id: string;
   lab: string;
@@ -466,11 +363,6 @@ interface CategoryAggregate extends CategorySalesRow {
   percentChange: number | null;
 }
 
-/**
- * One database aggregate per category. Window quantities come back as three FILTERed
- * sums over the same scan, so the three windows are guaranteed to partition the same
- * rows that the total is taken over.
- */
 async function categoryAggregates(run: SalesSnapshot, f: ScopedSalesFilters): Promise<CategoryAggregate[]> {
   const approved = run.windowDays === APPROVED_SALES_WINDOW_DAYS;
   const rows = await db.$queryRaw<CategoryAggRow[]>`
@@ -497,8 +389,6 @@ async function categoryAggregates(run: SalesSnapshot, f: ScopedSalesFilters): Pr
     const mid = num(r.mid30);
     const latest = num(r.latest30);
     const total = num(r.total_qty);
-    // The approved trend rule lives in the demand presentation module and is reused, not
-    // restated: two copies of these thresholds would eventually disagree.
     const trend = toSalesTrendDirection(Math.round(prev), Math.round(latest));
     const comparable = prev > 0;
     const parts = [r.lab, r.shape, r.weight_band].filter(Boolean);
@@ -515,8 +405,6 @@ async function categoryAggregates(run: SalesSnapshot, f: ScopedSalesFilters): Pr
       recordCount: r.records,
       latestSaleDate: r.latest_date,
       trend,
-      // A category whose identity is not fully confirmed, or that has no comparable
-      // earlier window, is reported as such instead of being shown as a clean figure.
       dataState: (parts.length < 3 ? "REVIEW_REQUIRED" : !approved || !comparable ? "INSUFFICIENT_HISTORY" : "CONFIRMED") as SalesDataState,
       absoluteChange: approved ? latest - prev : 0,
       percentChange: approved && comparable ? Math.round(((latest - prev) / prev) * 1000) / 10 : null,
@@ -541,10 +429,6 @@ const CATEGORY_SORT: Record<CategorySortKey, (r: CategoryAggregate) => number | 
   latestSaleDate: (r) => r.latestSaleDate,
 };
 
-/**
- * Filtering, sorting and paging all happen on the server. The browser receives one page
- * plus the real total, so a page of rows can never be mistaken for the whole table.
- */
 export async function getCategorySalesSummary(
   run: SalesSnapshot,
   f: ScopedSalesFilters,
@@ -555,7 +439,6 @@ export async function getCategorySalesSummary(
   const filtered = all.filter((r) => (!f.trend || r.trend === f.trend) && (!f.dataState || r.dataState === f.dataState));
   const sign = sort.dir === "asc" ? 1 : -1;
   const pick = CATEGORY_SORT[sort.key];
-  // Category id breaks every tie, so paging over the same filters is stable.
   filtered.sort((a, b) => sign * cmp(pick(a), pick(b)) || a.categoryId.localeCompare(b.categoryId));
 
   const totals = filtered.reduce(
@@ -580,7 +463,6 @@ export async function getCategorySalesSummary(
 export interface MovementResult {
   rows: MovementRow[];
   paging: PagingMeta;
-  /** False when the snapshot did not use the approved 90-day layout. */
   available: boolean;
 }
 
@@ -628,10 +510,6 @@ export async function getCategoryMovement(
   };
 }
 
-// ---------------------------------------------------------------------------
-// C. Period trend
-// ---------------------------------------------------------------------------
-
 interface TrendAggRow {
   period_key: string;
   period_start: string;
@@ -642,10 +520,6 @@ interface TrendAggRow {
   categories: number;
 }
 
-/**
- * One row per period. The chart and the table are served the same rows; there is no
- * second series computed anywhere.
- */
 export async function getSalesPeriodTrend(
   run: SalesSnapshot,
   f: ScopedSalesFilters,
@@ -655,8 +529,6 @@ export async function getSalesPeriodTrend(
     return { interval, rows: [], available: false };
   }
 
-  // Period identity per interval. `widx` is the approved 30-day layout; day and week are
-  // plain IST calendar periods anchored on the cutoff so the newest period is complete.
   const bucket =
     interval === "day"
       ? Prisma.sql`ist_date`
@@ -696,10 +568,6 @@ export async function getSalesPeriodTrend(
   };
 }
 
-// ---------------------------------------------------------------------------
-// E. Customer / country / branch contribution
-// ---------------------------------------------------------------------------
-
 interface ContributionAggRow {
   k: string | null;
   label: string | null;
@@ -718,7 +586,6 @@ export async function getSalesContribution(
   dimension: ContributionDimension,
   page: SalesPageRequest,
 ): Promise<{ dimension: ContributionDimension; rows: ContributionRow[]; paging: PagingMeta }> {
-  // The grouping column comes from this fixed map, never from the request.
   const keyCol =
     dimension === "customer" ? Prisma.sql`customer_code` : dimension === "country" ? Prisma.sql`country` : Prisma.sql`branch`;
   const labelCol = dimension === "customer" ? Prisma.sql`MIN(customer_name)` : Prisma.sql`MIN(${keyCol})`;
@@ -754,10 +621,6 @@ export async function getSalesContribution(
   };
 }
 
-// ---------------------------------------------------------------------------
-// F. Supporting records
-// ---------------------------------------------------------------------------
-
 interface RecordAggRow {
   record_id: string;
   lot_id: string | null;
@@ -782,11 +645,6 @@ const RECORD_ORDER: Record<RecordSortKey, Prisma.Sql> = {
   category: Prisma.sql`category_id`,
 };
 
-/**
- * The exact records behind an aggregate. Allowlisted business fields only: no raw source
- * payload, no stored reason text, no remark, no formula and no internal identifier
- * beyond the ones the drill-down itself needs.
- */
 export async function getSupportingRecords(
   run: SalesSnapshot,
   f: ScopedSalesFilters,
@@ -835,14 +693,6 @@ export async function getSupportingRecords(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Export
-// ---------------------------------------------------------------------------
-
-/**
- * Category rows for a server-generated export. Same snapshot, same filters and the same
- * eligibility policy as the screen; capped, and the cap is reported rather than hidden.
- */
 export async function getCategorySummaryForExport(
   run: SalesSnapshot,
   f: ScopedSalesFilters,

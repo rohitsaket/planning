@@ -1,13 +1,3 @@
-// Sarin Workbook Import workflow: page and navigation permission alignment, the separate
-// upload / validate / generate / export authorities, upload safety and idempotency,
-// revalidation of imports validated under older rules, unresolved-mapping review, and the
-// structured-output export.
-//
-// Every request goes through the real route handlers against the isolated
-// planning_sectest database, as users holding exactly the permissions under test (custom
-// roles created through the real admin routes). Failures are injected by database
-// triggers. All data is synthetic.
-
 import { beforeAll, beforeEach, describe, expect, test } from "./harness";
 import { call, db, ensureLabRegistry, makeUser, resetDb } from "./helpers";
 import { randomUUID } from "node:crypto";
@@ -33,7 +23,6 @@ let uploader: User, validator: User, generator: User, exporter: User;
 let blueSetId = "";
 const BLUE_RULES: CatalogRule[] = [{ rawShape: "ROUND", normalizedShape: "Round" }];
 
-// ---- synthetic records ---------------------------------------------------------------------
 let nonce = 0;
 const kapan = () => `7${String(++nonce).padStart(3, "0")}Q`;
 interface Rec { name: string; rough?: string; shape?: string; est?: string; clarity?: string; ratio?: string }
@@ -41,7 +30,6 @@ const line = (r: Rec) => [r.name, r.rough ?? "3.000", r.shape ?? "ROUND", r.est 
 const file = (recs: Rec[]) => recs.map(line).join("\n") + "\n";
 const stone = (o: Rec, count = 17) => Array.from({ length: count }, () => ({ ...o }));
 
-// ---- requests -------------------------------------------------------------------------------
 async function upload(cookie: string | undefined, bytes: Uint8Array, name = "sarin.csv", fields: Record<string, string> = {}) {
   resetRateLimits();
   const fd = new FormData();
@@ -60,7 +48,6 @@ async function uploadBatch(recs: Rec[], fields: Record<string, string> = {}) {
   if (r.status !== 201) throw new Error(`upload failed ${r.status} ${JSON.stringify(r.json)}`);
   return r.json.batch.id as string;
 }
-/** Checks a file against the shape mappings in effect. */
 const validate = (batchId: string, cookie: string) => {
   resetRateLimits();
   return call(validateImport, { method: "POST", cookie, body: {}, params: { batchId } });
@@ -82,7 +69,6 @@ async function exportCsv(batchId: string, versionId: string, cookie: string | un
 }
 const audits = (action: string, batchId: string) => db.auditLog.findMany({ where: { action, entityId: batchId }, orderBy: { timestamp: "asc" } });
 
-/** A user whose only role holds exactly these permissions, built through the admin routes. */
 async function userWith(name: string, permissions: string[]) {
   const u = await makeUser(name, "VIEWER");
   const code = `SARIN_${name.toUpperCase().replace(/[^A-Z]/g, "_")}_${Date.now().toString(36).toUpperCase()}`;
@@ -95,7 +81,6 @@ async function userWith(name: string, permissions: string[]) {
   return u;
 }
 
-/** Records a completed, clean validation made under an older validation profile, the way Phase 5 recorded one. */
 async function markValidatedUnder(batchId: string, profile: string) {
   const b = await db.sarinImportBatch.update({
     where: { id: batchId },
@@ -127,13 +112,11 @@ beforeAll(async () => {
   generator = await userWith("wf.generator", ["sarin.import.read", "sarin.output.generate"]);
   exporter = await userWith("wf.exporter", ["sarin.import.read", "sarin.output.export"]);
 });
-// Every test starts from the Blue catalog; a test that changes it does so through the API.
 beforeEach(async () => {
   resetRateLimits();
   blueSetId = await applyCatalog(mapper.cookie, BLUE_RULES);
 });
 
-// =========================================================================================
 describe("sarin workflow: page and navigation permissions", () => {
   test("the page admits exactly the roles that hold sarin.import.read, not demand.run", () => {
     for (const role of TEST_ROLES) {
@@ -156,7 +139,6 @@ describe("sarin workflow: page and navigation permissions", () => {
   });
 });
 
-// =========================================================================================
 describe("sarin workflow: upload", () => {
   test("only sarin.import.upload may upload; the uploader and summary come from the session", async () => {
     const content = text(file(stone({ name: `${kapan()}-001 DC` })));
@@ -167,7 +149,6 @@ describe("sarin workflow: upload", () => {
     const batch = ok.json.batch;
     expect([batch.uploadedBy, batch.stones, batch.revalidationRequired, batch.counts.records, batch.status]).toEqual(["wf.uploader", null, false, 17, "UPLOADED"]);
     expect((await audits("SARIN_IMPORT_UPLOADED", batch.id)).map((a: any) => a.actorUserId)).toEqual([uploader.user.id]);
-    // Client-supplied identity is refused, not ignored.
     expect((await upload(uploader.cookie, content, "sarin.csv", { uploadedBy: "someone" })).status).toBe(400);
   });
 
@@ -207,7 +188,6 @@ describe("sarin workflow: upload", () => {
   });
 });
 
-// =========================================================================================
 describe("sarin workflow: separate authorities for validate and generate", () => {
   test("validation needs sarin.import.validate; generation needs sarin.output.generate", async () => {
     const batchId = await uploadBatch(stone({ name: `${kapan()}-001 DC` }));
@@ -234,7 +214,6 @@ describe("sarin workflow: separate authorities for validate and generate", () =>
   });
 });
 
-// =========================================================================================
 describe("sarin workflow: revalidation under updated rules", () => {
   test("an import validated under an older profile shows Revalidation Required and cannot generate", async () => {
     const batchId = await uploadBatch(stone({ name: `${kapan()}-001 DC` }));
@@ -268,7 +247,6 @@ describe("sarin workflow: revalidation under updated rules", () => {
     const revalidated = await audits("SARIN_VALIDATION_PROFILE_REVALIDATION", batchId);
     expect(revalidated.map((a: any) => [a.actorUserId, JSON.parse(a.before!).validationProfile, JSON.parse(a.after!).validationProfile])).toEqual([[validator.user.id, "SARIN_VALIDATION_V2", SARIN_VALIDATION_PROFILE_VERSION]]);
 
-    // Repeating it changes nothing and records no second revalidation.
     const repeat = await validate(batchId, validator.cookie);
     expect([repeat.status, repeat.json.reused]).toEqual([200, true]);
     expect(await db.sarinValidationAttempt.count({ where: { batchId } })).toBe(2);
@@ -316,7 +294,6 @@ describe("sarin workflow: revalidation under updated rules", () => {
   });
 });
 
-// =========================================================================================
 describe("sarin workflow: findings for review", () => {
   test("blocking issues and warnings are listed separately, with the raw shape, Ratio and a next step", async () => {
     await applyCatalog(mapper.cookie, [
@@ -326,8 +303,8 @@ describe("sarin workflow: findings for review", () => {
     ]);
     const name = `${kapan()}-001 DC`;
     const recs = stone({ name });
-    recs[4] = { name, shape: "EMERALD 4STEP", ratio: "1.435" }; // no mapping at all: written unmapped, with a warning
-    recs[6] = { name, shape: "EMERALD 5STEP", ratio: "1.200" }; // mapped by Ratio, but outside every range: blocks
+    recs[4] = { name, shape: "EMERALD 4STEP", ratio: "1.435" };
+    recs[6] = { name, shape: "EMERALD 5STEP", ratio: "1.200" };
     const batchId = await uploadBatch(recs);
     expect((await validate(batchId, validator.cookie)).json.batch.status).toBe("NEEDS_REVIEW");
     const blocking = (await read(listIssues, { batchId }, "?blocking=true", reader.cookie)).json;
@@ -341,7 +318,6 @@ describe("sarin workflow: findings for review", () => {
       ["SHAPE_NOT_MAPPED", 5, false, { rawShapeKey: "EMERALD 4STEP", ratio: "1.435" }, "Add a mapping for this shape in Mappings, then process the file again."],
     ]);
     expect((await read(listIssues, { batchId }, "?blocking=maybe")).status).toBe(400);
-    // Nothing is assumed for the blocking row: output is refused, with nothing written.
     const refused = await generate(batchId, generator.cookie);
     expect([refused.status, refused.json.error.code]).toEqual([422, "BLOCKING_FINDINGS_OPEN"]);
     expect([await db.sarinOutputVersion.count({ where: { batchId } }), await db.sarinPlanOption.count({ where: { batchId } }), await db.sarinPlanPiece.count({ where: { batchId } })]).toEqual([0, 0, 0]);
@@ -349,7 +325,6 @@ describe("sarin workflow: findings for review", () => {
   });
 });
 
-// =========================================================================================
 describe("sarin workflow: export", () => {
   test("export needs sarin.output.export and returns the stored values, formula-safe, in a fixed column order", async () => {
     const name = `${kapan()}-001 DC`;
@@ -370,14 +345,13 @@ describe("sarin workflow: export", () => {
         .map((h) => `"${h}"`).join(","),
     );
     expect(lines.length).toBe(5 + 18);
-    // Counts and sequences are plain numbers; weights and yields keep their fixed decimals as text.
     expect(lines[5]).toBe(`1,"${name}","${name.split("-")[0]}","001","DC","BLUE","3.000",1,"MAIN","Main plan",1,"1.500","50.00","",1,1,"ROUND","Round","1.500","VS1","G","61.600","1.000","7.620","7.620","4.690"`);
-    expect(lines[21]).toContain(`"'=1+2"`); // record 17: a formula becomes text
+    expect(lines[21]).toContain(`"'=1+2"`);
     expect(lines[22]).toContain(`"'@SUM(A1)"`);
     expect(lines[22]).toContain(`"ADDITIONAL","Additional group",1,"0.750","25.00"`);
     const audit = await audits("SARIN_OUTPUT_EXPORTED", batchId);
     expect(audit.map((a: any) => [a.actorUserId, JSON.parse(a.after!)])).toEqual([[exporter.user.id, { outputVersionId: versionId, versionNumber: 1, format: "CSV", rows: 18 }]]);
-    expect(audit[0].after!.includes("=1+2")).toBe(false); // content is never logged
+    expect(audit[0].after!.includes("=1+2")).toBe(false);
   });
 
   test("the selected immutable version is exported, even after a newer one; a larger version is refused, not cut", async () => {
@@ -418,7 +392,7 @@ describe("sarin workflow: export", () => {
     expect(lines.length).toBe(45);
     const codes = lines.map((l: any) => l.split(",")[8].replace(/"/g, ""));
     expect([codes.filter((c: any) => c === "MK").length, codes.filter((c: any) => c === "SL").length, codes.filter((c: any) => c === "BP").length, codes.filter((c: any) => c === "BT").length]).toEqual([9, 18, 6, 12]);
-    expect(lines[36]).toContain(`"BT","Best Twin",2,"0.804",`); // positions 36–37: the 0.004 twin
+    expect(lines[36]).toContain(`"BT","Best Twin",2,"0.804",`);
     expect(lines[36]).toContain(`"0.004"`);
   });
 
@@ -426,26 +400,21 @@ describe("sarin workflow: export", () => {
     const batchId = await uploadBatch(stone({ name: `${kapan()}-001 DC` }));
     expect(Object.keys(importRoute).sort()).toEqual(["DELETE", "GET"]);
 
-    // A user without sarin.import.upload authority cannot delete
     const denied = await call(importRoute.DELETE, { method: "DELETE", cookie: viewer.cookie, params: { batchId } });
     expect(denied.status).toBe(403);
 
-    // An authorized uploader can delete
     const res = await call(importRoute.DELETE, { method: "DELETE", cookie: uploader.cookie, params: { batchId } });
     expect(res.status).toBe(200);
     expect(res.json.ok).toBe(true);
 
-    // It should now be ARCHIVED in DB
     const batchInDb = await db.sarinImportBatch.findUnique({ where: { id: batchId } });
     expect(batchInDb?.status).toBe("ARCHIVED");
     expect(batchInDb?.archivedAt).not.toBeNull();
 
-    // Audit log was recorded
     const audit = await audits("SARIN_IMPORT_ARCHIVED", batchId);
     expect(audit.length).toBe(1);
     expect(audit[0].actorUserId).toBe(uploader.user.id);
 
-    // It should no longer appear in the default recent files list
     const recent = await read(listImports, {}, "?pageSize=100", uploader.cookie);
     expect(recent.json.rows.some((b: any) => b.id === batchId)).toBe(false);
   });

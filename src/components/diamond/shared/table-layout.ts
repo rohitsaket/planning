@@ -1,7 +1,3 @@
-// A table's saved column layout: order, hidden columns and widths, kept per tableId in the
-// browser. A convenience only — anything unreadable is ignored and the table falls back to
-// its column definitions.
-
 export interface SavedTableLayout {
   orderedKeys: string[];
   hiddenKeys: string[];
@@ -12,7 +8,6 @@ export const tableLayoutStorageKey = (tableId: string) => `dt_layout_${tableId}`
 
 const EMPTY: SavedTableLayout = { orderedKeys: [], hiddenKeys: [], colWidths: {} };
 
-/** Parses a stored layout, keeping only well-formed parts. */
 export function parseTableLayout(raw: string | null): SavedTableLayout {
   if (!raw) return EMPTY;
   let parsed: unknown;
@@ -33,7 +28,6 @@ export function parseTableLayout(raw: string | null): SavedTableLayout {
   return { orderedKeys: strings(value.orderedKeys), hiddenKeys: strings(value.hiddenKeys), colWidths };
 }
 
-/** The saved layout for a table, or an empty one without a tableId or readable storage. */
 export function readTableLayout(tableId: string | undefined): SavedTableLayout {
   if (!tableId || typeof window === "undefined") return EMPTY;
   try {
@@ -43,10 +37,6 @@ export function readTableLayout(tableId: string | undefined): SavedTableLayout {
   }
 }
 
-/**
- * The column order to show: the user's order for columns that still exist, then any column
- * not in it, in definition order. Keys that no longer name a column are dropped.
- */
 export function reconcileColumnOrder(userOrder: readonly string[], columnKeys: readonly string[]): string[] {
   const known = new Set(columnKeys);
   const kept = userOrder.filter((k, i) => known.has(k) && userOrder.indexOf(k) === i);

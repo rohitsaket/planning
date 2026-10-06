@@ -1,15 +1,3 @@
-/**
- * The stable finding codes a Sarin validation attempt can raise, with the wording shown to
- * reviewers. Wording explains what is wrong and what to check; it deliberately names no
- * pattern, threshold, formula or query, because it is displayed as-is.
- *
- * A BLOCKING finding keeps the batch in NEEDS_REVIEW until it is resolved, reviewed or the
- * source is corrected. A WARNING is an advisory: it stays visible on the validation but
- * does not block output. Nothing is ever repaired automatically.
- *
- * Server-only.
- */
-
 if (typeof window !== "undefined") {
   throw new Error("sarin/issue-catalog is server-only and must not be imported by client code.");
 }
@@ -41,7 +29,6 @@ export const SARIN_ISSUE_CATALOG = {
   MAPPING_NO_CONDITIONAL_RULE: blocking("Ratio is outside the mapped ranges", "This shape is mapped according to its Ratio, and this record's Ratio is outside every mapped range."),
   MAPPING_MULTIPLE_RULES: blocking("More than one shape mapping applies", "More than one mapping applies to this shape, so it cannot be resolved."),
   MAPPING_NORMALIZED_SHAPE_INVALID: blocking("Shape mapping gives an unknown shape", "The mapping names a shape that is not in the ecosystem shape list."),
-  // Historical only: raised by validations before Sarin imports stopped carrying a country.
   COUNTRY_NOT_IN_REGISTRY: blocking("Country is not recognised", "The country selected for this file is not in the company's country registry."),
   LAB_NOT_IN_REGISTRY: blocking("Lab is not recognised", "The lab selected for this file is not an active lab in the lab registry."),
   STONE_BLOCK_SHORTER_THAN_MAIN_LIMIT: blocking("Stone has too few plans", "This stone has fewer plan records than its packet type requires for its main plans."),
@@ -59,7 +46,6 @@ export const SARIN_ISSUE_CATALOG = {
   PINK_BP_SHAPE_MISMATCH: blocking("Shape combination does not match the expected Pink structure", "This Best Pair (BP) position holds a different shape than the pair requires."),
   PINK_BT_SHAPE_MISMATCH: blocking("Shape combination does not match the expected Pink structure", "Both pieces of a Best Twin (BT) plan must be the twin's shape, but this record's shape is different."),
   BT_WEIGHT_VARIANCE_UNCONFIRMED: advisory("Best Twin weights differ", "The two pieces of this Best Twin plan differ in estimated weight. This does not block output."),
-  // Design v1.7 §15.10: a present Sarin shape with no confirmed mapping is written unchanged, with a warning.
   SHAPE_NOT_MAPPED: advisory("Shape is not mapped", "This Sarin shape has no confirmed mapping, so the output shows it as it appears in the Sarin file."),
 } as const satisfies Record<string, IssueDefinition>;
 
@@ -72,7 +58,6 @@ const NEXT_STEP = {
   advisory: "Weight difference requires review.",
 } as const;
 
-/** What a reviewer can do about a finding. Never a repair: every step is a person's decision. */
 function nextStepFor(code: string): string {
   if (code === "BT_WEIGHT_VARIANCE_UNCONFIRMED") return NEXT_STEP.advisory;
   if (code === "COUNTRY_NOT_IN_REGISTRY" || code === "LAB_NOT_IN_REGISTRY") return NEXT_STEP.registry;
@@ -87,7 +72,6 @@ export function describeIssue(code: string): { title: string; explanation: strin
     : { title: "Issue found", explanation: "An issue was recorded for this file.", nextStep: NEXT_STEP.correctSource };
 }
 
-/** Positional field (1–11) named by a Phase 3 row rejection code, for issue lineage. */
 export const REJECTION_FIELD_POSITION: Record<string, { position: number; field: string }> = {
   STONE_NAME: { position: 1, field: "stoneName" },
   ROUGH_WEIGHT: { position: 2, field: "roughWeight" },

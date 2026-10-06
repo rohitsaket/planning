@@ -1,29 +1,3 @@
-/**
- * STOCKOUT RISK — bounded read service.
- *
- * One question: which planning categories have confirmed demand that physically
- * available finished polished stock does not cover?
- *
- * Every number here is read from `DemandMetric`, the row the approved demand engine
- * persisted for the selected run. This module computes no shortage of its own. That is
- * the whole point: the page that reports a shortage and the page that calculated it must
- * be the same answer, and the only way to guarantee that is to read the stored value
- * rather than re-derive it from inventory that has since moved.
- *
- * What the engine already decided, and this module does not revisit:
- *   - Memo stock is advisory and does not cover the target.
- *   - Reserved and blocked stock do not cover the target.
- *   - WIP is reported separately and does not reduce physical shortage until the WIP
- *     coverage policy is confirmed.
- *   - Held, excluded, unknown and unclassified stock do not cover the target.
- *
- * Rough stock is deliberately absent. `RoughStone` is keyed by kapan and packet and
- * carries no lab, shape or weight band, so there is no authoritative category to match a
- * rough figure to. Showing one would mean inventing the join.
- *
- * Server-only.
- */
-
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { formatIST } from "@/lib/fantasy/time";
@@ -41,27 +15,10 @@ type DbClient = typeof db;
 
 export const STOCKOUT_PAGE_DEFAULT = 25;
 export const STOCKOUT_PAGE_MAX = 200;
-/**
- * Ceiling for one export. Declared to the caller; never a silent cut-off.
- *
- * Resolved through the validated configuration helper, so an unusable environment value
- * cannot become `NaN` and turn an empty export into one that reports itself complete.
- */
 export const STOCKOUT_EXPORT_LIMIT = resolveExportRowLimit("STOCKOUT_EXPORT_MAX_ROWS", 20_000);
 export const STOCKOUT_EXPORT_ROW_LIMIT = STOCKOUT_EXPORT_LIMIT.rows;
-/** Rows per query while exporting, so a large export never materializes one huge set. */
 const EXPORT_READ_BATCH = 2_000;
 
-// ---------------------------------------------------------------------------
-// Vocabulary
-// ---------------------------------------------------------------------------
-
-/**
- * Factual outcomes, each decidable from stored values alone.
- *
- * There is deliberately no Critical / High / Medium ranking: that would need a scoring
- * rule nobody has approved, and the previous page invented one.
- */
 export const STOCKOUT_STATES = ["OUT_OF_STOCK", "SHORTAGE", "COVERED", "EXCESS", "REVIEW_REQUIRED"] as const;
 export type StockoutState = (typeof STOCKOUT_STATES)[number];
 
@@ -73,7 +30,6 @@ export const STOCKOUT_STATE_LABELS: Record<StockoutState, string> = {
   REVIEW_REQUIRED: "Review required",
 };
 
-/** Whether a category's own figures can be trusted, as the engine recorded it. */
 export const STOCKOUT_DATA_STATES = ["CONFIRMED", "REVIEW_REQUIRED", "BLOCKED"] as const;
 export type StockoutDataState = (typeof STOCKOUT_DATA_STATES)[number];
 
@@ -90,20 +46,7 @@ export interface StockoutFilters {
   stockoutState: StockoutState | null;
   dataState: StockoutDataState | null;
   search: string | null;
-  /** Default view is the page's purpose: categories that are short. */
   shortageOnly: boolean;
-  /**
-   * The caller's country and lab authorization scope.
-   *
-   * It rides with the filters because it is applied where they are, but it is not a
-   * filter: it comes from the authenticated server session and a request can only narrow
-   * within it, never widen past it.
-   *
-   * Only the lab half can be applied to `DemandMetric`: the persisted demand result has a
-   * lab but no country, because the target is calculated once per planning category for
-   * the whole business. A country-restricted caller is told so on the response rather
-   * than being shown a business-wide figure labelled as their country's.
-   */
   readonly scope: EffectiveScope;
 }
 
@@ -116,10 +59,6 @@ export const EMPTY_STOCKOUT_FILTERS: StockoutFilters = {
 export interface Paging { page: number; pageSize: number }
 export interface PagingMeta { page: number; pageSize: number; total: number; hasMore: boolean }
 
-// ---------------------------------------------------------------------------
-// Snapshot status
-// ---------------------------------------------------------------------------
-
 export interface StockoutSnapshotStatus {
   readonly hasRun: boolean;
   readonly runId: string | null;
@@ -127,24 +66,17 @@ export interface StockoutSnapshotStatus {
   readonly availabilityMessage: string;
   readonly sourceState: "SIMULATION" | "LIVE";
   readonly sourceLabel: string;
-  /**
-   * Where these figures came from. Rendered by the shared simulation banner; never
-   * re-derived in a view from a local flag.
-   */
   readonly sourceDisclosure: SourceDisclosure;
   readonly runCompletedIst: string | null;
   readonly businessDateIst: string | null;
   readonly windowDays: number | null;
   readonly periodLabel: string;
-  /** The inventory cutoff the run itself read. */
   readonly inventoryCutoffIst: string | null;
-  /** True when canonical stock has been observed since the run's cutoff. */
   readonly inventoryChangedSinceRun: boolean;
   readonly latestInventoryObservedIst: string | null;
   readonly staleWarning: string | null;
   readonly reviewWarning: string | null;
   readonly unavailableMessage: string | null;
-  /** Demand is stored per category only; country and branch are not dimensions of it. */
   readonly countryScopeSupported: false;
   readonly countryScopeNotice: string;
 }
@@ -160,8 +92,6 @@ export async function readStockoutSnapshotStatus(
 ): Promise<StockoutSnapshotStatus> {
   const availability = await resolveAnalysisAvailability(client);
 
-  // A bookmarked link names its run. The latest is never substituted for it, because
-  // that would answer a different question than the link asked.
   const runId = runIdOverride ?? availability.snapshot?.id ?? null;
   const run = runId
     ? await client.demandRun.findUnique({ where: { id: runId }, select: RUN_STATUS_SELECT })
@@ -173,9 +103,6 @@ export async function readStockoutSnapshotStatus(
       runId: null,
       availabilityState: availability.state,
       availabilityMessage: availability.message,
-      // No run means nothing has been attributed yet. `sourceState` keeps its legacy
-      // shape for existing callers, but the disclosure says plainly that the source is
-      // not established — an empty page must not claim to be simulated.
       sourceState: "SIMULATION",
       sourceLabel: "No demand calculation",
       sourceDisclosure: UNESTABLISHED_SOURCE,
@@ -195,8 +122,6 @@ export async function readStockoutSnapshotStatus(
     };
   }
 
-  // Staleness is measured against the run's own cutoff, not the clock: stock observed
-  // after the run was calculated is not in its shortage figures.
   const cutoff = run.sourceCutoff ?? run.finishedAt ?? run.runDate;
   const latestInventory = await client.lotMasterRecord.findFirst({
     where: { isCurrent: true },
@@ -234,19 +159,10 @@ export async function readStockoutSnapshotStatus(
   };
 }
 
-/**
- * Exactly what the status panel needs. `sourceCutoff` is not part of the shared
- * `SnapshotCandidate` contract, so this module selects its own fields rather than
- * widening a type other pages depend on.
- */
 const RUN_STATUS_SELECT = {
   id: true, status: true, runDate: true, finishedAt: true, windowDays: true,
   businessDateIst: true, isSimulated: true, sourceCutoff: true,
 } as const;
-
-// ---------------------------------------------------------------------------
-// Category rows
-// ---------------------------------------------------------------------------
 
 export interface StockoutRow {
   readonly categoryId: string;
@@ -258,9 +174,7 @@ export interface StockoutRow {
   readonly targetQuantity: number;
   readonly physicalAvailable: number;
   readonly physicalShortage: number;
-  /** Advisory. Never deducted from shortage. */
   readonly memoQuantity: number;
-  /** Reported separately. Never deducted until the coverage policy is confirmed. */
   readonly wipQuantity: number;
   readonly stockoutState: StockoutState;
   readonly dataState: StockoutDataState;
@@ -282,18 +196,11 @@ export interface StockoutCategoriesResult {
   readonly sort: { key: StockoutSortKey; dir: SortDirection };
 }
 
-/** A metric row is trusted unless the engine itself flagged it. */
 function dataStateOf(status: string): StockoutDataState {
   if (status === "BLOCKED_BY_DATA_QUALITY") return "BLOCKED";
   return status === "REVIEW_REQUIRED" ? "REVIEW_REQUIRED" : "CONFIRMED";
 }
 
-/**
- * The category's outcome, from stored values only.
- *
- * A category whose own figures need review is reported as such rather than being given a
- * shortage verdict its numbers cannot support.
- */
 function stockoutStateOf(m: { roundedTarget: number; availableStock: number; physicalShortage: number; excessStock: number; status: string }): StockoutState {
   if (dataStateOf(m.status) !== "CONFIRMED") return "REVIEW_REQUIRED";
   if (m.roundedTarget > 0 && m.availableStock === 0) return "OUT_OF_STOCK";
@@ -302,11 +209,7 @@ function stockoutStateOf(m: { roundedTarget: number; availableStock: number; phy
   return "COVERED";
 }
 
-/** The Prisma filter for everything the database can decide. */
 function whereFor(runId: string, f: StockoutFilters): Prisma.DemandMetricWhereInput {
-  // The scope is merged first so that a filter below can only narrow within it. There is
-  // no country column on this table, so `scopeWhere` is given none and applies the lab
-  // half only; the route discloses that the country half could not be applied.
   const where: Prisma.DemandMetricWhereInput = {
     runId,
     ...scopeWhere(f.scope, { country: null, lab: "labNormalized" }),
@@ -325,8 +228,6 @@ function whereFor(runId: string, f: StockoutFilters): Prisma.DemandMetricWhereIn
       : f.dataState === "REVIEW_REQUIRED" ? "REVIEW_REQUIRED"
       : { notIn: ["REVIEW_REQUIRED", "BLOCKED_BY_DATA_QUALITY"] };
   }
-  // `stockoutState` mixes stored columns, so it is expressed as column predicates rather
-  // than computed after paging — otherwise a page could come back short.
   if (f.stockoutState) {
     const confirmed = { notIn: ["REVIEW_REQUIRED", "BLOCKED_BY_DATA_QUALITY"] };
     switch (f.stockoutState) {
@@ -358,7 +259,6 @@ function whereFor(runId: string, f: StockoutFilters): Prisma.DemandMetricWhereIn
   return where;
 }
 
-/** Deterministic ordering: the chosen key, then the category key as a stable tie-breaker. */
 function orderFor(sort: { key: StockoutSortKey; dir: SortDirection }): Prisma.DemandMetricOrderByWithRelationInput[] {
   const column: Record<StockoutSortKey, keyof Prisma.DemandMetricOrderByWithRelationInput> = {
     physicalShortage: "physicalShortage",
@@ -393,21 +293,12 @@ function toRow(m: MetricRow): StockoutRow {
     physicalAvailable: m.availableStock,
     physicalShortage: m.physicalShortage,
     memoQuantity: m.memoQty,
-    // Eligible plus unallocated: the whole WIP position for the category, shown beside
-    // the shortage rather than inside it.
     wipQuantity: m.wipCoverage + m.unallocatedWip,
     stockoutState: stockoutStateOf(m),
     dataState: dataStateOf(m.status),
   };
 }
 
-/**
- * One page of categories, filtered sorted and counted by the database.
- *
- * Totals are computed across every matching category, not the visible page, and exclude
- * rows the engine flagged — a figure that cannot be trusted must not be summed into one
- * that is presented as authoritative.
- */
 export async function readStockoutCategories(
   runId: string,
   filters: StockoutFilters,
@@ -459,7 +350,6 @@ export async function readStockoutCategories(
   };
 }
 
-/** Every matching row for an export, read in bounded batches. */
 export async function readStockoutForExport(
   runId: string,
   filters: StockoutFilters,
@@ -486,10 +376,6 @@ export async function readStockoutForExport(
   return { rows, total, truncated: total > STOCKOUT_EXPORT_ROW_LIMIT };
 }
 
-// ---------------------------------------------------------------------------
-// Category detail
-// ---------------------------------------------------------------------------
-
 export interface StockoutDetail extends StockoutRow {
   readonly found: true;
   readonly reservedQuantity: number;
@@ -508,13 +394,6 @@ export interface StockoutDetailMissing {
   readonly message: string;
 }
 
-/**
- * Business supporting detail for one category.
- *
- * A category the selected run does not contain is reported as absent, never replaced
- * with the first row of the result — a bookmarked link to a category that has since
- * dropped out of the run must say so.
- */
 export async function readStockoutDetail(
   runId: string,
   categoryId: string,
@@ -566,12 +445,6 @@ export async function readStockoutDetail(
   };
 }
 
-/**
- * The three approved 30-day segments, counted from the run's own persisted sale trace.
- *
- * Quantity comes from the trace row, so a record whose quantity was never established is
- * not silently counted as one piece.
- */
 async function readSegments(
   client: DbClient,
   runId: string,

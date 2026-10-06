@@ -1,6 +1,3 @@
-// Tests the live Fantasy API connection from the command line using the .env configuration.
-// Prints host, user, token expiry and the listing result — never a credential or a token.
-// Usage: npm run fantasy:test-connection
 import { testFantasyConnection, getLiveFantasyConfig } from "../src/lib/fantasy/live-api";
 
 async function main() {

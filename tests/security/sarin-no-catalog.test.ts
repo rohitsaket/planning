@@ -1,10 +1,3 @@
-// Workbook Import and Mappings on a database where no shape-mapping catalog is in effect.
-//
-// Runs only against planning_sectest_nocatalog, which scripts/run-sarin-no-catalog-test.ts
-// creates for the run (and drops afterwards) through the migration history with a baseline that has no rules, so the
-// catalog migration leaves nothing in effect (its documented refusal path). The shared
-// planning_sectest catalog is never touched. All data is synthetic.
-
 import { beforeAll, describe, expect, test } from "./harness";
 import { call, db, ensureCountryRegistry, makeUser, resetDb } from "./helpers";
 import { renderPage, routeFetch, sessionUser } from "./ui-render";
@@ -67,7 +60,6 @@ describe("sarin without a mapping catalog", () => {
     expect([withLink.text.includes("Shape mappings are not configured."), withLink.text.includes("Open Mappings")]).toEqual([true, true]);
     expect([withoutLink.text.includes("Shape mappings are not configured."), withoutLink.text.includes("Open Mappings")]).toEqual([true, false]);
     expect([readerOnly.text.includes("Shape mappings are not configured."), readerOnly.text.includes("Open Mappings")]).toEqual([true, false]);
-    // Process File is unavailable, and no mapping is offered or preselected.
     const processButton = /<button([^>]*)>Process File<\/button>/.exec(withLink.html);
     expect([processButton !== null, / disabled=""/.test(processButton?.[1] ?? "")]).toEqual([true, true]);
     expect(/Approved shape mapping|Choose a mapping/i.test(withLink.text)).toBe(false);
@@ -96,7 +88,6 @@ describe("sarin without a mapping catalog", () => {
     expect(saved.status).toBe(200);
     const first = await db.sarinShapeMappingSet.findFirstOrThrow({ where: { status: "EFFECTIVE" } });
     expect([first.copiedFromSetId, first.origin, first.approvedByUserId]).toEqual([null, "USER", null]);
-    // The untouched baseline draft is still history, not in effect.
     expect((await db.sarinShapeMappingSet.findFirstOrThrow({ where: { origin: "MIGRATION_BASELINE" } })).status).toBe("DRAFT");
   });
 });

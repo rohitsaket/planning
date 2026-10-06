@@ -1,36 +1,3 @@
-/**
- * The client-style structured planning workbook (.xlsx) of one immutable Sarin output
- * version, following the confirmed output-column sequence (design v1.7 §15.4) and the
- * supplied Blue, White and Pink output workbooks:
- *
- *   A NO. · B DATE · C SIGNER NAME · D NO. · E KAPAN · F Packet · G Rough Weight ·
- *   H (blank header: group label or plan code) · I Shape · J Est. Weight · K Clarity ·
- *   L Color · M Depth % · N Ratio · O Width · P Length · Q MM · R Yield % · S OK
- *
- *   - Blue and White: one sheet per Kapan, stones in output order; Pink: one sheet.
- *   - A (plan number) restarts at 1 for every stone; D numbers the stones of the sheet.
- *   - B, C, D and E appear on the stone's first row only; F and G on every row.
- *   - Blue/White main plans leave H blank; an additional group shows "N Pcs" in H, merged
- *     across its rows, with its rows' H–Q shaded. Pink shows MK / SL / BP / BT in H.
- *   - R shows the stored option yield once per option, merged across a multi-piece
- *     option. It is the server's value, rounded half-up to two places — never a formula.
- *   - S (OK) stays blank: no selection or approval exists to show.
- *   - Yield rank (§15.13): each stone's three highest stored yields, over all its options,
- *     are filled green, yellow and orange (sarin/yield-rank-style.ts). Blue and White fill
- *     the Yield % cell R of the option (every row of its merge); Pink fills H–R of every
- *     row of the ranked option, as the client's reference workbooks do. The rank is yield
- *     order only — not a selection, an approval or an absence of warnings.
- *
- * Weights display three decimals, measurements two (as the reference workbooks do),
- * yields two with a percent sign. Identifiers are text cells, so leading zeros survive.
- *
- * Every value comes from the stored output version; nothing is recomputed. Traceability
- * (import, stone, option, source record, profiles, mapping version) stays in the database
- * and audit; the workbook carries only safe document properties.
- *
- * Server-only.
- */
-
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -54,28 +21,17 @@ if (typeof window !== "undefined") {
 export const XLSX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 export const SARIN_EXPORT_AUDIT = { exported: "SARIN_OUTPUT_EXPORTED", failed: "SARIN_OUTPUT_EXPORT_FAILED" } as const;
 
-/** Header row exactly as the client workbooks spell it; H is intentionally blank. */
 export const WORKBOOK_HEADERS = ["NO.", "DATE", "SIGNER NAME", "NO.", "KAPAN", "Packet", "Rough Weight", "", "Shape", "Est. Weight", "Clarity", "Color", "Depth %", "Ratio", "Width", "Length", "MM", "Yield %", "OK"] as const;
 const WIDTHS = [6, 11.5, 11, 6, 9, 9, 11, 8, 24, 10, 8, 7, 8, 7, 7, 8, 7, 9, 6];
 const STONES_PER_READ = 200;
-
-// ---------------------------------------------------------------------------------------
-// Styles
-// ---------------------------------------------------------------------------------------
 
 type Kind = "text" | "quoted" | "int" | "date" | "weight" | "measure" | "percent" | "blank";
 type Band = "plain" | "stone" | "groupA" | "groupB" | "rank1" | "rank2" | "rank3";
 const KINDS: Kind[] = ["text", "quoted", "int", "date", "weight", "measure", "percent", "blank"];
 const BANDS: Band[] = ["plain", "stone", "groupA", "groupB", "rank1", "rank2", "rank3"];
-// numFmtId: 49 text, 0 General, 164 dd-mm-yyyy, 165 0.000, 166 0.00, 10 0.00%.
 const NUMFMT: Record<Kind, number> = { text: 49, quoted: 49, int: 0, date: 164, weight: 165, measure: 166, percent: 10, blank: 0 };
-// fillId: 0 none, 1 gray125 (required), 2 header gold, 3 stone first row, 4/5 group shades
-// (light blue and light orange: the two confirmed first shades of the §15.12 sequence),
-// 6/7/8 yield ranks 1/2/3 (§15.13).
 const FILL: Record<Band, number> = { plain: 0, stone: 3, groupA: 4, groupB: 5, rank1: 6, rank2: 7, rank3: 8 };
 const RANK_BAND: Record<SarinYieldRank, Band> = { 1: "rank1", 2: "rank2", 3: "rank3" };
-// cellXfs index 0 is the style of every cell that names none — all the sheet outside the
-// A:S output area — so it is Excel's plain default (no fill, no border). The header is 1.
 const HEADER_STYLE = 1;
 const style = (kind: Kind, band: Band) => 2 + BANDS.indexOf(band) * KINDS.length + KINDS.indexOf(kind);
 
@@ -108,10 +64,6 @@ function stylesXml(): string {
   );
 }
 
-// ---------------------------------------------------------------------------------------
-// Data
-// ---------------------------------------------------------------------------------------
-
 export interface WorkbookStone {
   readonly id: string;
   readonly sequence: number;
@@ -119,7 +71,6 @@ export interface WorkbookStone {
   readonly packet: string;
   readonly signer: string;
   readonly roughWeight: string;
-  /** Output rows of this stone in the version: the sheet's used range is known before writing. */
   readonly pieces: number;
 }
 export interface WorkbookPiece {
@@ -131,7 +82,6 @@ export interface WorkbookPiece {
   readonly yieldPercent: Prisma.Decimal;
   readonly outputRow: number;
   readonly pieceSequence: number;
-  /** Column I: the canonical Fantasy shape, or the raw Sarin shape where none is mapped (§15.10). */
   readonly shape: string;
   readonly estimatedWeight: string;
   readonly clarity: string;
@@ -142,7 +92,6 @@ export interface WorkbookPiece {
   readonly length: string;
   readonly depthMm: string;
 }
-/** Where the workbook reads the stored output from. Injected so a failure can be exercised. */
 export interface WorkbookSource {
   stones(versionId: string): Promise<WorkbookStone[]>;
   pieces(versionId: string, stoneIds: string[]): Promise<WorkbookPiece[]>;
@@ -157,7 +106,6 @@ export const databaseWorkbookSource: WorkbookSource = {
     });
     const counts = await db.sarinPlanOption.groupBy({ by: ["stoneBlockId"], where: { outputVersionId: versionId }, _sum: { pieceCount: true } });
     const piecesOf = new Map(counts.map((c) => [c.stoneBlockId, c._sum.pieceCount ?? 0]));
-    // Output exists only for PARSED blocks, which always carry identity and Rough Weight.
     return blocks.map((b) => ({ id: b.id, sequence: b.blockSequence, kapan: b.kapan ?? "", packet: b.packet ?? "", signer: b.signer ?? "", roughWeight: b.roughWeight?.toFixed(3) ?? "", pieces: piecesOf.get(b.id) ?? 0 }));
   },
   async pieces(versionId, stoneIds) {
@@ -177,22 +125,13 @@ export const databaseWorkbookSource: WorkbookSource = {
   },
 };
 
-// ---------------------------------------------------------------------------------------
-// Cells
-// ---------------------------------------------------------------------------------------
-
 const ref = (col: number, row: number) => `${columnLetter(col)}${row}`;
 const textCell = (col: number, row: number, value: string, band: Band) =>
   `<c r="${ref(col, row)}" s="${style(FORMULA_LIKE.test(value) ? "quoted" : "text", band)}" t="inlineStr"><is><t xml:space="preserve">${xmlText(value)}</t></is></c>`;
 const numberCell = (col: number, row: number, value: string | number, kind: Kind, band: Band) => `<c r="${ref(col, row)}" s="${style(kind, band)}"><v>${value}</v></c>`;
 const blankCell = (col: number, row: number, band: Band) => `<c r="${ref(col, row)}" s="${style("blank", band)}"/>`;
 
-/** The yield shown: the stored percentage rounded half-up to two places, as a fraction. */
 const yieldFraction = (percent: Prisma.Decimal) => new Prisma.Decimal(displayYield(percent)).dividedBy(100).toString();
-
-// ---------------------------------------------------------------------------------------
-// Workbook
-// ---------------------------------------------------------------------------------------
 
 export interface WorkbookFacts {
   readonly versionId: string;
@@ -204,17 +143,12 @@ export interface WorkbookFacts {
   readonly validationProfileVersion: string;
 }
 
-/**
- * Writes the workbook into a private temporary directory and returns its bytes and row
- * count. The directory is removed whether writing succeeds or fails.
- */
 export async function buildOutputWorkbook(facts: WorkbookFacts, source: WorkbookSource): Promise<{ bytes: Buffer; rows: number }> {
   const dir = await mkdtemp(path.join(tmpdir(), "sarin-xlsx-"));
   const file = path.join(dir, "workbook.xlsx");
   const zip = new ZipFileWriter(file, new Date());
   try {
     const stones = await source.stones(facts.versionId);
-    // Blue and White: one sheet per Kapan, in order of first appearance. Pink: one sheet.
     const sheets: Array<{ name: string; stones: WorkbookStone[] }> = [];
     const taken = new Set<string>();
     if (facts.packetType === "PINK") {
@@ -244,7 +178,6 @@ export async function buildOutputWorkbook(facts: WorkbookFacts, source: Workbook
   }
 }
 
-/** The stone's yield ranks, from its stored options as this read returned them (§15.13). */
 function stoneYieldRanks(pieces: readonly WorkbookPiece[]): Map<string, SarinYieldRank> {
   const options = new Map<string, { piece: WorkbookPiece; rows: number[] }>();
   for (const p of pieces) {
@@ -257,7 +190,6 @@ function stoneYieldRanks(pieces: readonly WorkbookPiece[]): Map<string, SarinYie
   );
 }
 
-/** The last column of the client's output: S, the 19th. Nothing is written or styled beyond it. */
 const LAST_COLUMN = columnLetter(WORKBOOK_HEADERS.length - 1);
 
 async function writeSheet(write: PartWriter, stones: WorkbookStone[], facts: WorkbookFacts, date: number, source: WorkbookSource): Promise<number> {
@@ -297,7 +229,6 @@ async function writeSheet(write: PartWriter, stones: WorkbookStone[], facts: Wor
         const rowBand: Band = first ? "stone" : "plain";
         const rank = ranks.get(p.optionId);
         const rankBand = rank ? RANK_BAND[rank] : null;
-        // Pink colours the ranked option's H–R; Blue and White its Yield % cell only.
         const optBand: Band = rankBand && facts.packetType === "PINK" ? rankBand : first ? "stone" : optionBand;
         const yieldBand: Band = rankBand ?? rowBand;
         const cells = [
@@ -309,7 +240,6 @@ async function writeSheet(write: PartWriter, stones: WorkbookStone[], facts: Wor
           textCell(5, row, stone.packet, rowBand),
           numberCell(6, row, stone.roughWeight, "weight", rowBand),
         ];
-        // H: blank for main plans; the group label or plan code once per option.
         const label = p.optionKind === "MAIN" ? "" : p.optionKind === "ADDITIONAL" ? `${p.optionPieces} Pcs` : p.optionKind;
         cells.push(startsOption && label ? textCell(7, row, label, optBand) : blankCell(7, row, optBand));
         cells.push(
@@ -322,7 +252,6 @@ async function writeSheet(write: PartWriter, stones: WorkbookStone[], facts: Wor
           numberCell(14, row, p.width, "measure", optBand),
           numberCell(15, row, p.length, "measure", optBand),
           numberCell(16, row, p.depthMm, "measure", optBand),
-          // Every cell of a merged Yield % carries the same style, so Excel shows the fill whole.
           startsOption ? numberCell(17, row, yieldFraction(p.yieldPercent), "percent", yieldBand) : blankCell(17, row, yieldBand),
           blankCell(18, row, "plain"),
         );
@@ -332,7 +261,6 @@ async function writeSheet(write: PartWriter, stones: WorkbookStone[], facts: Wor
       await write(out.join(""));
     }
   }
-  // The used range was declared before the rows: a mismatch is refused, never written.
   if (row !== lastRow) throw new Error("workbook sheet rows do not match the stored output");
   await write(
     "</sheetData>" +
@@ -375,7 +303,6 @@ async function writePackageParts(zip: ZipFileWriter, sheets: Array<{ name: strin
         '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><bookViews><workbookView/></bookViews><sheets>' +
         sheetNames.map((n, i) => `<sheet name="${xmlText(n)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join("") +
         "</sheets><definedNames>" +
-        // Print exactly the output area A:S, with the header row on every page.
         sheets.map((s, i) => `<definedName name="_xlnm.Print_Area" localSheetId="${i}">${xmlText(quoted(s.name))}!$A$1:$${LAST_COLUMN}$${s.lastRow}</definedName>`).join("") +
         sheetNames.map((n, i) => `<definedName name="_xlnm.Print_Titles" localSheetId="${i}">${xmlText(quoted(n))}!$1:$1</definedName>`).join("") +
         "</definedNames></workbook>",
@@ -405,10 +332,6 @@ async function writePackageParts(zip: ZipFileWriter, sheets: Array<{ name: strin
   await zip.addEntry("docProps/app.xml", one(head + '<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Application>Diamond Planning</Application></Properties>'));
 }
 
-// ---------------------------------------------------------------------------------------
-// Export service
-// ---------------------------------------------------------------------------------------
-
 export interface WorkbookExportActor {
   readonly userId: string;
   readonly scope: EffectiveScope;
@@ -416,10 +339,6 @@ export interface WorkbookExportActor {
   readonly requestId: string;
 }
 
-/**
- * The structured workbook of one output version within the caller's scope, audited on
- * success and on every refusal or failure. Null when the version is not visible (404).
- */
 export async function exportOutputWorkbook(
   actor: WorkbookExportActor,
   batchId: string,
@@ -459,7 +378,6 @@ export async function exportOutputWorkbook(
     await record("SUCCESS", { rows: built.rows }, "Sarin structured workbook exported");
     return { bytes: built.bytes, rows: built.rows, fileName: `sarin-output-v${version.versionNumber}-${version.packetType.toLowerCase()}-${planningDate}.xlsx` };
   } catch (e) {
-    // Logged by class only: an error message could quote stored values.
     log("error", "sarin.workbook.failed", { requestId: actor.requestId, batchId, error: e instanceof Error ? e.name : "unknown" });
     await record("FAILED", { code: "EXPORT_NOT_GENERATED" }, "Sarin structured workbook could not be generated; nothing was kept");
     throw new ApiError(500, "EXPORT_NOT_GENERATED", "The workbook could not be generated. Nothing was kept; try again.");

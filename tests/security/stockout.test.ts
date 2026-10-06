@@ -8,21 +8,7 @@ import { runDemandCalculation } from "@/lib/demand/demand-service";
 import { STOCKOUT_EXPORT_ROW_LIMIT, readStockoutCategories, EMPTY_STOCKOUT_FILTERS } from "@/lib/analysis/stockout";
 import { navHash, parseNavHash } from "@/stores/nav-store";
 
-/**
- * Stockout Risk.
- *
- * The page under test answers one question — which categories have confirmed demand that
- * available finished polished stock does not cover — and it must answer it with the
- * figure the demand engine stored, not one it derives itself. The page it replaced read
- * forecast predictions, subtracted them from available stock inside the route handler
- * and ranked the result CRITICAL / HIGH / MEDIUM, so it could not agree with Demand
- * Overview even in principle.
- *
- * Every assertion runs against the real service or the real route handler.
- */
-
 const BATCH = "STOCKOUT-TEST";
-/** The canonical key of the shortage category the fixture creates, resolved per suite. */
 let heartCategory = "";
 const BASE = new Date("2026-09-20T06:00:00.000Z");
 const CRLF = "\r\n";
@@ -51,13 +37,6 @@ async function makeSale(o: {
   });
 }
 
-/**
- * A canonical stock record, carrying the classification the demand engine reads.
- *
- * `inventoryClass`, `classificationState`, `holdState` and `canonicalLifecycle` are what
- * decide whether a lot is physically available; a record without them is unclassified
- * and correctly counts as nothing.
- */
 async function makeLot(o: {
   lotId: string; shape: string; inventoryClass: string;
   currentStatus?: string; isCurrent?: boolean; lab?: string;
@@ -103,25 +82,20 @@ async function clearFixtures() {
   await db.lotMasterRecord.deleteMany({ where: { lastSyncBatchId: BATCH } });
 }
 
-/** Sales in two shapes plus one covered shape, so shortage and coverage both occur. */
 async function seedRun(): Promise<string> {
   await clearFixtures();
   await ensureMappings();
 
-  // HEART: 4 sales, no stock → shortage, out of stock.
   for (let i = 0; i < 4; i++) {
     await makeSale({ lotId: `${BATCH}-H${i}`, shape: "HEART", docDate: new Date(BASE.getTime() - (5 + i * 10) * 86_400_000) });
   }
-  // ASSCHER: 2 sales, 1 available piece → shortage but not out of stock.
   for (let i = 0; i < 2; i++) {
     await makeSale({ lotId: `${BATCH}-A${i}`, shape: "ASSCHER", docDate: new Date(BASE.getTime() - (6 + i * 12) * 86_400_000) });
   }
   await makeStock(`${BATCH}-A-STOCK`, "ASSCHER");
-  // ROUND: 1 sale, plenty of stock → covered.
   await makeSale({ lotId: `${BATCH}-R0`, shape: "ROUND", docDate: new Date(BASE.getTime() - 7 * 86_400_000) });
   for (let i = 0; i < 6; i++) await makeStock(`${BATCH}-R-STOCK-${i}`, "ROUND");
 
-  // Stock that must never reach physical availability.
   await makeLot({ lotId: `${BATCH}-H-MEMO`, shape: "HEART", inventoryClass: "MEMO", currentStatus: "MEMO" });
   await makeLot({ lotId: `${BATCH}-H-RESERVED`, shape: "HEART", inventoryClass: "RESERVED" });
   await makeLot({ lotId: `${BATCH}-H-SOLD`, shape: "HEART", inventoryClass: "PHYSICAL_AVAILABLE", currentStatus: "SOLD", isCurrent: false });
@@ -143,8 +117,6 @@ describe("stockout reads the stored demand result", () => {
     heartCategory = heart!.planningCategory;
   });
 
-  // This suite writes canonical lot records, which other suites count globally. They are
-  // removed again so a later suite is not measuring this one's fixture.
   afterAll(clearFixtures);
 
   test("every published figure equals the value the demand engine persisted", async () => {
@@ -175,7 +147,6 @@ describe("stockout reads the stored demand result", () => {
         shortage: m!.physicalShortage,
         memo: m!.memoQty,
       });
-      // WIP is reported beside the shortage, never inside it.
       expect(row.wipQuantity).toBe(m!.wipCoverage + m!.unallocatedWip);
     }
   });
@@ -205,14 +176,10 @@ describe("stockout reads the stored demand result", () => {
         available: t.availableStock ?? t.physicalAvailable,
       });
     }
-    // The comparison must not pass vacuously.
     expect(compared > 0).toBe(true);
   });
 
   test("memo and non-current stock never become physical availability", async () => {
-    // The category was seeded with four sales, a memo piece, a reserved piece and a sold
-    // piece, and no available stock. None of those three is availability, so the engine
-    // recorded none, and the shortage is the whole target.
     const heart = await db.demandMetric.findFirst({ where: { runId, planningCategory: heartCategory } });
     expect(heart !== null).toBe(true);
     expect(heart!.availableStock).toBe(0);
@@ -220,8 +187,6 @@ describe("stockout reads the stored demand result", () => {
   });
 
   test("memo, reserved, blocked and WIP are published beside the shortage, never inside it", async () => {
-    // Seeded directly so each figure is known: a page that folded any of them into
-    // availability, or deducted any of them from the shortage, would not return these.
     const category = `${BATCH}|SIDE-BY-SIDE|1.10-1.49`;
     await db.demandMetric.create({
       data: {
@@ -247,14 +212,13 @@ describe("stockout reads the stored demand result", () => {
       shortage: row.physicalShortage,
       target: row.targetQuantity,
     }).toEqual({
-      available: 2,     // memo, reserved and blocked are not added to it
-      memo: 5,          // reported, never deducted
-      wip: 6,           // eligible plus unallocated, reported separately
-      shortage: 12,     // exactly as stored: WIP did not reduce it
+      available: 2,
+      memo: 5,
+      wip: 6,
+      shortage: 12,
       target: 14,
     });
 
-    // The detail view keeps them separate too.
     resetRateLimits();
     const detail = await call(stockout, {
       path: `/api/analysis/stockout?section=detail&runId=${runId}&category=${encodeURIComponent(category)}`,
@@ -268,8 +232,6 @@ describe("stockout reads the stored demand result", () => {
   });
 
   test("the page reports the stored shortage even when it differs from target minus available", async () => {
-    // A row whose shortage does not equal target - available. A page that recomputed
-    // would report 9; a page that reads reports 4. This is the whole contract.
     const category = `${BATCH}|READ-NOT-RECOMPUTE|1.10-1.49`;
     await db.demandMetric.create({
       data: {
@@ -300,10 +262,8 @@ describe("stockout reads the stored demand result", () => {
     });
     const d = res.json.detail;
     expect(d.found).toBe(true);
-    // Lots contributing and pieces available are different measures and both present.
     expect(typeof d.contributingStockLots).toBe("number");
     expect(typeof d.physicalAvailable).toBe("number");
-    // The three segments sum to the confirmed 90-day quantity.
     const summed = (d.segments as Array<{ quantity: number }>).reduce((s, x) => s + x.quantity, 0);
     expect(summed).toBe(d.sales90d);
   });
@@ -361,8 +321,6 @@ describe("stockout states are decided from stored values", () => {
     heartCategory = heart!.planningCategory;
   });
 
-  // Canonical lot records are counted globally by other suites; they are removed
-  // again so a later suite is not measuring this one's fixture.
   afterAll(clearFixtures);
 
   test("every row's state is exactly what its stored figures imply", async () => {
@@ -390,8 +348,6 @@ describe("stockout states are decided from stored values", () => {
   });
 
   test("each unflagged outcome is decided from its own stored figures", async () => {
-    // Seeded directly, one row per outcome, so every branch is exercised deterministically
-    // rather than depending on what the engine happened to classify.
     const cases: Array<[string, { roundedTarget: number; availableStock: number; physicalShortage: number; excessStock: number }, string]> = [
       ["OUT", { roundedTarget: 6, availableStock: 0, physicalShortage: 6, excessStock: 0 }, "OUT_OF_STOCK"],
       ["SHORT", { roundedTarget: 6, availableStock: 2, physicalShortage: 4, excessStock: 0 }, "SHORTAGE"],
@@ -442,7 +398,6 @@ describe("stockout states are decided from stored values", () => {
       state: "REVIEW_REQUIRED", dataState: "REVIEW_REQUIRED",
     });
 
-    // And it is excluded from the authoritative totals rather than summed into them.
     resetRateLimits();
     const totals = await call(stockout, {
       path: `/api/analysis/stockout?section=categories&runId=${runId}&shortageOnly=false&pageSize=200`,
@@ -493,7 +448,6 @@ describe("stockout states are decided from stored values", () => {
     expect(res.json.sourceState).toBe("SIMULATION");
     expect(res.json.sourceLabel).toBe("Fixture Simulation");
     expect(res.json.periodLabel).toBe("Past 90 days (IST)");
-    // Country-level shortage is not claimed.
     expect(res.json.countryScopeSupported).toBe(false);
     expect(typeof res.json.countryScopeNotice).toBe("string");
   });
@@ -521,7 +475,6 @@ describe("no usable demand run", () => {
     const rows = await call(stockout, { path: "/api/analysis/stockout?section=categories", cookie });
     expect(rows.json.available).toBe(false);
     expect(rows.json.rows).toEqual([]);
-    // No fabricated totals.
     expect(rows.json.totals).toBe(undefined);
   });
 
@@ -548,20 +501,16 @@ describe("category navigation carries the exact key", () => {
     asscherCategory = asscher!.planningCategory;
   });
 
-  // Canonical lot records are counted globally by other suites; they are removed
-  // again so a later suite is not measuring this one's fixture.
   afterAll(clearFixtures);
 
   test("Heart opens Heart and Asscher opens Asscher — the defect this replaces", () => {
     for (const category of [heartCategory, asscherCategory]) {
       const hash = navHash("analysis-stockout", null, { runId, category, bucket: null, malformed: false });
       const parsed = parseNavHash(hash);
-      // Stockout Risk is a tab of Inventory; the former id resolves there with its context.
       expect([parsed?.view, parsed?.tab]).toEqual(["analysis-inventory-position", "stockout"]);
       expect(parsed?.trace?.category).toBe(category);
       expect(parsed?.trace?.runId).toBe(runId);
     }
-    // And the two are genuinely different keys, so the check is not vacuous.
     expect(heartCategory === asscherCategory).toBe(false);
   });
 
@@ -599,7 +548,6 @@ describe("category navigation carries the exact key", () => {
   });
 
   test("a named run is honoured and never replaced by the latest", async () => {
-    // A second, newer run exists; the link still resolves to the run it named.
     const newer = await runDemandCalculation({ actor: "stockout-test-2", windowDays: 90, referenceDate: BASE });
     expect(newer.runId === runId).toBe(false);
 
@@ -624,7 +572,6 @@ describe("server-side paging, sorting and filtering", () => {
     cookie = (await makeUser("so.page", "ANALYSIS_MANAGER")).cookie;
     runId = await seedRun();
 
-    // Enough categories to page through several times.
     const rows = Array.from({ length: 120 }, (_, i) => ({
       runId,
       planningCategory: `GIA|BULK${String(i).padStart(3, "0")}|1.10-1.49`,
@@ -644,8 +591,6 @@ describe("server-side paging, sorting and filtering", () => {
     await db.demandMetric.createMany({ data: rows });
   });
 
-  // Canonical lot records are counted globally by other suites; they are removed
-  // again so a later suite is not measuring this one's fixture.
   afterAll(clearFixtures);
 
   test("traverses every page exactly once, with no duplicate and no omission", async () => {
@@ -742,8 +687,6 @@ describe("authorization", () => {
     runId = await seedRun();
   });
 
-  // Canonical lot records are counted globally by other suites; they are removed
-  // again so a later suite is not measuring this one's fixture.
   afterAll(clearFixtures);
 
   test("an anonymous caller is denied on every section and on the export", async () => {
@@ -756,14 +699,12 @@ describe("authorization", () => {
   });
 
   test("a signed-in user without analysis.read is denied", async () => {
-    // FANTASY_INTEGRATION holds sync permissions but no analysis access.
     const { cookie } = await makeUser("so.denied", "FANTASY_INTEGRATION");
     resetRateLimits();
     expect((await call(stockout, { path: "/api/analysis/stockout?section=categories", cookie })).status).toBe(403);
   });
 
   test("an ordinary analyst may read but may not export", async () => {
-    // VIEWER holds analysis.read and no export permission.
     const { cookie } = await makeUser("so.viewer", "VIEWER");
     resetRateLimits();
     expect((await call(stockout, { path: `/api/analysis/stockout?section=categories&runId=${runId}`, cookie })).status).toBe(200);
@@ -779,8 +720,6 @@ describe("authorization", () => {
   });
 
   test("record-level evidence is not served by this page at all", async () => {
-    // Demand Trace owns record-level evidence and enforces demand.trace itself. This page
-    // exposes no lot, customer or sale record, so it cannot leak one.
     const { cookie } = await makeUser("so.norecords", "VIEWER");
     resetRateLimits();
     const heart = await db.demandMetric.findFirst({ where: { runId, planningCategory: { contains: "HEART" } } });
@@ -804,7 +743,6 @@ describe("export", () => {
     resetRateLimits();
     cookie = (await makeUser("so.export", "ANALYSIS_MANAGER")).cookie;
     runId = await seedRun();
-    // A category name a spreadsheet would execute if it were written through unescaped.
     await db.demandMetric.create({
       data: {
         runId, planningCategory: "=cmd|'/c calc'!A1", labNormalized: "GIA",
@@ -814,8 +752,6 @@ describe("export", () => {
       },
     });
 
-  // Canonical lot records are counted globally by other suites; they are removed
-  // again so a later suite is not measuring this one's fixture.
   afterAll(clearFixtures);
   });
 
@@ -888,12 +824,10 @@ describe("export", () => {
     });
     expect(entry !== null).toBe(true);
     expect(entry?.reason?.includes("search=HEART")).toBe(true);
-    // Counts and scope only — never a category's figures or a lot.
     expect(entry?.reason?.includes("cmd|")).toBe(false);
   });
 });
 
-/** The export returns CSV, not JSON, so these two helpers read the raw body. */
 async function fetchExport(path: string, cookie: string): Promise<Response> {
   return stockoutExport(
     new Request(`http://localhost:3000${path}`, { headers: { cookie } }),

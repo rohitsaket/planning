@@ -1,14 +1,3 @@
-/**
- * FANTASY ROW CONTRACT (v1) — BOUNDARY TEST SUITE
- *
- * Pure contract tests: no database, no network, no application state. They prove the
- * 46-column contract is exact, that drift is detected rather than silently accepted,
- * that rows normalize without inventing business meaning, and that diagnostics carry
- * no source values.
- *
- * Usage: npm run test:fantasy-contract
- */
-
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import {
@@ -53,7 +42,6 @@ function section(title: string) {
 const codes = (issues: readonly FantasyContractIssue[]): FantasyIssueCode[] => issues.map((i) => i.code);
 const has = (issues: readonly FantasyContractIssue[], code: FantasyIssueCode) => codes(issues).includes(code);
 
-/** The exact 46 headers, written out independently of the module under test. */
 const EXPECTED_HEADERS = [
   "Metal ID", "Metal Wgt", "Previous Department Account Name", "Process Name", "Remark", "Qty",
   "Lot ID", "Lot Name", "On Hold", "Lot Status DB", "Shape", "Color", "Clarity", "Size", "Weight",
@@ -64,7 +52,6 @@ const EXPECTED_HEADERS = [
   "ItemName",
 ];
 
-/** A full-width row of placeholder values, positionally aligned to the contract. */
 function sampleRow(overrides: Partial<Record<string, unknown>> = {}): unknown[] {
   return EXPECTED_HEADERS.map((header) => (header in overrides ? overrides[header] : `v:${header}`));
 }
@@ -78,9 +65,7 @@ function main() {
   console.log("FANTASY ROW CONTRACT v1 — BOUNDARY TEST SUITE");
   console.log("===============================================================================");
 
-  // =========================================================================
   section("A. The header list is exact");
-  // =========================================================================
   assert(FANTASY_V1_HEADERS.length === 46, `The contract has exactly 46 headers (got ${FANTASY_V1_HEADERS.length})`);
   assert(
     JSON.stringify([...FANTASY_V1_HEADERS]) === JSON.stringify(EXPECTED_HEADERS),
@@ -95,7 +80,6 @@ function main() {
     "Lot ID is the only identity-critical header in this contract version",
   );
 
-  // Punctuation-sensitive headers, asserted individually.
   for (const header of ["Fluo.", "Tot.Dia.Wgt", "Met.Wgt", "Est. Clarity ID", "Est. Color ID", "Est. Shape ID", "Est. Weight"]) {
     assert((FANTASY_V1_HEADERS as readonly string[]).includes(header), `Header "${header}" is recognized exactly`);
   }
@@ -104,11 +88,7 @@ function main() {
     "Metal Wgt and Met.Wgt are both present as separate headers",
   );
 
-  // =========================================================================
   section("B. Every header has exactly one internal key, and vice versa");
-  // =========================================================================
-  // Widened to string so these stay runtime assertions: comparing literal key types
-  // directly would be resolved statically by the compiler rather than tested.
   const keyOf = (header: FantasyV1Header): string => FANTASY_V1_HEADER_TO_KEY[header];
   const mappedKeys = FANTASY_V1_HEADERS.map((h) => FANTASY_V1_HEADER_TO_KEY[h]);
   assert(Object.keys(FANTASY_V1_HEADER_TO_KEY).length === 46, "The mapping covers exactly 46 headers");
@@ -148,18 +128,14 @@ function main() {
     "All seven weight-like headers keep distinct keys",
   );
 
-  // =========================================================================
   section("C. A correct header row is accepted");
-  // =========================================================================
   const good = headerValidation();
   assert(good.ok, "The exact 46-header list passes validation");
   assert(good.issues.length === 0, `A correct header row raises no issue (got ${codes(good.issues).join(", ")})`);
   assert(good.missingHeaders.length === 0, "No header is reported missing");
   assert(good.columnKeys.length === 46 && good.columnKeys.every((k) => k !== null), "Every column maps to an internal key");
 
-  // =========================================================================
   section("D. Fatal header problems");
-  // =========================================================================
   const noLotId = validateFantasyHeaders(EXPECTED_HEADERS.filter((h) => h !== "Lot ID"));
   assert(!noLotId.ok, "A header row without Lot ID fails");
   assert(has(noLotId.issues, "MISSING_IDENTITY_HEADER"), "Missing Lot ID is reported as an identity failure");
@@ -179,9 +155,7 @@ function main() {
   assert(has(badVersion.issues, "UNSUPPORTED_CONTRACT_VERSION"), "The unsupported version is reported by code");
   assert(badVersion.columnKeys.length === 0, "No column is mapped under an unsupported version");
 
-  // =========================================================================
   section("E. Schema drift is reported, never silently accepted");
-  // =========================================================================
   const extra = validateFantasyHeaders([...EXPECTED_HEADERS, "Some New Column"]);
   assert(extra.ok, "An additional unknown header is drift, not a fatal error");
   assert(has(extra.issues, "UNKNOWN_HEADER"), "The unknown header is reported");
@@ -225,9 +199,7 @@ function main() {
   assert(missingOptional.ok, "A missing non-identity header is drift, not fatal");
   assert(has(missingOptional.issues, "MISSING_HEADER"), "The absent field is reported for review");
 
-  // =========================================================================
   section("F. Rows normalize without inventing meaning");
-  // =========================================================================
   const plan = headerValidation();
   const row = normalizeFantasyRow(sampleRow({ "Lot ID": "  LOT-001  " }), plan, 1);
   assert(row.ok, "A complete row is accepted");
@@ -297,7 +269,6 @@ function main() {
     assert(bad.rawSourceRow !== undefined, `The original row is preserved after rejecting an unsupported ${label}`);
   }
 
-  // Keyed (API/JSON) rows behave the same way.
   const keyed = normalizeFantasyRow(
     { "Lot ID": "LOT-KEYED", "Fluo.": "Faint", "Tot.Dia.Wgt": 2.5, Unknown: "ignored" },
     plan,
@@ -308,9 +279,7 @@ function main() {
   assert(keyed.record!.totalDiamondWeightRaw === 2.5, "Keyed numeric values are preserved as numbers");
   assert(keyed.record!.shapeRaw === undefined, "Headers absent from a keyed row stay undefined");
 
-  // =========================================================================
   section("G. Batch validation and the provider boundary");
-  // =========================================================================
   const cursor: FantasySourceCursor = { kind: "FULL_SNAPSHOT", token: null };
   const batch: FantasySourceBatch = {
     contractVersion: FANTASY_ROW_CONTRACT_V1,
@@ -330,7 +299,6 @@ function main() {
   const badHeaderBatch = validateFantasySourceBatch({ ...batch, headers: EXPECTED_HEADERS.filter((h) => h !== "Lot ID") });
   assert(badHeaderBatch.rows.length === 0, "No row is normalized when the header row is fatally wrong");
 
-  // Cursor metadata must live outside the row contract.
   const rowKeys = new Set<string>(Object.values(FANTASY_V1_HEADER_TO_KEY) as FantasyRawKey[]);
   assert(
     !Object.keys(cursor).some((k) => rowKeys.has(k)),
@@ -345,7 +313,6 @@ function main() {
     "Cursor delivery is provider-supplied or a full snapshot, never derived from rows",
   );
 
-  // A provider implementing the boundary contract compiles and round-trips.
   const provider: FantasyRowSourceProvider = {
     contractVersion: FANTASY_ROW_CONTRACT_V1,
     getSourceMode: () => "FIXTURE",
@@ -353,9 +320,7 @@ function main() {
   };
   assert(provider.contractVersion === FANTASY_ROW_CONTRACT_V1, "A provider declares the contract version it speaks");
 
-  // =========================================================================
   section("H. Diagnostics are safe to log and return");
-  // =========================================================================
   const sensitiveBatch = validateFantasySourceBatch({
     ...batch,
     rows: [
@@ -389,9 +354,7 @@ function main() {
   );
   assert(typeof diagnostics.counts.received === "number", "Diagnostics carry batch counts");
 
-  // =========================================================================
   section("I. The boundary stays server-side");
-  // =========================================================================
   const componentsDir = path.join(process.cwd(), "src", "components");
   const clientFiles: string[] = [];
   const walk = (dir: string) => {
@@ -409,7 +372,6 @@ function main() {
   assert(/typeof window !== "undefined"/.test(contractSource), "The contract module guards against browser execution");
   assert(!/console\.(log|info|warn|error)/.test(contractSource), "The contract module logs nothing, so no source value can leak to logs");
 
-  // Header strings must exist in exactly one place.
   const libFiles: string[] = [];
   const walkLib = (dir: string) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {

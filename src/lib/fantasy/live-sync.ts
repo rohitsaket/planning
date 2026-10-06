@@ -1,19 +1,3 @@
-/**
- * Fantasy Live Data synchronisation service.
- *
- *   Fantasy API → client (auth/paging/retry) → mapper (46 typed fields) → repository (batch
- *   upsert, stale marking) → IntegrationSyncRun (history) → SyncCheckpoint "FANTASY_LIVE_DATA"
- *   (lock + last success watermark).
- *
- * Safety properties: one run at a time across all server instances (database-backed atomic
- * lock, stale locks older than an hour are taken over); an upstream failure never touches Live
- * Data rows (last known good stays); rows absent from a snapshot are marked stale, never
- * deleted, and if more than FANTASY_SYNC_STALE_GUARD_PERCENT of the active rows would go stale
- * — or the snapshot is empty — nothing is marked and the run ends PARTIAL with
- * POSSIBLE_SOURCE_SNAPSHOT_ANOMALY; a snapshot whose rows map to nothing is a SCHEMA_MISMATCH
- * failure with no writes. No credential or token is ever written to a run row or a log line.
- */
-
 import { db } from "@/lib/db";
 import { log } from "@/lib/api/with-api";
 import { safeErrorMessage } from "@/lib/security/redact";
@@ -30,17 +14,11 @@ export type LiveSyncStatus = "SUCCESS" | "PARTIAL" | "FAILED" | "LOCKED";
 export type LiveSyncErrorCode = "NOT_CONFIGURED" | "AUTH_FAILED" | "TIMEOUT" | "NETWORK" | "UPSTREAM_ERROR" | "RATE_LIMITED" | "BAD_RESPONSE" | "SCHEMA_MISMATCH" | "POSSIBLE_SOURCE_SNAPSHOT_ANOMALY" | "LOCKED" | "INTERNAL";
 
 export interface LiveSyncOptions {
-  /** "import" = rows supplied from a Fantasy grid export instead of the live listing. */
   trigger: "manual" | "scheduled" | "import";
   actor?: string;
   actorUserId?: string;
   client?: FantasyClient;
   now?: () => Date;
-  /**
-   * Also run the canonical planning sync (LotMasterRecord) after a successful live sync:
-   * true = inline (scheduler), "background" = after responding (user-triggered), false = never.
-   * FANTASY_SYNC_CHAIN_PLANNING=false disables it globally.
-   */
   chainCanonical?: boolean | "background";
 }
 
@@ -57,9 +35,7 @@ export interface LiveSyncResult {
   pagesFetched: number;
   durationMs: number;
   errorCode?: LiveSyncErrorCode;
-  /** Safe, user-facing sentence. */
   errorSummary?: string;
-  /** Vendor/technical detail (redacted), kept for Sync Monitor. */
   errorDetail?: string;
   mappingWarnings?: number;
   unmappedSourceColumns?: string[];
@@ -89,7 +65,6 @@ async function releaseLock() {
   await db.syncCheckpoint.updateMany({ where: { source: LIVE_SYNC_SOURCE }, data: { isLocked: false, lockedAt: null, lockedBy: null } }).catch(() => undefined);
 }
 
-/** User-facing sentence per failure class; the technical detail goes to errorsJson / Sync Monitor. */
 export function friendlyErrorSummary(code: LiveSyncErrorCode, e: unknown): string {
   const status = e instanceof FantasyApiError ? e.status : null;
   switch (code) {
@@ -126,12 +101,10 @@ export async function runLiveDataSync(opts: LiveSyncOptions): Promise<LiveSyncRe
   const client = opts.client ?? createFantasyClient();
   let result: LiveSyncResult = empty("FAILED", "INTERNAL", undefined, run.id);
   try {
-    // 1. Fetch (auth, paging, retry inside the client). No row is touched if this throws.
     const fetched = await client.fetchLots();
     result.recordsFetched = fetched.rows.length;
     result.pagesFetched = fetched.pages;
 
-    // 2. Map + validate.
     const outcome = mapLiveLotRows(fetched.rows);
     result.recordsFailed = outcome.invalid.length;
     result.mappingWarnings = outcome.mapped.reduce((n, m) => n + m.warnings.length, 0);
@@ -140,7 +113,6 @@ export async function runLiveDataSync(opts: LiveSyncOptions): Promise<LiveSyncRe
       throw Object.assign(new Error(`Fantasy payload did not match the Live Data contract: ${outcome.invalid[0]?.reason ?? "no mappable rows"}.`), { liveCode: "SCHEMA_MISMATCH" as LiveSyncErrorCode });
     }
 
-    // 3. Upsert in chunks (insert / update / touch).
     const seenAt = now();
     const activeBefore = await countActiveLiveLots();
     const stats = await upsertLiveLots(outcome.mapped, run.id, seenAt, cfg.upsertBatchSize);
@@ -149,8 +121,7 @@ export async function runLiveDataSync(opts: LiveSyncOptions): Promise<LiveSyncRe
     result.recordsUnchanged = stats.unchanged;
     log("info", "fantasy_batch_upsert_completed", { syncRunId: run.id, ...stats });
 
-    // 4. Stale reconciliation with the mass-disappearance guard.
-    const seenKnown = stats.updated + stats.unchanged; // previously-known rows present in this snapshot
+    const seenKnown = stats.updated + stats.unchanged;
     const missing = Math.max(0, activeBefore - seenKnown);
     const missingPct = activeBefore > 0 ? (missing / activeBefore) * 100 : 0;
     let status: LiveSyncStatus = "SUCCESS";
@@ -172,7 +143,7 @@ export async function runLiveDataSync(opts: LiveSyncOptions): Promise<LiveSyncRe
     }
 
     result.status = status;
-    result.success = true; // SUCCESS or PARTIAL: rows were written; failures throw above
+    result.success = true;
     result.durationMs = Date.now() - startMs;
     await db.$transaction([
       db.integrationSyncRun.update({
@@ -198,7 +169,6 @@ export async function runLiveDataSync(opts: LiveSyncOptions): Promise<LiveSyncRe
     await releaseLock();
   }
 
-  // 5. Optional: feed the planning engine from the freshly stored snapshot (no second API call).
   const chain = opts.chainCanonical ?? true;
   if (result.success && chain !== false && cfg.chainPlanningSync && getFantasyConfig().sourceMode === "FANTASY_API") {
     const chained = async () => {

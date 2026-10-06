@@ -3,12 +3,6 @@ import { ok } from "@/lib/api-utils";
 import { notFound } from "@/lib/api/errors";
 import { withApi, idSchema, qInt } from "@/lib/api/with-api";
 
-/**
- * Access history for one account: who changed its roles, scope or status, when, and from
- * what to what. Read from the immutable audit log. Only the fields that describe the
- * access change are returned — never the raw audit payload, session or network details.
- */
-
 const ACCESS_ACTIONS = ["USER_CREATED", "USER_ROLE_CHANGE", "USER_ACCESS_SCOPE_CHANGE", "USER_STATUS_CHANGE", "USER_PASSWORD_RESET"] as const;
 type AccessAction = (typeof ACCESS_ACTIONS)[number];
 
@@ -21,7 +15,6 @@ interface AccessSnapshot {
 
 const strings = (v: unknown): string[] | undefined => (Array.isArray(v) && v.every((x) => typeof x === "string") ? (v as string[]) : undefined);
 
-/** Picks the access-describing fields out of a stored audit snapshot; everything else is dropped. */
 function snapshot(raw: string | null): AccessSnapshot | null {
   if (!raw) return null;
   let parsed: unknown;
@@ -56,8 +49,6 @@ export const GET = withApi({ permission: "user.read" }, async (_req: Request, { 
     select: { action: true, actor: true, timestamp: true, before: true, after: true, reason: true, outcome: true },
   });
   const hasMore = rows.length > pageSize;
-  // Scope-change rows record a reason; other reasons may hold operator free text about
-  // the person, so only the scope reason (which the API requires and describes the grant) is shown.
   return ok({
     rows: rows.slice(0, pageSize).map((r) => ({
       action: r.action as AccessAction,

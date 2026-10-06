@@ -1,13 +1,3 @@
-// Destructive database tooling fails closed, and non-test commands never destroy.
-//
-// The environment proof refuses every target that is not an isolated test database, before
-// anything connects: a missing or malformed URL, a remote host, the development database, an
-// unknown name, and any production or staging marker. The package scripts expose no
-// destructive command that skips it. Confirmed reference data is inserted, never replaced:
-// it is exercised here through the real service against the isolated planning_sectest
-// database, including a rollback forced inside its transaction.
-// (Command-level refusals and row-count proofs run in scripts/test-db-safety.ts.)
-
 import { readFileSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, test } from "./harness";
 import { db } from "./helpers";
@@ -54,7 +44,6 @@ describe("environment proof: destructive tooling refuses anything but an isolate
     expect(proveLocalDatabase("postgresql://u:p@localhost:5432/planning", NO_MARKERS).proven).toBe(true);
     expect(proveLocalDatabase("postgresql://u:p@db.internal.corp:5432/planning", NO_MARKERS).refusal).toBe("HOST_NOT_LOOPBACK");
     expect(proveLocalDatabase("postgresql://u:p@localhost:5432/planning", { APP_ENV: "staging" }).refusal).toBe("DEPLOYED_ENVIRONMENT");
-    // Proving a local database never licenses destruction of it.
     expect(proveDisposableDatabase("postgresql://u:p@localhost:5432/planning", NO_MARKERS).proven).toBe(false);
   });
 });
@@ -72,8 +61,6 @@ describe("database commands: destructive ones are named and guarded; the others 
   test("every command that resets, pushes with data loss or recreates a database proves the target first", () => {
     for (const [name, command] of Object.entries(scripts)) {
       if (/migrate reset|db push|accept-data-loss|migrate dev/.test(command)) expect([name, name.startsWith("db:test:")]).toEqual([name, true]);
-      // Every Prisma migration or push step runs through the guard on the isolated test
-      // database — except the plain deployment command, which never resets.
       if (name === "db:migrate:deploy") continue;
       for (const step of command.split("&&").filter((s) => /(prisma|--) (migrate|db push)/.test(s))) {
         expect([name, step.trim(), /^tsx --env-file-if-exists=\.env scripts\/with-sectest-db\.ts scripts\/db-guard\.ts \S+ -- (migrate|db push)/.test(step.trim())]).toEqual([name, step.trim(), true]);
@@ -95,15 +82,12 @@ describe("database commands: destructive ones are named and guarded; the others 
       expect([file, /\.(delete|deleteMany|update|updateMany|upsert)\(|TRUNCATE|DROP |migrate reset|db push|executeRaw/i.test(source)]).toEqual([file, false]);
     }
     expect(scripts["db:setup:dev"]).toBe("tsx --env-file-if-exists=.env scripts/db-setup-dev.ts");
-    // Setup applies committed migrations and nothing that resets, through the shell-free Prisma CLI.
     const setup = readFileSync("scripts/db-setup-dev.ts", "utf8");
     expect([/runPrisma\(\["migrate", "deploy"\]/.test(setup), /shell:|npx/.test(setup)]).toEqual([true, false]);
   });
 });
 
 describe("confirmed reference data is inserted, never replaced", () => {
-  // Weight bands other suites' records point at are never deleted here; lab and shape
-  // mappings have no dependants. Every row is restored afterwards.
   const UNREFERENCED = { salesRecords: { none: {} }, polishedStones: { none: {} }, salesOrderLines: { none: {} }, requirements: { none: {} }, planningCategories: { none: {} } };
   const CONFIRMED_BAND_CODES = CONFIRMED_WEIGHT_BANDS.map((b) => b.code);
   const NON_BLANK_LABS = CONFIRMED_LAB_MAPPINGS.filter((m) => m.raw.trim() !== "");
@@ -115,7 +99,6 @@ describe("confirmed reference data is inserted, never replaced", () => {
 
   beforeAll(async () => {
     saved = { bands: await db.weightBand.findMany(), labs: await db.labMapping.findMany(), shapes: await db.shapeMapping.findMany() };
-    // Start from missing reference data wherever that is safe.
     await db.weightBand.deleteMany({ where: { code: { in: CONFIRMED_BAND_CODES }, ...UNREFERENCED } });
     await db.labMapping.deleteMany({});
     await db.shapeMapping.deleteMany({});
@@ -183,7 +166,6 @@ describe("confirmed reference data is inserted, never replaced", () => {
       await db.$executeRawUnsafe(`DROP TRIGGER sectest_fail_reference_audit ON "AuditLog"`);
     }
     expect([await db.weightBand.count(), await auditCount(), await db.weightBand.count({ where: { code: missing } })]).toEqual([...before, 0]);
-    // Once the failure is gone, the missing band is added.
     expect((await syncConfirmedReferenceData(db, "cli")).weightBands).toEqual([missing]);
   });
 });

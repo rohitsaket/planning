@@ -1,22 +1,3 @@
-/**
- * CUSTOMERS AND ORDERS — bounded read service.
- *
- * Customer activity is derived from exactly one place: the `SALE` trace the selected
- * 90-day demand run persisted. That trace is the output of the centralized
- * confirmed-sales policy, so this module re-decides nothing about what a sale is — it
- * only attributes sales that policy already admitted to the customer who made them.
- *
- * Reading the trace rather than re-running the policy is deliberate: it guarantees that
- * the customer totals here and the category totals on Sales Analysis are two views of
- * the same rows, and cannot drift as the clock moves.
- *
- * Orders are a different matter. Fantasy supplies no order entity — see
- * `resolveOrderSourceState` — so this module reports that rather than dressing seeded
- * demo rows as synchronized data.
- *
- * Server-only.
- */
-
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { num } from "@/lib/api-utils";
@@ -35,32 +16,15 @@ const WINDOW_SIZE_DAYS = 30;
 
 export const CUSTOMERS_PAGE_MAX = 200;
 export const CUSTOMERS_PAGE_DEFAULT = 25;
-/** Refuses to group more customers than one response can honestly carry. */
 const GROUP_CEILING = 5_000;
 
-// ---------------------------------------------------------------------------
-// Customer identity
-// ---------------------------------------------------------------------------
-
-/**
- * How a customer was identified.
- *
- * Names are deliberately absent from this list. Two customers may share a name, and
- * merging them would invent a single buyer out of two — so a record without a confirmed
- * code is reported as unidentified rather than matched by what it is called.
- */
 export const CUSTOMER_IDENTITY_SOURCES = ["CANONICAL_CUSTOMER_ID", "CUSTOMER_CODE", "MISSING"] as const;
 export type CustomerIdentitySource = (typeof CUSTOMER_IDENTITY_SOURCES)[number];
 
-/** The bucket every sale without a confirmed customer identity falls into. */
 export const UNIDENTIFIED_CUSTOMER_KEY = "__UNIDENTIFIED__";
 
 export const CUSTOMER_DATA_STATES = ["CONFIRMED", "IDENTITY_MISSING", "INSUFFICIENT_HISTORY"] as const;
 export type CustomerDataState = (typeof CUSTOMER_DATA_STATES)[number];
-
-// ---------------------------------------------------------------------------
-// Filters
-// ---------------------------------------------------------------------------
 
 export interface CustomerFilters {
   readonly country: string | null;
@@ -71,13 +35,6 @@ export interface CustomerFilters {
   readonly shape: string | null;
   readonly weightBand: string | null;
   readonly dataState: CustomerDataState | null;
-  /**
-   * The caller's country and lab authorization scope.
-   *
-   * It rides with the filters because it is applied where they are, but it is not a
-   * filter: it comes from the authenticated server session and a request can only narrow
-   * within it, never widen past it.
-   */
   readonly scope: EffectiveScope;
 }
 
@@ -104,12 +61,6 @@ function pageMeta(p: Paging, total: number): PagingMeta {
   return { page: p.page, pageSize, total, hasMore: p.page * pageSize < total };
 }
 
-/**
- * Filters applied inside the database.
- *
- * `customerSearch` matches the customer CODE and the name. Matching the name is a search
- * convenience; it never affects how records are grouped, which is by code alone.
- */
 function filterSql(f: CustomerFilters, includeCustomerName: boolean): Prisma.Sql {
   const parts: Prisma.Sql[] = [];
   if (f.country) parts.push(Prisma.sql`AND "m"."country" = ${f.country}`);
@@ -126,19 +77,11 @@ function filterSql(f: CustomerFilters, includeCustomerName: boolean): Prisma.Sql
         : Prisma.sql`AND COALESCE("m"."customerCode", '') ILIKE ${like}`,
     );
   }
-  // The country is on the canonical lot the sale is joined to; the lab is on the trace
-  // row. Applied unconditionally, so an unfiltered request returns the caller's scope.
   const scope = scopeSql(f.scope, { country: '"m"."country"', lab: '"t"."lab"' });
   if (scope !== Prisma.empty) parts.push(scope);
   return parts.length ? Prisma.join(parts, " ") : Prisma.empty;
 }
 
-/**
- * The confirmed sales of one snapshot, attributed to a customer identity.
- *
- * `LotMasterRecord.lotId` is unique, so the join adds identity and location without ever
- * multiplying a sale row — the count of rows here is exactly the count of trace rows.
- */
 function saleCte(run: SalesSnapshot, f: CustomerFilters, includeCustomerName: boolean): Prisma.Sql {
   return Prisma.sql`
     WITH sale AS (
@@ -177,10 +120,6 @@ function saleCte(run: SalesSnapshot, f: CustomerFilters, includeCustomerName: bo
   `;
 }
 
-// ---------------------------------------------------------------------------
-// Order source
-// ---------------------------------------------------------------------------
-
 export const ORDER_SOURCE_STATES = ["NOT_CONFIGURED", "AVAILABLE", "FIXTURE_DEMO"] as const;
 export type OrderSourceState = (typeof ORDER_SOURCE_STATES)[number];
 
@@ -188,26 +127,12 @@ export interface OrderSourceStatus {
   readonly state: OrderSourceState;
   readonly reasonCode: string;
   readonly message: string;
-  /** Seeded rows that exist but are not an authoritative order source. */
   readonly seededOrderCount: number;
   readonly seededOrderLineCount: number;
   readonly fieldsAvailable: readonly string[];
   readonly fieldsUnavailable: readonly string[];
 }
 
-/**
- * Whether an authoritative order source exists. Today it does not.
- *
- * The 46-column Fantasy row contract carries no order: no order identity, no requested
- * quantity, no required date, no fulfilment state, no cancellation and no backorder.
- * `Allocation Account ID`, `Doc ID`, `Company ID` and `Department Account Name` are each
- * documented in the row contract as having no confirmed business meaning — turning any
- * of them into an order would be inventing the entity, not reading it.
- *
- * `SalesOrder` and `SalesOrderLine` hold seeded demonstration rows. No synchronization
- * path writes them, they carry no source mode, no simulation flag and no batch linkage,
- * so they cannot be shown as Fantasy data.
- */
 export async function resolveOrderSourceState(client = db): Promise<OrderSourceStatus> {
   const [seededOrderCount, seededOrderLineCount] = await Promise.all([
     client.salesOrder.count(),
@@ -223,7 +148,6 @@ export async function resolveOrderSourceState(client = db): Promise<OrderSourceS
       "from the columns it does supply without a confirmed business rule.",
     seededOrderCount,
     seededOrderLineCount,
-    // Nothing is claimed as available, because nothing is.
     fieldsAvailable: [],
     fieldsUnavailable: [
       "ORDER_IDENTITY",
@@ -239,33 +163,13 @@ export async function resolveOrderSourceState(client = db): Promise<OrderSourceS
   };
 }
 
-// ---------------------------------------------------------------------------
-// Readiness
-// ---------------------------------------------------------------------------
-
-/**
- * What a browser may learn about the order source.
- *
- * `OrderSourceStatus` above stays internal. Its seeded counts and field inventory exist
- * so a server-side test can prove the seeded `SalesOrder` rows are excluded from
- * operational reporting and that nothing is claimed as available — that verification is
- * real and is kept, but it is engineering evidence, not something an ordinary user needs
- * or should receive.
- */
 export interface PublicOrderAvailability {
   readonly available: boolean;
   readonly state: OrderSourceState;
   readonly message: string;
-  /** Shown only when there is an action to take; null once a source exists. */
   readonly nextStep: string | null;
 }
 
-/**
- * The allow-listed projection. Built field by field so the internal object is never
- * spread, and driven by the source's real state so it cannot claim the wrong one: if an
- * approved source is configured later, this reports available rather than continuing to
- * say NOT CONFIGURED.
- */
 export function toPublicOrderAvailability(source: OrderSourceStatus): PublicOrderAvailability {
   if (source.state === "AVAILABLE") {
     return {
@@ -275,8 +179,6 @@ export function toPublicOrderAvailability(source: OrderSourceStatus): PublicOrde
       nextStep: null,
     };
   }
-  // FIXTURE_DEMO is not an authoritative source either, and is reported as not configured
-  // rather than as data a user could act on.
   return {
     available: false,
     state: "NOT_CONFIGURED",
@@ -287,19 +189,6 @@ export function toPublicOrderAvailability(source: OrderSourceStatus): PublicOrde
   };
 }
 
-// ---------------------------------------------------------------------------
-// Customer snapshot summary
-// ---------------------------------------------------------------------------
-
-/**
- * Three independent dimensions, deliberately not collapsed into one badge.
- *
- * The previous readiness table mixed them: a simulated snapshot could show one row as
- * SIMULATED and the next as CURRENT, which reads as a contradiction. Provenance says
- * where the figures came from; snapshot state says whether they are usable; identity
- * completeness says whether every confirmed sale could be attributed to a buyer. A
- * simulated snapshot with complete identity is still simulated.
- */
 export const CUSTOMER_SOURCE_STATES = ["SIMULATION", "LIVE"] as const;
 export type CustomerSourceState = (typeof CUSTOMER_SOURCE_STATES)[number];
 
@@ -309,47 +198,24 @@ export type CustomerSnapshotState = (typeof CUSTOMER_SNAPSHOT_STATES)[number];
 export const CUSTOMER_IDENTITY_COMPLETENESS = ["COMPLETE", "PARTIAL", "UNKNOWN"] as const;
 export type CustomerIdentityCompleteness = (typeof CUSTOMER_IDENTITY_COMPLETENESS)[number];
 
-/**
- * What a reader needs to interpret the customer figures — and nothing about how the
- * system is built. There is no `sourceMode` enum, no sync timestamp, and no order
- * information: orders are a different section with a different permission.
- */
 export interface CustomerSnapshotSummary {
   readonly hasSnapshot: boolean;
   readonly sourceState: CustomerSourceState;
-  /**
-   * Where these figures came from. Rendered by the shared simulation banner; never
-   * re-derived in a view from a local flag.
-   */
   readonly sourceDisclosure: SourceDisclosure;
-  /** "Fixture Simulation" or "Live Fantasy". */
   readonly sourceLabel: string;
   readonly snapshotState: CustomerSnapshotState;
-  /** "Past 90 days", or the real window when a run used a different one. */
   readonly periodLabel: string;
   readonly windowDays: number | null;
-  /** When the snapshot was generated, in IST. */
   readonly snapshotGeneratedIst: string | null;
-  /** The business cutoff the window ends on, in IST. */
   readonly businessDateIst: string | null;
   readonly identityCompleteness: CustomerIdentityCompleteness;
-  /** Null rather than zero when nothing has been counted. */
   readonly recordsWithIdentity: number | null;
   readonly recordsMissingIdentity: number | null;
-  /** Open blocking issues that may affect these figures. Paired with an action in the UI. */
   readonly blockingIssueCount: number;
-  /** Shown only when it applies; null means there is nothing to warn about. */
   readonly identityWarning: string | null;
   readonly snapshotWarning: string | null;
 }
 
-/**
- * The compact summary the Customers tab shows.
- *
- * Nothing here is a verification result. Every value is either a measured figure or an
- * explicit state, and an absent snapshot yields UNAVAILABLE with null counts rather than
- * zeros.
- */
 export async function readCustomerSnapshotSummary(client = db): Promise<CustomerSnapshotSummary> {
   const [run, blockingIssueCount] = await Promise.all([
     resolveSalesSnapshot(),
@@ -361,7 +227,6 @@ export async function readCustomerSnapshotSummary(client = db): Promise<Customer
       hasSnapshot: false,
       sourceState: "SIMULATION",
       sourceLabel: "No sales snapshot",
-      // Nothing has been attributed: not simulated, not live.
       sourceDisclosure: UNESTABLISHED_SOURCE,
       snapshotState: "UNAVAILABLE",
       periodLabel: "Past 90 days",
@@ -418,19 +283,13 @@ export async function readCustomerSnapshotSummary(client = db): Promise<Customer
   };
 }
 
-// ---------------------------------------------------------------------------
-// Customer summary
-// ---------------------------------------------------------------------------
-
 export interface CustomerSummaryRow {
   readonly customerKey: string;
   readonly customerCode: string | null;
-  /** Present only when the caller holds customers.read. */
   readonly customerName: string | null;
   readonly identitySource: CustomerIdentitySource;
   readonly country: string | null;
   readonly branch: string | null;
-  /** Pieces. Distinct from the record count below — never interchangeable. */
   readonly confirmedQuantity: number;
   readonly measuredWeight: number;
   readonly saleRecordCount: number;
@@ -475,12 +334,6 @@ interface CustomerAggRow {
   latest30: number | null;
 }
 
-/**
- * Customer sales for the snapshot, grouped and paged in the database.
- *
- * The three window quantities are `FILTER`ed sums over the same scan as the total, so
- * they partition exactly the rows the total is taken over and cannot disagree with it.
- */
 export async function readCustomerSummary(
   filters: CustomerFilters,
   paging: Paging,
@@ -522,7 +375,6 @@ export async function readCustomerSummary(
     return {
       customerKey: r.customer_key,
       customerCode: r.customer_code,
-      // Withheld entirely without customers.read — not blanked in the browser.
       customerName: canSeeCustomerNames ? r.customer_name : null,
       identitySource: unidentified ? "MISSING" : "CUSTOMER_CODE",
       country: r.country,
@@ -549,7 +401,6 @@ export async function readCustomerSummary(
     : sort.key === "saleRecordCount" ? r.saleRecordCount
     : sort.key === "latestSaleDate" ? (r.latestSaleDate ?? "")
     : (r.customerCode ?? r.customerKey);
-  // The customer key breaks every tie, so paging over the same filters is stable.
   filtered.sort((a, b) => {
     const av = pick(a), bv = pick(b);
     const c = av === bv ? 0 : av < bv ? -1 : 1;
@@ -579,10 +430,6 @@ export async function readCustomerSummary(
     businessDateIst: run.businessDateIst,
   };
 }
-
-// ---------------------------------------------------------------------------
-// Customer detail
-// ---------------------------------------------------------------------------
 
 export interface CustomerCategoryContribution {
   readonly categoryId: string;
@@ -617,16 +464,9 @@ export interface CustomerDetailResult {
   readonly snapshotId: string;
   readonly businessDateIst: string;
   readonly isSimulated: boolean;
-  /** Fixed codes for records this snapshot excluded that name this customer's lots. */
   readonly exclusionCodes: ReadonlyArray<{ code: string; count: number }>;
 }
 
-/**
- * One customer's confirmed sales within the snapshot.
- *
- * Three bounded queries — category contribution, period contribution and a page of
- * records — all scoped by the same CTE, so the three views cannot disagree.
- */
 export async function readCustomerDetail(
   customerKey: string,
   filters: CustomerFilters,
@@ -668,7 +508,6 @@ export async function readCustomerDetail(
   const windows = salesWindows(run.businessDateIst);
   const widxOf: Record<string, number> = { latest30: 0, middle30: 1, previous30: 2 };
 
-  // Exclusions naming this customer's lots, by fixed reason code.
   const exclusionRows = await client.$queryRaw<Array<{ reason: string; n: number }>>`
     SELECT COALESCE("t"."reason", 'UNSPECIFIED') AS reason, COUNT(*)::int AS n
     FROM "DemandMetricTraceItem" "t"

@@ -1,17 +1,3 @@
-/**
- * Incremental Synchronization Engine for Fantasy ERP.
- * 
- * Hardened guarantees:
- * - Atomic concurrency-safe lock acquisition & explicit authorized unlock
- * - Monotonic checkpoint advancement inside transaction
- * - Strict provider batch validation before execution
- * - Full canonical field comparison & explicit clearing of nullable fields
- * - Deterministic Data Quality issue codes and upserts (idempotency)
- * - Complete removal reason lifecycle handling (Critical Sold-Record Rule)
- * - Operational PolishedStone synchronization
- * - Rollback on failure with safe lock release
- */
-
 import crypto from "crypto";
 import { db } from "@/lib/db";
 import { Prisma } from "@prisma/client";
@@ -72,32 +58,14 @@ export interface SyncRunResult {
     historyVersionsCreated: number;
     dqIssuesCreated: number;
   };
-  /** Sanitized public failure. Present only when the batch failed. */
   failure?: PublicFailure;
 }
 
-/**
- * How long one claim is honoured.
- *
- * Long enough that a healthy batch finishes well inside it, short enough that a crashed
- * worker does not hold the lock until someone notices. Reclaiming an expired lease is
- * safe because canonical writes are transactional: an abandoned run committed either
- * everything or nothing.
- */
-// Validated for the same reason as the canonical claim lease: a lease nobody can compute
-// is a lock nobody can reclaim.
 export const SYNC_LOCK_LEASE_MS = resolveNumericEnv(
   "FANTASY_SYNC_LOCK_LEASE_MS",
   { fallback: 15 * 60_000, max: 24 * 60 * 60_000 },
 ).value;
 
-/**
- * Releases a claim, and only that claim.
- *
- * The token is matched inside the same statement that clears the lock, so there is no
- * read-then-write window in which another worker could claim it between the check and
- * the release.
- */
 export async function releaseSyncLock(ownerToken: string): Promise<boolean> {
   const released = await db.syncCheckpoint.updateMany({
     where: { source: "FANTASY", lockToken: ownerToken },
@@ -106,9 +74,6 @@ export async function releaseSyncLock(ownerToken: string): Promise<boolean> {
   return released.count > 0;
 }
 
-/**
- * Explicitly releases a synchronization lock with audit tracking.
- */
 export async function unlockSynchronization(
   actor: string,
   reason?: string,
@@ -119,24 +84,11 @@ export async function unlockSynchronization(
     return { success: true, message: "Synchronization is not currently locked." };
   }
 
-  // A caller holding the token releases its own claim. Anyone else is performing an
-  // administrative recovery, which the route already gates behind `fantasy.sync.unlock`
-  // — and which is refused while the lease is still running, so a healthy worker cannot
-  // be interrupted by an impatient operator.
   const now = nowUTC();
   const ownsLock = Boolean(options.ownerToken) && options.ownerToken === checkpoint.lockToken;
   const leaseExpired = checkpoint.lockExpiresAt !== null && checkpoint.lockExpiresAt < now;
-  // A lock claimed before tokens existed has no owner to prove, so a recovery unlock is
-  // the only way to clear it.
   const legacyClaim = checkpoint.lockToken === null;
 
-  // This function is the administrative recovery path and is already gated behind
-  // `fantasy.sync.unlock`, so it does not refuse — refusing would leave a genuinely
-  // stuck lock unclearable. What it does is distinguish the cases, so a force-release of
-  // live work is recorded as exactly that rather than looking like routine cleanup.
-  //
-  // The token protection lives where it belongs: on the automatic release paths, which
-  // go through `releaseSyncLock` and can only ever clear their own claim.
   const forcedActiveLease = !ownsLock && !leaseExpired && !legacyClaim;
 
   await db.syncCheckpoint.update({
@@ -152,8 +104,6 @@ export async function unlockSynchronization(
 
   return {
     success: true,
-    // Stated plainly: breaking a live lease is a different act from clearing a stale one,
-    // and the operator who did it should see which one happened.
     forcedActiveLease,
     message: forcedActiveLease
       ? `Synchronization lock force-cleared by ${actor} while a run still held an active lease. Reason: ${reason ?? "Manual administrative unlock"}`
@@ -161,9 +111,6 @@ export async function unlockSynchronization(
   };
 }
 
-/**
- * Loads configurable lab mappings from database into a lookup map.
- */
 export async function loadLabMappings(tx?: Prisma.TransactionClient): Promise<Map<string, string>> {
   const client = tx ?? db;
   const mappings = await client.labMapping.findMany({ where: { active: true } });
@@ -175,16 +122,6 @@ export async function loadLabMappings(tx?: Prisma.TransactionClient): Promise<Ma
   return map;
 }
 
-/**
- * Executes a concurrency-safe, monotonic incremental synchronization run.
- */
-/**
- * The provenance columns for one canonical record.
- *
- * Recorded at ingestion, where the source is still known. Deriving it later from
- * `sourceType` alone cannot distinguish a supplied 1 from the column default, which is
- * the ambiguity these columns exist to remove.
- */
 function quantityProvenanceColumns(rec: { quantity?: number | null; sourceType: string; isSimulated?: boolean }) {
   const decision = resolveCanonicalQuantity({
     quantity: rec.quantity,
@@ -197,10 +134,6 @@ function quantityProvenanceColumns(rec: { quantity?: number | null; sourceType: 
 export async function runSynchronization(options: SyncRunOptions = {}): Promise<SyncRunResult> {
   const startTime = Date.now();
   const config = getFantasySourceConfiguration();
-  // Fails closed before any lock, run record or write. Both conditions are checked: an
-  // unconfigured or unsupported source mode can no longer reach the provider factory,
-  // and a live mode whose connector is not installed is refused here rather than
-  // reaching a stub that throws from inside a run.
   if (config.canonicalSourceMode === null || resolveFantasySourceState().effectiveState === "NOT_CONFIGURED") {
     throw new Error("Synchronization is unavailable: no supported Fantasy data source is configured.");
   }
@@ -208,8 +141,6 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
   const isSimulatedSource = canonicalSourceMode === "FIXTURE";
   const provider = options.provider ?? getFantasyProvider(canonicalSourceMode);
 
-  // One classification authority for the whole run. Loaded before any lock is taken so a
-  // missing profile fails the run cleanly instead of part-way through.
   const classificationProfile = await loadClassificationProfile(LEGACY_FIXTURE_PROFILE);
   if (classificationProfile === null) {
     throw new Error(
@@ -217,11 +148,6 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
     );
   }
 
-  /**
-   * Classifies one fixture canonical record. Replaces the four copies of
-   * `currentStatus === "STOCK" ? "PHYSICAL" : "MEMO"`, the unconditional `"PHYSICAL"` on
-   * the replay path, and the `STOCK || MEMO` mirror gate.
-   */
   const classifyRecord = (currentStatus: string, departmentName?: string | null, previousDepartment?: string | null) =>
     classifyFantasyRecord(
       legacyFixtureClassificationInput({
@@ -232,10 +158,6 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
       classificationProfile satisfies ClassificationProfile,
     );
 
-  /**
-   * The classification columns written onto a canonical current or history record.
-   * Every downstream consumer reads these instead of reinterpreting the raw status.
-   */
   const classificationColumns = (c: ReturnType<typeof classifyRecord>) => ({
     holdState: c.holdState,
     canonicalLifecycle: c.lifecycle,
@@ -250,7 +172,6 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
     classificationState: c.state,
   });
 
-  // 1. Ensure checkpoint record exists
   let checkpointRecord = await db.syncCheckpoint.findUnique({
     where: { source: "FANTASY" },
   });
@@ -272,11 +193,6 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
     }
   }
 
-  // 2. ATOMIC LOCK ACQUISITION — conditional update with a unique owner token.
-  //
-  // The token is what makes the release safe: a caller must present it to clear the
-  // lock, so a second worker cannot release the first one's claim. The lease bounds a
-  // crashed worker, which previously left the lock held until someone unlocked by hand.
   const lockToken = crypto.randomUUID();
   const lockClaimedAt = nowUTC();
   const lockExpiresAt = new Date(lockClaimedAt.getTime() + SYNC_LOCK_LEASE_MS);
@@ -284,8 +200,6 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
   const lockResult = await db.syncCheckpoint.updateMany({
     where: {
       source: "FANTASY",
-      // Free, or held by a claim whose lease has run out. Both are decided by the
-      // database in one statement, so two workers cannot both win.
       OR: [{ isLocked: false }, { lockExpiresAt: { lt: lockClaimedAt } }],
     },
     data: {
@@ -301,31 +215,21 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
     throw new Error("Synchronization lock is currently held by another worker. Concurrent synchronization requests are rejected.");
   }
 
-  // The canonical state is claimed second, and always in this order: sync lock, then
-  // canonical claim. Demand takes its own operation lock first and then this same claim,
-  // so the two never acquire the pair in opposite orders and cannot deadlock.
-  //
-  // A demand run holding the claim means canonical records are being read right now;
-  // committing a batch underneath it would give that calculation a mixed source state.
   let canonicalClaim: CanonicalClaim;
   const canonicalClaimResult = await claimCanonicalState("SYNC", options.actor ?? "SYSTEM");
   if (!canonicalClaimResult.acquired) {
-    // The sync lock is released again here: holding it while refused would block the
-    // next attempt for a full lease with no work in progress.
     await releaseSyncLock(lockToken);
     throw new CanonicalStateBusyError(canonicalClaimResult.heldBy);
   }
   canonicalClaim = canonicalClaimResult.claim;
   let canonicalClaimReleased = false;
 
-  // Refresh checkpoint state under active lock
   const lockedCheckpoint = await db.syncCheckpoint.findUniqueOrThrow({
     where: { source: "FANTASY" },
   });
 
   const currentCheckpoint = lockedCheckpoint.currentCheckpoint;
 
-  // 3. Create initial RUNNING sync run record
   const syncRun = await db.integrationSyncRun.create({
     data: {
       source: "Fantasy",
@@ -344,11 +248,9 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
   let lockReleasedInTx = false;
 
   try {
-    // 4. Request batch from provider for current checkpoint
     const batch = await provider.getBatch(currentCheckpoint);
 
     if (!batch) {
-      // No new batches available
       const durationMs = Date.now() - startTime;
       await db.integrationSyncRun.update({
         where: { id: syncRun.id },
@@ -364,8 +266,6 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
         data: { isLocked: false, lockedAt: null, lockedBy: null, lockToken: null, lockExpiresAt: null },
       });
       lockReleasedInTx = true;
-      // No batch, no canonical change: the claim is released immediately so a waiting
-      // demand run is not blocked for a full lease by a sync that did nothing.
       await releaseCanonicalState(canonicalClaim);
       canonicalClaimReleased = true;
 
@@ -391,7 +291,6 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
       };
     }
 
-    // 5. VALIDATE PROVIDER BATCH BEFORE PROCESSING
     if (batch.startingCheckpoint !== currentCheckpoint) {
       throw new Error(`Batch starting checkpoint (${batch.startingCheckpoint}) does not match current system checkpoint (${currentCheckpoint}).`);
     }
@@ -407,7 +306,6 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
       throw new Error("Live batch rejected while source mode is configured as simulation FIXTURE.");
     }
 
-    // Check if this batch ID has already been successfully processed
     const existingSuccessfulBatch = await db.integrationSyncRun.findFirst({
       where: {
         batchId: batch.batchId,
@@ -419,7 +317,6 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
       throw new Error(`Batch ${batch.batchId} has already been successfully processed in run ${existingSuccessfulBatch.id}. Re-execution refused.`);
     }
 
-    // 6. EXECUTE TRANSACTION
     const result = await db.$transaction(async (tx) => {
       let recordsCreated = 0;
       let recordsUpdated = 0;
@@ -433,20 +330,13 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
       const seenLotsInBatch = new Set<string>();
       const totalReceived = batch.records.length + batch.removals.length;
       const labMappings = await loadLabMappings(tx);
-      // The planning category is decided here, once, and persisted. The demand
-      // calculation consumes the stored decision instead of re-deriving it from these
-      // same tables at run time, which is what let a committed run change meaning when a
-      // mapping row was edited afterwards.
       const categoryContext = await loadCategoryClassificationContext(tx, labMappings);
 
-      // Controlled simulation failure check
       if (options.simulateFailure || batch.simulateFailure) {
         throw new Error("Controlled simulation failure triggered for transaction rollback verification.");
       }
 
-      // Process Incoming Records
       for (const rec of batch.records) {
-        // A. Intra-batch duplicate check
         if (seenLotsInBatch.has(rec.lotId)) {
           recordsRejected++;
           dqIssuesCreated++;
@@ -481,7 +371,6 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
         }
         seenLotsInBatch.add(rec.lotId);
 
-        // B. Canonical record validation
         const val = validateCanonicalRecord(rec, labMappings);
         if (!val.valid) {
           recordsRejected++;
@@ -514,18 +403,12 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
           continue;
         }
 
-        // C. Normalization & warning checks
         const labRes = resolveLabNormalization(rec.labRaw, labMappings);
-        // The canonical category decision. Unapproved dimensions resolve to null rather
-        // than to a raw passthrough: `EGL_UNAPPROVED` is not a lab, and storing it in
-        // `labNormalized` is what let it become a planning category downstream.
         const category = classifyCanonicalCategory(
           { labRaw: rec.labRaw, shapeRaw: rec.shape, weightCt: Number(rec.weight) },
           categoryContext,
         );
         const categoryColumns = categoryClassificationColumns(category);
-        // Retained for the data-quality messages below, which report what the source
-        // said rather than what was approved.
         const normalizedShape = category.shapeNormalized ?? normalizeShape(rec.shape);
         const normalizedLab = category.labNormalized ?? labRes.normalized;
 
@@ -563,7 +446,6 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
           });
         }
 
-        // D. Check existing lot master
         const existing = await tx.lotMasterRecord.findUnique({
           where: { lotId: rec.lotId },
         });
@@ -574,7 +456,6 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
         const sourceUpdatedAt = rec.sourceUpdatedAt ? new Date(rec.sourceUpdatedAt) : nowUTC();
 
         if (!existing) {
-          // --- INSERT NEW LOT MASTER RECORD ---
           const insertClassification = classifyRecord(rec.currentStatus, rec.departmentName, null);
           const newMaster = await tx.lotMasterRecord.create({
             data: {
@@ -589,7 +470,6 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
               docDate,
               quantity: new Prisma.Decimal(rec.quantity ?? 1),
               ...quantityProvenanceColumns(rec),
-              // The planning-category decision, persisted with the record it describes.
               ...categoryColumns,
               shape: rec.shape,
               shapeNormalized: normalizedShape,
@@ -630,7 +510,6 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
             },
           });
 
-          // Create Version 1 in immutable history
           await tx.lotHistoryRecord.create({
             data: {
               ...classificationColumns(insertClassification),
@@ -643,7 +522,6 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
               statusEffectiveDate,
               quantity: new Prisma.Decimal(rec.quantity ?? 1),
               ...quantityProvenanceColumns(rec),
-              // The classification snapshot in force for this version.
               ...categoryColumns,
               shape: rec.shape,
               shapeNormalized: normalizedShape,
@@ -678,9 +556,6 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
             },
           });
 
-          // Sync into the operational PolishedStone mirror when the classifier places
-          // this record in a mirrored inventory class. Replaces the literal
-          // `currentStatus === "STOCK" || === "MEMO"` gate.
           const mirrorClassification = classifyRecord(rec.currentStatus, rec.departmentName, null);
           if (rec.roughOrPolished === "POLISHED" && rec.isCurrent && isMirroredInventoryClass(mirrorClassification.inventoryClass)) {
             await tx.polishedStone.upsert({
@@ -728,7 +603,6 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
           recordsCreated++;
           historyVersionsCreated++;
         } else {
-          // --- EXISTING LOT RECORD: CHECK OUT-OF-ORDER & DETECT MEANINGFUL CHANGES ---
           if (existing.sourceUpdatedAt && sourceUpdatedAt < existing.sourceUpdatedAt) {
             recordsSkipped++;
             dqIssuesCreated++;
@@ -762,7 +636,6 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
             continue;
           }
 
-          // COMPLETE FIELD-BY-FIELD COMPARISON (30+ CANONICAL ATTRIBUTES)
           const diffs: string[] = [];
 
           if (existing.currentStatus !== rec.currentStatus) diffs.push("currentStatus");
@@ -805,7 +678,6 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
               ? `STATUS_CHANGED_TO_${rec.currentStatus}`
               : `ATTRIBUTE_UPDATE_${diffs.slice(0, 3).join("_").toUpperCase()}`;
 
-            // Update master record (support explicitly clearing nullable fields to null)
             const changeClassification = classifyRecord(rec.currentStatus, rec.departmentName, existing.currentStatus);
             await tx.lotMasterRecord.update({
               where: { lotId: rec.lotId },
@@ -818,7 +690,6 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
                 docDate,
                 quantity: new Prisma.Decimal(rec.quantity ?? 1),
                 ...quantityProvenanceColumns(rec),
-                // The planning-category decision, persisted with the record it describes.
                 ...categoryColumns,
               ...quantityProvenanceColumns(rec),
                 shape: rec.shape,
@@ -856,7 +727,6 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
               },
             });
 
-            // Create EXACTLY ONE new immutable history version
             await tx.lotHistoryRecord.create({
               data: {
                 ...classificationColumns(changeClassification),
@@ -869,7 +739,6 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
                 statusEffectiveDate,
                 quantity: new Prisma.Decimal(rec.quantity ?? 1),
                 ...quantityProvenanceColumns(rec),
-                // The classification snapshot in force for this version.
                 ...categoryColumns,
               ...quantityProvenanceColumns(rec),
                 shape: rec.shape,
@@ -905,8 +774,6 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
               },
             });
 
-            // Update or remove from the operational PolishedStone mirror, on the same
-            // classifier decision as the create path above.
             const updateClassification = classifyRecord(rec.currentStatus, rec.departmentName, null);
             if (rec.roughOrPolished === "POLISHED" && rec.isCurrent && isMirroredInventoryClass(updateClassification.inventoryClass)) {
               await tx.polishedStone.upsert({
@@ -950,7 +817,6 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
                 },
               });
             } else {
-              // Not live or not active stock/memo: remove from active live polished inventory
               await tx.polishedStone.deleteMany({
                 where: { fantasyLotId: rec.lotId },
               });
@@ -959,7 +825,6 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
             recordsUpdated++;
             historyVersionsCreated++;
           } else {
-            // NO-OP REPLAY: No attribute changed. Update timestamps only without duplicating history.
             await tx.lotMasterRecord.update({
               where: { lotId: rec.lotId },
               data: {
@@ -972,7 +837,6 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
         }
       }
 
-      // PROCESS REMOVAL EVENTS (CRITICAL SOLD-RECORD & REMOVAL LIFECYCLE)
       for (const rem of batch.removals) {
         const existing = await tx.lotMasterRecord.findUnique({
           where: { lotId: rem.lotId },
@@ -983,7 +847,6 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
           continue;
         }
 
-        // Idempotency check: If removal already applied with same reason and status, do not duplicate
         if (!existing.isCurrent && existing.removalReason === rem.removalReason) {
           recordsUnchanged++;
           continue;
@@ -1032,7 +895,6 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
           default:
             newStatus = "REMOVED_UNKNOWN";
             changeReason = "REMOVED_FROM_FEED_WITHOUT_SALE_EVENT";
-            // NEVER invent sale total or customer for disappearance without invoice
             saleTotalToRecord = null;
             break;
         }
@@ -1103,9 +965,6 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
         });
 
         if (isStillLive) {
-          // `isStillLive` is only ever MEMO_RETURN, whose computed status is STOCK, so
-          // this classifies to the same result the removed literal produced — but it now
-          // travels through the classifier rather than asserting PHYSICAL unconditionally.
           const reinstated = classifyRecord(newStatus, existing.departmentName, existing.currentStatus);
           await tx.polishedStone.upsert({
             where: { fantasyLotId: rem.lotId },
@@ -1176,13 +1035,6 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
         historyVersionsCreated++;
       }
 
-      // 7. MONOTONIC CHECKPOINT ADVANCEMENT INSIDE TRANSACTION
-      //
-      // Fencing: an administrator may have force-released this claim while the batch was
-      // being processed, which means another operation has since been allowed to touch
-      // canonical state. Advancing the checkpoint now would record this run as the source
-      // of a state it no longer exclusively produced. Throwing rolls the whole
-      // transaction back, so the canonical writes above are discarded too.
       if (!(await isClaimStillHeld(canonicalClaim, tx as unknown as typeof db))) {
         throw new CanonicalStateFencedError();
       }
@@ -1196,8 +1048,6 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
           isLocked: false,
           lockedAt: null,
           lockedBy: null,
-          // Cleared with the rest of the claim; leaving a stale token behind would let a
-          // later release match a lock this run no longer holds.
           lockToken: null,
           lockExpiresAt: null,
         },
@@ -1220,13 +1070,10 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
     });
 
     lockReleasedInTx = true;
-    // Released only after the transaction committed: until then a demand run could still
-    // observe a partially applied batch.
     await releaseCanonicalState(canonicalClaim);
     canonicalClaimReleased = true;
     const durationMs = Date.now() - startTime;
 
-    // 8. UPDATE SYNC RUN STATUS TO SUCCESS
     await db.integrationSyncRun.update({
       where: { id: syncRun.id },
       data: {
@@ -1271,9 +1118,6 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
     };
   } catch (err) {
     const durationMs = Date.now() - startTime;
-    // Converted once, here. The stack reaches the server log under the reference; only
-    // the sanitized envelope is persisted and returned, so neither the column nor the
-    // caller ever holds provider or data-store exception text.
     const failure = recordOperationalFailure(err, {
       operation: "fantasy.sync",
       entity: "IntegrationSyncRun",
@@ -1281,7 +1125,6 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
       actorUserId: options.actorUserId ?? null,
     });
 
-    // Rollback is automatic in $transaction. Mark run as FAILED.
     try {
       await db.integrationSyncRun.update({
         where: { id: syncRun.id },
@@ -1296,9 +1139,6 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
       // Ignore secondary update error
     }
 
-    // Release only this caller's claim. A token mismatch means another worker has
-    // already reclaimed an expired lease and is mid-run; clearing it would abandon
-    // their work.
     if (!lockReleasedInTx) {
       try {
         await releaseSyncLock(lockToken);
@@ -1308,8 +1148,6 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
     }
     if (!canonicalClaimReleased) {
       try {
-        // Releases nothing if the claim was already force-released, which is correct:
-        // it belongs to whoever holds it now.
         await releaseCanonicalState(canonicalClaim);
       } catch {
         // Ignore secondary release error
@@ -1340,10 +1178,6 @@ export async function runSynchronization(options: SyncRunOptions = {}): Promise<
   }
 }
 
-/**
- * Normal retry: retries the current failed checkpoint only.
- * Does NOT accept arbitrary checkpoints to prevent rewinding production data.
- */
 export async function retrySynchronization(options: { actor?: string; actorUserId?: string } = {}): Promise<SyncRunResult> {
   const checkpoint = await db.syncCheckpoint.findUnique({
     where: { source: "FANTASY" },
@@ -1362,10 +1196,6 @@ export async function retrySynchronization(options: { actor?: string; actorUserI
   });
 }
 
-/**
- * Development and test-only helper to replay fixture batches from a specific checkpoint.
- * Hard-guarded against execution in production.
- */
 export async function replayFixtureSynchronization(targetCheckpoint: number, actor = "DEV_REPLAY"): Promise<SyncRunResult> {
   if (process.env.NODE_ENV === "production") {
     throw new Error("Replaying arbitrary synchronization checkpoints is strictly prohibited in production.");

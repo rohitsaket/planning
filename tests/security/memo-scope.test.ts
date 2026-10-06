@@ -1,13 +1,3 @@
-// Memo access scope, end to end. Memo Analysis, the dashboard's memo exposure, the
-// per-customer memo exposure and the inventory reconciliation all read MemoRecord. The
-// caller's country and lab scope comes from the session and is ANDed with any filter the
-// request carries, so a filter can narrow what the scope allows and never replace it.
-//
-// Every request crosses the real route handler with a real session in the isolated
-// planning_sectest database. The fixture uses country and lab codes no other suite uses,
-// so a restricted reader's figures are exactly this fixture's, and its rows are removed
-// when the suite ends.
-
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { Prisma } from "@prisma/client";
@@ -25,7 +15,6 @@ const STAMP = Date.now().toString(36).toUpperCase();
 const [HOME, AWAY] = ["QM", "QN"];
 const [LAB_A, LAB_B] = ["QLAB-A", "QLAB-B"];
 
-/** country, branch, lab, status, value, age */
 const MEMOS: Array<[string, string, string, string, number, number]> = [
   [HOME, "QM-1", LAB_A, "OPEN", 100, 10],
   [HOME, "QM-1", LAB_A, "OPEN", 100, 20],
@@ -54,7 +43,6 @@ const get = async (handler: Parameters<typeof call>[0], u: User | null, path: st
   return call(handler, { path, ...(u ? { cookie: u.cookie } : {}) });
 };
 
-/** Expected figures straight from the fixture table, for comparison with each route. */
 const expected = (keep: (m: (typeof MEMOS)[number]) => boolean) => {
   const rows = MEMOS.filter(keep);
   return { qty: rows.length, value: rows.reduce((s, m) => s + m[4], 0) };
@@ -166,11 +154,9 @@ describe("Memo scope: the session decides what is visible", () => {
       const r = await get(memo, homeOnly, `/api/analysis/memo?${qs}`);
       expect([qs, r.status === 400 || r.status === 403, "totalQty" in (r.json ?? {})]).toEqual([qs, true, false]);
     }
-    // Where the scope check cannot answer first, the shape check refuses with 400.
     for (const qs of [`country=${HOME}&country=${AWAY}`, `countries=${AWAY}`, "status=BOGUS", "branch=%20QN-1"]) {
       expect([qs, (await get(memo, homeOnly, `/api/analysis/memo?${qs}`)).status]).toEqual([qs, 400]);
     }
-    // A forged branch cannot reach another country: it narrows to nothing inside the scope.
     const branch = await get(memo, homeOnly, "/api/analysis/memo?branch=QN-1");
     expect([branch.status, branch.json.totalQty]).toEqual([200, 0]);
   });
@@ -186,7 +172,6 @@ describe("Memo scope: every memo figure describes the same records", () => {
       if (!res.json.hasMore) break;
     }
     const inDb = await db.memoRecord.findMany({ where: { country: HOME }, select: { id: true } });
-    // Memo exports are the rows the list returned, written to CSV in the browser: no other path.
     expect([ids.length, new Set(ids).size, summary.json.total]).toEqual([inDb.length, inDb.length, inDb.length]);
     expect(ids.sort()).toEqual(inDb.map((r) => r.id).sort());
     const byCountryQty = (summary.json.byCountry as Array<{ qty: number }>).reduce((s, g) => s + g.qty, 0);
@@ -228,7 +213,6 @@ describe("Memo scope: the query itself carries the scope", () => {
   test("a requested filter is ANDed with the scope, never assigned over it", async () => {
     const where = memoWhere({ scope, country: AWAY, branch: null, lab: null, status: null });
     expect(where).toEqual({ AND: [{ country: { in: [HOME] } }, { country: AWAY }] });
-    // Even with the wrapper's refusal taken away, the database returns nothing outside the scope.
     expect(await db.memoRecord.count({ where })).toBe(0);
     expect(await db.memoRecord.count({ where: memoWhere({ scope, country: HOME, branch: null, lab: null, status: null }) })).toBe(expected((m) => m[0] === HOME).qty);
     const sql = Prisma.join(memoPredicates({ scope, country: AWAY, branch: null, lab: null, status: null }, "m"), " AND ");

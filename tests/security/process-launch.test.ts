@@ -1,12 +1,3 @@
-// Every maintained process launch runs without a shell (no Node DEP0190): the running Node
-// executable on a local package's declared binary, with an explicit argument array. Exit codes
-// pass through, a child that cannot start fails safely, unsafe database targets are refused
-// before anything is launched, and no password or full database URL reaches arguments or
-// output. A repository scan fails if a shell launch or an `npx` spawn returns.
-//
-// The spawn boundary is replaced by a recorder wherever a launch would touch a database; the
-// real processes started here need none.
-
 import { spawnSync, type SpawnSyncOptions } from "node:child_process";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -22,7 +13,6 @@ const LOCAL_URL = `postgresql://setup-user:${PASSWORD}@localhost:5432/planning`;
 const SECTEST_URL = `postgresql://setup-user:${PASSWORD}@localhost:5432/planning_sectest`;
 const leaks = (text: string) => text.includes(PASSWORD) || text.includes("setup-user") || /postgres(ql)?:\/\//.test(text);
 
-/** A spawn boundary that records its calls and answers with the given outcome. */
 function recorder(outcome: SpawnOutcome) {
   const calls: Array<{ command: string; args: readonly string[]; options: SpawnSyncOptions }> = [];
   const spawn: Spawn = (command, args, options) => {
@@ -146,7 +136,6 @@ describe("real processes: no shell warning, arguments intact, codes and refusals
   test("through the security-test wrapper, a script receives awkward arguments intact and its exit code comes back", () => {
     const dir = mkdtempSync(path.join(tmpdir(), "launch-probe-"));
     const probe = path.join(dir, "probe.ts");
-    // Prints its arguments and only the database *name* it was given, then exits 7.
     writeFileSync(probe, `console.log(JSON.stringify({ args: process.argv.slice(2), db: new URL(process.env.DATABASE_URL ?? "x:").pathname }));\nprocess.exit(7);\n`);
     try {
       const awkward = ["a b", "x&y", "semi;colon", "$(z)", "quote\"d", "100%"];
@@ -183,9 +172,7 @@ describe("repository checks: unsafe launches do not return", () => {
     for (const file of sources) {
       const code = readFileSync(file, "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
       const rules: Array<[string, RegExp]> = [
-        // An option value: true, a platform test, a string, or any other expression but `false`.
         ["shell option other than false", /\bshell\s*:\s*(?!false\b)(true\b|process\.|["'`]|[A-Za-z_$][\w$.]*\s*(?:[,}?]|===|!==))/],
-        // A standalone exec()/execSync() call; `.exec(` on a regular expression is not a launch.
         ["shell-string child_process call", /(?<![.\w$])(execSync|exec)\s*\(/],
         ["exec/execSync import", /import\s*\{[^}]*\b(exec|execSync)\b[^}]*\}\s*from\s*["'](node:)?child_process["']/],
         ["npx spawned", /\b(spawn|spawnSync|execFile|execFileSync)\s*\(\s*["'`]npx(\.cmd)?["'`]/],

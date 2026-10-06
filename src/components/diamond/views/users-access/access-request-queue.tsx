@@ -29,11 +29,6 @@ interface AccessRequestsResponse {
 
 const QUEUE_PAGE = 25;
 
-/**
- * Pending self-service registration requests, reviewed where accounts are managed. A
- * request never creates access by itself: approval provisions the account with the role
- * the reviewer picks here, and the server checks the reviewer may grant it.
- */
 export function AccessRequestQueue({ onDecided }: { onDecided: () => Promise<void> }) {
   const url = `${ACCESS_REQUESTS_URL}?status=PENDING&pageSize=${QUEUE_PAGE}`;
   const { data, isLoading, error, refetch } = useApi<AccessRequestsResponse>(url);

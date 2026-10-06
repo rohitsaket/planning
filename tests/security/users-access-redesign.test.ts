@@ -1,7 +1,3 @@
-// Users and Access: account management, role permissions chosen by a Super Admin, and the
-// two-tab page. Every case crosses the real route handler (or renders the real page against
-// the real handlers) under a real session in the isolated planning_sectest database.
-
 import { afterAll, beforeAll, describe, expect, test } from "./harness";
 import { call, db, ensureCountryRegistry, ensureLabRegistry, makeUser, resetDb } from "./helpers";
 import { renderPage, sessionUser } from "./ui-render";
@@ -40,14 +36,12 @@ const code = (stem: string) => `UAR_${stem}_${(++seq).toString(36).toUpperCase()
 
 let root: User, admin: User, viewer: User;
 
-/** A custom role created by the Super Admin through the real route. */
 async function customRole(stem: string, permissions: string[]) {
   const c = code(stem);
   const res = await post(rolesPost, root.cookie, { op: "createRole", code: c, name: `UAR ${stem} ${seq}`, permissions });
   if (res.status !== 200) throw new Error(`createRole ${res.status} ${JSON.stringify(res.json)}`);
   return res.json.role as { id: string; code: string; name: string; version: number; permissions: string[] };
 }
-/** A signed-in user holding only the given role code, assigned through the real route. */
 async function userWithRole(name: string, roleCode: string) {
   const u = await makeUser(name, "VIEWER");
   const res = await post(usersPost, root.cookie, { op: "setRoles", id: u.user.id, roles: [roleCode] });
@@ -65,7 +59,6 @@ beforeAll(async () => {
   for (const fixture of ["PLANNING_VIEWER", "SALES_VIEWER"] as const) await ensureFixtureRole(fixture);
 });
 
-// =========================================================================================
 describe("users and access: the permission catalogue", () => {
   test("1. every permission is described exactly once, with safe metadata only", async () => {
     expect(catalogCoverage()).toEqual({ missing: [], unknown: [], duplicated: [] });
@@ -82,7 +75,6 @@ describe("users and access: the permission catalogue", () => {
     expect(risky.length).toBeGreaterThan(0);
     expect(risky.filter((p) => !p.sensitive).map((p) => p.id)).toEqual([]);
     expect(PERMISSION_CATALOG.find((p) => p.id === "access_request.review")?.sensitive).toBe(true);
-    // The legacy planning and Sarin approval permissions are retired: none is assignable.
     for (const retired of ["plan.approve", "sarin.output.approve", "approval_policy.manage"]) expect([retired, (PERMISSIONS as readonly string[]).includes(retired)]).toEqual([retired, false]);
   });
 
@@ -94,7 +86,6 @@ describe("users and access: the permission catalogue", () => {
   });
 });
 
-// =========================================================================================
 describe("users and access: role permissions are chosen by a Super Admin", () => {
   test("4. Super Admin is kept out of the role list and nobody can edit or retire it through the API", async () => {
     const sa = await roleByCode("SUPER_ADMIN");
@@ -130,7 +121,6 @@ describe("users and access: role permissions are chosen by a Super Admin", () =>
     expect(r.status).toBe(200);
     expect((await get(listUsers, u.cookie, "/api/admin/users")).status).toBe(200);
     expect((await get(me, u.cookie, "/api/auth/me")).json.user.permissions.includes("user.read")).toBe(true);
-    // And removal is just as immediate.
     await post(rolesPost, root.cookie, { op: "updateRole", id: role.id, version: r.json.role.version, permissions: ["analysis.read"] });
     expect((await get(listUsers, u.cookie, "/api/admin/users")).status).toBe(403);
   });
@@ -142,7 +132,6 @@ describe("users and access: role permissions are chosen by a Super Admin", () =>
     expect(denied.status).toBe(403);
     expect((await post(rolesPost, manager.cookie, { op: "createRole", code: code("SNEAK"), name: "Sneak", permissions: ["config.read"] })).status).toBe(403);
     expect((await post(rolesPost, admin.cookie, { op: "updateRole", id: role.id, version: role.version, permissions: [] })).status).toBe(403);
-    // Renaming is role management, not a permission choice.
     const renamed = await post(rolesPost, manager.cookie, { op: "updateRole", id: role.id, version: role.version, name: "Renamed Target", description: "Clearer" });
     expect([renamed.status, renamed.json.role.name, renamed.json.role.permissions]).toEqual([200, "Renamed Target", ["analysis.read"]]);
   });
@@ -180,7 +169,6 @@ describe("users and access: role permissions are chosen by a Super Admin", () =>
 
   test("11. a failure inside the save rolls everything back", async () => {
     const role = await customRole("ROLLBACK", ["analysis.read", "config.read"]);
-    // A real failure inside the transaction: this test database refuses one insert.
     await db.$executeRawUnsafe(`CREATE OR REPLACE FUNCTION uar_refuse_insert() RETURNS trigger AS $$ BEGIN IF NEW."permissionCode" = 'audit.export' THEN RAISE EXCEPTION 'injected failure'; END IF; RETURN NEW; END $$ LANGUAGE plpgsql`);
     await db.$executeRawUnsafe(`CREATE TRIGGER uar_refuse BEFORE INSERT ON "RolePermission" FOR EACH ROW EXECUTE FUNCTION uar_refuse_insert()`);
     try {
@@ -218,7 +206,6 @@ describe("users and access: role permissions are chosen by a Super Admin", () =>
   });
 });
 
-// =========================================================================================
 describe("users and access: accounts", () => {
   test("14. reading accounts needs user.read; search runs on the server and nothing secret is returned", async () => {
     expect((await get(listUsers, viewer.cookie, "/api/admin/users")).status).toBe(403);
@@ -255,7 +242,6 @@ describe("users and access: accounts", () => {
   });
 
   test("17. a non-Super Admin cannot hand out a role carrying access they do not hold", async () => {
-    // demand.run is withheld from the ADMIN fixture, so ADMIN cannot hand it out.
     const approver = await customRole("APPROVER", ["config.read", "demand.run"]);
     const reader = await customRole("READER", ["config.read"]);
     const create = await post(usersPost, admin.cookie, { op: "create", username: "uar.escalate", displayName: "Escalate", roles: [approver.code] });
@@ -264,7 +250,6 @@ describe("users and access: accounts", () => {
     const target = await makeUser("uar.delegate.target", "VIEWER");
     expect((await post(usersPost, admin.cookie, { op: "setRoles", id: target.user.id, roles: [approver.code] })).status).toBe(403);
     expect((await post(usersPost, admin.cookie, { op: "setRoles", id: target.user.id, roles: [reader.code] })).status).toBe(200);
-    // The Super Admin may choose freely.
     expect((await post(usersPost, root.cookie, { op: "setRoles", id: target.user.id, roles: [approver.code] })).status).toBe(200);
   });
 
@@ -276,7 +261,6 @@ describe("users and access: accounts", () => {
     }
     expect((await post(usersPost, admin.cookie, { op: "setRoles", id: admin.user.id, roles: ["ADMIN", "SUPER_ADMIN"] })).status).toBe(403);
     expect((await post(usersPost, root.cookie, { op: "setRoles", id: root.user.id, roles: ["SUPER_ADMIN", "VIEWER"] })).status).toBe(403);
-    // Nor are the roles of another Super Admin account changed from here.
     const otherSuper = await makeUser("uar.other.super", "SUPER_ADMIN");
     const strip = await post(usersPost, root.cookie, { op: "setRoles", id: otherSuper.user.id, roles: ["VIEWER"] });
     expect([strip.status, strip.json.error.code]).toEqual([403, "SUPER_ADMIN_SERVER_ONLY"]);
@@ -301,7 +285,6 @@ describe("users and access: accounts", () => {
     const unrestricted = await post(usersPost, scoper.cookie, { op: "setScope", id: target.user.id, countries: [], labs: [], reason: "try everything" });
     const inside = await post(usersPost, scoper.cookie, { op: "setScope", id: target.user.id, countries: ["ZS"], labs: [], reason: "within my own" });
     expect([wider.status, unrestricted.status, inside.status]).toEqual([403, 403, 200]);
-    // The selectors are offered only what the granter could grant.
     const options = (await get(listUsers, scoper.cookie, "/api/admin/users")).json.scopeOptions;
     expect(options.countries.map((c: any) => c.code)).toEqual(["ZS"]);
   });
@@ -330,7 +313,6 @@ describe("users and access: accounts", () => {
     expect([a.status, b.status].sort()).toEqual([200, 409]);
     const active = await db.user.count({ where: { id: { in: [root.user.id, second.user.id] }, status: "ACTIVE" } });
     expect(active).toBe(1);
-    // Restore the fixture Super Admin for the rest of the suite.
     await db.user.updateMany({ where: { id: { in: [root.user.id, second.user.id] } }, data: { status: "ACTIVE", suspendedAt: null } });
     const { createSession, SESSION_COOKIE } = await import("@/lib/auth/session");
     const { token } = await createSession(root.user.id, { ip: null, userAgent: "test" });
@@ -374,7 +356,6 @@ describe("users and access: accounts", () => {
     await post(usersPost, root.cookie, { op: "setRoles", id: u.user.id, roles: ["PLANNING_VIEWER", "SALES_VIEWER"] });
     const [audit] = await auditRows(u.user.id, "USER_ROLE_CHANGE");
     expect([JSON.parse(audit.before!).roles, JSON.parse(audit.after!).roles.sort(), audit.category]).toEqual([["VIEWER"], ["PLANNING_VIEWER", "SALES_VIEWER"], "SECURITY"]);
-    // A refused assignment writes nothing.
     const before = await db.userRole.count({ where: { userId: u.user.id } });
     expect((await post(usersPost, root.cookie, { op: "setRoles", id: u.user.id, roles: ["PLANNING_VIEWER", "NO_SUCH_ROLE_UAR"] })).status).toBe(400);
     expect(await db.userRole.count({ where: { userId: u.user.id } })).toBe(before);
@@ -386,7 +367,6 @@ describe("users and access: accounts", () => {
   });
 });
 
-// =========================================================================================
 describe("users and access: the page", () => {
   const renderAs = async (u: User, tab: "users" | "permissions" | null, focusUserId: string | null = null) => {
     const s = await sessionUser(u.cookie);
@@ -418,7 +398,6 @@ describe("users and access: the page", () => {
     const page = await renderAs(root, "users");
     for (const label of ["Add user", "Details", "Last sign-in", "Invited", "Access requests", "Search name, username or email"]) expect([label, page.text.includes(label)]).toEqual([label, true]);
     expect(page.requested.some((r) => r.startsWith("/api/admin/users?"))).toBe(true);
-    // No permission codes or database ids on screen.
     expect(/\b(user|role|plan|sarin)\.[a-z_]+(\.[a-z_]+)?\b/.test(page.text)).toBe(false);
     expect(page.text.includes(root.user.id)).toBe(false);
   });
@@ -483,7 +462,6 @@ describe("users and access: the page", () => {
     expect([existsSync(path.join(views, "users-view.tsx")), existsSync(path.join(views, "access-requests-view.tsx"))]).toEqual([false, false]);
     const dir = path.join(views, "users-access");
     const source = readdirSync(dir).map((f) => readFileSync(path.join(dir, f), "utf8")).join("\n");
-    // The page takes its permission vocabulary from the server catalogue, not a copy of its own.
     expect(/PERMISSION_METAS|from "@\/lib\/auth\/permissions"/.test(source)).toBe(false);
   });
 });

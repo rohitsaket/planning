@@ -1,25 +1,3 @@
-/**
- * DEMAND RESULT DETAILS — SAFE RESPONSE, RBAC AND PAGINATION TEST SUITE
- *
- * Runs against the isolated security-test database only (planning_sectest).
- *
- * What this suite proves:
- *   A. The browser response carries business results only: no calculation steps,
- *      formulas, SQL-like expressions, database model names, rule identifiers,
- *      rule versions or mapping fingerprints — checked recursively over the whole
- *      serialized payload, keys and values.
- *   B. The authoritative numbers are unchanged: every value served equals the
- *      value the demand engine stored.
- *   C. RBAC: analysis.read sees aggregates; supporting records require
- *      demand.trace and cannot be obtained by any parameter; customer and sale
- *      detail follow their own permissions.
- *   D. Supporting-record pagination and record-type filtering are correct.
- *   E. Unknown categories return a safe unavailable state; failures stay business-safe.
- *   F. Fixture simulation is labelled honestly.
- *
- * Usage: npm run test:demand-result
- */
-
 import { db } from "../src/lib/db";
 import { SECTEST_DB } from "../tests/security/test-db";
 import { proveDisposableDatabase } from "../src/lib/fantasy/database-environment";
@@ -31,7 +9,6 @@ import { toBusinessReason, toBusinessStatus } from "../src/lib/demand/demand-res
 import { GET as demandResultGET } from "../src/app/api/analysis/demand-trace/route";
 
 const url = process.env.DATABASE_URL ?? "";
-// Loopback host, an approved isolated test database, no production or staging marker.
 if (!proveDisposableDatabase(url).proven) {
   console.error(`REFUSING TO RUN: DATABASE_URL must point at the isolated ${SECTEST_DB} database.`);
   process.exit(1);
@@ -59,10 +36,6 @@ function section(title: string) {
 const DAY = 24 * 60 * 60 * 1000;
 const daysAgo = (n: number) => new Date(Date.now() - n * DAY);
 
-// ---------------------------------------------------------------------------
-// Forbidden-content scanner: walks the entire serialized response, keys and
-// string values, at any depth.
-// ---------------------------------------------------------------------------
 const FORBIDDEN_KEYS = [
   "steps",
   "step",
@@ -91,7 +64,6 @@ const FORBIDDEN_KEYS = [
   "fourNumbers",
 ];
 
-/** Implementation strings that must never appear in a value, at any depth. */
 const FORBIDDEN_VALUE_PATTERNS: Array<{ label: string; re: RegExp }> = [
   { label: "SQL COUNT(", re: /COUNT\s*\(/ },
   { label: "SQL SUM(", re: /SUM\s*\(/ },
@@ -149,7 +121,6 @@ function scanForbidden(value: unknown, path = "$", findings: Finding[] = []): Fi
   return findings;
 }
 
-// ---------------------------------------------------------------------------
 async function seedRun() {
   const TABLES = [
     "DemandMetricTraceItem",
@@ -188,7 +159,6 @@ async function seedRun() {
   await db.labMapping.create({ data: { rawLab: "GIA", normalizedLab: "GIA", active: true } });
   await db.shapeMapping.create({ data: { rawShape: "ROUND", normalizedShape: "ROUND", active: true } });
 
-  // Confirmed sales: 6 in the window → target 4.
   for (let i = 0; i < 6; i++) {
     const lotId = `RS-SALE-${i}`;
     const docDate = daysAgo(10 + i);
@@ -214,7 +184,6 @@ async function seedRun() {
     });
   }
 
-  // One available finished stone.
   await db.lotMasterRecord.create({
     data: {
       lotId: "RS-STOCK-1",
@@ -251,8 +220,6 @@ async function seedRun() {
     },
   });
 
-  // Manufacturing WIP: one record whose category cannot be confirmed (quarantined),
-  // one in a stage that is not eligible while no coverage policy is confirmed.
   for (const [lotId, shape] of [
     ["RS-WIP-1", "ROUND"],
     ["RS-WIP-AMBIGUOUS", "MYSTERY"],
@@ -290,13 +257,11 @@ async function main() {
   const engineRun = await seedRun();
   const category = `GIA|ROUND|${CONFIRMED_WEIGHT_BANDS[0].label}`;
 
-  const analyst = await makeUser("rd-analyst", "DATA_ANALYST"); // analysis.read + demand.trace + customers/sales
-  const viewer = await makeUser("rd-viewer", "VIEWER"); // analysis.read only
-  const planner = await makeUser("rd-planner", "PLANNER"); // no analysis.read? (has analysis.read, no demand.trace)
+  const analyst = await makeUser("rd-analyst", "DATA_ANALYST");
+  const viewer = await makeUser("rd-viewer", "VIEWER");
+  const planner = await makeUser("rd-planner", "PLANNER");
 
-  // =========================================================================
   section("A. The browser response contains no calculation implementation");
-  // =========================================================================
   const full = await call(demandResultGET, {
     path: `/api/analysis/demand-trace?category=${encodeURIComponent(category)}&recordType=EXCLUDED&page=1&pageSize=50`,
     cookie: analyst.cookie,
@@ -324,12 +289,9 @@ async function main() {
     "Response contains no database model name",
   );
   assert(!/round_half_up/i.test(serialized), "Response contains no rounding implementation reference");
-  // "source mode" is legitimate business wording and must not be over-blocked.
   assert(serialized.includes("sourceMode"), "Legitimate business wording such as source mode is preserved");
 
-  // =========================================================================
   section("B. Authoritative values are unchanged");
-  // =========================================================================
   const storedMetric = await db.demandMetric.findFirstOrThrow({
     where: { runId: engineRun.runId, planningCategory: category },
   });
@@ -347,8 +309,6 @@ async function main() {
     `Total shortage matches the engine result (${full.json.summary.totalShortage})`,
   );
 
-  // The engine ran with no confirmed coverage policy, so coverage is reported as
-  // unavailable rather than as zero.
   assert(served.wipCoverage === null, "Manufacturing coverage is null (unavailable), not a misleading zero");
   assert(full.json.wipCoverage.available === false, "Coverage availability is reported honestly");
   assert(
@@ -356,9 +316,7 @@ async function main() {
     "The coverage message is business language with no rule reference",
   );
 
-  // =========================================================================
   section("C. Business status and safe reasons");
-  // =========================================================================
   assert(
     typeof served.businessStatus?.label === "string" && served.businessStatus.label.length > 0,
     `Category carries a business status label ("${served.businessStatus?.label}")`,
@@ -390,9 +348,7 @@ async function main() {
     "Every excluded record carries a business reason with no internal code",
   );
 
-  // =========================================================================
   section("D. RBAC — aggregates versus record-level evidence");
-  // =========================================================================
   const anon = await call(demandResultGET, { path: "/api/analysis/demand-trace" });
   assert(anon.status === 401, "An anonymous caller is rejected");
 
@@ -433,9 +389,7 @@ async function main() {
     "Record-type filtering returns only the requested business record type",
   );
 
-  // =========================================================================
   section("E. Supporting-record pagination");
-  // =========================================================================
   const p1 = await call(demandResultGET, {
     path: `/api/analysis/demand-trace?category=${encodeURIComponent(category)}&recordType=CONFIRMED_SALE&page=1&pageSize=2`,
     cookie: analyst.cookie,
@@ -461,9 +415,7 @@ async function main() {
   assert(seen.size === total, `Every record appears exactly once across pages (${seen.size} of ${total})`);
   assert(lastPage.json.supportingRecords.hasMore === false, "The last page reports that nothing remains");
 
-  // =========================================================================
   section("F. Safe states and honest labelling");
-  // =========================================================================
   const unknownCat = await call(demandResultGET, {
     path: "/api/analysis/demand-trace?category=GIA%7CNOT_A_REAL_SHAPE%7C9.99",
     cookie: analyst.cookie,
@@ -485,9 +437,7 @@ async function main() {
   assert(full.json.isSimulated === true, "The simulated flag stays honest");
   assert(typeof full.json.calculatedAtIst === "string", "The calculation time is reported");
 
-  // =========================================================================
   section("G. Backend traceability is retained on the server");
-  // =========================================================================
   const storedRun = await db.demandRun.findFirstOrThrow({ where: { id: engineRun.runId } });
   assert(storedRun.ruleVersion === "DEMAND-V1", "The run still records its internal rule version");
   assert(typeof storedRun.mappingFingerprint === "string" && storedRun.mappingFingerprint.length > 0, "The run still records its mapping fingerprint");
@@ -504,7 +454,6 @@ async function main() {
   );
   assert(typeof storedTraceItem?.lotId === "string", "Contributing record identifiers are still stored server-side");
 
-  // Not-run state.
   await db.demandMetricTraceItem.deleteMany({});
   await db.demandMetric.deleteMany({});
   await db.demandRun.deleteMany({});

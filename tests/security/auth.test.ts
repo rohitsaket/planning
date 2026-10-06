@@ -69,7 +69,6 @@ describe("authentication (SEC-001)", () => {
     expect(codes.slice(0, 10).every((c) => c === 401)).toBe(true);
     expect(codes[10]).toBe(429);
     resetRateLimits();
-    // 10 failures locked the account: the right password is refused while locked.
     expect((await call(login, { method: "POST", body: { username: "lock.user", password: testPassword() } })).status).toBe(401);
     const failures = await db.auditLog.count({ where: { action: "LOGIN_FAILED" } });
     expect(failures).toBeGreaterThan(0);

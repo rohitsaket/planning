@@ -1,16 +1,3 @@
-/**
- * The Sarin raw CSV contract: one record per physical line, exactly 11 positional fields,
- * no header. Positions follow the confirmed contract (design v1.7 §15.1):
- *
- *   1 Stone Name   2 Rough Weight   3 Shape   4 Est. Weight   5 Clarity   6 Color
- *   7 Depth %      8 Ratio          9 Length  10 Width        11 MM (total depth)
- *
- * This module only reads a record. It never parses Stone Name, normalizes a shape or
- * calculates anything: a value that does not read cleanly is reported, not repaired.
- *
- * Server-only.
- */
-
 if (typeof window !== "undefined") {
   throw new Error("sarin/raw-contract is server-only and must not be imported by client code.");
 }
@@ -18,18 +5,8 @@ if (typeof window !== "undefined") {
 export const SARIN_RAW_CONTRACT_VERSION = "SARIN_RAW_CSV_V1";
 export const SARIN_RAW_FIELD_COUNT = 11;
 
-// ---------------------------------------------------------------------------------------
-// Reading one physical line as a CSV record
-// ---------------------------------------------------------------------------------------
-
 export type CsvRecordRead = { readonly ok: true; readonly fields: string[] } | { readonly ok: false };
 
-/**
- * Splits one line into fields. RFC 4180 quoting within a line: a field may be wrapped in
- * double quotes, a doubled quote inside it is one quote, and commas inside it are data.
- * A quote anywhere else, text after a closing quote, or a quote left open at the end of
- * the line makes the whole record unreadable — records never continue onto another line.
- */
 export function readCsvRecord(line: string): CsvRecordRead {
   const fields: string[] = [];
   let i = 0;
@@ -65,7 +42,6 @@ export function readCsvRecord(line: string): CsvRecordRead {
       if (comma === -1) return { ok: true, fields };
       i = comma + 1;
     }
-    // A comma at the very end of the line opens one final, empty field.
     if (i === line.length) {
       fields.push("");
       return { ok: true, fields };
@@ -73,22 +49,12 @@ export function readCsvRecord(line: string): CsvRecordRead {
   }
 }
 
-// ---------------------------------------------------------------------------------------
-// Strict fixed-decimal reading
-// ---------------------------------------------------------------------------------------
-
 export type DecimalRead =
   | { readonly ok: true; readonly value: string }
   | { readonly ok: false; readonly reason: "BLANK" | "INVALID" | "OUT_OF_RANGE" | "PRECISION_EXCEEDED" };
 
 const DECIMAL = /^(-?)(\d+)(?:\.(\d+))?$/;
 
-/**
- * Reads a complete plain decimal: digits, optionally a point and more digits. No sign
- * other than a leading minus (which is then out of range), no exponent, no whitespace,
- * no NaN or Infinity, and no rounding: more fractional digits than the column holds is an
- * error, never a smaller number. The returned string is exact and fits the column.
- */
 export function readFixedDecimal(raw: string, o: { integerDigits: number; fractionDigits: number; allowZero: boolean }): DecimalRead {
   if (raw.trim() === "") return { ok: false, reason: "BLANK" };
   const m = DECIMAL.exec(raw);
@@ -102,13 +68,8 @@ export function readFixedDecimal(raw: string, o: { integerDigits: number; fracti
   return { ok: true, value: fracPart ? `${significant}.${fracPart}` : significant };
 }
 
-// Column capacities from the Phase 2 schema: Decimal(12,3) weights, Decimal(9,3) dimensions.
 const WEIGHT = { integerDigits: 9, fractionDigits: 3 } as const;
 const DIMENSION = { integerDigits: 6, fractionDigits: 3, allowZero: true } as const;
-
-// ---------------------------------------------------------------------------------------
-// Interpreting a record against the contract
-// ---------------------------------------------------------------------------------------
 
 export type SarinRowOutcome = "ACCEPTED" | "QUARANTINED" | "REJECTED_STRUCTURE";
 
@@ -128,11 +89,9 @@ export interface SarinTypedValues {
 
 export interface SarinRecordInterpretation {
   readonly outcome: SarinRowOutcome;
-  /** The fields exactly as read, or null when the quoting could not be read. */
   readonly fields: string[] | null;
   readonly fieldCount: number;
   readonly typed: SarinTypedValues;
-  /** Empty exactly when ACCEPTED. */
   readonly rejectionCodes: string[];
 }
 
@@ -152,14 +111,6 @@ const NO_VALUES: SarinTypedValues = {
 
 const text = (raw: string) => (raw.trim() === "" ? null : raw);
 
-/**
- * Classifies one record:
- *   REJECTED_STRUCTURE — unreadable quoting, or not exactly 11 fields. Positions are not
- *     assigned: a 10- or 12-field record is never padded, truncated or guessed at.
- *   QUARANTINED — 11 fields, but a value breaks the contract. Values that did read are
- *     kept; the broken ones stay NULL and are named in the reason codes.
- *   ACCEPTED — every value reads under the contract. Nothing has been validated beyond that.
- */
 export function interpretSarinRecord(line: string): SarinRecordInterpretation {
   const read = readCsvRecord(line);
   if (!read.ok) {
@@ -185,14 +136,11 @@ export function interpretSarinRecord(line: string): SarinRecordInterpretation {
 
   const typed: SarinTypedValues = {
     stoneNameRaw: requiredText(f[0], "STONE_NAME"),
-    // Confirmed: Rough Weight is positive; Est. Weight is non-negative, so zero is kept.
     roughWeight: decimal(f[1], "ROUGH_WEIGHT", { ...WEIGHT, allowZero: false }, true),
     shapeRaw: requiredText(f[2], "SHAPE"),
     estimatedWeight: decimal(f[3], "ESTIMATED_WEIGHT", { ...WEIGHT, allowZero: true }, true),
     clarity: text(f[4]),
     color: text(f[5]),
-    // Measurements are not required by the contract; a blank one stays NULL, a zero stays
-    // zero, and unreadable text is an error rather than either.
     depthPct: decimal(f[6], "DEPTH_PCT", DIMENSION, false),
     ratio: decimal(f[7], "RATIO", DIMENSION, false),
     length: decimal(f[8], "LENGTH", DIMENSION, false),

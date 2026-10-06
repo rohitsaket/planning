@@ -19,16 +19,6 @@ import { SimulationBanner } from "@/components/diamond/shared/simulation-banner"
 import { useDemandRefresh } from "@/components/diamond/shared/use-demand-refresh";
 import type { SourceDisclosure } from "@/lib/analysis/source-disclosure";
 
-/**
- * EXCESS STOCK — categories holding more available finished polished stock than the
- * demand target stored for them.
- *
- * The factual counterpart of Stockout Risk, and read the same way: every figure comes
- * from the API exactly as returned, so this file performs no business arithmetic. The
- * page it replaces carried the shortage and excess formulas in its subtitle, its banner
- * and a KPI hint, and loaded every category in one unpaged response.
- */
-
 type ExcessState = "EXCESS" | "AT_TARGET" | "BELOW_TARGET" | "NO_TARGET" | "REVIEW_REQUIRED";
 type DataState = "CONFIRMED" | "REVIEW_REQUIRED" | "BLOCKED";
 
@@ -73,7 +63,6 @@ interface CategoriesResponse {
   runId: string | null;
   unavailableMessage: string | null;
   rows: ExcessRow[];
-  // Absent when the run is unavailable: the response is then a state, not a page.
   paging?: { page: number; pageSize: number; total: number; hasMore: boolean };
   totals: {
     categoriesWithExcess: number;
@@ -131,7 +120,6 @@ export function ExcessView() {
   const qs = useMemo(() => {
     const p = new URLSearchParams();
     if (requestedRunId) p.set("runId", requestedRunId);
-    // Lab is a real dimension of the stored result; country and branch are not.
     if (globalFilter.lab) p.set("lab", globalFilter.lab);
     if (appliedSearch) p.set("search", appliedSearch);
     if (stateFilter) p.set("excessState", stateFilter);
@@ -210,7 +198,6 @@ export function ExcessView() {
         }
       />
 
-      {/* Compact source and snapshot status — no rule version, fingerprint or checkpoint. */}
       {s && (
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-border bg-muted/20 px-3 py-2 text-xs">
@@ -240,7 +227,6 @@ export function ExcessView() {
             )}
           </div>
 
-          {/* Persistent and unmistakable while fixture data is on screen. */}
           <SimulationBanner disclosure={s.sourceDisclosure} />
           {s.reviewWarning && <InfoBanner variant="warning">{s.reviewWarning}</InfoBanner>}
           {s.staleWarning && (

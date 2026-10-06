@@ -1,22 +1,3 @@
-/**
- * Live Fantasy ERP API client (server-only).
- *
- * Fantasy contract as observed against https://skylab.fantasy.mn:7600 (ASP.NET Web API on IIS):
- *   POST /token            OAuth2 password grant (grant_type=password&username&password) → bearer,
- *                          expires_in ≈ 86400. Fantasy keeps ONE active token per user: a new login
- *                          invalidates the previous token ("logged out in a different location").
- *   GET  {lotsPath}        lot listing. Optional pagination via FANTASY_API_PAGE_PARAM /
- *                          FANTASY_API_PAGE_SIZE_PARAM (unset = one response holds everything);
- *                          nothing is assumed about the vendor's paging until they confirm it.
- *   GET  /api/lots/{id}    single lot.
- *
- * Guarantees: every request has a timeout; transient failures (timeout, network, 5xx, 429 with
- * Retry-After) are retried with exponential backoff and jitter up to FANTASY_SYNC_MAX_RETRIES;
- * 401/403 are never retried beyond a single re-login; the password is read only inside login()
- * and is never logged, persisted or returned; tokens are cached in memory and, encrypted under
- * SECRETS_KEY, in IntegrationApiToken so restarts and multiple instances share one login.
- */
-
 import { db } from "@/lib/db";
 import { decryptSecret, encryptSecret, readSecretEnv } from "@/lib/security/secrets";
 import { safeErrorMessage } from "@/lib/security/redact";
@@ -56,7 +37,6 @@ export interface FantasyClientDeps {
   tokenStore?: TokenStore;
   sleep?: (ms: number) => Promise<void>;
   random?: () => number;
-  /** Reads the password; defaults to the encrypted .env value. Tests inject a stub. */
   readPassword?: () => string | null;
 }
 
@@ -65,7 +45,6 @@ export interface FetchLotsResult {
   pages: number;
   requests: number;
   durationMs: number;
-  /** True when the listing is paginated and every page was retrieved. */
   complete: boolean;
 }
 
@@ -80,10 +59,8 @@ export interface ConnectionTestResult {
 
 type TokenResponse = { access_token?: string; token_type?: string; expires_in?: number | string; userName?: string; userID?: string; LoginMessage?: string; error?: string; error_description?: string };
 
-// One memory cache per server process (survives Turbopack module reloads in dev).
 const g = globalThis as unknown as { __fantasyToken?: CachedToken | null };
 
-/** Encrypted, database-backed token cache shared by every server instance. */
 export const dbTokenStore: TokenStore = {
   async load() {
     if (!process.env.SECRETS_KEY) return null;
@@ -97,7 +74,7 @@ export const dbTokenStore: TokenStore = {
     }
   },
   async save(t) {
-    if (!process.env.SECRETS_KEY) return; // no key → memory-only cache
+    if (!process.env.SECRETS_KEY) return;
     try {
       const tokenEnc = encryptSecret(t.token);
       await db.integrationApiToken.upsert({
@@ -127,7 +104,6 @@ function usable(t: CachedToken | null | undefined): t is CachedToken {
   return !!t && t.expiresAt.getTime() - Date.now() > REFRESH_MARGIN_MS;
 }
 
-/** Extracts the row array from the common shapes an ASP.NET API returns. */
 export function extractRows(body: unknown): Record<string, unknown>[] | null {
   if (Array.isArray(body)) return body as Record<string, unknown>[];
   if (body && typeof body === "object") {
@@ -143,7 +119,7 @@ export function extractRows(body: unknown): Record<string, unknown>[] | null {
 export function retryDelayMs(attempt: number, retryAfterHeader: string | null, random: () => number): number {
   const ra = retryAfterHeader ? Number(retryAfterHeader) : NaN;
   if (Number.isFinite(ra) && ra >= 0) return Math.min(ra * 1000, 120_000);
-  const base = 500 * Math.pow(2, attempt); // 500, 1000, 2000, 4000 …
+  const base = 500 * Math.pow(2, attempt);
   return Math.min(base + Math.floor(random() * 250), 30_000);
 }
 
@@ -169,7 +145,6 @@ export function createFantasyClient(deps: FantasyClientDeps = {}) {
     }
   }
 
-  /** Password-grant login. The password exists only inside this call; never retried on rejection. */
   async function login(cfg: LiveFantasyConfig): Promise<CachedToken> {
     const password = readPassword();
     if (!password) throw new FantasyApiError("Fantasy ERP integration is not configured.", "NOT_CONFIGURED");
@@ -218,10 +193,6 @@ export function createFantasyClient(deps: FantasyClientDeps = {}) {
     return { cached: t.expiresAt.getTime() > Date.now(), expiresAt: t.expiresAt.toISOString(), issuedTo: t.issuedTo };
   }
 
-  /**
-   * Authenticated GET with retry policy. Returns status/body/text; throws FantasyApiError for
-   * auth failures, exhausted retries and non-JSON bodies on 2xx.
-   */
   async function get(path: string): Promise<{ status: number; body: unknown; text: string }> {
     const cfg = config();
     let reloggedIn = false;
@@ -241,7 +212,6 @@ export function createFantasyClient(deps: FantasyClientDeps = {}) {
       }
       if (res.status === 401 || res.status === 403) {
         if (res.status === 401 && !reloggedIn) {
-          // The single-session rule means another login elsewhere may have invalidated our token.
           reloggedIn = true;
           memSet(null);
           await store.clear();
@@ -278,7 +248,6 @@ export function createFantasyClient(deps: FantasyClientDeps = {}) {
     return u.pathname + u.search;
   }
 
-  /** Fetches the whole lot listing (every page when paginated). */
   async function fetchLots(): Promise<FetchLotsResult> {
     const cfg = config();
     const started = Date.now();
@@ -351,7 +320,6 @@ export function createFantasyClient(deps: FantasyClientDeps = {}) {
 
 export type FantasyClient = ReturnType<typeof createFantasyClient>;
 
-// Default client used by the application.
 const defaultClient = createFantasyClient();
 export const getFantasyAccessToken = defaultClient.getAccessToken;
 export const getFantasyTokenStatus = defaultClient.tokenStatus;

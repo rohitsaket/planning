@@ -1,11 +1,5 @@
 "use client";
 
-// A preview of one output version, one stone at a time. The stone's identity (Kapan,
-// packet, signer, rough weight) is shown once above its plans; the table lists the plans'
-// pieces, grouped the way the exported workbook groups them. Every value is the server's
-// stored value, and so is each option's yield rank: nothing is recalculated or ranked
-// here, and the export is always built on the server, never from this table.
-
 import { useId, useState, type ReactNode } from "react";
 import { AlertTriangle, ChevronLeft, ChevronRight } from "lucide-react";
 import { useApi } from "@/lib/api-client";
@@ -33,7 +27,6 @@ export interface PreviewOption {
   additionalGroupOrdinal: number | null;
   pieceCount: number;
   yield: { display: string };
-  /** The stone's three highest yields, ranked by the server over all its options. */
   yieldRank: SarinYieldRank | null;
   advisory: string | null;
 }
@@ -41,7 +34,6 @@ export interface PreviewPiece {
   outputRow: number;
   option: { id: string };
   pieceSequence: number;
-  /** The shape the output shows: canonical, or the raw Sarin shape where none is mapped. */
   shape: string;
   shapeResolution: string;
   estimatedWeight: string;
@@ -54,7 +46,6 @@ export interface PreviewPiece {
   depthMm: string;
 }
 
-/** Stones hold at most a few dozen pieces; this bound is never reached by a valid stone. */
 const PIECE_LIMIT = 500;
 
 const COLUMNS: ReadonlyArray<{ label: string; numeric: boolean }> = [
@@ -88,18 +79,11 @@ export interface PreviewOptionRows {
 }
 export interface PreviewGroup {
   key: string;
-  /** Shown as the group's header row; null for rows that need none. */
   label: string | null;
   tint: "none" | "a" | "b";
   options: PreviewOptionRows[];
 }
 
-/**
- * The plans of one stone in display groups, in stored output order. Presentation only:
- * no value is derived. Blue and White main plans form one striped block and each
- * additional group its own tinted block; a Pink Makeable is shown together with the
- * Solace that follows it (the same candidate), and each Best Pair and Best Twin stands alone.
- */
 export function groupPreviewRows(options: readonly PreviewOption[], pieces: readonly PreviewPiece[]): PreviewGroup[] {
   const piecesOf = new Map<string, PreviewPiece[]>();
   for (const p of pieces) piecesOf.set(p.option.id, [...(piecesOf.get(p.option.id) ?? []), p]);
@@ -229,15 +213,8 @@ function StoneFact({ label, children, mono, numeric }: { label: string; children
 }
 
 const TINT = { none: "", a: "bg-sky-50/70 dark:bg-sky-950/20", b: "bg-slate-50 dark:bg-slate-900/40" } as const;
-// Vertical rules separate the columns; the first cell of a row (and a full-width group label) has none.
 const cellPad = "px-3 py-1.5";
 
-/**
- * The only scroll region of the preview is this table's horizontal overflow, used when the
- * page is narrower than the table. The page itself scrolls vertically; nothing nests. The
- * region is positioned so screen-reader-only text in the far columns stays inside it
- * rather than widening the page.
- */
 function PlanTable({ stoneName, groups }: { stoneName: string; groups: PreviewGroup[] }) {
   let stripe = 0;
   return (
@@ -267,7 +244,6 @@ function PlanTable({ stoneName, groups }: { stoneName: string; groups: PreviewGr
                 return (
                   <tr
                     key={p.outputRow}
-                    // A ranked option's rows all carry its rank colour; text stays dark on the pastel in either theme.
                     style={rank ? { backgroundColor: `#${rank.fill}` } : undefined}
                     data-yield-rank={option.yieldRank ?? undefined}
                     className={cn("transition-[background-color,filter]", rank ? "text-zinc-900 hover:brightness-95" : "hover:bg-muted/60", !rank && zebra && "bg-muted/30", first && option.id !== g.options[0].option.id && "border-t border-border/50")}

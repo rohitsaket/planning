@@ -8,18 +8,9 @@ import {
   type SalesTrendDirection,
 } from "@/lib/analytics/sales-history-contract";
 
-/**
- * Page-level filters for Sales Analysis & Trends.
- *
- * Held outside the two tab components so drilling into the supporting records of a
- * category, switching to the trends tab and coming back all keep the same selection.
- * The country / branch / lab / window filters stay in the global filter bar; these are
- * the filters that only mean something on this page.
- */
 interface SalesFilterState {
   filters: SalesHistoryFilterValues;
   set: (patch: Partial<SalesHistoryFilterValues>) => void;
-  /** Focus the page on one category — used by the summary drill-down. */
   selectCategory: (categoryId: string | null) => void;
   reset: () => void;
   activeCount: () => number;

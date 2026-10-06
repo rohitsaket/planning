@@ -84,14 +84,6 @@ function PeriodTooltip({ active, payload }: { active?: boolean; payload?: { payl
   );
 }
 
-/**
- * Sales Trends — how confirmed sales activity changed, described factually.
- *
- * Every figure is a count of something that already happened. There is no forecast, no
- * predicted demand, no reorder quantity and no manufacturing priority anywhere on this
- * tab, and a percentage change is shown only where the earlier window gives a valid
- * denominator.
- */
 export function SalesTrendsView() {
   const { params } = useSalesQuery();
   const permissions = useAuthStore((s) => s.user?.permissions ?? []);
@@ -102,8 +94,6 @@ export function SalesTrendsView() {
   const [interval, setInterval] = useState<TrendInterval>("window30");
   const [movementSort, setMovementSort] = useState<{ key: MovementSortKey; dir: SortDirection }>({ key: "absoluteChange", dir: "desc" });
   const [chosenDimension, setDimension] = useState<ContributionDimension>("country");
-  // A role change can remove customers.read while Customer is selected. The effective
-  // dimension falls back rather than keep issuing a request the server will refuse.
   const dimension = allowedContributions.includes(chosenDimension) ? chosenDimension : "country";
 
   const query = params.toString();
@@ -149,8 +139,6 @@ export function SalesTrendsView() {
     },
     {
       key: "percentChange", header: "% Change", align: "right",
-      // A zero earlier window has no denominator. The cell says so rather than showing a
-      // number that would read as a real rate of change.
       cell: (r) =>
         r.percentChange === null
           ? <span className="text-[10px] text-muted-foreground">{NOT_COMPARABLE_LABEL}</span>

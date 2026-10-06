@@ -30,8 +30,6 @@ export function AccessRequestForm({ onBack }: { onBack: () => void }) {
     e.preventDefault();
     if (submitting) return;
 
-    // Mirrors the server schema so the common mistakes are caught before a round
-    // trip; the server revalidates everything regardless.
     const next: Errors = {};
     if (!/^[a-z0-9._-]{3,50}$/.test(username.trim().toLowerCase())) next.username = "3–50 characters: letters, numbers, dot, underscore or hyphen.";
     if (!displayName.trim()) next.displayName = "Enter your full name.";

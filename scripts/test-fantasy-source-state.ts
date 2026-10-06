@@ -1,22 +1,3 @@
-/**
- * FANTASY SOURCE STATE & RAW ORCHESTRATION (Phase 4)
- *
- * Runs against the isolated security-test database only (planning_sectest).
- *
- * Proves: configured mode, runtime health and effective state stay separate; the
- * effective state is derived in exactly one place; fixture data is always labelled
- * simulated and can never reach a live state; an absent, unsupported or `FILE_IMPORT`
- * configuration fails closed at validation instead of throwing later; an uninstalled
- * or unhealthy live provider never appears ready; an injected provider can be
- * orchestrated into Phase 3A raw ingestion without a single canonical write or
- * checkpoint change; cursor metadata stays out of the row data and out of every
- * returned result; and status and synchronization routes stay server-authorized.
- *
- * All provider data here is synthetic and confined to this file.
- *
- * Usage: npm run test:fantasy-source
- */
-
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { db } from "../src/lib/db";
@@ -62,7 +43,6 @@ import type { RawIngestionDb } from "../src/lib/fantasy/raw-ingestion";
 import { GET as syncGET, POST as syncPOST } from "../src/app/api/fantasy/sync/route";
 
 const url = process.env.DATABASE_URL ?? "";
-// Loopback host, an approved isolated test database, no production or staging marker.
 if (!proveDisposableDatabase(url).proven) {
   console.error(`REFUSING TO RUN: DATABASE_URL must point at the isolated ${SECTEST_DB} database.`);
   process.exit(1);
@@ -90,11 +70,6 @@ function section(title: string) {
 const NOW = new Date("2026-09-22T12:00:00.000Z");
 const RECENT = new Date(NOW.getTime() - 60 * 60 * 1000);
 const OLD = new Date(NOW.getTime() - 48 * 60 * 60 * 1000);
-
-// ---------------------------------------------------------------------------
-// Synthetic test providers. Deliberately obvious simulation values: nothing here
-// resembles real client inventory, and none of it is production code.
-// ---------------------------------------------------------------------------
 
 const HEADERS = [...FANTASY_V1_HEADERS] as string[];
 
@@ -166,7 +141,6 @@ function makeTestProvider(options: TestProviderOptions = {}): {
 const FIXTURE_STATE = resolveFantasySourceState({ env: { FANTASY_SOURCE_MODE: "FIXTURE_SIMULATION" }, now: NOW });
 const UNCONFIGURED_STATE = resolveFantasySourceState({ env: {}, now: NOW });
 
-/** Canonical tables Phase 4 must never write to. */
 async function canonicalSnapshot() {
   const [lotMaster, lotHistory, polished, rough, sales, memo, requirements, plans, planPieces, demandRuns, demandMetrics, syncRuns, dqIssues, checkpoints] =
     await Promise.all([
@@ -196,9 +170,7 @@ async function main() {
 
   const before = await canonicalSnapshot();
 
-  // =========================================================================
   section("A. Configuration and legacy compatibility");
-  // =========================================================================
   assert(FIXTURE_STATE.configuredMode === "FIXTURE_SIMULATION", "Fixture configuration resolves to FIXTURE_SIMULATION");
   assert(FIXTURE_STATE.effectiveState === "FIXTURE_SIMULATION", "Fixture configuration resolves to the fixture effective state");
   assert(FIXTURE_STATE.isSimulated === true, "Fixture state is always marked simulated");
@@ -254,16 +226,13 @@ async function main() {
   assert(parseConfiguredSourceMode(undefined).configuredMode === "NOT_CONFIGURED", "An absent configuration value fails closed");
   assert(parseConfiguredSourceMode("   ").configuredMode === "NOT_CONFIGURED", "A blank configuration value fails closed");
 
-  // =========================================================================
   section("B. Effective-state derivation");
-  // =========================================================================
   const liveReady = deriveEffectiveSourceState({
     configuredMode: "LIVE_FANTASY",
     configuredReasonCode: "LIVE_SOURCE_READY",
     providerInstalled: true,
     configurationComplete: true,
     providerHealth: "READY",
-    // Readiness also requires history the provider can prove is its own.
     providerHistoryTrusted: true,
     lastSuccessAt: RECENT,
     lastFailureAt: null,
@@ -346,9 +315,7 @@ async function main() {
   assert(Object.keys(FANTASY_SOURCE_STATE_LABELS).length === 4, "Exactly four effective states have labels");
   assert(FANTASY_SOURCE_STATE_LABELS.LIVE_FANTASY_DEGRADED === "Live Fantasy — Degraded", "The degraded label is explicit");
 
-  // =========================================================================
   section("B2. Server/client boundary");
-  // =========================================================================
   const fantasyDir = path.join(process.cwd(), "src", "lib", "fantasy");
   const clientSafeSource = readFileSync(path.join(fantasyDir, "source-state.ts"), "utf8");
 
@@ -375,7 +342,6 @@ async function main() {
     "Configuration key names stay inside the registry, not the configuration resolver",
   );
 
-  // Every module a client component can reach, followed transitively.
   const walkTs = (dir: string, acc: string[] = []): string[] => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, entry.name);
@@ -474,7 +440,6 @@ async function main() {
     "The resolved configuration carries no environment variable name",
   );
 
-  // Built client assets, when a production build is present.
   const clientChunkDir = path.join(process.cwd(), ".next", "static");
   if (existsSync(clientChunkDir)) {
     const assets = walkTs(clientChunkDir).concat(
@@ -492,9 +457,7 @@ async function main() {
     assert(true, "No built client assets present to scan — run after a production build for the asset-level check");
   }
 
-  // =========================================================================
   section("B3. History is scoped to the configured source");
-  // =========================================================================
   const fixtureScope = fantasySyncRunScope("FIXTURE_SIMULATION", "SUCCESS");
   assert(fixtureScope?.isSimulated === true, "The fixture history query requires isSimulated = true");
   assert(
@@ -509,7 +472,6 @@ async function main() {
   );
   assert(fantasySyncRunScope("NOT_CONFIGURED", "SUCCESS") === null, "An unconfigured source reads no history at all");
 
-  // Real rows of each kind, in one table, read back through the real resolver.
   const runStamp = Date.now();
   const makeRun = (o: { status: string; sourceMode: string; isSimulated: boolean; at: Date }) =>
     db.integrationSyncRun.create({
@@ -570,7 +532,6 @@ async function main() {
     "A run recorded under an unknown source mode proves nothing and is excluded",
   );
 
-  // The live scope, read against the same table, sees only the live rows.
   const liveSuccessRow = await db.integrationSyncRun.findFirst({
     where: liveScope!,
     orderBy: { startedAt: "desc" },
@@ -586,7 +547,6 @@ async function main() {
   assert(fixtureSuccessRow?.isSimulated === true, "The fixture history query never returns a live run");
   assert(fixtureSuccessRow?.sourceMode === "FIXTURE", "The fixture history query returns the fixture run");
 
-  // With a fixture success on record, live still cannot be called ready.
   const liveWithFixtureHistory = await resolveFantasySourceStateWithHistory(db, {
     env: { FANTASY_SOURCE_MODE: "LIVE_FANTASY" },
     now: NOW,
@@ -594,7 +554,6 @@ async function main() {
   assert(liveWithFixtureHistory.effectiveState !== "LIVE_FANTASY", "A fixture success cannot make live mode ready");
   assert(liveWithFixtureHistory.effectiveState === "NOT_CONFIGURED", "Live stays not configured while no live provider is installed");
 
-  // Provider-specific evidence: history that cannot be attributed is not readiness.
   const liveReadyInputs = {
     configuredMode: "LIVE_FANTASY",
     configuredReasonCode: "LIVE_SOURCE_READY",
@@ -613,7 +572,6 @@ async function main() {
     "A provider that can prove its own history may reach LIVE_FANTASY",
   );
 
-  // Freshness threshold validation.
   assert(isUsableFreshnessWindow(60_000) === true, "A finite positive freshness window is usable");
   for (const bad of [0, -1, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
     assert(isUsableFreshnessWindow(bad) === false, `A freshness window of ${String(bad)} is refused`);
@@ -623,13 +581,9 @@ async function main() {
   }
   assert(isUsableFreshnessWindow("6h") === false, "A non-numeric freshness window is refused");
 
-  // Rows inserted above are deliberate test history, so later isolation checks measure
-  // from here rather than from the start of the suite.
   const postHistoryBaseline = await canonicalSnapshot();
 
-  // =========================================================================
   section("B4. Capability consistency is enforced before any fetch");
-  // =========================================================================
   const capabilityBaseline = await canonicalSnapshot();
   const fixtureBaseState = resolveFantasySourceState({ env: { FANTASY_SOURCE_MODE: "FIXTURE_SIMULATION" }, now: NOW });
   const injectedLiveState = { ...fixtureBaseState, effectiveState: "LIVE_FANTASY" as const, isSimulated: false };
@@ -750,7 +704,6 @@ async function main() {
     "A supported dry run keeps the zero-write guarantee",
   );
 
-  // An unbranded context — the shape a caller could assemble by hand — is refused.
   const handBuilt = makeTestProvider();
   const rawBatchesBeforeUnbranded = await db.fantasyRawBatch.count();
   const refusedUnbranded = await orchestrateFantasyRawIngestion({
@@ -775,7 +728,6 @@ async function main() {
   );
   assert(!isFantasyProviderContext({ sourceState: FIXTURE_STATE }), "A partial object is not recognized as a context");
 
-  // Refusals cost nothing and say nothing.
   for (const refusal of [
     refusedRealUnderFixture, refusedSimulatedUnderLive, refusedSimulatedDegraded,
     refusedUnconfiguredFetch, refusedDryRun, refusedUnbranded,
@@ -797,10 +749,7 @@ async function main() {
     "Refused orchestration changes no checkpoint",
   );
 
-
-  // =========================================================================
   section("C. Orchestration into Phase 3A");
-  // =========================================================================
   const dryRunTarget = makeTestProvider();
   const dryBefore = { batches: await db.fantasyRawBatch.count(), rows: await db.fantasyRawRow.count() };
   const dryResult = await orchestrateFantasyRawIngestion({
@@ -851,7 +800,6 @@ async function main() {
   assert(conflictResult.outcome === "INGESTED" && conflictResult.conflict === true, "A conflicting batch identity keeps Phase 3A conflict behaviour");
   assert(conflictResult.outcome === "INGESTED" && conflictResult.batchStatus === "CONFLICT", "The conflicting batch is stored as CONFLICT");
 
-  // Refusals.
   const unconfiguredTarget = makeTestProvider();
   const refusedUnconfigured = await orchestrateFantasyRawIngestion({
     mode: "PERSIST",
@@ -938,7 +886,6 @@ async function main() {
   });
   assert(noBatchResult.outcome === "NO_BATCH", "A provider with nothing to deliver reports NO_BATCH rather than failing");
 
-  // Nothing returned may contain source rows or a cursor token.
   const resultsToScan: RawOrchestrationResult[] = [dryResult, persisted, replay, conflictResult, refusedUnconfigured, refusedNotImplemented, refusedContract, refusedProvider, refusedIngestion, noBatchResult];
   const scanned = JSON.stringify(resultsToScan);
   assert(!scanned.includes("SIMULATED-Shape"), "No orchestration result contains source rows");
@@ -947,9 +894,7 @@ async function main() {
   assert(!scanned.includes("CURSOR-TOKEN-SECRET"), "No orchestration result contains a caller-supplied cursor token");
   assert(!/"rows"|"headers"|"rawPayload"/.test(scanned), "No orchestration result carries a raw payload field");
 
-  // =========================================================================
   section("D. Cursor and capability handling");
-  // =========================================================================
   const snapshotCursors: FantasySourceCursor[] = [];
   const snapshotProvider = makeTestProvider({ onFetch: (c) => snapshotCursors.push(c) });
   const snapshotResult = await orchestrateFantasyRawIngestion({
@@ -1011,9 +956,7 @@ async function main() {
     "A cursor provider returning a snapshot fails closed",
   );
 
-  // =========================================================================
   section("E. RBAC and sanitized presentation");
-  // =========================================================================
   resetRateLimits();
   const stamp = Date.now();
   const integrator = await makeUser(`p4-integrator-${stamp}`, "FANTASY_INTEGRATION");
@@ -1056,7 +999,6 @@ async function main() {
   assert(!statusText.includes("rawPayloadJson") && !statusText.includes("normalizedRecordJson"), "No raw payload appears in the status response");
   assert(!statusText.includes("SIMULATED-Shape"), "No raw Fantasy row value appears in the status response");
 
-  // A not-configured source must render a controlled state, never a live claim.
   const previousMode = process.env.FANTASY_SOURCE_MODE;
   process.env.FANTASY_SOURCE_MODE = "FILE_IMPORT";
   try {
@@ -1084,9 +1026,7 @@ async function main() {
     else process.env.FANTASY_SOURCE_MODE = previousMode;
   }
 
-  // =========================================================================
   section("F. Canonical isolation and the legacy fixture path");
-  // =========================================================================
   const historyState = await resolveFantasySourceStateWithHistory(db, { env: { FANTASY_SOURCE_MODE: "FIXTURE_SIMULATION" }, now: NOW });
   assert(historyState.effectiveState === "FIXTURE_SIMULATION", "The history-aware resolver agrees with the pure resolver");
   assert(historyState.isSimulated === true, "The history-aware resolver keeps fixture data marked simulated");
@@ -1101,7 +1041,6 @@ async function main() {
 
   const orchestrationSource = readFileSync(path.join(process.cwd(), "src", "lib", "fantasy", "raw-orchestration.ts"), "utf8");
   for (const canonical of ["lotMasterRecord", "polishedStone", "roughStone", "salesRecord", "requirement", "planningCase", "planOption", "demandRun", "demandMetric", "syncCheckpoint"]) {
-    // A delegate call, not the word: `security requirements` in a comment is not a write.
     assert(!orchestrationSource.includes(`.${canonical}.`), `Orchestration never calls the canonical delegate "${canonical}"`);
   }
   assert(!/new\s+[A-Za-z]*Provider/.test(orchestrationSource), "Orchestration instantiates no provider of its own");

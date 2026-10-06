@@ -1,11 +1,3 @@
-// Renders real application views to static HTML inside the test process, feeding every
-// data request through the real route handler with a real session, so a test sees exactly
-// the text a signed-in user would be shown for the same data.
-//
-// Queries are resolved by repeated rendering: each pass records the API URLs the page asked
-// for, those are answered by the matching route module under src/app/api, and the page is
-// rendered again until it asks for nothing new. Only GET requests are made.
-
 import { createElement, type ComponentType } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -36,7 +28,6 @@ function collectRoutes(dir: string, out: RoutePattern[]) {
   }
 }
 
-/** The route module and its dynamic params for an API pathname; static segments win. */
 function matchRoute(pathname: string): { file: string; params: Record<string, string> } | null {
   if (!routes) {
     routes = [];
@@ -66,16 +57,13 @@ function matchRoute(pathname: string): { file: string; params: Record<string, st
 
 export interface RenderedPage {
   html: string;
-  /** Visible text plus the title, aria-label and placeholder attributes. */
   text: string;
-  /** API paths the page requested, in first-request order. */
   requested: string[];
 }
 
 const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', "#39": "'", "#x27": "'", nbsp: " " };
 const decode = (s: string) => s.replace(/&(#?\w+);/g, (m, e) => ENTITIES[e] ?? m);
 
-/** Everything a user can read on the page: text nodes and the attributes shown as text. */
 export function visibleText(html: string): string {
   const attrs = [...html.matchAll(/\s(?:title|aria-label|placeholder)="([^"]*)"/g)].map((m) => decode(m[1]));
   const body = decode(html.replace(/<style[\s\S]*?<\/style>/g, " ").replace(/<script[\s\S]*?<\/script>/g, " ").replace(/<[^>]+>/g, " "));
@@ -84,11 +72,6 @@ export function visibleText(html: string): string {
 
 type RouteHandler = (req: Request, ctx: { params: Promise<Record<string, string>> }) => Promise<Response>;
 
-/**
- * A `fetch` for page code under test: each request goes to the matching route module's
- * handler with the given session cookie, exactly as the browser's request would. Multipart
- * bodies are encoded with their real Content-Length, as the upload route requires.
- */
 export function routeFetch(cookie: string) {
   return async (url: string, init: RequestInit = {}): Promise<Response> => {
     const parsed = new URL(url, "http://localhost:3000");
@@ -112,7 +95,6 @@ export function routeFetch(cookie: string) {
   };
 }
 
-/** The session user exactly as the browser receives it at sign-in. */
 export async function sessionUser(cookie: string): Promise<SessionUser> {
   const { GET } = await import("@/app/api/auth/me/route");
   resetRateLimits();
@@ -121,15 +103,8 @@ export async function sessionUser(cookie: string): Promise<SessionUser> {
   return res.json.user as SessionUser;
 }
 
-/**
- * Renders `view` as the given session user. `cookie` authenticates the API calls made on the
- * page's behalf; `user` is what the browser store would hold for the same session.
- */
 export async function renderPage<P extends object>(view: ComponentType<P>, props: P, user: SessionUser, cookie: string, maxPasses = 8): Promise<RenderedPage> {
   const element = createElement(view, props);
-  // A server render reads each store's initial state (zustand's server snapshot), which has
-  // no signed-in user. The session is placed on that object for this render and removed
-  // afterwards, so the page renders exactly as it would for this user in the browser.
   const initial = useAuthStore.getInitialState();
   const saved = { user: initial.user, status: initial.status };
   Object.assign(initial, { user, status: "signed-in" as const });

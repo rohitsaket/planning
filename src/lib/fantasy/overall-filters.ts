@@ -1,19 +1,3 @@
-/**
- * Filter parsing for canonical Fantasy lot records.
- *
- * The Overall Data list and its export must select the same rows: an export that quietly
- * ignores the country or lab the user filtered by hands them records outside the scope
- * they were looking at. The export previously read only two of the six parameters, so
- * the two endpoints are built from one parser here rather than each assembling its own
- * `where` clause.
- *
- * Every value is validated. An unrecognized `isCurrent` is refused rather than silently
- * treated as "all", because the difference between current stock and history is a
- * business distinction, not a display preference.
- *
- * Server-only.
- */
-
 import { qStr } from "@/lib/api/with-api";
 import { ApiError } from "@/lib/api/errors";
 
@@ -21,13 +5,6 @@ if (typeof window !== "undefined") {
   throw new Error("fantasy/overall-filters is server-only and must not be imported by client code.");
 }
 
-/**
- * Which slice of the lot history to read.
- *
- * `isCurrent` is the stored column name and is kept as the parameter name: it is the
- * established contract that existing links and bookmarks use, it is never shown to a
- * user as a label, and renaming it would break those links for no user-facing gain.
- */
 const CURRENT_MODES = ["true", "false", "all"] as const;
 
 export interface OverallLotFilters {
@@ -63,7 +40,6 @@ export function parseOverallLotFilters(url: URL): OverallLotFilters {
   };
 }
 
-/** The Prisma `where` clause for these filters. Both endpoints use this one builder. */
 export function overallLotWhere(f: OverallLotFilters): Record<string, unknown> {
   const where: Record<string, unknown> = {};
   if (f.isCurrent !== null) where.isCurrent = f.isCurrent;
@@ -84,7 +60,6 @@ export function overallLotWhere(f: OverallLotFilters): Record<string, unknown> {
   return where;
 }
 
-/** Scope actually applied, for the audit record. Values only — never row contents. */
 export function describeOverallLotFilters(f: OverallLotFilters): string {
   const parts: string[] = [];
   if (f.isCurrent !== null) parts.push(f.isCurrent ? "current only" : "history only");

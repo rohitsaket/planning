@@ -5,17 +5,6 @@ import { InfoBanner } from "@/components/diamond/shared/empty-state";
 import { Badge } from "@/components/diamond/shared/badges";
 import type { SourceDisclosure } from "@/lib/analysis/source-disclosure";
 
-/**
- * The simulation notice every Analysis page shows while it is displaying fixture data.
- *
- * One component, driven by `sourceDisclosure` from the API response. Views must not
- * reimplement this from a local flag: six of them previously carried their own copy of
- * the banner, and a single editing pass removed all six while a thousand simulated lots
- * were live in the database.
- *
- * Renders nothing when the source is live or not yet established — an empty page must not
- * claim to be simulated any more than it may claim to be live.
- */
 export function SimulationBanner({ disclosure }: { disclosure?: SourceDisclosure | null }) {
   if (!disclosure?.simulated || !disclosure.bannerText) return null;
   return (
@@ -28,12 +17,6 @@ export function SimulationBanner({ disclosure }: { disclosure?: SourceDisclosure
   );
 }
 
-/**
- * The compact form, for a page header beside a title.
- *
- * Always renders once the source is established — including for live data — so the
- * absence of a badge never reads as "this is live".
- */
 export function SourceBadge({ disclosure }: { disclosure?: SourceDisclosure | null }) {
   if (!disclosure || disclosure.mode === "NOT_ESTABLISHED") return null;
   return (

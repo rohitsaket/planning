@@ -17,11 +17,6 @@ export async function resetDb() {
 }
 
 let pwHash: string | null = null;
-/**
- * A signed-in test user holding one role: SUPER_ADMIN (the built-in role) or a fixture
- * custom role (fixture-roles.ts). The role is assigned as a real role record, so tests
- * exercise assignment-based principal resolution.
- */
 export async function makeUser(username: string, role: TestRole, displayName = username) {
   pwHash ??= await hashPassword(PW);
   const user = await db.user.create({ data: { username, displayName, role, passwordHash: pwHash } });
@@ -58,7 +53,6 @@ export async function makeRough(planningStatus = "AVAILABLE") {
   return db.roughStone.create({ data: { fantasyRoughId: `FR-T-${n}-${Date.now()}`, kapan: "K1", packet: "P1", stoneName: `T${n}`, roughWeight: 5, country: "IN", branch: "SRT", fantasyStatus: "IN_STOCK", planningStatus } });
 }
 
-// A planning case with one version and two options; the first option is selected unless told otherwise.
 export async function makeCase(o: { status?: string; planner?: string; select?: boolean; roughId?: string } = {}) {
   n++;
   const rough = o.roughId ? { id: o.roughId } : await makeRough();
@@ -72,8 +66,6 @@ export async function makeCase(o: { status?: string; planner?: string; select?: 
   return { caseId: c.id, roughId: rough.id, versionId: v.id, optionIds: [o1.id, o2.id] };
 }
 
-// Canonical registries a Sarin import is checked against. Upserts only, so a suite can
-// declare the countries and labs its fixtures use without disturbing anything else.
 export async function ensureCountryRegistry(codes: string[]) {
   const group = await db.group.upsert({ where: { code: "TEST-GRP" }, update: {}, create: { code: "TEST-GRP", name: "Test Group" } });
   const company = await db.company.upsert({ where: { code: "TEST-CO" }, update: {}, create: { code: "TEST-CO", name: "Test Company", groupId: group.id } });

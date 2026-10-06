@@ -15,19 +15,6 @@ import {
 } from "@/lib/fantasy/quantity-weight";
 import { resolveQuantityProvenance } from "@/lib/demand/confirmed-sales";
 
-/**
- * Quantity and weight provenance.
- *
- * The rule under test is that nothing is assumed. A quantity the source never supplied
- * is not one piece; a weight whose unit nobody confirmed cannot choose a weight band.
- * Before this, the inventory path did `Number(quantity) > 0 ? Number(quantity) : 1`,
- * which turned every missing, zero, negative and malformed value into a confirmed piece
- * of available stock — while the sales path correctly excluded the same record.
- *
- * The decision is shared, so the last test here is the one that matters most: inventory
- * and confirmed sales must reach the same verdict for the same record.
- */
-
 const FIXTURE = { sourceType: "FIXTURE", isSimulated: true };
 const LIVE = { sourceType: "FANTASY_API", isSimulated: false };
 
@@ -44,13 +31,11 @@ describe("quantity provenance", () => {
       provenance: "SEMANTICS_NOT_CONFIGURED",
       pieces: null,
     });
-    // The value itself is preserved, so the record stays explainable.
     expect(d.rawValue).toBe(4);
     expect(isCountableQuantity(d.provenance)).toBe(false);
   });
 
   test("a live record under an explicitly confirmed contract is countable", () => {
-    // A row that recorded its provenance at ingestion is trusted over any inference.
     const d = resolveCanonicalQuantity({ ...LIVE, quantity: 4, quantityProvenance: "LIVE_CONFIRMED" });
     expect({ provenance: d.provenance, pieces: d.pieces }).toEqual({ provenance: "LIVE_CONFIRMED", pieces: 4 });
   });
@@ -79,7 +64,6 @@ describe("quantity provenance", () => {
   });
 
   test("a confirmed one is distinguishable from a legacy defaulted one", () => {
-    // Same stored number, different recorded origin, different verdict.
     const confirmed = resolveCanonicalQuantity({ ...FIXTURE, quantity: 1, quantityProvenance: "EXPLICIT_FIXTURE" });
     const legacy = resolveCanonicalQuantity({ ...LIVE, quantity: 1, quantityProvenance: "LEGACY_DEFAULT_AMBIGUOUS" });
     expect(confirmed.pieces).toBe(1);
@@ -88,8 +72,6 @@ describe("quantity provenance", () => {
   });
 
   test("a Prisma Decimal is read, not rejected as non-numeric", async () => {
-    // Every canonical quantity column returns Decimal. A decision that could not read it
-    // would silently zero real quantities across the whole pipeline.
     const { Prisma } = await import("@prisma/client");
     const d = resolveCanonicalQuantity({ ...FIXTURE, quantity: new Prisma.Decimal(7) });
     expect({ provenance: d.provenance, pieces: d.pieces }).toEqual({ provenance: "EXPLICIT_FIXTURE", pieces: 7 });
@@ -113,7 +95,6 @@ describe("weight provenance", () => {
   test("a live weight cannot choose a weight band while its unit is unconfirmed", () => {
     const d = resolveCanonicalWeight({ ...LIVE, weight: 1.25 });
     expect({ state: d.state, carats: d.carats }).toEqual({ state: "UNIT_NOT_CONFIGURED", carats: null });
-    // Preserved, so the record is still explainable.
     expect(d.rawValue).toBe(1.25);
   });
 
@@ -138,15 +119,12 @@ describe("weight provenance", () => {
 
 describe("one rule, expressed at two granularities", () => {
   test("the source-level question is whether this source may be counted at all", () => {
-    // Deliberately independent of any particular value: it describes the source.
     expect(resolveQuantityProvenance({ sourceType: "FIXTURE", isSimulated: true })).toBe("EXPLICIT_FIXTURE");
     expect(resolveQuantityProvenance({ sourceType: "FANTASY_API", isSimulated: false })).toBe("UNCONFIRMED");
     expect(resolveQuantityProvenance({ sourceType: null, isSimulated: true })).toBe("UNCONFIRMED");
   });
 
   test("a source that may not be counted can never make a record countable", () => {
-    // The invariant that matters: no value, however well-formed, promotes an
-    // unconfirmed source into confirmed pieces.
     for (const quantity of [1, 2, 99, "3", null, 0, -1, 1.5]) {
       const d = resolveCanonicalQuantity({ ...LIVE, quantity });
       expect({ quantity: String(quantity), countable: isCountableQuantity(d.provenance) }).toEqual({
@@ -157,7 +135,6 @@ describe("one rule, expressed at two granularities", () => {
   });
 
   test("a countable source still refuses a value it cannot read", () => {
-    // And the reverse: an approved source does not make a bad value good.
     for (const quantity of [null, 0, -1, 1.5, "one"]) {
       const d = resolveCanonicalQuantity({ ...FIXTURE, quantity });
       expect({ quantity: String(quantity), countable: isCountableQuantity(d.provenance) }).toEqual({
@@ -184,13 +161,9 @@ describe("persisted provenance", () => {
       select: { quantity: true, quantityProvenance: true, confirmedPieces: true, sourceType: true, isSimulated: true },
     });
 
-    // The column default wrote 1, and nothing recorded where it came from.
     expect(created.quantityProvenance).toBe(null);
     expect(created.confirmedPieces).toBe(null);
 
-    // And this is exactly why recording provenance at ingestion matters: `sourceType`
-    // defaults to "FIXTURE" and `isSimulated` to true, so a row nobody ingested still
-    // *looks* like approved fixture data to any check that reads only those columns.
     expect({ sourceType: created.sourceType, isSimulated: created.isSimulated }).toEqual({
       sourceType: "FIXTURE",
       isSimulated: true,
@@ -203,7 +176,6 @@ describe("persisted provenance", () => {
     });
     expect(isCountableQuantity(inferred.provenance)).toBe(true);
 
-    // A row that recorded its own provenance is not countable, whatever the defaults say.
     await db.lotMasterRecord.update({
       where: { lotId },
       data: { quantityProvenance: "LEGACY_DEFAULT_AMBIGUOUS", confirmedPieces: null },
@@ -259,7 +231,6 @@ describe("operational actions are assigned, not inherited from administration", 
       method: "POST", path: "/api/fantasy/sync", cookie: operator, body: {},
       headers: { origin: "http://localhost:3000" },
     });
-    // Authorized: whatever the source state decides, it is not a permission refusal.
     expect([401, 403].includes(res.status)).toBe(false);
   });
 });
@@ -289,7 +260,6 @@ describe("synchronization lock ownership", () => {
       where: { source: "FANTASY" },
       data: { isLocked: false, lockToken: null, lockExpiresAt: null },
     });
-    // Genuinely overlapping claims against the same row.
     const [a, b] = await Promise.all([claim("token-a"), claim("token-b")]);
     expect(a.count + b.count).toBe(1);
   });
@@ -324,8 +294,6 @@ describe("synchronization lock ownership", () => {
 
   test("an authorized unlock still clears a live lease, and says that it did", async () => {
     await claim("live-token");
-    // The recovery path is deliberately not refusable — a stuck lock must be clearable —
-    // but it reports that it broke active work rather than looking like routine cleanup.
     const res = await unlockSynchronization("ADMIN_TEST", "recovery", { ownerToken: null });
     expect({ success: res.success, forced: res.forcedActiveLease }).toEqual({ success: true, forced: true });
 

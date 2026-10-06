@@ -1,7 +1,3 @@
-// DataTable column layout without effects: the shown order is derived from the user's saved
-// order and the current columns, the saved layout is read when the table mounts, and nothing
-// renders in a loop. Rendered with the real component; the browser's storage is stubbed.
-
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, test } from "./harness";
@@ -13,7 +9,6 @@ const col = (key: keyof Row, header: string): Column<Row> => ({ key, header, cel
 const COLUMNS = [col("a", "Alpha"), col("b", "Bravo"), col("c", "Charlie")];
 const ROWS: Row[] = [{ a: "a1", b: "b1", c: "c1", d: "d1" }];
 
-/** Runs `work` with a browser-like window whose localStorage holds `stored`. */
 function withStorage<T>(stored: Record<string, string> | "throws", work: () => T): T {
   const g = globalThis as { window?: unknown };
   const previous = g.window;
@@ -34,7 +29,6 @@ function withStorage<T>(stored: Record<string, string> | "throws", work: () => T
   }
 }
 
-/** Header labels in the order the table shows them. */
 function headers(columns: Column<Row>[], tableId?: string): string[] {
   const html = renderToStaticMarkup(createElement(DataTable<Row>, { columns, rows: ROWS, tableId }));
   const head = html.slice(html.indexOf("<thead"), html.indexOf("</thead>"));
@@ -81,7 +75,6 @@ describe("saved layout", () => {
 
   test("another table's layout is never applied, and rendering settles in one pass", () => {
     const stored = { [tableLayoutStorageKey("other")]: JSON.stringify({ orderedKeys: ["c", "b", "a"], hiddenKeys: ["a"] }) };
-    // A render-phase update that never settled would throw "Too many re-renders" here.
     expect(withStorage(stored, () => headers(COLUMNS, "orders"))).toEqual(["Alpha", "Bravo", "Charlie"]);
     expect(withStorage(stored, () => headers(COLUMNS, "other"))).toEqual(["Charlie", "Bravo"]);
   });

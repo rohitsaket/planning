@@ -1,19 +1,3 @@
-/**
- * DIAMOND MANUFACTURING — AUTHORITATIVE DEMAND & INVENTORY CALCULATION SERVICE
- * 
- * Hardened Features:
- * 1. Explicit Sales Policy: CANONICAL_FANTASY (default) vs LEGACY_SALES (never unioned)
- * 2. Immutable canonical sale events from LotHistoryRecord with lifecycle deduplication
- * 3. Exact non-sales exclusions (disappearance, transfer, archive, memo return, etc.)
- * 4. Polished inventory classification: Available, Memo, Reserved, Blocked (with mirror reconciliation)
- * 5. Strict category mapping with deterministic DataQualityIssue generation
- * 6. Configurable WIP eligibility & unallocated WIP tracking
- * 7. Approved-plan coverage validation (no defaulting certification intent to GIA)
- * 8. Deterministic SHA-256 mapping & rule version fingerprints
- * 9. Owner-safe atomic concurrency lock with unique lock tokens & failure safety
- * 10. Persisted DemandMetricTraceItem for paginated lot provenance
- */
-
 import { db } from "@/lib/db";
 import { PLAN_COVERAGE, type PlanCoverageAvailability } from "@/lib/demand/plan-coverage";
 import { Prisma } from "@prisma/client";
@@ -84,7 +68,6 @@ export interface DemandCategoryTrace {
   wipCoverage: number;
   unallocatedWip: number;
   pipelineNeed: number;
-  /** Need after stock and WIP coverage; planned coverage is unavailable and never subtracted. */
   remainingUnplanned: number;
   forecastSignal: number;
   status: string;
@@ -153,13 +136,10 @@ export interface DemandRunResult {
   totalBlocked: number;
   totalWipCoverage: number;
   totalUnallocatedWip: number;
-  /** WIP that could not be attributed to any planning category (quarantined, never invented). */
   totalAmbiguousWip: number;
   totalPipelineNeed: number;
-  /** Planned coverage is not calculated: see PLAN_COVERAGE. */
   planCoverage: PlanCoverageAvailability;
   totalRemainingUnplanned: number;
-  /** The WIP coverage policy applied by this run. */
   wipPolicy: WipPolicy;
   salesCount: number;
   inventoryCount: number;
@@ -173,17 +153,10 @@ export interface DemandRunResult {
   categories: DemandCategoryTrace[];
 }
 
-/**
- * Identity of the WIP coverage policy that was in force for a run. Any change to
- * the rule's status, version or eligible stages changes the run fingerprint.
- */
 export function wipPolicyFingerprint(policy: WipPolicy): string {
   return `${policy.status}:${policy.ruleStatus ?? "NONE"}:${policy.ruleVersion ?? "NONE"}:${policy.eligibleStages.join(",")}`;
 }
 
-/**
- * Computes a deterministic SHA-256 fingerprint for active mappings, weight bands, and rules.
- */
 export function computeMappingFingerprint(mappings: CategoryMappings, wipFingerprint: string): string {
   const labParts: string[] = [];
   for (const [raw, normalized] of mappings.labMappings) labParts.push(`${raw}:${normalized.trim().toUpperCase()}`);
@@ -207,17 +180,11 @@ export function computeMappingFingerprint(mappings: CategoryMappings, wipFingerp
   return crypto.createHash("sha256").update(payload).digest("hex").slice(0, 16);
 }
 
-/**
- * Computes current active mapping fingerprint from the database.
- */
 export async function computeCurrentMappingFingerprint(): Promise<string> {
   const [mappings, policy] = await Promise.all([loadCategoryMappings(db), loadWipPolicy(db)]);
   return computeMappingFingerprint(mappings, wipPolicyFingerprint(policy));
 }
 
-/**
- * Ensures the singleton DemandCalculationLock record exists.
- */
 async function ensureLockRecord() {
   const existing = await db.demandCalculationLock.findUnique({
     where: { id: "DEMAND_CALCULATION" },
@@ -236,28 +203,11 @@ async function ensureLockRecord() {
   }
 }
 
-/**
- * Executes a full, deterministic 90-day Demand & Inventory calculation run.
- */
 export async function runDemandCalculation(options: DemandRunOptions = {}): Promise<DemandRunResult> {
   const startTime = Date.now();
-  // Stamped on the run so a historical result always says what it was calculated from.
-  // The value is the centrally derived effective state; `deriveHistoricalSourceState`
-  // reads both it and the legacy vocabulary already stored on older runs, so no
-  // historical value is rewritten.
   const sourceState = resolveFantasySourceState();
-  // One classification authority for the run. Records written by the synchronization
-  // service already carry their classification; anything else is classified on read
-  // through this same profile rather than by reinterpreting the raw status here.
   const classificationProfile = await loadClassificationProfile(LEGACY_FIXTURE_PROFILE);
-  // Memoized per record: the chain below consults the classification several times and
-  // must not re-derive it each time.
   const classificationCache = new Map<string, ReturnType<typeof resolveEffectiveClassification>>();
-  /**
-   * The classification to act on for one inventory record. The operational mirror is
-   * passed in so a stale or hand-written mirror can only ever make the answer more
-   * restrictive, never more permissive.
-   */
   const classificationOf = (
     record: Parameters<typeof resolveEffectiveClassification>[0] & { lotId: string },
     mirrorPlanningClass: string | null,
@@ -271,12 +221,6 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
   const sourcePolicy: DemandSourcePolicy = options.sourcePolicy ?? "CANONICAL_FANTASY";
   await ensureLockRecord();
 
-  // 1. ATOMIC OWNER-SAFE LOCK ACQUISITION
-  //
-  // A lock older than the canonical-claim lease was abandoned (the worker crashed before
-  // releasing it) and may be taken over, so a crash never blocks calculation for good.
-  // Taking it over is safe: the abandoned run's canonical claim has expired with it, so
-  // that run is fenced out before it can write, and its release is owner-checked by token.
   const lockToken = crypto.randomUUID();
   const staleBefore = new Date(Date.now() - CANONICAL_CLAIM_LEASE_MS);
   const lockAcquired = await db.demandCalculationLock.updateMany({
@@ -297,16 +241,8 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
     throw new Error("A demand calculation run is currently in progress by another worker. Concurrent runs are prevented.");
   }
 
-  // 1b. Claim the canonical state, in the same order synchronization uses: operation
-  // lock first, then canonical claim. The pair is never acquired in the opposite order,
-  // so the two operations cannot deadlock against each other.
-  //
-  // Until this claim is held, a synchronization may commit a batch at any moment, and
-  // every read below would be split across two source states.
   const canonicalClaimResult = await claimCanonicalState("DEMAND", options.actor ?? "SYSTEM");
   if (!canonicalClaimResult.acquired) {
-    // The demand lock is released again: holding it while refused would block the next
-    // attempt for a full lease with no calculation in progress.
     await db.demandCalculationLock.updateMany({
       where: { id: "DEMAND_CALCULATION", lockToken },
       data: { isLocked: false, lockToken: null, lockedAt: null, lockedBy: null, lockedByUserId: null },
@@ -316,18 +252,12 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
   const canonicalClaim = canonicalClaimResult.claim;
   let canonicalClaimReleased = false;
 
-  // 1c. The committed synchronization this calculation reads.
-  //
-  // Selected while the claim is held, so it cannot advance underneath the run. A sync
-  // that failed, or one still in flight, is not a source state: only a run that reached
-  // SUCCESS has its canonical writes committed.
   const boundSyncRun = await db.integrationSyncRun.findFirst({
     where: { source: { in: ["FANTASY", "Fantasy"] }, status: "SUCCESS", finishedAt: { not: null } },
     orderBy: [{ finishedAt: "desc" }, { id: "desc" }],
     select: { id: true, endingCheckpoint: true, batchId: true, finishedAt: true },
   });
 
-  // 2. Initialize RUNNING snapshot record
   const windowDays = options.windowDays ?? 90;
   const refDate = options.referenceDate ?? new Date();
   const businessDateIst = getISTDateString(refDate);
@@ -348,8 +278,6 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
       lookbackEnd,
       sourceMode: sourceState.effectiveState,
       isSimulated: sourceState.isSimulated,
-      // The exact committed synchronization this run reads. Null only when no successful
-      // sync exists yet, which the run reports rather than inventing an identity for.
       sourceSyncRunId: boundSyncRun?.id ?? null,
       checkpoint: boundSyncRun?.endingCheckpoint ?? 0,
       lastBatchId: boundSyncRun?.batchId ?? null,
@@ -359,7 +287,6 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
     },
   });
 
-  // Attach runId to lock record
   await db.demandCalculationLock.updateMany({
     where: { id: "DEMAND_CALCULATION", lockToken },
     data: { runId: initialRun.id },
@@ -368,9 +295,6 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
   let lockReleased = false;
 
   try {
-    // 3. Load active mappings, weight bands, and the WIP coverage policy.
-    // Category resolution and WIP classification are shared with every other consumer
-    // (WIP Inventory, Demand Trace, country position) so the numbers cannot diverge.
     const mappings = await loadCategoryMappings(db);
     const wipContext = await loadWipClassificationContext(db, { mappings });
     const wipPolicy: WipPolicy = wipContext.policy;
@@ -381,13 +305,6 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
 
     const mappingFingerprint = computeMappingFingerprint(mappings, wipPolicyFingerprint(wipPolicy));
 
-    // Source identity comes from the synchronization this run was bound to, not from a
-    // second read of `SyncCheckpoint`.
-    //
-    // That row is mutable and advances with every batch. Reading it separately gave the
-    // run two sources for one fact, and the later read won — so a run could report a
-    // checkpoint belonging to a synchronization it had not read. The binding taken under
-    // the canonical claim is the answer; there is no second opinion.
     const currentCheckpoint = boundSyncRun?.endingCheckpoint ?? 0;
     const lastBatchId = boundSyncRun?.batchId ?? null;
     const boundSyncDetail = boundSyncRun
@@ -397,24 +314,6 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
         })
       : null;
     const actualSourceCutoff = boundSyncDetail?.sourceCutoff ?? null;
-    // 4. FETCH SALES EVENTS ACCORDING TO SOURCE POLICY
-    //
-    // Delegated to the shared confirmed-sales service. The window, the SOLD/INVOICE and
-    // explicit-sale eligibility, the lifecycle episode deduplication, the deterministic
-    // event identity and the quantity provenance all live there, so the demand run and
-    // the Analysis pages cannot disagree about what a confirmed sale is.
-    // 3b. COMPLETE THE OPERATIONAL PROJECTION BEFORE CONSUMING IT
-    //
-    // Everything below — the confirmed sale facts and the inventory read alike — uses two
-    // things derived from canonical records: the persisted
-    // planning-category classification, and the operational mirror. Both can be absent
-    // while the canonical record itself is present and unchanged — an ordinary seed that
-    // clears `PolishedStone` leaves exactly that state, and the next synchronization
-    // rebuilds nothing because nothing in the source changed.
-    //
-    // So the projection is completed first, from the canonical records, using the same
-    // production rules. This repairs; it never invents. A record already classified keeps
-    // its decision, so a committed run stays reproducible.
     const projectionRepair = await reconcileOperationalProjection({
       actor: options.actor ?? "demand-calculation",
     });
@@ -428,7 +327,6 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
     });
     const confirmedSaleFacts = confirmedSales.facts;
 
-    // 5. FETCH FINISHED INVENTORY & RECONCILE OPERATIONAL MIRROR
     const [currentInventoryLots, polishedMirrors] = await Promise.all([
       db.lotMasterRecord.findMany({
         where: {
@@ -456,10 +354,8 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
       polishedMirrorMap.set(p.fantasyLotId, p);
     }
 
-    // 6. CLASSIFY CURRENT MANUFACTURING WIP (shared classifier — same result as the WIP page)
     const wipInventory = await classifyCurrentWip(db, { context: wipContext });
 
-    // 6b. FETCH NON-SALE REMOVALS IN 90D WINDOW (for traceability & exclusion reporting)
     const nonSaleRemovalLots = await db.lotMasterRecord.findMany({
       where: {
         docDate: {
@@ -482,7 +378,6 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
       },
     });
 
-    // 8. AGGREGATE CATEGORIES & BUILD TRACE
     const categoryTraces = new Map<string, DemandCategoryTrace>();
     const traceItemsToPersist: Array<Prisma.DemandMetricTraceItemCreateManyInput> = [];
     const dqIssuesToCreate: Array<Prisma.DataQualityIssueCreateManyInput> = [];
@@ -533,21 +428,11 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
     let wipCount = 0;
     let excludedCount = 0;
 
-    // Process Confirmed Sales Facts
     for (const rec of confirmedSaleFacts) {
       salesCount++;
-      // The planning category comes from the classification the synchronizer persisted
-      // on the canonical record, not from a second reading of the raw columns through
-      // whatever the mapping tables hold now. Re-deriving here is what let a committed
-      // run change meaning when a mapping row was edited, and what let canonical
-      // inventory and the demand result disagree about the same lot's lab.
       const category = persistedCategoryOf(rec);
       const normLab = category.labNormalized;
       const normShape = category.shapeNormalized;
-      // The weight gate exists to stop an unconfirmed *live* unit from choosing a
-      // planning category. The legacy seeded policy is neither live nor canonical —
-      // `assessSnapshot` already refuses its runs as SOURCE_POLICY_NOT_CANONICAL — so it
-      // keeps its previous behaviour rather than being silently re-scoped here.
       const saleWeight =
         rec.sourceType === "LEGACY_SEED"
           ? null
@@ -569,17 +454,10 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
           status: "OPEN",
           affectedField: categoryIssueField(category, band),
           rawValue: categoryIssueRawValue(category, band, rec.labRaw, rec.shape, rec.weight),
-          // Null when nothing was approved. Reporting the raw text as the normalized
-          // value is how an unapproved lab reached a category key in the first place.
           normalizedValue: normLab,
           downstreamImpact: "Excluded from automated sales replenishment demand",
         });
 
-        // A record whose lab or shape was never approved has no category, so it falls
-        // through to the quarantine bucket below. It used to be filed under a category
-        // built from the unapproved value itself — `EGL_UNAPPROVED|ROUND|1.00-1.09` —
-        // which is precisely the silent conversion of an unknown value into a
-        // valid-looking category that the classification refuses to make.
         if (band && normLab !== null && normShape !== null) {
           const trace = getOrCreateCategoryTrace(normLab, normShape, band);
           trace.status = "REVIEW_REQUIRED";
@@ -603,13 +481,6 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
             isIncluded: false,
           });
         } else {
-          // No weight band means no category to file this under — but a confirmed sale
-          // event must never leave the trace empty-handed. Without this row the event is
-          // counted in salesCount, raises a data-quality issue, and then cannot be found
-          // by anyone asking "which sales did this run see?".
-          //
-          // The quarantine bucket exists for exactly this: visible and reviewable,
-          // without inventing a category to hold it.
           traceItemsToPersist.push({
             runId: initialRun.id,
             planningCategory: QUARANTINE_CATEGORY,
@@ -663,7 +534,6 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
       });
     }
 
-    // Process Non-Sale Removals (Exclusion reporting)
     for (const nr of nonSaleRemovalLots) {
       excludedCount++;
       const normLab = nr.labNormalized || resolveLabNormalization(nr.labRaw, labMappingsMap).normalized;
@@ -685,8 +555,6 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
           traceType: "EXCLUSION",
           lotId: nr.lotId,
           sourceRecordId: nr.sourceRecordId,
-          // Preserved as supplied. An excluded record reports what the source gave,
-          // never a substituted 1.
           quantity: resolveCanonicalQuantity(nr).rawValue ?? 0,
           quantityProvenance: resolveCanonicalQuantity(nr).provenance,
           weight: Number(nr.weight),
@@ -701,28 +569,18 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
       }
     }
 
-    // Process Finished Inventory Records (Stock vs Memo vs Reserved vs Blocked)
     for (const inv of currentInventoryLots) {
       inventoryCount++;
-      // Same rule as the sales side: the persisted canonical decision, never a second
-      // interpretation of the raw columns.
       const category = persistedCategoryOf(inv);
       const normLab = category.labNormalized;
       const normShape = category.shapeNormalized;
 
-      // Quantity and weight are established once, from the record's own provenance.
-      // Neither is assumed: a quantity nobody supplied is not one piece, and a weight
-      // whose unit is unconfirmed cannot choose a weight band.
       const quantityDecision = resolveCanonicalQuantity(inv);
       const weightDecision = resolveCanonicalWeight(inv);
       const weight = weightDecision.rawValue ?? Number(inv.weight);
-      // Pieces only when the source established them. There is no fallback to 1.
       const qty = quantityDecision.pieces;
       const band = weightDecision.carats === null ? null : resolveWeightBand(weightDecision.carats, weightBands);
 
-      // A record whose quantity cannot be counted stays visible and traceable, but its
-      // pieces enter no authoritative total — not availability, and not the blocked or
-      // memo buckets either, because a number nobody supplied cannot be bucketed.
       if (qty === null) {
         excludedCount++;
         dqIssuesToCreate.push({
@@ -784,11 +642,6 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
           downstreamImpact: "Excluded from live finished availability calculation",
         });
 
-        // A record whose lab or shape was never approved has no category, so it falls
-        // through to the quarantine bucket below. It used to be filed under a category
-        // built from the unapproved value itself — `EGL_UNAPPROVED|ROUND|1.00-1.09` —
-        // which is precisely the silent conversion of an unknown value into a
-        // valid-looking category that the classification refuses to make.
         if (band && normLab !== null && normShape !== null) {
           const trace = getOrCreateCategoryTrace(normLab, normShape, band);
           trace.status = "REVIEW_REQUIRED";
@@ -812,13 +665,6 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
             isIncluded: false,
           });
         } else {
-          // No category to file this under — but a current stock record must never leave
-          // the trace empty-handed. Without this row the lot is counted in
-          // `inventoryCount`, raises a data-quality issue, and then cannot be found by
-          // anyone asking which records this run actually saw.
-          //
-          // The quarantine bucket exists for exactly this: visible and reviewable,
-          // without inventing a category to hold it.
           traceItemsToPersist.push({
             runId: initialRun.id,
             planningCategory: QUARANTINE_CATEGORY,
@@ -837,14 +683,12 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
         continue;
       }
 
-      // Reconcile with operational mirror (PolishedStone)
       const mirror = polishedMirrorMap.get(inv.lotId);
       const effClass = classificationOf(inv, mirror?.planningClass ?? null);
 
       const trace = getOrCreateCategoryTrace(normLab, normShape, band);
 
       if (isMirroredInventoryClass(effClass.inventoryClass) && !mirror) {
-        // Missing operational mirror -> Flag for review and mark as blockedQty
         trace.status = "REVIEW_REQUIRED";
         trace.blockedQty += Math.round(qty);
         const reason = `Operational polished mirror missing for lot ${inv.lotId}`;
@@ -878,9 +722,6 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
           reason,
           isIncluded: false,
         });
-      // Availability comes from the persisted canonical classification, not from a
-      // second reading of the raw status. A record the classifier did not classify — a
-      // null, from before classification existed — is never treated as available.
       } else if (effClass.available) {
         trace.availableStock += Math.round(qty);
         trace.physicalStockLots.push({
@@ -962,9 +803,6 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
       }
     }
 
-    // Process Manufacturing WIP Records through the shared classifier.
-    // Eligible WIP reduces the pipeline requirement only when BR-WIP-001 is confirmed;
-    // ambiguous WIP is quarantined instead of being mapped into a business category.
     const bandByCode = new Map(weightBands.map((b) => [b.code, b]));
     let ambiguousWipPieces = 0;
 
@@ -972,13 +810,11 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
       wipCount++;
 
       if (wip.outcome === "COMPLETED" || wip.outcome === "ALREADY_POLISHED") {
-        // Represented as finished output elsewhere: neither coverage nor open WIP.
         continue;
       }
 
       const band = wip.weightBandCode ? bandByCode.get(wip.weightBandCode) : undefined;
 
-      // WIP with no established quantity is neither coverage nor unallocated pieces.
       if (wip.outcome === "ELIGIBLE" && band && wip.category && wip.quantity !== null) {
         const trace = getOrCreateCategoryTrace(wip.lab, wip.shape, band);
         trace.wipCoverage += wip.quantity;
@@ -1007,7 +843,6 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
         continue;
       }
 
-      // Everything below is real WIP that does not reduce shortage.
       excludedCount++;
       dqIssuesToCreate.push({
         issueCode: `DQ-UNMAPPED-WIP-${wip.lotId}`,
@@ -1033,8 +868,6 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
       });
 
       if (wip.outcome === "AMBIGUOUS" || !band || !wip.category) {
-        // Quarantined: no business category may be invented for it. A record with no
-        // established quantity contributes no pieces but is still traced.
         ambiguousWipPieces += wip.quantity ?? 0;
         traceItemsToPersist.push({
           runId: initialRun.id,
@@ -1074,7 +907,6 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
       });
     }
 
-    // Ensure all registered Planning Categories exist in results
     const allPlanningCategories = await db.planningCategory.findMany({
       where: { active: true },
       include: { weightBand: true },
@@ -1086,7 +918,6 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
       }
     }
 
-    // 9. COMPUTE FORMULAS FOR ALL CATEGORIES
     let totalShortage = 0;
     let totalExcess = 0;
     let totalTarget = 0;
@@ -1110,7 +941,6 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
       const physicalShortage = Math.max(0, roundedTarget - trace.availableStock);
       const excessStock = Math.max(0, trace.availableStock - roundedTarget);
       const pipelineNeed = Math.max(0, physicalShortage - trace.wipCoverage);
-      // No selected-plan source exists (PLAN_COVERAGE), so nothing reduces the remaining need.
       const remainingUnplanned = pipelineNeed;
       const forecastSignal = Math.round(trace.sales90d * 0.15);
 
@@ -1145,27 +975,8 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
     finalCategories.sort((a, b) => a.category.localeCompare(b.category));
     const durationMs = Date.now() - startTime;
 
-    // A run that found nothing it was allowed to count must not be reported as a
-    // completed authoritative result.
-    //
-    // Without this, live data entering a pipeline whose quantity semantics are not yet
-    // confirmed produces the most dangerous outcome available: every sale excluded for
-    // unconfirmed quantity, every target therefore zero, every shortage therefore zero —
-    // and a page that says, in good faith, that there is no shortage anywhere. The
-    // numbers would be arithmetically correct and completely misleading.
-    //
-    // The run still happens and its diagnostics are still persisted; it is the *status*
-    // that refuses to claim authority. REVIEW_REQUIRED is the existing state for exactly
-    // this: a result a human must look at before relying on it.
-    // Pieces the run was actually allowed to count, across every category.
     const countedSalePieces = finalCategories.reduce((sum, c) => sum + c.sales90d, 0);
-    // Sales arrived but none of them could be counted — the live-contract failure mode.
     const everySaleExcluded = salesCount > 0 && countedSalePieces === 0;
-    // Inventory arrived but none of it could be counted either.
-    // Inventory arrived but none of it could be counted either. Both conditions require
-    // that data actually arrived: a window that genuinely contains no sales is a
-    // legitimate completed result ("found nothing"), not a blocked one ("could not
-    // read what it found"), and the two must not be conflated.
     const noCountableInventory =
       inventoryCount > 0 && totalPhysicalStock === 0 && totalMemo === 0 && totalReserved === 0;
     const blockedByInputs = everySaleExcluded || (salesCount > 0 && noCountableInventory);
@@ -1180,9 +991,6 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
         message:
           "This calculation could not count any confirmed quantity, so its results are not " +
           "authoritative. Confirm the source quantity and weight contract, then recalculate.",
-        // ERROR, not BLOCKING: a blocking issue stops every Analysis page, and this
-        // concerns one run's inputs. The run's own REVIEW_REQUIRED status is what tells a
-        // reader not to rely on it.
         severity: "ERROR",
         status: "OPEN",
         affectedField: "quantity",
@@ -1190,9 +998,6 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
       });
     }
 
-    // A run whose inputs are not fully projected is never declared ready. The figures
-    // below would be computed over records whose derived state is missing, which is how a
-    // whole business once reported zero available stock and called it a result.
     if (!projectionInvariant.satisfied) {
       dqIssuesToCreate.push({
         issueCode: `DQ-RUN-PROJECTION-${initialRun.id}`,
@@ -1213,19 +1018,11 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
         ? "REVIEW_REQUIRED"
         : "COMPLETED";
 
-    // 10. ATOMIC TRANSACTIONAL PERSISTENCE & LOCK RELEASE
-    //
-    // Fencing: an administrator may have force-released this claim while the calculation
-    // was running, which means a synchronization has since been allowed to change
-    // canonical records. The figures computed above may already describe a state that no
-    // longer exists, so the run is abandoned rather than persisted. Throwing here means
-    // no metric, no trace row and no COMPLETED status is written.
     if (!(await isClaimStillHeld(canonicalClaim))) {
       throw new CanonicalStateFencedError();
     }
 
     await db.$transaction(async (tx) => {
-      // Create DataQualityIssue rows
       if (dqIssuesToCreate.length > 0) {
         await tx.dataQualityIssue.createMany({
           data: dqIssuesToCreate,
@@ -1233,7 +1030,6 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
         });
       }
 
-      // Create DemandMetric rows
       const metricRows = finalCategories.map((c) => ({
         runId: initialRun.id,
         planningCategory: c.category,
@@ -1275,7 +1071,6 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
         });
       }
 
-      // Update DemandRun to COMPLETED/REVIEW_REQUIRED
       await tx.demandRun.update({
         where: { id: initialRun.id },
         data: {
@@ -1284,7 +1079,6 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
           totalExcess,
           mappingVersion: "CONFIG-V1",
           mappingFingerprint,
-          // Provenance: which WIP coverage policy this run actually applied.
           wipPolicyStatus: wipPolicy.status,
           wipRuleVersion: wipPolicy.ruleVersion,
           wipEligibleStages: wipPolicy.eligibleStages.join(","),
@@ -1300,7 +1094,6 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
         },
       });
 
-      // Owner-checked lock release
       await tx.demandCalculationLock.updateMany({
         where: {
           id: "DEMAND_CALCULATION",
@@ -1318,8 +1111,6 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
     });
 
     lockReleased = true;
-    // Released only after the transaction committed. Until then a synchronization could
-    // still change the records these metrics describe.
     await releaseCanonicalState(canonicalClaim);
     canonicalClaimReleased = true;
 
@@ -1364,9 +1155,6 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
     };
   } catch (err: any) {
     const durationMs = Date.now() - startTime;
-    // The exception is converted once, here. Diagnostics reach the server log under the
-    // reference; only the sanitized envelope is persisted, so the column cannot later be
-    // read back into a response as exception text.
     const failure = recordOperationalFailure(err, {
       operation: "demand.run",
       entity: "DemandRun",
@@ -1374,7 +1162,6 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
       actorUserId: options.actorUserId ?? null,
     });
 
-    // Record FAILED run with the sanitized public failure
     try {
       await db.demandRun.update({
         where: { id: initialRun.id },
@@ -1389,11 +1176,8 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
       // Ignore secondary update error
     }
 
-    // Owner-safe lock release on failure
     if (!canonicalClaimReleased) {
       try {
-        // Releases nothing if the claim was already force-released, which is correct: it
-        // belongs to whoever holds it now.
         await releaseCanonicalState(canonicalClaim);
       } catch {
         // Ignore secondary release error
@@ -1424,9 +1208,6 @@ export async function runDemandCalculation(options: DemandRunOptions = {}): Prom
   }
 }
 
-/**
- * Retrieves the latest successful completed demand run.
- */
 export async function getLatestDemandRun() {
   const latestRun = await db.demandRun.findFirst({
     where: { status: { in: ["COMPLETED", "REVIEW_REQUIRED"] } },
@@ -1441,16 +1222,6 @@ export async function getLatestDemandRun() {
   return latestRun;
 }
 
-// ---------------------------------------------------------------------------
-// Persisted category classification
-// ---------------------------------------------------------------------------
-
-/**
- * What a canonical record carries about its own planning category.
- *
- * Only the approved values. A record whose lab or shape was never approved has nulls
- * here and `approved: false`, so it cannot key a category by accident.
- */
 interface ResolvedPersistedCategory {
   readonly approved: boolean;
   readonly labNormalized: string | null;
@@ -1459,14 +1230,6 @@ interface ResolvedPersistedCategory {
   readonly shapeApproved: boolean;
 }
 
-/**
- * Reads the classification the synchronizer persisted.
- *
- * A record projected before this classification existed carries nulls in every category
- * column. It is treated as not approved — never as approved by default, which would let
- * unclassified stock into a planning category on the strength of a missing column. The
- * reconciliation service re-projects those records; until it does they stay in review.
- */
 function persistedCategoryOf(r: {
   categoryState?: string | null;
   categoryLabState?: string | null;
@@ -1485,7 +1248,6 @@ function persistedCategoryOf(r: {
   };
 }
 
-/** Fixed data-quality rule code for whichever dimension was not approved. */
 function categoryIssueRule(c: ResolvedPersistedCategory, band: { label: string } | null): string {
   if (!band) return "UNMAPPED_WEIGHT_BAND";
   if (!c.shapeApproved) return "UNMAPPED_SHAPE";
@@ -1498,7 +1260,6 @@ function categoryIssueField(c: ResolvedPersistedCategory, band: { label: string 
   return "labRaw";
 }
 
-/** The source value that could not be approved — never a normalized or derived one. */
 function categoryIssueRawValue(
   c: ResolvedPersistedCategory,
   band: { label: string } | null,

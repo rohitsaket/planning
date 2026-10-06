@@ -1,11 +1,3 @@
-// Test fixtures for the Sarin shape-mapping catalog.
-//
-// `applyCatalog` makes the effective catalog exactly the given rules through the real Save
-// and Remove routes, as a user holding sarin.mapping.manage — the same path the Mappings
-// page takes, so every change is checked, snapshotted and audited. `makeEffectiveSnapshot`
-// writes a snapshot directly and exists only for the suites whose subject is the database's
-// own guards. Neither touches anything outside the isolated test database.
-
 import { call, db } from "./helpers";
 import { resetRateLimits } from "@/lib/api/rate-limit";
 import { GET as readCatalog, POST as saveMapping } from "@/app/api/planning/sarin/shape-mappings/route";
@@ -24,15 +16,10 @@ const d3 = (v: string | null | undefined) => (v === null || v === undefined || v
 const signature = (r: { rawShape: string; normalizedShape: string; applyTo: string; min: string | null | undefined; max: string | null | undefined }) =>
   `${key(r.rawShape)}|${r.normalizedShape}|${r.applyTo}|${d3(r.min) ?? ""}|${d3(r.max) ?? ""}`;
 
-/** The id of the current EFFECTIVE snapshot, or null. */
 export async function effectiveSnapshotId(): Promise<string | null> {
   return (await db.sarinShapeMappingSet.findFirst({ where: { sourceSystem: "SARIN", status: "EFFECTIVE" }, select: { id: true } }))?.id ?? null;
 }
 
-/**
- * Makes the effective catalog exactly `rules` through the real routes, removing every other
- * mapping first, and returns the resulting snapshot id.
- */
 export async function applyCatalog(managerCookie: string, rules: readonly CatalogRule[]): Promise<string> {
   resetRateLimits();
   const current = await call(readCatalog, { cookie: managerCookie, path: "/api/planning/sarin/shape-mappings" });
@@ -65,10 +52,6 @@ export async function applyCatalog(managerCookie: string, rules: readonly Catalo
   return id;
 }
 
-/**
- * Database-level fixture: writes `rules` as a new snapshot and makes it EFFECTIVE, replacing
- * the current one, exactly as the service does. For database-guard suites only.
- */
 export async function makeEffectiveSnapshot(rules: ReadonlyArray<{ key: string; shape: string; kind?: string; min?: string | null; max?: string | null }>, createdByUserId = "catalog-fixture") {
   const [{ d }] = await db.$queryRaw<{ d: string }[]>`SELECT current_database() AS d`;
   if (d !== "planning_sectest") throw new Error(`refusing to write fixtures to ${d}`);

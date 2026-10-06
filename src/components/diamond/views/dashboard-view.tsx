@@ -27,8 +27,6 @@ interface DashboardKpi {
   demandRunDate?: string | null;
 }
 
-
-// Compact USD formatter — keeps KPI values short enough to fit alongside sparklines
 function fmtMoney(v: number): string {
   if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(1)}M`;
   if (v >= 1_000) return `$${Math.round(v / 1_000)}K`;
@@ -51,11 +49,9 @@ export function DashboardView() {
   }, [globalFilter.country, globalFilter.branch, globalFilter.lab]);
 
   const { data: kpi, isLoading } = useApi<DashboardKpi>(`/api/dashboard${filterQs}`);
-  // Widgets are fetched only when the role may read them (UX only — the API enforces it anyway).
   const perms = useAuthStore((s) => s.user?.permissions ?? []);
   const canSales = perms.includes("sales.read");
 
-  // Sales trend (sparkline data)
   const { data: trendData } = useQuery({
     queryKey: ["dashboard-trend", globalFilter.country, globalFilter.branch, globalFilter.lab, globalFilter.windowDays],
     enabled: canSales,
@@ -70,7 +66,6 @@ export function DashboardView() {
     },
   });
 
-  // Demand run history — for real sparkline data (last 7 runs chronologically)
   const { data: demandHistoryRaw } = useQuery({
     queryKey: ["demand-history-spark"],
     queryFn: async () => {
@@ -81,7 +76,6 @@ export function DashboardView() {
     },
   });
 
-  // Forecast predictions — for forecast signal sparkline (top categories' prediction90d)
   const { data: forecastData } = useQuery({
     queryKey: ["forecast-predictions-spark", globalFilter.lab],
     queryFn: async () => {
@@ -97,7 +91,6 @@ export function DashboardView() {
     },
   });
 
-  // Memo analysis — for memo exposure sparkline (top customers' values)
   const { data: memoData } = useQuery({
     queryKey: ["memo-spark", globalFilter.country, globalFilter.branch],
     enabled: canSales,
@@ -113,13 +106,11 @@ export function DashboardView() {
     },
   });
 
-  // Sparkline data — wire to real historical aggregates where available, omit when unavailable (never fabricate)
   const salesSparkline = useMemo(() => {
     if (!trendData || trendData.length < 2) return undefined;
     return trendData.slice(0, 7).map((t) => t.latest30);
   }, [trendData]);
 
-  // Most recent 7 demand runs in chronological order (oldest → newest)
   const demandHistory7 = useMemo(() => {
     if (!demandHistoryRaw || demandHistoryRaw.length < 2) return [];
     return demandHistoryRaw.slice(0, 7).reverse();
@@ -153,7 +144,6 @@ export function DashboardView() {
       ) : (
         <>
 
-      {/* GROUP 1: Planning Need — from the latest demand calculation */}
       <div>
         <div className="flex items-center gap-2 mb-2 px-1">
           <div className="h-4 w-1 rounded-full bg-rose-500" />
@@ -171,7 +161,6 @@ export function DashboardView() {
         )}
       </div>
 
-      {/* GROUP 2: Stock & Sync */}
       <div>
         <div className="flex items-center gap-2 mb-2 px-1">
           <div className="h-4 w-1 rounded-full bg-sky-500" />
@@ -189,7 +178,6 @@ export function DashboardView() {
         )}
       </div>
 
-      {/* Charts row */}
       <div className="grid grid-cols-1 gap-3">
         <Section title="Sales Trend (30D windows by shape)" description="Sales by shape over the last three 30-day periods">
           <div className="h-52">

@@ -1,42 +1,3 @@
-/**
- * DIAMOND MANUFACTURING — DEMAND & INVENTORY CALCULATION TEST SUITE
- * 
- * 33 Required Behavioral Test Scenarios:
- *  1. Immutable Fantasy history sale event is counted.
- *  2. Current master status changing later does not erase a historical sale.
- *  3. INVOICE followed by SOLD for one sale lifecycle counts once.
- *  4. A genuine second sale episode counts separately.
- *  5. Unknown disappearance is never counted as a sale.
- *  6. Legacy mode and Fantasy mode never union their data.
- *  7. Same real sale with different cross-system IDs cannot be silently double-counted.
- *  8. Sale and inventory quantities greater than one are handled correctly.
- *  9. Reserved stock does not reduce shortage.
- * 10. Held/blocked stock does not reduce shortage.
- * 11. Memo does not reduce physical shortage.
- * 12. Historical stock is excluded.
- * 13. Missing operational mirror is flagged rather than assumed available.
- * 14. Unmapped shape is excluded and creates a DQ issue.
- * 15. Unmapped lab follows the approved review policy.
- * 16. Ambiguous WIP does not reduce shortage and creates a DQ issue.
- * 17. Ineligible WIP stage does not reduce shortage.
- * 18. Approved current selected plan contributes coverage.
- * 19. Superseded, cancelled, rejected, unselected, or released-to-WIP plan does not contribute.
- * 20. Missing certification intent is not defaulted to GIA.
- * 21. Plan coverage and WIP cannot double-count the same output.
- * 22. A failed calculation produces one FAILED run with no partial metrics.
- * 23. A real simultaneous execution test using two promises/workers allows only one lock owner.
- * 24. An old worker cannot release a newer worker’s lock.
- * 25. Manual unlock requires authorization and reason.
- * 26. Mapping fingerprint changes when an active mapping changes.
- * 27. Historical run retains its original mapping fingerprint and results.
- * 28. Source records changing during calculation do not produce a mixed snapshot.
- * 29. Results are identical across different cursor batch sizes.
- * 30. Large-volume execution does not silently truncate.
- * 31. Trace quantities reconcile with every stored metric.
- * 32. Permission-matrix checks for run, unlock, trace and export (API-boundary RBAC is proven in scripts/test-demand-inventory.ts).
- * 33. Existing Fantasy regression tests remain passing.
- */
-
 import { db } from "../src/lib/db";
 import {
   runDemandCalculation,
@@ -46,7 +7,6 @@ import {
 import { roundHalfUpInt } from "../src/lib/domain/diamond-rules";
 import { proveDisposableDatabase } from "../src/lib/fantasy/database-environment";
 import { parseISTDateToUTC, getISTDateString } from "../src/lib/fantasy/time";
-// Roles other than SUPER_ADMIN are test fixture custom roles (tests/security/fixture-roles.ts).
 import { testHasPermission } from "../tests/security/fixture-roles";
 import { readPublicFailure, recordOperationalFailure, serializePublicFailure } from "../src/lib/api/operational-failure";
 
@@ -73,7 +33,6 @@ async function cleanAll() {
   await db.polishedStone.deleteMany({});
   await db.roughStone.deleteMany({});
   await db.dataQualityIssue.deleteMany({});
-  // Customers are referenced by memo records and orders (RESTRICT), so those go first.
   await db.memoRecord.deleteMany({});
   await db.salesOrderLine.deleteMany({});
   await db.salesOrder.deleteMany({});
@@ -89,7 +48,6 @@ async function main() {
   console.log("💎 DEMAND & INVENTORY CALCULATION: 33-SCENARIO HARDENED BEHAVIORAL TEST SUITE");
   console.log("===============================================================================\n");
 
-  // Loopback host, an approved isolated test database, no production or staging marker.
   const proof = proveDisposableDatabase(process.env.DATABASE_URL);
   if (!proof.proven) {
     console.error(`Refusing to run destructive tests (${proof.refusal}). ${proof.message}`);
@@ -99,7 +57,6 @@ async function main() {
 
   await cleanAll();
 
-  // Baseline master setup
   console.log("[Setup] Seeding test weight bands, mappings, and customer...");
   const customer = await db.customer.create({
     data: {
@@ -144,9 +101,6 @@ async function main() {
   const d5DaysAgo = new Date(istTodayUTC.getTime() - 5 * 24 * 3600 * 1000);
   const d20DaysAgo = new Date(istTodayUTC.getTime() - 20 * 24 * 3600 * 1000);
 
-  // -------------------------------------------------------------------------
-  // TEST 1: Immutable Fantasy history sale event is counted
-  // -------------------------------------------------------------------------
   console.log("\n--- TEST 1: Immutable Fantasy history sale event is counted ---");
   await db.lotMasterRecord.create({
     data: {
@@ -192,11 +146,7 @@ async function main() {
   const r1 = await runDemandCalculation({ actor: "Test 1" });
   assert(r1.salesCount >= 1, "Sales count includes history sale event");
 
-  // -------------------------------------------------------------------------
-  // TEST 2: Current master status changing later does not erase historical sale
-  // -------------------------------------------------------------------------
   console.log("\n--- TEST 2: Current master status changing later does not erase historical sale ---");
-  // Update master to ARCHIVED or REMOVED without changing history
   await db.lotMasterRecord.update({
     where: { lotId: "T1_LOT_SOLD" },
     data: { currentStatus: "ARCHIVED", isCurrent: false },
@@ -205,9 +155,6 @@ async function main() {
   const m2 = r2.categories.find((m) => m.category.includes("GIA|ROUND|0.30 - 0.39 ct"));
   assert((m2?.sales90d ?? 0) >= 1, "Historical sale event remains counted even after master record changed");
 
-  // -------------------------------------------------------------------------
-  // TEST 3: INVOICE followed by SOLD for one sale lifecycle counts ONCE
-  // -------------------------------------------------------------------------
   console.log("\n--- TEST 3: INVOICE followed by SOLD for one sale lifecycle counts once ---");
   await db.lotMasterRecord.create({
     data: {
@@ -273,15 +220,12 @@ async function main() {
   const m3 = r3.categories.find((m) => m.category.includes("GIA|ROUND|0.30 - 0.39 ct"));
   assert(m3?.sales90d === 2, `T1 (1 sale) + T3 (1 lifecycle sale) = 2 sales (got ${m3?.sales90d})`);
 
-  // -------------------------------------------------------------------------
-  // TEST 4: A genuine second sale episode counts separately
-  // -------------------------------------------------------------------------
   console.log("\n--- TEST 4: A genuine second sale episode counts separately ---");
   await db.lotHistoryRecord.create({
     data: {
       lotId: "T3_LIFECYCLE_LOT",
       version: 3,
-      status: "STOCK", // Returned to stock
+      status: "STOCK",
       roughOrPolished: "POLISHED",
       shape: "ROUND",
       shapeNormalized: "ROUND",
@@ -301,7 +245,7 @@ async function main() {
     data: {
       lotId: "T3_LIFECYCLE_LOT",
       version: 4,
-      status: "SOLD", // Sold second time!
+      status: "SOLD",
       roughOrPolished: "POLISHED",
       shape: "ROUND",
       shapeNormalized: "ROUND",
@@ -322,9 +266,6 @@ async function main() {
   const m4 = r4.categories.find((m) => m.category.includes("GIA|ROUND|0.30 - 0.39 ct"));
   assert(m4?.sales90d === 3, `T1 (1 sale) + T3 (2 separate sale episodes) = 3 sales (got ${m4?.sales90d})`);
 
-  // -------------------------------------------------------------------------
-  // TEST 5: Unknown disappearance is never counted as a sale
-  // -------------------------------------------------------------------------
   console.log("\n--- TEST 5: Unknown disappearance is never counted as a sale ---");
   await db.lotMasterRecord.create({
     data: {
@@ -370,9 +311,6 @@ async function main() {
   const m5 = r5.categories.find((m) => m.category.includes("GIA|ROUND|0.30 - 0.39 ct"));
   assert(m5?.sales90d === 3, `Sales90d remained exactly 3 (disappearance did not add sale demand)`);
 
-  // -------------------------------------------------------------------------
-  // TEST 6: Legacy mode and Fantasy mode never union their data
-  // -------------------------------------------------------------------------
   console.log("\n--- TEST 6: Legacy mode and Fantasy mode never union their data ---");
   await db.salesRecord.create({
     data: {
@@ -397,9 +335,6 @@ async function main() {
   const m6Legacy = r6Legacy.categories.find((m) => m.category.includes("GIA|ROUND|0.30 - 0.39 ct"));
   assert(m6Legacy?.sales90d === 10, "LEGACY_SALES mode strictly reads only SalesRecord (10 units)");
 
-  // -------------------------------------------------------------------------
-  // TEST 7: Cross-system ID / multiple versions deduplication
-  // -------------------------------------------------------------------------
   console.log("\n--- TEST 7: Cross-system / version deduplication ---");
   await db.lotMasterRecord.create({
     data: {
@@ -468,9 +403,6 @@ async function main() {
   const m7 = r7.categories.find((m) => m.category.includes("IGI|ROUND|0.40 - 0.49 ct"));
   assert(m7?.sales90d === 1, `Category 0.40-0.49 has exactly 1 sale (got ${m7?.sales90d})`);
 
-  // -------------------------------------------------------------------------
-  // TEST 8: Sale and inventory quantities greater than one
-  // -------------------------------------------------------------------------
   console.log("\n--- TEST 8: Sale and inventory quantities > 1 handled correctly ---");
   await db.lotMasterRecord.create({
     data: {
@@ -518,11 +450,7 @@ async function main() {
   const m8 = r8.categories.find((m) => m.category.includes("IGI|ROUND|0.40 - 0.49 ct"));
   assert(m8?.sales90d === 6, `1 + 5 = 6 sales quantity accounted (got ${m8?.sales90d})`);
 
-  // -------------------------------------------------------------------------
-  // TEST 9: Reserved stock does not reduce shortage
-  // -------------------------------------------------------------------------
   console.log("\n--- TEST 9: Reserved stock does not reduce shortage ---");
-  // Seed physical mirror for PolishedStone
   await db.lotMasterRecord.create({
     data: {
       lotId: "T9_RESERVED_LOT",
@@ -561,9 +489,6 @@ async function main() {
   assert(m9?.availableStock === 0, `Physical available stock === 0 (got ${m9?.availableStock})`);
   assert(m9?.physicalShortage === 4, `Target 4 - Available 0 = Shortage 4 (got ${m9?.physicalShortage})`);
 
-  // -------------------------------------------------------------------------
-  // TEST 10: Held/blocked stock does not reduce shortage
-  // -------------------------------------------------------------------------
   console.log("\n--- TEST 10: Held/blocked stock does not reduce shortage ---");
   await db.lotMasterRecord.create({
     data: {
@@ -602,9 +527,6 @@ async function main() {
   assert(m10?.blockedQty === 1, `Blocked qty === 1 (got ${m10?.blockedQty})`);
   assert(m10?.physicalShortage === 4, `Shortage remains 4 (got ${m10?.physicalShortage})`);
 
-  // -------------------------------------------------------------------------
-  // TEST 11: Memo does not reduce physical shortage
-  // -------------------------------------------------------------------------
   console.log("\n--- TEST 11: Memo does not reduce physical shortage ---");
   await db.lotMasterRecord.create({
     data: {
@@ -643,9 +565,6 @@ async function main() {
   assert(m11?.memoQty === 1, `Memo qty === 1 (got ${m11?.memoQty})`);
   assert(m11?.physicalShortage === 4, `Physical shortage remains 4 (Memo does NOT reduce shortage)`);
 
-  // -------------------------------------------------------------------------
-  // TEST 12: Historical stock is excluded from live stock
-  // -------------------------------------------------------------------------
   console.log("\n--- TEST 12: Historical stock is excluded from live stock ---");
   await db.lotMasterRecord.create({
     data: {
@@ -659,7 +578,7 @@ async function main() {
       weight: 0.45,
       docDate: d5DaysAgo,
       statusEffectiveDate: d5DaysAgo,
-      isCurrent: false, // Old version
+      isCurrent: false,
       lastSyncBatchId: "B12",
       country: "INDIA",
       branch: "SURAT",
@@ -669,9 +588,6 @@ async function main() {
   const m12 = r12.categories.find((m) => m.category.includes("IGI|ROUND|0.40 - 0.49 ct"));
   assert(m12?.availableStock === 0, `Historical lot not counted in availableStock (0)`);
 
-  // -------------------------------------------------------------------------
-  // TEST 13: Missing operational mirror is flagged rather than assumed available
-  // -------------------------------------------------------------------------
   console.log("\n--- TEST 13: Missing operational mirror is flagged ---");
   await db.lotMasterRecord.create({
     data: {
@@ -691,16 +607,12 @@ async function main() {
       branch: "SURAT",
     },
   });
-  // Note: No PolishedStone record created for T13_NO_MIRROR_LOT!
   const r13 = await runDemandCalculation({ actor: "Test 13" });
   const m13 = r13.categories.find((m) => m.category.includes("IGI|ROUND|0.40 - 0.49 ct"));
   assert(m13?.availableStock === 0, "Missing mirror is NOT assumed available");
   assert(m13?.blockedQty === 2, `Missing mirror added to blockedQty (got ${m13?.blockedQty})`);
   assert(m13?.status === "REVIEW_REQUIRED", `Metric status is REVIEW_REQUIRED (got ${m13?.status})`);
 
-  // -------------------------------------------------------------------------
-  // TEST 14: Unmapped shape is excluded and creates a DQ issue
-  // -------------------------------------------------------------------------
   console.log("\n--- TEST 14: Unmapped shape is excluded and creates a DQ issue ---");
   await db.lotMasterRecord.create({
     data: {
@@ -708,7 +620,7 @@ async function main() {
       currentStatus: "STOCK",
       roughOrPolished: "POLISHED",
       shape: "EXOTIC_TRILLION",
-      shapeNormalized: null, // Unmapped shape!
+      shapeNormalized: null,
       labRaw: "GIA",
       labNormalized: "GIA",
       weight: 0.55,
@@ -727,9 +639,6 @@ async function main() {
   });
   assert(dqShape !== null, "DQ Issue created for unmapped shape");
 
-  // -------------------------------------------------------------------------
-  // TEST 15: Unmapped lab follows review policy
-  // -------------------------------------------------------------------------
   console.log("\n--- TEST 15: Unmapped lab follows review policy ---");
   await db.lotMasterRecord.create({
     data: {
@@ -755,9 +664,6 @@ async function main() {
   });
   assert(dqLab !== null, "DQ issue generated for unmapped lab");
 
-  // -------------------------------------------------------------------------
-  // TEST 16: Ambiguous WIP does not reduce shortage and creates DQ issue
-  // -------------------------------------------------------------------------
   console.log("\n--- TEST 16: Ambiguous WIP does not reduce shortage and creates DQ issue ---");
   await db.lotMasterRecord.create({
     data: {
@@ -784,14 +690,11 @@ async function main() {
   });
   assert(dqWip !== null, "DQ issue generated for ambiguous WIP");
 
-  // -------------------------------------------------------------------------
-  // TEST 17: Ineligible WIP stage does not reduce shortage
-  // -------------------------------------------------------------------------
   console.log("\n--- TEST 17: Ineligible WIP stage does not reduce shortage ---");
   await db.lotMasterRecord.create({
     data: {
       lotId: "T17_INELIGIBLE_WIP",
-      currentStatus: "WIP_PLANNING", // Early planning stage - not eligible for finished shortage reduction
+      currentStatus: "WIP_PLANNING",
       roughOrPolished: "WIP",
       wipStage: "WIP_PLANNING",
       shape: "ROUND",
@@ -812,11 +715,7 @@ async function main() {
   assert(m17?.unallocatedWip === 1, `Unallocated WIP === 1 (got ${m17?.unallocatedWip})`);
   assert(m17?.wipCoverage === 0, `WIP coverage === 0 for early planning stage`);
 
-  // -------------------------------------------------------------------------
-  // TEST 18: Legacy approved plans never reduce demand (planned coverage is unavailable)
-  // -------------------------------------------------------------------------
   console.log("\n--- TEST 18: Legacy approved, selected and unselected plans leave demand unchanged ---");
-  // Demand before any legacy planning record exists, to compare against.
   const before18 = await runDemandCalculation({ actor: "Test 18 baseline" });
   const factual = (r: typeof before18) =>
     JSON.stringify(r.categories.map((c) => [c.category, c.roundedTarget, c.availableStock, c.physicalShortage, c.wipCoverage, c.pipelineNeed, c.remainingUnplanned]).sort());
@@ -831,8 +730,6 @@ async function main() {
     data: { caseCode: "CASE-18", roughId: roughStone18.id, stoneName: "Stone 18", kapan: "K18", packet: "P18", originalRoughWeight: 2.5, planner: "Chief Planner", status: "APPROVED", currentVersion: 1 },
   });
   const pVer18 = await db.planVersion.create({ data: { planningCaseId: pCase18.id, versionNumber: 1, status: "APPROVED", createdBy: "Chief Planner" } });
-  // An approved, selected option, an unselected one, and one without a certification intent,
-  // each with a piece that matches a demanded category.
   for (const [n, selected, cert] of [[1, true, "GIA"], [2, false, "GIA"], [3, true, null]] as const) {
     const opt = await db.planOption.create({
       data: { optionCode: `OPT-18-${n}`, versionId: pVer18.id, optionNumber: n, expectedPieces: 1, expectedTotalWeight: 0.55, yieldPct: 22.0, selected, approvalStatus: "APPROVED", certificationIntent: cert },
@@ -847,25 +744,16 @@ async function main() {
   assert(!!m18 && m18.remainingUnplanned === m18.pipelineNeed, `Remaining need is the pipeline need, not reduced by a plan (${m18?.remainingUnplanned} vs ${m18?.pipelineNeed})`);
   assert(!("approvedPlanCoverage" in (m18 ?? {})), "No plan-coverage figure is computed per category");
 
-  // -------------------------------------------------------------------------
-  // TEST 19: Unselected options and pieces linked to output do not count either
-  // -------------------------------------------------------------------------
   console.log("\n--- TEST 19: Linking a legacy piece to polished output changes nothing ---");
   await db.planOptionPiece.update({ where: { pieceCode: "PC-18-1" }, data: { actualPolishedLotId: "WIP_LOT_CONVERTED_21" } });
   const r19 = await runDemandCalculation({ actor: "Test 19" });
   assert(factual(r19) === factual(before18), "A legacy piece linked to a polished lot does not alter demand");
   await db.planOptionPiece.update({ where: { pieceCode: "PC-18-1" }, data: { actualPolishedLotId: null } });
 
-  // -------------------------------------------------------------------------
-  // TEST 22: Failed calculation produces one FAILED run with no partial metrics
-  // -------------------------------------------------------------------------
   console.log("\n--- TEST 22: Failed calculation records FAILED status with no partial metrics ---");
   const failedRunsBefore = await db.demandRun.count({ where: { status: "FAILED" } });
   assert(failedRunsBefore === 0, "No failed runs initially");
 
-  // Verify failure contract: DemandRun status FAILED with a sanitized public failure and
-  // zero partial metrics. The stored value is the envelope the service now writes — the
-  // conversion itself is proven against the real service in tests/security/failure-exposure.
   const storedFailure = serializePublicFailure(
     recordOperationalFailure(new Error("Database timeout during calculation snapshot"), {
       operation: "demand.run",
@@ -897,9 +785,6 @@ async function main() {
   assert(!failedRunInDb?.errorSummary?.includes("Database timeout"), "Exception text is not stored on the run");
   assert(failedRunInDb?.metrics.length === 0, "Failed run has zero partial metrics");
 
-  // -------------------------------------------------------------------------
-  // TEST 23: Simultaneous execution allows only one lock owner
-  // -------------------------------------------------------------------------
   console.log("\n--- TEST 23: Simultaneous execution allows only one lock owner ---");
   let winner = 0;
   let loser = 0;
@@ -915,11 +800,7 @@ async function main() {
   assert(winner === 1, `Exactly 1 winner succeeded (got ${winner})`);
   assert(loser === 1, `Exactly 1 concurrent attempt was rejected (got ${loser})`);
 
-  // -------------------------------------------------------------------------
-  // TEST 24: Old worker cannot release newer worker's lock
-  // -------------------------------------------------------------------------
   console.log("\n--- TEST 24: Old worker cannot release newer worker's lock ---");
-  // Acquire a lock with Token A
   await db.demandCalculationLock.upsert({
     where: { id: "DEMAND_CALCULATION" },
     create: {
@@ -937,7 +818,6 @@ async function main() {
     },
   });
 
-  // Old worker attempts releasing with TOKEN_OLD_WORKER
   const releaseAttempt = await db.demandCalculationLock.updateMany({
     where: { id: "DEMAND_CALCULATION", lockToken: "TOKEN_OLD_WORKER" },
     data: { isLocked: false, lockToken: null },
@@ -946,11 +826,6 @@ async function main() {
   const lockStillHeld = await db.demandCalculationLock.findUnique({ where: { id: "DEMAND_CALCULATION" } });
   assert(lockStillHeld?.isLocked === true, "Lock remains held by newer worker");
 
-  // -------------------------------------------------------------------------
-  // TEST 25: The owning worker releases its lock
-  // -------------------------------------------------------------------------
-  // There is no manual unlock: an abandoned lock expires with the canonical-claim lease
-  // (covered by tests/security/canonical-state-claim.test.ts). Here the newer worker ends.
   console.log("\n--- TEST 25: The owning worker releases its lock ---");
   const ownerRelease = await db.demandCalculationLock.updateMany({
     where: { id: "DEMAND_CALCULATION", lockToken: lockStillHeld?.lockToken ?? "" },
@@ -960,30 +835,21 @@ async function main() {
   const lockPostRelease = await db.demandCalculationLock.findUnique({ where: { id: "DEMAND_CALCULATION" } });
   assert(lockPostRelease?.isLocked === false, "Lock released");
 
-  // -------------------------------------------------------------------------
-  // TEST 26: Mapping fingerprint changes when an active mapping changes
-  // -------------------------------------------------------------------------
   console.log("\n--- TEST 26: Mapping fingerprint changes on mapping edit ---");
   const fp1 = await computeCurrentMappingFingerprint();
-  // Modify an active mapping
   const newMapping = await db.shapeMapping.create({
     data: { rawShape: "CUSHION", normalizedShape: "CUSHION", active: true },
   });
   const fp2 = await computeCurrentMappingFingerprint();
   assert(fp1 !== fp2, `Fingerprint changed from ${fp1.slice(0, 8)} to ${fp2.slice(0, 8)}`);
 
-  // Revert mapping
   await db.shapeMapping.delete({ where: { id: newMapping.id } });
   const fp3 = await computeCurrentMappingFingerprint();
   assert(fp1 === fp3, "Fingerprint reverted back to identical SHA-256 string");
 
-  // -------------------------------------------------------------------------
-  // TEST 27: Historical run retains original mapping fingerprint and results
-  // -------------------------------------------------------------------------
   console.log("\n--- TEST 27: Historical run retains original mapping fingerprint ---");
   const runBefore = await runDemandCalculation({ actor: "Fingerprint Run" });
   const origFp = runBefore.mappingFingerprint;
-  // Change mapping in DB
   const tempMap = await db.shapeMapping.create({
     data: { rawShape: "BAGUETTE", normalizedShape: "BAGUETTE", active: true },
   });
@@ -991,31 +857,19 @@ async function main() {
   assert(histRun?.mappingFingerprint === origFp, "Historical run retains exact original fingerprint");
   await db.shapeMapping.delete({ where: { id: tempMap.id } });
 
-  // -------------------------------------------------------------------------
-  // TEST 28: Source records changing during calculation do not produce mixed snapshot
-  // -------------------------------------------------------------------------
   console.log("\n--- TEST 28: Source records snapshot consistency ---");
   const r28 = await runDemandCalculation({ actor: "Snapshot Consistency" });
   assert(r28.status === "COMPLETED" || r28.status === "REVIEW_REQUIRED", "Snapshot calculation completed consistently");
 
-  // -------------------------------------------------------------------------
-  // TEST 29: Results are identical across different cursor batch sizes
-  // -------------------------------------------------------------------------
   console.log("\n--- TEST 29: Results identical across batch processing ---");
   const r29a = await runDemandCalculation({ actor: "Run A" });
   const r29b = await runDemandCalculation({ actor: "Run B" });
   assert(r29a.totalShortage === r29b.totalShortage, "Total shortage is deterministic");
   assert(r29a.totalExcess === r29b.totalExcess, "Total excess is deterministic");
 
-  // -------------------------------------------------------------------------
-  // TEST 30: Large-volume execution does not silently truncate
-  // -------------------------------------------------------------------------
   console.log("\n--- TEST 30: Large-volume execution without silent truncation ---");
   assert(r29a.categoriesProcessed === r29b.categoriesProcessed, "All categories fully processed without truncation");
 
-  // -------------------------------------------------------------------------
-  // TEST 31: Trace quantities reconcile with every stored metric
-  // -------------------------------------------------------------------------
   console.log("\n--- TEST 31: Trace quantities reconcile with stored metrics ---");
   const r31 = await getLatestDemandRun();
   assert(r31 !== null, "Latest demand run exists");
@@ -1036,9 +890,6 @@ async function main() {
     assert(stockSum === m.availableStock, `Category ${m.planningCategory}: Trace stock sum (${stockSum}) === metric availableStock (${m.availableStock})`);
   }
 
-  // -------------------------------------------------------------------------
-  // TEST 32: Permission matrix for demand permissions (NOT an API test — see scripts/test-demand-inventory.ts section E)
-  // -------------------------------------------------------------------------
   console.log("\n--- TEST 32: Permission-matrix checks (role → permission; API boundary covered separately) ---");
   assert(!testHasPermission("VIEWER", "demand.run"), "VIEWER cannot run demand calculation");
   assert(!testHasPermission("VIEWER", "demand.trace"), "VIEWER cannot view lot-level trace");
@@ -1048,12 +899,7 @@ async function main() {
   assert(testHasPermission("SUPER_ADMIN", "demand.trace"), "SUPER_ADMIN has demand.trace");
   assert(testHasPermission("SUPER_ADMIN", "demand.export"), "SUPER_ADMIN has demand.export");
 
-  // Running a demand calculation replaces the snapshot every Analysis page reads, and
-  // unlocking one can abandon an in-flight run. Both are operational acts with a
-  // consequence for the data, so administering the system no longer confers them; they
-  // stay assignable to an administrator who genuinely holds that duty.
   assert(!testHasPermission("ADMIN", "demand.run"), "ADMIN does NOT automatically have demand.run");
-  // Reading remains administrative.
   assert(testHasPermission("ADMIN", "demand.trace"), "ADMIN has demand.trace");
   assert(testHasPermission("ADMIN", "demand.export"), "ADMIN has demand.export");
   assert(!testHasPermission("ADMIN", "fantasy.sync.run"), "ADMIN does NOT automatically have fantasy.sync.run");
@@ -1063,9 +909,6 @@ async function main() {
   assert(testHasPermission("ANALYSIS_MANAGER", "demand.trace"), "ANALYSIS_MANAGER has demand.trace");
   assert(testHasPermission("ANALYSIS_MANAGER", "demand.export"), "ANALYSIS_MANAGER has demand.export");
 
-  // -------------------------------------------------------------------------
-  // TEST 33: Existing Fantasy regression tests remain passing
-  // -------------------------------------------------------------------------
   console.log("\n--- TEST 33: Existing Fantasy regression integration verified ---");
   assert(true, "Fantasy regression tests verified via test:fantasy");
 

@@ -1,8 +1,5 @@
 "use client";
 
-// A read that failed, with a Retry that repeats only that read. It never repeats an
-// upload or any processing step: those are explicit actions.
-
 import { RefreshCw } from "lucide-react";
 import { InfoBanner } from "@/components/diamond/shared/empty-state";
 import { Button } from "@/components/ui/button";

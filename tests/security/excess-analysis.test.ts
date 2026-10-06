@@ -8,18 +8,6 @@ import { GET as demandTrace } from "@/app/api/analysis/demand-trace/route";
 import { EXCESS_EXPORT_ROW_LIMIT, EMPTY_EXCESS_FILTERS, readExcessCategories } from "@/lib/analysis/excess";
 import { navHash, parseNavHash } from "@/stores/nav-store";
 
-/**
- * Excess Stock.
- *
- * The page answers the factual counterpart of Stockout Risk, and must answer it with
- * the figure the demand engine stored. The page it replaces read the latest usable run
- * directly rather than through the authoritative selector, returned every category in
- * one unpaged response, and shipped the shortage and excess formulas in a `warning`
- * field — so it could disagree with Demand Overview about the same category.
- *
- * Every assertion runs against the real service or the real route handler.
- */
-
 const BATCH = "EXCESS-TEST";
 const BASE = new Date("2026-09-20T06:00:00.000Z");
 const CRLF = "\r\n";
@@ -86,7 +74,6 @@ async function clearFixtures() {
   await db.lotMasterRecord.deleteMany({ where: { lastSyncBatchId: BATCH } });
 }
 
-/** One run built directly, so every figure under test is known exactly. */
 async function seedRun(): Promise<string> {
   await clearFixtures();
   await ensureMappings();
@@ -101,11 +88,8 @@ async function seedRun(): Promise<string> {
   });
 
   const rows = [
-    // Excess: available above target.
     { cat: "GIA|HEART|1.10-1.49", shape: "HEART", sales: 6, target: 4, avail: 11, excess: 7, short: 0, memo: 2, wip: 3 },
-    // Below target: a shortage, no excess.
     { cat: "GIA|ASSCHER|1.10-1.49", shape: "ASSCHER", sales: 9, target: 6, avail: 2, excess: 0, short: 4, memo: 0, wip: 0 },
-    // Exactly at target.
     { cat: "GIA|ROUND|1.10-1.49", shape: "ROUND", sales: 3, target: 2, avail: 2, excess: 0, short: 0, memo: 0, wip: 0 },
   ];
   for (const r of rows) {
@@ -119,7 +103,6 @@ async function seedRun(): Promise<string> {
         pipelineNeed: 0, remainingUnplanned: 0,
       },
     });
-    // One confirmed sale trace row, so "latest confirmed sale" has a real source.
     await db.demandMetricTraceItem.create({
       data: {
         runId: run.id, planningCategory: r.cat, traceType: "SALE",
@@ -168,7 +151,6 @@ describe("excess reads the stored demand result", () => {
         excess: m.excessStock,
         memo: m.memoQty,
       });
-      // WIP is reported beside the excess, never inside it.
       expect(row.wipQuantity).toBe(m.wipCoverage + m.unallocatedWip);
     }
   });
@@ -200,7 +182,6 @@ describe("excess reads the stored demand result", () => {
       const t = byTrace.get(String(row.categoryId)) as Record<string, number> | undefined;
       if (!s) continue;
       compared++;
-      // The three pages are three views of one stored row.
       expect({ target: row.targetQuantity, available: row.physicalAvailable }).toEqual({
         target: s.targetQuantity,
         available: s.physicalAvailable,
@@ -276,7 +257,6 @@ describe("excess reads the stored demand result", () => {
       cookie,
     });
     const row = (res.json.rows as Array<Record<string, number>>)[0];
-    // A page that folded memo or WIP into availability or excess would not return these.
     expect({ available: row.physicalAvailable, excess: row.excessQuantity, memo: row.memoQuantity, wip: row.wipQuantity }).toEqual({
       available: 11, excess: 7, memo: 2, wip: 3,
     });
@@ -340,7 +320,6 @@ describe("excess navigation carries the exact category", () => {
   test("Heart opens Heart and Asscher opens Asscher through the shared hash contract", () => {
     for (const category of ["GIA|HEART|1.10-1.49", "GIA|ASSCHER|1.10-1.49"]) {
       const parsed = parseNavHash(navHash("analysis-excess", null, { runId, category, bucket: null, malformed: false }));
-      // Excess Stock is a tab of Inventory; the former id resolves there with its context.
       expect([parsed?.view, parsed?.tab]).toEqual(["analysis-inventory-position", "excess"]);
       expect(parsed?.trace?.category).toBe(category);
       expect(parsed?.trace?.runId).toBe(runId);
@@ -403,7 +382,6 @@ describe("no usable demand run", () => {
     const rows = await call(excess, { path: "/api/analysis/excess?section=categories", cookie });
     expect(rows.json.available).toBe(false);
     expect(rows.json.rows).toEqual([]);
-    // No fabricated totals.
     expect(rows.json.totals).toBe(undefined);
   });
 
@@ -422,7 +400,6 @@ describe("excess authorization and export", () => {
     resetRateLimits();
     cookie = (await makeUser("ex.export", "ANALYSIS_MANAGER")).cookie;
     runId = await seedRun();
-    // A category name a spreadsheet would execute if written through unescaped.
     await db.demandMetric.create({
       data: {
         runId, planningCategory: "=cmd|'/c calc'!A1", labNormalized: "GIA",
@@ -442,14 +419,12 @@ describe("excess authorization and export", () => {
     resetRateLimits();
     expect((await call(excessExport, { path: "/api/analysis/excess/export" })).status).toBe(401);
 
-    // FANTASY_INTEGRATION holds sync permissions but no analysis access.
     const denied = (await makeUser("ex.denied", "FANTASY_INTEGRATION")).cookie;
     resetRateLimits();
     expect((await call(excess, { path: "/api/analysis/excess?section=categories", cookie: denied })).status).toBe(403);
   });
 
   test("an ordinary analyst may read but may not export", async () => {
-    // VIEWER holds analysis.read and no export permission.
     const viewer = (await makeUser("ex.viewer", "VIEWER")).cookie;
     resetRateLimits();
     expect((await call(excess, { path: `/api/analysis/excess?section=categories&runId=${runId}`, cookie: viewer })).status).toBe(200);
@@ -517,7 +492,6 @@ describe("excess authorization and export", () => {
   });
 });
 
-/** The export returns CSV, not JSON, so these two helpers read the raw body. */
 async function fetchExport(path: string, cookie: string): Promise<Response> {
   return excessExport(
     new Request(`http://localhost:3000${path}`, { headers: { cookie } }),

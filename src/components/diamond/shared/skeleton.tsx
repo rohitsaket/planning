@@ -13,7 +13,6 @@ export function Skeleton({ className, style }: SkeletonProps) {
   );
 }
 
-// KPI card skeleton — matches the KpiCard layout
 export function KpiCardSkeleton() {
   return (
     <div className="p-3 rounded-lg border border-border bg-card">
@@ -30,7 +29,6 @@ export function KpiCardSkeleton() {
   );
 }
 
-// KPI grid skeleton — n cards
 export function KpiGridSkeleton({ count = 6 }: { count?: number }) {
   return (
     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
@@ -39,17 +37,14 @@ export function KpiGridSkeleton({ count = 6 }: { count?: number }) {
   );
 }
 
-// Table skeleton — n rows
 export function TableSkeleton({ rows = 8, cols = 6 }: { rows?: number; cols?: number }) {
   return (
     <div className="rounded-md border border-border bg-card overflow-hidden">
-      {/* Header */}
       <div className="flex border-b border-border bg-muted/40 px-2 py-2 gap-2">
         {Array.from({ length: cols }).map((_, i) => (
           <Skeleton key={i} className="h-3 flex-1" />
         ))}
       </div>
-      {/* Rows */}
       {Array.from({ length: rows }).map((_, r) => (
         <div key={r} className="flex border-b border-border/60 last:border-0 px-2 py-2.5 gap-2">
           {Array.from({ length: cols }).map((_, c) => (
@@ -61,7 +56,6 @@ export function TableSkeleton({ rows = 8, cols = 6 }: { rows?: number; cols?: nu
   );
 }
 
-// Chart skeleton — for recharts containers
 export function ChartSkeleton({ height = 256 }: { height?: number }) {
   return (
     <div className="rounded-md border border-border bg-card p-3">
@@ -79,7 +73,6 @@ export function ChartSkeleton({ height = 256 }: { height?: number }) {
   );
 }
 
-// Section skeleton — title + body
 export function SectionSkeleton({ hasChart = false }: { hasChart?: boolean }) {
   return (
     <div className="rounded-md border border-border bg-card overflow-hidden">
@@ -93,7 +86,6 @@ export function SectionSkeleton({ hasChart = false }: { hasChart?: boolean }) {
   );
 }
 
-// Full page skeleton
 export function PageSkeleton({ kpiCount = 6, sections = 3 }: { kpiCount?: number; sections?: number }) {
   return (
     <div data-page-body className="flex flex-col gap-section px-page-x py-page-y">

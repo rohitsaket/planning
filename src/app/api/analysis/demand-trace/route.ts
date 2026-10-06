@@ -19,19 +19,6 @@ import { deriveHistoricalSourceState } from "@/lib/fantasy/source-state";
 import { describeScope, describeScopeApplication, scopeWhere } from "@/lib/auth/access-scope";
 import { PLAN_COVERAGE } from "@/lib/demand/plan-coverage";
 
-/**
- * DEMAND RESULT DETAILS — safe browser response.
- *
- * The demand engine keeps the formulas, rule identifiers, mapping fingerprints and
- * stored reason text; this route returns business results and the business records
- * behind them, and nothing about how the result is produced. Every field below is
- * mapped explicitly — no internal record is serialized straight to the browser.
- *
- * Aggregates require analysis.read. Record-level evidence additionally requires
- * demand.trace, and is neither queried nor returned without it.
- */
-
-/** Runs that produced a usable snapshot. A failed or running snapshot is never shown as a result. */
 const USABLE_RUN_STATUSES = ["COMPLETED", "REVIEW_REQUIRED"];
 
 export const GET = withApi(
@@ -55,8 +42,6 @@ export const GET = withApi(
       orderBy: { runDate: "desc" },
       include: {
         metrics: {
-          // A demand metric has a lab but no country, so only the lab half of the caller's
-          // scope can narrow this. `scopeApplication` on the response says so.
           where: { ...scopeWhere(scope, { country: null, lab: "labNormalized" }) },
           orderBy: { planningCategory: "asc" },
         },
@@ -65,10 +50,7 @@ export const GET = withApi(
     loadWipPolicy(db),
   ]);
 
-  // -------------------------------------------- not run yet, or requested run missing
   if (!targetRun) {
-    // A run asked for by id that does not exist is reported as unavailable. The latest run
-    // is never substituted for it, because that would answer a different question.
     const runUnavailable = Boolean(runIdParam);
     return ok({
       hasEverRun: false,
@@ -115,7 +97,6 @@ export const GET = withApi(
     appliedInRun: targetRun.wipPolicyStatus === "CONFIGURED",
   });
 
-  // ------------------------------------------------------------ category results
   const categories = targetRun.metrics.map((m) => {
     const parts = m.planningCategory.split("|");
     const lab = m.labNormalized || parts[0] || "—";
@@ -123,8 +104,6 @@ export const GET = withApi(
     const weightBand = m.weightBandLabel || parts.slice(2).join("|") || "—";
 
     const physicalShortage = num(m.physicalShortage);
-    // The need after stock and WIP coverage. Runs recorded while legacy (seeded) plans were
-    // subtracted stored a smaller remainder; no plan coverage is subtracted now (PLAN_COVERAGE).
     const remainingUnplanned = num(m.pipelineNeed);
     const excessStock = num(m.excessStock);
     const businessStatus = toBusinessStatus({
@@ -135,13 +114,11 @@ export const GET = withApi(
     });
 
     return {
-      // Canonical business key (lab | shape | weight band) used for selection.
       category: m.planningCategory,
       label: toCategoryLabel(lab, shape, weightBand),
       lab,
       shape,
       weightBand,
-      // Raw metric state kept for existing consumers; the page shows businessStatus.
       status: m.status,
       businessStatus,
       sales90d: num(m.sales90d),
@@ -151,11 +128,9 @@ export const GET = withApi(
       reservedQty: num(m.reservedQty),
       blockedQty: num(m.blockedQty),
       physicalShortage,
-      // Null — not zero — when this run could not apply manufacturing coverage.
       wipCoverage: wipCoverage.appliedInRun ? num(m.wipCoverage) : null,
       unallocatedWip: num(m.unallocatedWip),
       pipelineNeed: num(m.pipelineNeed),
-      // Unavailable, not zero: no selected-plan source exists (PLAN_COVERAGE).
       approvedPlanCoverage: null,
       remainingUnplanned,
       excessStock,
@@ -165,11 +140,8 @@ export const GET = withApi(
   const selectedCategory = selectedCategoryParam
     ? categories.find((c) => c.category === selectedCategoryParam) ?? null
     : null;
-  // A category key that is not part of this run is reported as unavailable rather
-  // than silently falling back to another category.
   const selectedCategoryUnavailable = Boolean(selectedCategoryParam) && selectedCategory === null;
 
-  // --------------------------------------------------- supporting business records
   let supportingRecords: {
     recordType: RecordType | null;
     rows: Array<Record<string, unknown>>;
@@ -179,7 +151,6 @@ export const GET = withApi(
     hasMore: boolean;
   } | null = null;
 
-  // Record-level evidence is only queried when the caller may receive it.
   if (canSeeRecords && selectedCategory) {
     const requestedType: RecordType | null =
       recordTypeParam && isRecordType(recordTypeParam) ? recordTypeParam : null;
@@ -187,8 +158,6 @@ export const GET = withApi(
     const where: Prisma.DemandMetricTraceItemWhereInput = {
       runId: targetRun.id,
       planningCategory: selectedCategory.category,
-      // The trace row carries its own lab, and the category it belongs to has already been
-      // narrowed above, so both halves of the restriction hold on the evidence list too.
       ...scopeWhere(scope, { country: null, lab: "lab" }),
     };
     if (requestedType) where.traceType = { in: internalRecordClasses(requestedType) };
@@ -220,7 +189,6 @@ export const GET = withApi(
           shape: item.shape,
           weightBand: item.weightBand,
           manufacturingStage: item.wipStage,
-          // Commercial detail follows its own permission, not demand.trace alone.
           customerName: canSeeCustomers ? item.customerName : null,
           saleValue: canSeeSaleValues && item.saleTotalUsd !== null ? num(item.saleTotalUsd) : null,
         };

@@ -22,7 +22,6 @@ interface PolishedRow {
   dimension: string;
   pieces: number;
   carats: number;
-  /** null when no approved valuation model can price these stones. */
   estimatedValue: number | null;
   valuedPieces: number;
   unvaluedPieces: number;
@@ -112,7 +111,6 @@ export function PolishedView() {
 
   const { data, isLoading } = useApi<PolishedResponse>(url);
 
-  // A changed filter or dimension is a different dataset: restart at page one.
   const filterKey = `${dimension}|${globalFilter.country ?? ""}|${globalFilter.branch ?? ""}|${globalFilter.lab ?? ""}`;
   const [lastFilterKey, setLastFilterKey] = useState(filterKey);
   if (filterKey !== lastFilterKey) {
@@ -125,7 +123,6 @@ export function PolishedView() {
   const agingData = aging.map((b) => ({ name: b.label, pieces: b.pieces }));
   const valuationAvailable = data?.valuation.status === "CONFIGURED";
 
-  // Sparklines are drawn only from real data — never from synthetic filler.
   const piecesSpark = useMemo(() => (aging.length >= 2 ? aging.map((b) => b.pieces) : undefined), [aging]);
   const caratsSpark = useMemo(() => {
     const slice = rows.slice(0, 7).map((r) => r.carats);

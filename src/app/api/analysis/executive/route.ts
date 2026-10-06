@@ -14,17 +14,6 @@ import {
 } from "@/lib/analysis/executive-summary";
 import { describeScope } from "@/lib/auth/access-scope";
 
-/**
- * EXECUTIVE ANALYSIS — one bounded read endpoint.
- *
- * Every section is a separate request so each table pages independently and a slow
- * section cannot block the rest of the page. Nothing here calculates a business
- * quantity: the service composes results the demand engine, the classifier and the
- * source-state resolver already own.
- *
- * Read-only by construction — the handler performs no write of any kind.
- */
-
 const SECTIONS = ["readiness", "sales-demand", "inventory", "shortage-excess", "attention"] as const;
 const SORTS = ["category", "shortage", "excess", "target", "sales"] as const;
 const MODES = ["ALL", "SHORTAGE_ONLY", "EXCESS_ONLY"] as const;
@@ -48,8 +37,6 @@ export const GET = withApi(
     pageSize: qInt(url, "pageSize", { def: EXECUTIVE_PAGE_DEFAULT, min: 1, max: EXECUTIVE_PAGE_MAX }),
   };
 
-  // Echoed back so the table can state exactly which filters produced the counts shown.
-  // `scope` is excluded: an authorization decision is not one of the caller's filters.
   const activeFilters = Object.entries(filters)
     .filter(([k, v]) => k !== "scope" && v !== null && v !== "")
     .map(([k, v]) => ({ key: k, value: String(v) }));

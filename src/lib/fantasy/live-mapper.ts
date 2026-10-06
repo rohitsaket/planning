@@ -1,20 +1,3 @@
-/**
- * Maps rows from the live Fantasy lot listing to CanonicalRecord.
- *
- * Column names follow the Fantasy export header (Metal ID, Metal Wgt, Previous Department
- * Account, Process Name, Remark, Qty, Lot ID, Lot Name, On Hold, Lot Status DB, Shape, Color,
- * Clarity, Size, Weight, Lab Name, Certificate No, Cut, Polish, Sym, Fluo., M1, M2, M3, Table,
- * Depth, Ratio, Tone, Department Account Name, Est. Clarity ID, Est. Color ID, Avg Weight,
- * Allocation Date, Allocation Account ID, Certificate ID, Company ID, Doc ID, Est. Shape ID,
- * Est. Weight, Fancy Color, Metal Color, Met.Wgt, Original Weight, Tot.Dia.Wgt, Doc Date,
- * ItemName). Lookups are case-, space- and punctuation-insensitive, so "Lot Status DB",
- * "lotStatusDB" and "LOT_STATUS_DB" all resolve. Every raw row is kept in `metadata.raw` so no
- * source column is lost even when it has no canonical field.
- *
- * Pure: no I/O, no database. Rules that are business decisions (sale = SOLD/INVOICE status,
- * disappearance ≠ sale) live in the sync engine; this file only translates.
- */
-
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { CanonicalEntityType, CanonicalLotStatus, CanonicalRecord, CanonicalRemovalReason } from "./canonical";
@@ -46,7 +29,6 @@ const bool = (v: unknown): boolean => {
   return s === "1" || s === "true" || s === "y" || s === "yes";
 };
 
-/** Parses ISO, "/Date(…)/", dd-MM-yyyy, dd/MM/yyyy and yyyy-MM-dd; returns null when unparseable. */
 export function parseFantasyDate(v: unknown): Date | null {
   if (v === undefined || v === null || v === "") return null;
   if (v instanceof Date) return isNaN(v.getTime()) ? null : v;
@@ -77,7 +59,6 @@ const WIP_STAGE: Array<[RegExp, CanonicalLotStatus]> = [
   [/plan|mark|sarin|galaxy/i, "WIP_PLANNING"],
 ];
 
-/** Lot Status DB + Process Name + ItemName → canonical status/entity. */
 export function resolveStatus(statusDb: string | null, processName: string | null, itemName: string | null): StatusResolution {
   const s = (statusDb ?? "").toLowerCase();
   const isRough = /rough/i.test(itemName ?? "") || /rough/i.test(processName ?? "");
@@ -95,13 +76,12 @@ export function resolveStatus(statusDb: string | null, processName: string | nul
     const stage = WIP_STAGE.find(([re]) => re.test(processName ?? ""))?.[1] ?? "WIP_PLANNING";
     return live(stage, "WIP", "WIP");
   }
-  // "Stock", "Available", "In Stock", "Hold", blank → live stock
   return live("STOCK", kind === "ROUGH" ? "ROUGH" : "POLISHED");
 }
 
 export interface MapContext {
   batchId: string;
-  checkpoint: number; // ending checkpoint of the batch
+  checkpoint: number;
   cutoff: Date;
   defaultCountry: string;
   defaultBranch: string;
@@ -174,7 +154,6 @@ export function mapFantasyRow(row: Record<string, unknown>, ctx: MapContext): Ca
     kapan: str(get("Kapan")),
     stoneName: str(get("Lot Name", "LotName", "Stone Name")),
     sourceCreatedAt: docDate.toISOString(),
-    // The listing carries no per-lot modification time: the batch cutoff stands in for it.
     sourceUpdatedAt: ctx.cutoff.toISOString(),
     firstSeenAt: docDate.toISOString(),
     lastSeenAt: ctx.cutoff.toISOString(),
@@ -200,8 +179,6 @@ export function mapFantasyRows(rows: Record<string, unknown>[], ctx: MapContext)
       skipped.push({ index, reason: r.skip });
       return;
     }
-    // The sync engine also rejects intra-batch duplicates (with a DQ issue); a lot listed twice
-    // in one export keeps its first occurrence here so that DQ trail stays accurate downstream.
     if (seen.has(r.lotId)) {
       records.push(r);
       return;
@@ -212,11 +189,6 @@ export function mapFantasyRows(rows: Record<string, unknown>[], ctx: MapContext)
   return { records, skipped };
 }
 
-// ===========================================================================
-// LIVE DATA (FantasyLiveLot) MAPPING — 46 typed fields, stable key, content hash
-// ===========================================================================
-
-/** Decimal values travel as strings so no precision is lost before the database stores them. */
 export type LiveLotValue = string | boolean | Date | null;
 export type LiveLotFields = Record<LiveLotFieldKey, LiveLotValue>;
 
@@ -231,11 +203,9 @@ export interface MappedLiveLot {
 export interface LiveMapOutcome {
   mapped: MappedLiveLot[];
   invalid: Array<{ index: number; reason: string; identifier: string | null }>;
-  /** Source columns present in the payload but not in the 46-field contract (first row only). */
   unmappedSourceColumns: string[];
 }
 
-/** A listing row must be a JSON object; values are validated per field by type. */
 export const LiveLotRowSchema = z.record(z.string(), z.unknown());
 
 const DECIMAL = /^-?\d+(\.\d+)?$/;
@@ -265,12 +235,6 @@ const toText = (v: unknown): string | null => {
   return s === "" ? null : s;
 };
 
-/**
- * Stable identity of a listing row. Fantasy has not confirmed a single row id, so the key is a
- * documented composite of the identifying columns (Company ID, Doc ID, Lot ID, Metal ID), with
- * a version prefix so it can be re-derived if the vendor later exposes a real row id.
- * A row with neither Lot ID nor Doc ID has no identity and is rejected.
- */
 export function stableRecordKey(f: Pick<LiveLotFields, "companyId" | "docId" | "lotId" | "metalId">): string | null {
   if (!f.lotId && !f.docId) return null;
   return ["v1", f.companyId ?? "", f.docId ?? "", f.lotId ?? "", f.metalId ?? ""].join("|");
@@ -284,7 +248,6 @@ export function contentHashOf(fields: LiveLotFields): string {
   return createHash("sha256").update(JSON.stringify(ordered)).digest("hex");
 }
 
-/** Presence-aware lookup: an empty string is a present-but-empty column, not an absent one. */
 function rowLookupPresence(row: Record<string, unknown>) {
   const byKey = new Map<string, unknown>();
   for (const [k, v] of Object.entries(row)) byKey.set(normKey(k), v);
@@ -356,7 +319,6 @@ export function mapLiveLotRows(rows: unknown[]): LiveMapOutcome {
     }
     const dup = seen.get(r.sourceRecordKey);
     if (dup !== undefined) {
-      // Same identity twice in one snapshot: keep the later occurrence (latest state), note it.
       mapped[dup] = { ...r, warnings: [...r.warnings, "duplicate identity in snapshot; later row kept"] };
       return;
     }
@@ -369,7 +331,6 @@ export function mapLiveLotRows(rows: unknown[]): LiveMapOutcome {
   return { mapped, invalid, unmappedSourceColumns };
 }
 
-/** Development/verification report: UI header → internal field → source → type → transformation. */
 export function mappingMatrix() {
   return LIVE_LOT_FIELDS.map((s) => ({ header: s.header, field: s.field, source: s.source.join(" | "), type: s.type, nullable: true, transform: s.transform }));
 }

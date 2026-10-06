@@ -12,26 +12,9 @@ import {
 } from "@/lib/analysis/stock-aging";
 import { INVENTORY_BUCKETS, type InventoryBucket } from "@/lib/analysis/bucket-vocabulary";
 
-/**
- * Stock Aging, the Aging Dashboard and Transfer distribution.
- *
- * Three pages, one service. What is under test is not arithmetic — there is almost none —
- * but that the figures describe the whole filtered result rather than the page on screen,
- * that one rule decides both the row flag and the count of flagged rows, and that a
- * drill-down from the dashboard actually filters the page it opens.
- *
- * Every assertion crosses the real handler or the real service. None of them constructs a
- * result and checks its own arithmetic.
- */
-
 const BATCH = "AGING-TEST";
 const SCOPED = { ...EMPTY_AGING_FILTERS, search: BATCH };
 
-/**
- * A record for each bucket, built from the classification inputs the derivation reads.
- * The bucket is never written to the database — it is derived — so these are the inputs
- * that produce it.
- */
 const BUCKET_INPUTS: Record<InventoryBucket, {
   inventoryClass: string | null;
   classificationState: string | null;
@@ -133,7 +116,6 @@ describe("Stock Aging — authorization", () => {
 });
 
 describe("Stock Aging — totals cover the whole result, not the page", () => {
-  // Three full pages at the page size used below, plus a remainder, so paging is real.
   const PAGE_SIZE = 10;
   const TOTAL = 35;
 
@@ -153,12 +135,10 @@ describe("Stock Aging — totals cover the whole result, not the page", () => {
       [1, 2, 3, 4].map((page) => readAgingLots(SCOPED, { page, pageSize: PAGE_SIZE })),
     );
 
-    // The rows differ page to page — otherwise the rest of this test proves nothing.
     const firstIds = pages.map((p) => p.rows[0]?.lotId);
     expect(new Set(firstIds).size).toBe(4);
     expect(pages.map((p) => p.rows.length)).toEqual([10, 10, 10, 5]);
 
-    // Every headline figure is identical on every page.
     const totals = pages.map((p) => p.totals);
     for (const t of totals) {
       expect(t).toEqual(totals[0]);
@@ -168,7 +148,6 @@ describe("Stock Aging — totals cover the whole result, not the page", () => {
   test("the confirmed quantity is the whole set, not one page of it", async () => {
     const page1 = await readAgingLots(SCOPED, { page: 1, pageSize: PAGE_SIZE });
     const onPage = page1.rows.reduce((s, r) => s + (r.confirmedQuantity ?? 0), 0);
-    // 35 lots x 2 pieces. A page-scoped sum would report 20.
     expect(page1.totals.confirmedQuantity).toBe(TOTAL * 2);
     expect(onPage).toBe(PAGE_SIZE * 2);
     expect(page1.totals.confirmedQuantity === onPage).toBe(false);
@@ -192,13 +171,9 @@ describe("Stock Aging — one review rule for the flag and the count", () => {
   beforeAll(async () => {
     await clearFixtures();
     await makeLots([
-      // Classified, countable quantity: confirmed.
       { lotId: `${BATCH}-R-OK`, bucket: "PHYSICAL_AVAILABLE_POLISHED", quantity: 3 },
-      // Classified, but the quantity is not countable: needs review.
       { lotId: `${BATCH}-R-QTY`, bucket: "PHYSICAL_AVAILABLE_POLISHED", quantity: 3, quantityProvenance: "MISSING" },
-      // Countable quantity, but never classified: needs review.
       { lotId: `${BATCH}-R-CLS`, bucket: "REVIEW_REQUIRED", quantity: 3 },
-      // Neither: needs review, and is counted once.
       { lotId: `${BATCH}-R-BOTH`, bucket: "REVIEW_REQUIRED", quantity: 3, quantityProvenance: "INVALID" },
     ]);
   });
@@ -223,7 +198,6 @@ describe("Stock Aging — one review rule for the flag and the count", () => {
 
   test("an unconfirmed quantity contributes nothing to the total and is never assumed to be one", async () => {
     const result = await readAgingLots(SCOPED, { page: 1, pageSize: 100 });
-    // Only the two countable records contribute: 3 + 3.
     expect(result.totals.confirmedQuantity).toBe(6);
   });
 });
@@ -231,7 +205,6 @@ describe("Stock Aging — one review rule for the flag and the count", () => {
 describe("Stock Aging — the dashboard drill-down opens the rows it summarizes", () => {
   beforeAll(async () => {
     await clearFixtures();
-    // A different number of lots per bucket, so a filter that does nothing is visible.
     const specs: LotSpec[] = [];
     INVENTORY_BUCKETS.forEach((bucket, i) => {
       for (let n = 0; n <= i; n++) {
@@ -277,7 +250,6 @@ describe("Stock Aging — the dashboard drill-down opens the rows it summarizes"
       if (filtered.totals.currentLots !== summarized || summarized === 0) {
         mismatches.push(`${bucket}: filtered=${filtered.totals.currentLots} summarized=${summarized}`);
       }
-      // And the rows that came back really are in that bucket.
       const wrong = filtered.rows.filter((r) => r.bucket !== bucket).map((r) => r.lotId);
       if (wrong.length) mismatches.push(`${bucket}: rows in other buckets ${wrong.join(",")}`);
     }
@@ -307,7 +279,6 @@ describe("Stock Aging — the dashboard drill-down opens the rows it summarizes"
 });
 
 describe("Stock Aging — the summary aggregates in the database", () => {
-  // Enough lots that reading them all into memory to add them up would be the defect.
   const TOTAL = 240;
 
   beforeAll(async () => {
@@ -326,7 +297,6 @@ describe("Stock Aging — the summary aggregates in the database", () => {
   test("the summary reads no row-level result set", async () => {
     const fs = await import("node:fs");
     const source = fs.readFileSync("src/lib/analysis/stock-aging.ts", "utf8");
-    // A comment claiming a query is bounded is not evidence; the absence of the call is.
     expect(/lotMasterRecord\s*\.\s*findMany/.test(source)).toBe(false);
     expect(/lotMasterRecord\s*\.\s*groupBy/.test(source)).toBe(false);
   });
@@ -341,7 +311,6 @@ describe("Stock Aging — the summary aggregates in the database", () => {
 
   test("the location distribution states how many locations exist", async () => {
     const summary = await readAgingSummary(SCOPED);
-    // 2 countries x 5 branches, but only the combinations the data actually produced.
     expect(summary.locations.total).toBe(summary.byLocation.length);
     expect(summary.locations.truncated).toBe(false);
     expect(summary.locations.limit).toBe(AGING_LOCATION_MAX);
@@ -361,13 +330,10 @@ describe("Stock Aging — history is not stock", () => {
     await clearFixtures();
     await makeLots([
       { lotId: `${BATCH}-H-LIVE`, bucket: "PHYSICAL_AVAILABLE_POLISHED", quantity: 1 },
-      // Still published by the feed, but sold. It is history, not inventory.
       { lotId: `${BATCH}-H-SOLD`, bucket: "PHYSICAL_AVAILABLE_POLISHED", quantity: 1, canonicalLifecycle: "SOLD" },
       { lotId: `${BATCH}-H-CLOSED`, bucket: "PHYSICAL_AVAILABLE_POLISHED", quantity: 1, canonicalLifecycle: "CLOSED" },
       { lotId: `${BATCH}-H-MOVED`, bucket: "PHYSICAL_AVAILABLE_POLISHED", quantity: 1, canonicalLifecycle: "TRANSFERRED" },
-      // No longer in the feed at all.
       { lotId: `${BATCH}-H-GONE`, bucket: "PHYSICAL_AVAILABLE_POLISHED", quantity: 1, isCurrent: false },
-      // Lifecycle unknown: still shown, because unknown is not evidence of departure.
       { lotId: `${BATCH}-H-UNK`, bucket: "PHYSICAL_AVAILABLE_POLISHED", quantity: 1, canonicalLifecycle: null },
     ]);
   });

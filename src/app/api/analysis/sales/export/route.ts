@@ -12,21 +12,6 @@ import { EXPORT_ROW_LIMIT, getCategorySummaryForExport, resolveSalesSnapshot } f
 import { assertRequestedWindow, parseSalesFilters, parseSort } from "@/lib/analytics/sales-history-request";
 import { withSalesScope } from "@/lib/analytics/sales-history";
 
-/**
- * Sales Analysis — server-generated export of the category summary.
- *
- * The page pages its tables on the server, so a browser-side export of the loaded rows
- * would quietly export one page and call it the dataset. This route exports the same
- * snapshot, the same eligibility policy and the same filters the screen is showing,
- * bounded by an explicit row limit that is reported in the file rather than hidden.
- *
- * Reading sales on screen and taking a copy of them out of the application are separate
- * decisions, so this carries its own permission, and every export is audited.
- *
- * Values are serialised through the application-wide CSV policy, which neutralises
- * anything a spreadsheet would execute as a formula.
- */
-
 const COLUMNS: CsvColumn<CategorySalesRow>[] = [
   { key: "categoryId", header: "Category" },
   { key: "lab", header: "Lab" },
@@ -76,8 +61,6 @@ export const GET = withApi(
         "content-type": "text/csv; charset=utf-8",
         "content-disposition": `attachment; filename="${filename}"`,
         "cache-control": "no-store",
-        // Partial results are declared in headers the client surfaces, never implied by
-        // a short file. The row limit is a stated boundary, not a silent truncation.
         "x-sales-export-rows": String(rows.length),
         "x-sales-export-total": String(total),
         "x-sales-export-limit": String(EXPORT_ROW_LIMIT),

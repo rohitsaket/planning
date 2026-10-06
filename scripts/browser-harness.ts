@@ -1,8 +1,3 @@
-// Real-browser test harness over the Chrome DevTools Protocol, with no extra dependencies:
-// starts the production server and a headless Chrome, and sends real mouse, touch and
-// keyboard input. Used by scripts/test-scrolling.ts and scripts/test-ui-contracts.ts, which
-// run only against the isolated planning_sectest database (the server inherits its
-// DATABASE_URL from scripts/with-sectest-db.ts).
 import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -52,7 +47,6 @@ async function connect(port: number) {
   socket = ws;
 }
 
-/** Sends one DevTools Protocol command to the page. */
 export const send = (method: string, params: object = {}) =>
   new Promise<any>((resolve) => {
     const n = ++nextId;
@@ -76,8 +70,6 @@ export async function wheel(x: number, y: number, deltaX: number, deltaY: number
   await send("Input.dispatchMouseEvent", { type: "mouseWheel", x, y, deltaX, deltaY, modifiers });
   await sleep(450);
 }
-// Enter and Space carry their character, as a real keyboard does: that is what activates a
-// focused button. Other keys are raw key-downs.
 const KEY_TEXT: Record<string, string> = { Enter: "\r", " ": " " };
 export async function key(keyName: string, code: number, modifiers = 0) {
   const text = KEY_TEXT[keyName];
@@ -90,8 +82,6 @@ export async function click(x: number, y: number) {
   await send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", clickCount: 1 });
   await sleep(300);
 }
-// A finger drag: touchstart, twelve moves, touchend. Positive distance swipes up (scrolls down).
-// Real touch events, so the browser's own gesture handling decides what scrolls.
 export async function touchScroll(x: number, y: number, distance: number) {
   await send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] });
   for (let i = 1; i <= 12; i++) {
@@ -102,12 +92,9 @@ export async function touchScroll(x: number, y: number, distance: number) {
   await sleep(600);
 }
 
-/** How many protocol events have arrived; pass it to consoleProblems() or eventsSince(). */
 export const eventCount = () => events.length;
-/** Protocol events (network requests, paused fetches, console output) since event `from`. */
 export const eventsSince = (from: number): ReadonlyArray<CdpEvent> => events.slice(from);
 
-/** Console errors, uncaught exceptions and hydration warnings since event `from`. */
 export function consoleProblems(from: number): string[] {
   return events.slice(from).flatMap((e) => {
     if (e.method === "Runtime.exceptionThrown") return [String(e.params.exceptionDetails?.exception?.description ?? "exception").slice(0, 160)];
@@ -119,20 +106,14 @@ export function consoleProblems(from: number): string[] {
   });
 }
 
-/** Signs the browser in as the session behind `token`, replacing any earlier session. */
 export const signInAs = (token: string) =>
   send("Network.setCookie", { name: "dp_session", value: token, domain: "localhost", path: "/", httpOnly: true, sameSite: "Lax" });
 
-/** Sets the viewport, with touch input on small screens. */
 export async function setViewport(width: number, height: number, touch: boolean) {
   await send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: width < 768 });
   await send("Emulation.setTouchEmulationEnabled", { enabled: touch, maxTouchPoints: touch ? 5 : 0 });
 }
 
-/**
- * Starts `next start` on a free port and a headless Chrome attached to it. The production
- * build must exist. Returns the base URL and a stop function that ends both processes.
- */
 export async function startBrowser(): Promise<{ base: string; stop: () => Promise<void> }> {
   if (!existsSync(".next/BUILD_ID")) throw new Error("No production build: run `npm run build` first.");
   const port = 3400 + Math.floor(Math.random() * 400);

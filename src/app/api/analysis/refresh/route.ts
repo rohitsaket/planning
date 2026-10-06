@@ -7,20 +7,6 @@ import { runDemandCalculation } from "@/lib/demand/demand-service";
 import { ANALYSIS_SOURCE_POLICY, ANALYSIS_WINDOW_DAYS } from "@/lib/analysis/analysis-snapshot";
 import { z } from "zod";
 
-/**
- * ANALYSIS REFRESH — calculate the authoritative 90-day snapshot the Analysis pages read.
- *
- * Deliberately narrower than `POST /api/demand/run`. That endpoint lets a caller choose
- * a window and a source policy; this one cannot, because an Analysis snapshot is defined
- * as exactly 90 days over canonical Fantasy data. Accepting either from the request
- * would let the page ask for a run it is then not allowed to display — or, worse, one
- * built from legacy seeded sales.
- *
- * There is no fallback. If canonical data cannot produce a result, the answer is that
- * result, not a substitute drawn from another source.
- */
-
-// No window and no policy in the body. Both are fixed constants below.
 const refreshSchema = z.object({
   reason: z.string().trim().min(3).max(200).optional(),
 });
@@ -29,14 +15,11 @@ export const POST = withApi(
   {
     permission: "demand.run",
     body: refreshSchema,
-    // A run walks the whole canonical history. The batch limit already applies to
-    // demand runs; this endpoint reuses it rather than inventing a looser one.
     rateLimit: LIMITS.batch,
   },
   async (_req, _ctx, { principal, body, audit }) => {
     try {
       const result = await runDemandCalculation({
-        // Actor comes from the authenticated session, never from the request body.
         actor: principal.username,
         actorUserId: principal.userId,
         windowDays: ANALYSIS_WINDOW_DAYS,
@@ -68,7 +51,6 @@ export const POST = withApi(
         runDate: result.runDate,
       });
     } catch (error) {
-      // A refused or failed refresh is recorded too, so repeated attempts are visible.
       const message = error instanceof Error ? error.message : "Analysis refresh failed.";
       await audit(db, {
         action: "ANALYSIS_SNAPSHOT_REFRESH",
@@ -79,8 +61,6 @@ export const POST = withApi(
         reason: "Analysis refresh did not complete",
       });
 
-      // The demand engine's lock message is safe and actionable; anything else is not
-      // returned verbatim.
       const locked = /lock|already running|in progress/i.test(message);
       throw new ApiError(
         locked ? 409 : 500,

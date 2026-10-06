@@ -1,30 +1,14 @@
-/**
- * Runs the security suite against the isolated security-test database.
- *
- * Replaces the `bun test` entry point the suite was written for. Bun is not installed,
- * so `npm run test:security` previously prepared a database and then executed nothing.
- * This runner loads the same test modules — which exercise real route handlers against
- * a real database — and reports a genuine pass/fail.
- *
- * Refuses to run anywhere except `planning_sectest`.
- *
- * Usage: npm run test:security, or for one suite:
- *   tsx --env-file-if-exists=.env scripts/with-sectest-db.ts scripts/run-security-tests.ts [filter]
- */
-
 import "../tests/security/setup";
 import { SECTEST_DB } from "../tests/security/test-db";
 import { proveDisposableDatabase } from "../src/lib/fantasy/database-environment";
 import { beginModule, registeredTestCount, runRegisteredSuites } from "../tests/security/harness";
 
 const url = process.env.DATABASE_URL ?? "";
-// Loopback host, an approved isolated test database, no production or staging marker.
 if (!proveDisposableDatabase(url).proven) {
   console.error(`REFUSING TO RUN: DATABASE_URL must point at the isolated ${SECTEST_DB} database.`);
   process.exit(1);
 }
 
-// Registration order matters: each import registers its suites with the harness.
 const MODULES = [
   "../tests/security/csv-config.test",
   "../tests/security/auth.test",
@@ -44,8 +28,6 @@ const MODULES = [
   "../tests/security/quantity-weight-provenance.test",
   "../tests/security/canonical-state-claim.test",
   "../tests/security/excess-analysis.test",
-  // Registered last: these suites write hundreds of canonical lots, so any suite that
-  // counts records globally must have run already.
   "../tests/security/inventory-buckets.test",
   "../tests/security/stock-aging.test",
   "../tests/security/export-limits.test",
@@ -56,7 +38,6 @@ const MODULES = [
   "../tests/security/source-disclosure.test",
   "../tests/security/category-classification.test",
   "../tests/security/projection-integrity.test",
-  // First among the Sarin suites: it needs the catalog exactly as a fresh installation has it.
   "../tests/security/sarin-baseline-catalog.test",
   "../tests/security/sarin-foundation.test",
   "../tests/security/sarin-ingestion.test",
@@ -72,7 +53,6 @@ const MODULES = [
   "../tests/security/sarin-shape-passthrough.test",
   "../tests/security/sarin-import-ux.test",
   "../tests/security/sarin-yield-rank.test",
-  // Writes the Sarin mapping catalog (and restores its content), so it follows the Sarin suites.
   "../tests/security/identity-approval.test",
   "../tests/security/single-system-role.test",
   "../tests/security/users-access-redesign.test",
@@ -85,7 +65,6 @@ const MODULES = [
   "../tests/security/password-change.test",
   "../tests/security/data-table-layout.test",
   "../tests/security/scroll-layout.test",
-  // Renders whole pages; registered last so its fixtures meet every other suite's data.
   "../tests/security/ui-content.test",
 ] as const;
 
@@ -95,7 +74,6 @@ async function main() {
   console.log("===============================================================================");
 
   for (const m of MODULES) {
-    // Each module gets its own hook scope, matching Bun's file-scoped semantics.
     beginModule();
     await import(m);
   }

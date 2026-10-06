@@ -1,8 +1,3 @@
-// Compact density: one shared set of dimensions (CSS tokens) used by the shell, page bodies,
-// headers, panels, KPI cards, tables, tabs and controls; no scaling tricks; headers that do not
-// repeat the page title; semantic, keyboard-usable tables. Pages are rendered from their real
-// components with data from the real route handlers in the isolated planning_sectest database.
-
 import { beforeAll, describe, expect, test } from "./harness";
 import { makeUser, resetDb } from "./helpers";
 import { renderPage, sessionUser } from "./ui-render";
@@ -54,7 +49,6 @@ describe("compact density: one shared token set", () => {
     }
     const mobile = text.slice(text.indexOf("@media (max-width: 767px)"));
     expect(/--dp-control-h:\s*2\.5rem/.test(mobile)).toBe(true);
-    // Desktop controls 32px, rows 36px: compact, not miniature.
     expect([/--dp-control-h:\s*2rem/.test(text), /--dp-row-h:\s*2\.25rem/.test(text)]).toEqual([true, true]);
   });
 
@@ -80,8 +74,6 @@ describe("compact density: one shared token set", () => {
     };
     walk(views);
     const bodies = files.filter((f) => readFileSync(f, "utf8").includes("data-page-body")).map((f) => path.relative(views, f).split(path.sep).join("/"));
-    // Every page and page tab that is rendered today, named, so losing the shared body on any
-    // one of them fails. (The retired legacy planning pages were removed, not exempted.)
     const PAGES = [
       "aging-view.tsx", "audit-log-view.tsx", "country-view.tsx", "customers-orders/customer-sales-view.tsx", "customers-view.tsx",
       "dashboard-view.tsx", "data-quality-view.tsx", "excess-view.tsx", "fantasy-polished-view.tsx",
@@ -91,7 +83,6 @@ describe("compact density: one shared token set", () => {
       "users-access/permissions-tab.tsx", "users-access/users-tab.tsx", "weight-bands-view.tsx", "workbook-import-view.tsx",
     ];
     expect(PAGES.filter((p) => !bodies.includes(p))).toEqual([]);
-    // No page keeps the old ad-hoc roots.
     const legacy = files.filter((f) => /className="(flex flex-col gap-3 p-3|space-y-4 p-3)"/.test(readFileSync(f, "utf8")));
     expect(legacy.map((f) => path.basename(f))).toEqual([]);
   });
@@ -119,9 +110,7 @@ describe("compact density: shared components", () => {
     const inHost = (title: string) => renderToStaticMarkup(createElement(HostTabContext.Provider, { value: { hostTitle: "Inventory", tabLabel: "Stockout Risk" } }, createElement(PageHeader, { title, subtitle: "Categories short of target stock" })));
     const same = inHost("Stockout Risk");
     expect([same.includes("Stockout Risk"), same.includes("<h1"), same.includes("Categories short of target stock"), same.includes("sticky")]).toEqual([false, false, true, false]);
-    // A distinct title is kept, as a sub-heading under the page's single h1.
     expect(inHost("Executive Dashboard")).toContain("<h2");
-    // Standalone, it is the page's single sticky h1.
     const alone = renderToStaticMarkup(createElement(PageHeader, { title: "Audit Log" }));
     expect([alone.includes("<h1"), alone.includes("sticky")]).toEqual([true, true]);
   });
@@ -151,9 +140,6 @@ describe("compact density: shared components", () => {
     expect([wrapper(alone).includes("rounded-lg border"), wrapper(inSection).includes("border")]).toEqual([true, false]);
   });
 
-  // The tools join the panel header after mount (a portal), which a static render cannot show.
-  // scripts/test-ui-contracts.ts checks in a real browser that Export is there, uncut and
-  // keyboard-reachable for export holders, absent for everyone else, and names its scope.
   test("Import Issues hands its table tools to the panel header instead of drawing a second toolbar row", async () => {
     const page = await renderAs(DataQualityView, root);
     const section = /<section data-section[\s\S]*?<\/section>/.exec(page.html)?.[0] ?? "";
@@ -168,14 +154,13 @@ describe("compact density: rendered pages", () => {
     const headings = [...page.html.matchAll(/<h[12][^>]*>([\s\S]*?)<\/h[12]>/g)].map((m) => m[1].replace(/<[^>]+>/g, "").trim());
     expect(headings.filter((h) => h === "Inventory").length).toBe(1);
     expect(headings.includes("Stockout Risk")).toBe(false);
-    // Every tab uses the shared tab-height token (32px, 40px on phones), never a local height.
     const tabs = [...page.html.matchAll(/<button[^>]*role="tab"[^>]*>/g)].map((m) => /class="([^"]*)"/.exec(m[0])?.[1] ?? "");
     expect(tabs.length > 1).toBe(true);
     expect(tabs.every((c) => c.split(" ").includes("h-tab") && !/(^|\s)h-(\d|\[)/.test(c))).toBe(true);
   });
 
   test("a page reached through a single permitted tab still names its section", async () => {
-    const u = await makeUser("density.history", "AUDITOR"); // overall.read only among Fantasy Data tabs
+    const u = await makeUser("density.history", "AUDITOR");
     const page = await renderAs(FantasyDataView, u, "current");
     expect([page.text.includes("Historical Data"), /role="tab"/.test(page.html)]).toEqual([true, false]);
   });

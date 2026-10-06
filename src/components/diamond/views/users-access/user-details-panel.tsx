@@ -79,8 +79,6 @@ export function UserDetailsPanel({
   const perms = session?.permissions ?? [];
   const isSelf = !!user && user.id === session?.id;
   const holdsSuperAdmin = !!user && user.roles.includes("SUPER_ADMIN");
-  // A Super Admin account is touched only by someone the server allows to manage Super
-  // Admins, and its roles are managed on the server alone; the controls follow the same rules.
   const mayTouch = !holdsSuperAdmin || canManageSuperAdmins;
   const canAssignRoles = perms.includes("user.roles.assign") && !holdsSuperAdmin && !isSelf;
   const canManageStatus = perms.includes("user.status.manage") && mayTouch && !isSelf;

@@ -1,10 +1,3 @@
-// Legacy records change no current figure. The retired planning seed wrote fabricated plan
-// coverage into requirement rows and created approved plan cases, options and pieces, and the
-// retired Requirements section showed seeded requirements and orders. Those rows are kept as
-// history, but no dashboard figure is derived from them, nothing reports them as planned
-// coverage, and the dashboard reads no requirement, allocation or order table. Every dashboard
-// check goes through the real route handler in the isolated planning_sectest database.
-
 import { readFileSync } from "node:fs";
 import { beforeAll, describe, expect, test } from "./harness";
 import { call, db, makeCase, makeUser, resetDb } from "./helpers";
@@ -23,8 +16,6 @@ beforeAll(async () => {
   await db.userAccessScope.deleteMany({ where: { userId: indiaOnly.user.id } });
   await db.userAccessScope.create({ data: { userId: indiaOnly.user.id, dimension: "COUNTRY", value: "IN", reason: "test fixture" } });
 
-  // Historical rows as the legacy seed left them: a requirement whose fabricated plan
-  // coverage hid its need, an open customer order with a backorder, and an approved plan.
   await db.requirement.create({
     data: { requirementCode: `REQ-LEGACY-${STAMP}`, type: "STOCK_REPLENISHMENT", groupCode: "G", companyCode: "C", country: "IN", branch: "SRT", labNormalized: "GIA", shape: "ROUND", requirementPriority: "CRITICAL", requiredQty: 10, planningAvailableQty: 2, wipCoverage: 1, status: "FULLY_PLANNED", approvedPlanCoverage: 7, daysOverdue: 5 },
   });
@@ -34,7 +25,6 @@ beforeAll(async () => {
   const c = await makeCase({ status: "APPROVED" });
   await db.planOption.update({ where: { id: c.optionIds[0] }, data: { selected: true, approvalStatus: "APPROVED", certificationIntent: "GIA" } });
 
-  // Polished stock in and out of the scoped user's country.
   await db.polishedStone.createMany({
     data: [
       ...[0, 1].map((i) => ({ fantasyLotId: `LEG-IN-${STAMP}-${i}`, fantasyStatus: "STOCK", shape: "ROUND", weight: 1.05, country: "IN", branch: "SRT", labNormalized: "GIA" })),
@@ -75,7 +65,6 @@ describe("dashboard: figures are narrowed to the caller's access scope", () => {
     expect(all.json.polishedStock).toBe(await db.polishedStone.count());
     expect(scoped.json.polishedStock).toBe(await db.polishedStone.count({ where: { country: "IN" } }));
     expect(scoped.json.polishedStock < all.json.polishedStock).toBe(true);
-    // Asking for another country's figure through the filter is refused, not answered.
     const widened = await get(indiaOnly, "/api/dashboard?country=HK");
     expect([widened.status, "polishedStock" in (widened.json ?? {})]).toEqual([403, false]);
     expect((await get(root, "/api/dashboard?country=HK")).json.polishedStock).toBe(await db.polishedStone.count({ where: { country: "HK" } }));

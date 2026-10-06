@@ -12,7 +12,6 @@ export const POST = withApi({
   permission: "fantasy.sync.retry",
   body: retrySchema,
 }, async (_req, _ctx, { principal, body, audit }) => {
-  // Retries current failed checkpoint only; does not accept arbitrary checkpoints
   const result = await retrySynchronization({
     actor: principal.username,
     actorUserId: principal.userId,

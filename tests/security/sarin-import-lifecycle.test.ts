@@ -1,11 +1,3 @@
-// Workbook Import lifecycle: Process File stores the structured output in the database,
-// the result and Recent Files reopen that stored output without processing again, exports
-// are built from the same stored rows, and an archived import never answers a new upload.
-//
-// Files go through Workbook Import's own processing code (sarin-processing.ts) and the real
-// route handlers against the isolated planning_sectest database, as real sessions. Imports
-// are archived only through the real archive route. All data is synthetic.
-
 import { beforeAll, beforeEach, describe, expect, test } from "./harness";
 import { call, db, ensureLabRegistry, makeUser } from "./helpers";
 import { renderPage, routeFetch, sessionUser } from "./ui-render";
@@ -33,10 +25,8 @@ const RULES: CatalogRule[] = [
   { rawShape: "LeoOval22", normalizedShape: "Oval" },
 ];
 
-// ---- synthetic Blue files -------------------------------------------------------------------
 let nonce = 0;
 const kapan = () => `4${String(++nonce).padStart(3, "0")}L`;
-/** A Blue stone: 17 main plans and one additional group of two pieces. */
 const blueStone = (name: string) => [
   ...Array.from({ length: 17 }, (_, i) => [name, "3.000", i % 2 ? "LeoOval22" : "ROUND", (1.5 - i * 0.01).toFixed(3)]),
   [name, "3.000", "LeoPear11", "0.500"],
@@ -60,7 +50,6 @@ async function download(handler: any, u: User, batchId: string, versionId: strin
   const res = await handler(new Request(`http://localhost/api/x`, { headers: { cookie: u.cookie } }), { params: Promise.resolve({ batchId, versionId }) } as never);
   return { status: res.status, bytes: new Uint8Array(await res.arrayBuffer()) };
 }
-/** Every stored output row of a version, read through the paginated preview route. */
 async function previewRows(u: User, batchId: string, versionId: string, pageSize = 7) {
   const rows: any[] = [];
   for (let page = 1; ; page++) {
@@ -78,7 +67,6 @@ const archive = async (u: User, batchId: string) => {
   resetRateLimits();
   return call(importRoute.DELETE, { method: "DELETE", cookie: u.cookie, params: { batchId } });
 };
-/** Everything an archived import holds, to prove it is left exactly as it was. */
 const snapshotOf = async (batchId: string) => ({
   batch: await db.sarinImportBatch.findUniqueOrThrow({ where: { id: batchId }, select: { status: true, archivedAt: true, statusChangedAt: true, validationAttempt: true, shapeMappingSetId: true } }),
   attempts: await db.sarinValidationAttempt.findMany({ where: { batchId }, select: { id: true, status: true }, orderBy: { attemptNumber: "asc" } }),
@@ -120,7 +108,6 @@ beforeEach(async () => {
   await applyCatalog(mapper.cookie, RULES);
 });
 
-// =========================================================================================
 describe("sarin import lifecycle: stored output", () => {
   test("Process File on a mapped Blue file reaches Output Ready with the structured output stored", async () => {
     const r = await processAs(planner, csvFile([blueStone(`${kapan()}-001 DC`)], "stored.csv"));
@@ -128,11 +115,9 @@ describe("sarin import lifecycle: stored output", () => {
     const batch = await db.sarinImportBatch.findUniqueOrThrow({ where: { id: r.batchId! } });
     const output = await db.sarinOutputVersion.findFirstOrThrow({ where: { batchId: batch.id } });
     expect([batch.status, output.status, output.stoneCount, output.optionCount, output.pieceCount]).toEqual(["VALIDATED", "GENERATED", 1, 18, 19]);
-    // 17 main plans, then one additional group of two pieces, stored in output order.
     const options = await db.sarinPlanOption.findMany({ where: { outputVersionId: output.id }, orderBy: { optionSequence: "asc" }, select: { optionKind: true, pieceCount: true } });
     expect([options.filter((o) => o.optionKind === "MAIN").length, options.at(-1)]).toEqual([17, { optionKind: "ADDITIONAL", pieceCount: 2 }]);
     expect(await db.sarinPlanPiece.count({ where: { outputVersionId: output.id } })).toBe(19);
-    // The detail the page reads names that stored output as current.
     const detail = await get(importRoute.GET, planner, { batchId: batch.id });
     expect([detail.status, detail.json.batch.currentOutputId]).toEqual([200, output.id]);
   });
@@ -142,10 +127,9 @@ describe("sarin import lifecycle: stored output", () => {
     const outputId = (await get(importRoute.GET, planner, { batchId: r.batchId! })).json.batch.currentOutputId;
     const stored = await db.sarinPlanPiece.findMany({ where: { outputVersionId: outputId }, orderBy: { outputRowSequence: "asc" }, select: { outputRowSequence: true, normalizedShape: true, estimatedWeight: true } });
     const first = await previewRows(planner, r.batchId!, outputId);
-    expect([first.total, first.pages]).toEqual([38, 6]); // real server pages of 7 rows
+    expect([first.total, first.pages]).toEqual([38, 6]);
     expect(first.rows.map((p) => [p.outputRow, p.normalizedShape, p.estimatedWeight])).toEqual(stored.map((p) => [p.outputRowSequence, p.normalizedShape, p.estimatedWeight.toFixed(3)]));
     const before = { ...(await counts(r.batchId!)), audits: await db.auditLog.count({ where: { entityId: r.batchId! } }) };
-    // Open from Recent Files, twice, as the page does: detail, then the preview.
     for (let i = 0; i < 2; i++) {
       expect((await get(importRoute.GET, planner, { batchId: r.batchId! })).json.batch.currentOutputId).toBe(outputId);
       expect((await previewRows(planner, r.batchId!, outputId, 50)).rows).toEqual(first.rows);
@@ -167,7 +151,6 @@ describe("sarin import lifecycle: stored output", () => {
     expect([sheet[1][17]!.z, wb.merges(wb.sheetNames[0]).includes("H19:H20")]).toEqual(["0.00%", true]);
     const csv = await download(exportCsv, planner, r.batchId!, outputId);
     const lines = new TextDecoder().decode(csv.bytes).trimEnd().split("\r\n").slice(5);
-    // CSV columns 18 and 19: Normalized Shape and Est. Weight (ct).
     expect(lines.map((l) => l.split(",").slice(17, 19).map((c) => c.replace(/"/g, "")))).toEqual(preview.map((p) => [p.normalizedShape, p.estimatedWeight]));
   });
 
@@ -184,7 +167,6 @@ describe("sarin import lifecycle: stored output", () => {
   });
 });
 
-// =========================================================================================
 describe("sarin import lifecycle: identity, idempotency and archive", () => {
   test("processing the same file again returns the existing output, adding nothing", async () => {
     const file = csvFile([blueStone(`${kapan()}-001 DC`)], "same.csv");
@@ -216,14 +198,11 @@ describe("sarin import lifecycle: identity, idempotency and archive", () => {
     expect([detail.batch.status, detail.batch.currentOutputId !== null]).toEqual(["VALIDATED", true]);
     const page = await render(SarinFileResult, { batchId: fresh.batchId!, rights: rightsOf((await sessionUser(planner.cookie)).permissions), failure: null, busy: false, onProcessAgain: () => {}, onProcessAnother: () => {} }, planner);
     expect([page.text.includes("Output Ready"), page.text.includes("This file is archived")]).toEqual([true, false]);
-    // Recent Files lists the new import and not the archived one; the archived one is unchanged history.
     const recent = await recentIds(planner);
     expect([recent.includes(fresh.batchId!), recent.includes(old.batchId!)]).toEqual([true, false]);
     expect(await snapshotOf(old.batchId!)).toEqual(archived);
-    // History stays readable by those who may read imports.
     expect((await get(importRoute.GET, planner, { batchId: old.batchId! })).json.batch.status).toBe("ARCHIVED");
     expect((await previewRows(planner, old.batchId!, archived.outputs[0].id, 100)).total).toBe(19);
-    // One source file holds both imports' evidence.
     const [a, b] = await Promise.all([old.batchId!, fresh.batchId!].map((id) => db.sarinImportBatch.findUniqueOrThrow({ where: { id }, select: { sourceFileId: true } })));
     expect(a.sourceFileId).toBe(b.sourceFileId);
   });
@@ -252,7 +231,6 @@ describe("sarin import lifecycle: identity, idempotency and archive", () => {
   });
 });
 
-// =========================================================================================
 describe("sarin import lifecycle: access", () => {
   test("processing, detail, output rows and exports each need their permission", async () => {
     const r = await processAs(planner, csvFile([blueStone(`${kapan()}-001 DC`)], "rbac.csv"));
@@ -260,7 +238,6 @@ describe("sarin import lifecycle: access", () => {
     const denied = await processAs(viewer, csvFile([blueStone(`${kapan()}-001 DC`)], "rbac-denied.csv"));
     expect([denied.batchId, denied.failure?.error.status]).toEqual([null, 403]);
     expect([(await get(importRoute.GET, viewer, { batchId: r.batchId! })).status, (await get(listPieces, viewer, { batchId: r.batchId!, versionId: outputId })).status, (await download(exportWorkbook, viewer, r.batchId!, outputId)).status]).toEqual([403, 403, 403]);
-    // A reader sees the stored output but may not export it or archive the import.
     expect([(await get(listPieces, reader, { batchId: r.batchId!, versionId: outputId })).status, (await download(exportWorkbook, reader, r.batchId!, outputId)).status, (await download(exportCsv, reader, r.batchId!, outputId)).status, (await archive(reader, r.batchId!)).status]).toEqual([200, 403, 403, 403]);
     expect((await call(importRoute.GET, { path: "/api/x", params: { batchId: r.batchId! } })).status).toBe(401);
   });
@@ -272,11 +249,9 @@ describe("sarin import lifecycle: access", () => {
     expect([(await get(importRoute.GET, labScoped, { batchId: igi.batchId! })).status, (await get(listPieces, labScoped, { batchId: igi.batchId!, versionId: igiOutput })).status, (await download(exportWorkbook, labScoped, igi.batchId!, igiOutput)).status, (await recentIds(labScoped)).includes(igi.batchId!)]).toEqual([404, 404, 404, false]);
     const giaOutput = (await get(importRoute.GET, planner, { batchId: gia.batchId! })).json.batch.currentOutputId;
     expect([(await get(importRoute.GET, labScoped, { batchId: gia.batchId! })).status, (await download(exportWorkbook, labScoped, gia.batchId!, giaOutput)).status]).toEqual([200, 200]);
-    // Sarin imports carry no country, so a country-scoped user sees and processes them.
     expect([(await get(importRoute.GET, scopedIn, { batchId: igi.batchId! })).status, (await download(exportWorkbook, scopedIn, igi.batchId!, igiOutput)).status]).toEqual([200, 200]);
     const own = await processAs(scopedIn, csvFile([blueStone(`${kapan()}-001 DC`)], "country-scoped.csv"));
     expect([own.failure, own.batchId !== null]).toEqual([null, true]);
-    // Processing for a lab outside the caller's scope is refused.
     const outside = await processAs(labScoped, csvFile([blueStone(`${kapan()}-001 DC`)], "outside.csv"), { labId: "IGI" });
     expect([outside.batchId, outside.failure?.error.status]).toEqual([null, 403]);
   });

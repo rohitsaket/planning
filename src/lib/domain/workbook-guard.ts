@@ -1,7 +1,3 @@
-// Structural checks run on an uploaded .xlsx BEFORE it reaches the spreadsheet parser.
-// An .xlsx is a ZIP archive; the central directory tells us the entry count and the
-// declared uncompressed size without inflating anything (archive-bomb guard).
-
 export const WORKBOOK_LIMITS = {
   maxFileBytes: 10 * 1024 * 1024,
   maxUncompressedBytes: 100 * 1024 * 1024,
@@ -21,10 +17,8 @@ export function inspectXlsxContainer(buffer: ArrayBuffer): GuardResult {
   if (buffer.byteLength > L.maxFileBytes) return fail("File exceeds 10MB limit", 413);
   if (buffer.byteLength < 22) return fail("File is not a valid .xlsx workbook");
   const v = new DataView(buffer);
-  // Local file header magic "PK\x03\x04" — content check, independent of name and MIME type.
   if (v.getUint32(0, true) !== 0x04034b50) return fail("File content is not an .xlsx (ZIP) container");
 
-  // Locate End Of Central Directory (scan back at most 64KB + 22).
   let eocd = -1;
   for (let i = buffer.byteLength - 22; i >= Math.max(0, buffer.byteLength - 65557); i--) {
     if (v.getUint32(i, true) === 0x06054b50) {
@@ -66,7 +60,6 @@ export function inspectXlsxContainer(buffer: ArrayBuffer): GuardResult {
   return { ok: true };
 }
 
-// Display/audit use only — never used for storage paths or business logic.
 export function sanitizeFileName(name: string): string {
   const base = name.split(/[\\/]/).pop() ?? "";
   return base.replace(/[\u0000-\u001f\u007f<>:"|?*]/g, "_").slice(0, 120) || "workbook.xlsx";

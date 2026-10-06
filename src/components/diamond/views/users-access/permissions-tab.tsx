@@ -37,7 +37,6 @@ function RolePermissions() {
   const rolesQ = useApi<RolesResponse>(ROLES_URL);
   const roles = useMemo(() => rolesQ.data?.roles ?? [], [rolesQ.data]);
   const catalog = rolesQ.data?.catalog;
-  // What this caller may do, as the server reports it. The server decides again on save.
   const canEditPermissions = rolesQ.data?.canEditPermissions ?? false;
   const canManageRoles = rolesQ.data?.canManageRoles ?? false;
 
@@ -46,8 +45,6 @@ function RolePermissions() {
   const baseline = useMemo(() => new Set(selected?.permissions ?? []), [selected]);
   const [draft, setDraft] = useState<Set<string>>(new Set());
   const [draftFor, setDraftFor] = useState<string | null>(null);
-  // A new draft whenever another role, or a newer version of this one, is shown. Adjusted
-  // during render, so the editor never paints a draft that belongs to another role.
   const draftKey = selected ? `${selected.id}:${selected.version}` : null;
   if (draftKey !== draftFor) {
     setDraftFor(draftKey);
@@ -73,7 +70,6 @@ function RolePermissions() {
     }
   };
 
-  // Which roles the signed-in user holds, to say whether a change alters their own access.
   const selfQ = useApi<UsersResponse>(canReadUsers && session ? `${USERS_URL}?id=${encodeURIComponent(session.id)}` : null);
   const ownRoles = selfQ.data?.rows[0]?.roles ?? (session ? [session.role] : []);
 

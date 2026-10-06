@@ -16,14 +16,6 @@ import { SimulationBanner } from "@/components/diamond/shared/simulation-banner"
 import type { SourceDisclosure } from "@/lib/analysis/source-disclosure";
 import { bucketLabel } from "@/lib/analysis/bucket-vocabulary";
 
-/**
- * ANALYSIS INVENTORY — current canonical stock.
- *
- * Every figure is rendered exactly as the API returned it. This file contains no
- * business arithmetic and no status interpretation: the buckets come from the
- * centralized classification, already decided server-side.
- */
-
 interface PagingMeta { page: number; pageSize: number; total: number; hasMore: boolean }
 
 interface PositionResponse {
@@ -71,7 +63,6 @@ interface ReconciliationResponse {
 
 const PAGE_SIZE = 25;
 
-/** Query string shared by every tab, so all four read the same scope. */
 function useScope() {
   const globalFilter = useGlobalFilter();
   return useMemo(() => {
@@ -88,12 +79,6 @@ function url(scope: string, extra: Record<string, string | number>): string {
   for (const [k, v] of Object.entries(extra)) if (v !== "") p.set(k, String(v));
   return `/api/analysis/inventory?${p.toString()}`;
 }
-
-
-
-// ---------------------------------------------------------------------------
-// Tab: Position
-// ---------------------------------------------------------------------------
 
 const GROUPINGS = ["bucket", "country", "branch", "lab", "shape", "weightBand"] as const;
 const GROUPING_LABEL: Record<(typeof GROUPINGS)[number], string> = {
@@ -122,7 +107,6 @@ export function InventoryPositionTab() {
     },
     { key: "confirmedQuantity", header: "Confirmed qty (pcs)", align: "right", cell: (r) => <NumberCell value={r.confirmedQuantity} intent={r.shortageEligible ? "success" : "default"} /> },
     { key: "measuredWeight", header: "Measured weight (ct)", align: "right", cell: (r) => <NumberCell value={r.measuredWeight} decimals={2} /> },
-    // Adjacent to, and distinct from, the quantity column.
     { key: "lotRecordCount", header: "Lot records", align: "right", cell: (r) => <NumberCell value={r.lotRecordCount} /> },
     { key: "reviewRequiredCount", header: "Review required", align: "right", cell: (r) => <NumberCell value={r.reviewRequiredCount} intent={r.reviewRequiredCount > 0 ? "warning" : "default"} zeroAsDash /> },
     { key: "unconfirmedQuantityCount", header: "Unconfirmed qty", align: "right", cell: (r) => <NumberCell value={r.unconfirmedQuantityCount} intent={r.unconfirmedQuantityCount > 0 ? "warning" : "default"} zeroAsDash /> },
@@ -131,7 +115,6 @@ export function InventoryPositionTab() {
 
   return (
     <div data-page-body className="flex flex-col gap-section px-page-x py-page-y">
-      {/* Persistent and unmistakable while fixture data is on screen. */}
       <SimulationBanner disclosure={data?.sourceDisclosure} />
       <Section
         title="Inventory position"
@@ -165,10 +148,6 @@ export function InventoryPositionTab() {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Tab: Categories
-// ---------------------------------------------------------------------------
-
 export function InventoryCategoriesTab() {
   const scope = useScope();
   const setView = useNavStore((s) => s.setView);
@@ -183,9 +162,6 @@ export function InventoryCategoriesTab() {
         <button
           type="button"
           className="text-left font-medium text-primary hover:underline"
-          // The canonical key is carried verbatim, so Heart opens Heart. `setView` drops
-          // row context, which is why this link previously opened Stockout Risk with no
-          // category selected at all.
           onClick={() => openCategoryView("analysis-stockout", { category: r.categoryId })}
           title={r.categoryId}
         >
@@ -197,7 +173,6 @@ export function InventoryCategoriesTab() {
     { key: "reserved", header: "Reserved", align: "right", cell: (r) => <NumberCell value={r.reserved} zeroAsDash /> },
     { key: "memo", header: "Memo", align: "right", cell: (r) => <NumberCell value={r.memo} zeroAsDash /> },
     { key: "wip", header: "WIP", align: "right", cell: (r) => <NumberCell value={r.wip} zeroAsDash /> },
-    // Rough is reported as its own count and quantity — never folded into a polished figure.
     { key: "roughCount", header: "Rough lots", align: "right", cell: (r) => <NumberCell value={r.roughCount} zeroAsDash /> },
     { key: "roughQuantity", header: "Rough qty", align: "right", cell: (r) => <NumberCell value={r.roughQuantity} zeroAsDash /> },
     { key: "heldOrExcluded", header: "Held / excluded", align: "right", cell: (r) => <NumberCell value={r.heldOrExcluded} intent={r.heldOrExcluded > 0 ? "warning" : "default"} zeroAsDash /> },
@@ -216,7 +191,6 @@ export function InventoryCategoriesTab() {
 
   return (
     <div data-page-body className="flex flex-col gap-section px-page-x py-page-y">
-      {/* Persistent and unmistakable while fixture data is on screen. */}
       <SimulationBanner disclosure={data?.sourceDisclosure} />
       <Section
         title="Category inventory"
@@ -245,10 +219,6 @@ export function InventoryCategoriesTab() {
     </div>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Tab: Lots
-// ---------------------------------------------------------------------------
 
 const BUCKET_FILTERS = [
   "", "PHYSICAL_AVAILABLE_POLISHED", "RESERVED_POLISHED", "MEMO_POLISHED",
@@ -280,7 +250,6 @@ export function InventoryLotsTab() {
     { key: "classificationState", header: "Classification", width: "10rem", cell: (r) => <span className="text-xs text-muted-foreground">{r.classificationState ?? "—"}</span> },
     {
       key: "planningEligible", header: "Planning eligible", width: "9rem",
-      // A factual classification output, not an instruction.
       cell: (r) => <span className="text-xs text-muted-foreground">{r.planningEligible === null ? "—" : r.planningEligible ? "Yes" : "No"}</span>,
     },
     { key: "lab", header: "Lab", width: "7rem", cell: (r) => <span className="text-xs">{r.lab || "—"}</span> },
@@ -288,7 +257,6 @@ export function InventoryLotsTab() {
     { key: "weightBand", header: "Weight band", width: "9rem", cell: (r) => <span className="text-xs">{r.weightBand || "—"}</span> },
     {
       key: "confirmedQuantity", header: "Qty (pcs)", align: "right",
-      // Null means the quantity could not be confirmed — never silently rendered as 1.
       cell: (r) => (r.confirmedQuantity === null ? <span className="text-xs italic text-muted-foreground">Unconfirmed</span> : <NumberCell value={r.confirmedQuantity} />),
     },
     {
@@ -311,7 +279,6 @@ export function InventoryLotsTab() {
 
   return (
     <div data-page-body className="flex flex-col gap-section px-page-x py-page-y">
-      {/* Persistent and unmistakable while fixture data is on screen. */}
       <SimulationBanner disclosure={data?.sourceDisclosure} />
       <Section
         title="Lot-level inventory"
@@ -365,10 +332,6 @@ export function InventoryLotsTab() {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Tab: Reconciliation
-// ---------------------------------------------------------------------------
-
 interface ReconRow { label: string; value: number; note: string; intent: "default" | "warning" | "critical" | "success" }
 
 export function InventoryReconciliationTab() {
@@ -395,7 +358,6 @@ export function InventoryReconciliationTab() {
 
   return (
     <div data-page-body className="flex flex-col gap-section px-page-x py-page-y">
-      {/* Persistent and unmistakable while fixture data is on screen. */}
       <SimulationBanner disclosure={data?.sourceDisclosure} />
       <div className="flex-shrink-0">
         <InfoBanner variant="info">

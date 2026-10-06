@@ -12,24 +12,6 @@ import { SimulationBanner } from "@/components/diamond/shared/simulation-banner"
 import type { SourceDisclosure } from "@/lib/analysis/source-disclosure";
 import { cn } from "@/lib/utils";
 
-/**
- * COUNTRY & BRANCH — what is known per location.
- *
- * The page this replaces reported a shortage, an excess and a transfer-candidate count
- * per country. None of those could be derived: the authoritative demand target is
- * calculated once per planning category for the whole business and carries no location.
- * They came from seeded demonstration tables instead, and directly contradicted the
- * Transfer Analyzer, which says on screen that a location-level shortage cannot be
- * computed from this data.
- *
- * What is shown now is two factual distributions, deliberately in two separate tables:
- * confirmed sales over the same 90-day snapshot as Customers & Orders, and current
- * inventory from the same shared summary as Stock Aging. One is history and the other is
- * a present position; they are never subtracted from one another.
- *
- * Every figure comes from the API as returned. This file performs no arithmetic.
- */
-
 interface SalesRow {
   key: string;
   country: string;
@@ -37,7 +19,6 @@ interface SalesRow {
   confirmedQuantity: number;
   measuredWeight: number;
   saleRecordCount: number;
-  /** Null without customers.read — never rendered as zero. */
   distinctCustomers: number | null;
   latestSaleDateIst: string | null;
 }
@@ -83,8 +64,6 @@ export function CountryView() {
 
   const url = useMemo(() => {
     const p = new URLSearchParams();
-    // Country, branch and lab are real dimensions of a sale record and a stock record, so
-    // all three genuinely narrow what is shown here.
     if (globalFilter.country) p.set("country", globalFilter.country);
     if (globalFilter.branch) p.set("branch", globalFilter.branch);
     if (globalFilter.lab) p.set("lab", globalFilter.lab);
@@ -121,7 +100,6 @@ export function CountryView() {
       key: "distinctCustomers", header: "Customers", sortable: true,
       sortValue: (r) => r.distinctCustomers ?? -1, align: "right",
       exportValue: (r) => (r.distinctCustomers === null ? "WITHHELD" : r.distinctCustomers),
-      // Null is not zero: without customers.read the figure is withheld, not absent.
       cell: (r) => r.distinctCustomers === null
         ? <span className="text-[10px] font-mono text-muted-foreground">WITHHELD</span>
         : <NumberCell value={r.distinctCustomers} />,
@@ -221,15 +199,8 @@ export function CountryView() {
             ) : undefined
           }
         />
-        {/* Persistent and unmistakable while fixture data is on screen. */}
         <SimulationBanner disclosure={data?.sourceDisclosure} />
 
-        {/*
-          Stated on every render, not only when a snapshot is missing. The demand target is
-          calculated once per planning category for the whole business and carries no
-          location, so a country-level shortage cannot be derived from it. Without this the
-          tables read as a shortage analysis that simply has no shortage column.
-        */}
         <InfoBanner variant="warning">
           <div className="space-y-1">
             <span className="flex items-center gap-2 font-semibold">

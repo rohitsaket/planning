@@ -1,22 +1,3 @@
-/**
- * TEST SUITE: NAVIGATION STRUCTURE, ALIASES AND PAGE AUTHORIZATION
- *
- * Verifies:
- * 1. The sidebar is exactly the approved workflow structure, in order.
- * 2. No duplicate destinations in the sidebar or the command palette.
- * 3. Advisory and unconfirmed pages are absent from navigation (not shown locked), while
- *    their views, routes and APIs remain.
- * 4. Every visible page has a registered component and an explicit permission decision;
- *    every registered view is mapped; unmapped ids fail closed.
- * 5. The command palette mirrors the sidebar, and tab entries name their host.
- * 6. Every former page id resolves, in one hop, to a registered page and an existing tab,
- *    preserving row context; the URL is rewritten to the canonical form.
- * 7. Consolidated hosts: page entry needs at least one tab's permission, the first
- *    permitted tab opens, and an unpermitted tab in the URL is never selected.
- * 8. Tab switches are history entries, so Back/Forward move between tabs.
- */
-
-// Minimal window stub so the nav store's history handling can run outside a browser.
 type HistoryCall = { kind: "push" | "replace"; url: string };
 const historyCalls: HistoryCall[] = [];
 const fakeWindow = {
@@ -35,7 +16,6 @@ import { NAV } from "../src/components/layout/app-shell";
 import { PALETTE_ITEMS, isPaletteItemAllowed } from "../src/components/diamond/command-palette";
 import { viewPermission, viewPermissions, isViewAuthorized } from "../src/lib/auth/view-permissions";
 import { PERMISSIONS, ROLES } from "../src/lib/auth/permissions";
-// Roles other than SUPER_ADMIN are test fixture custom roles (tests/security/fixture-roles.ts).
 import { TEST_ROLES, testPermissionsFor } from "../tests/security/fixture-roles";
 import {
   LEGACY_VIEW_ALIASES, useNavStore, initNavFromHash, parseNavHash, resolveViewAlias, navHash, type ViewId,
@@ -48,14 +28,11 @@ import { INVENTORY_TABS } from "../src/components/diamond/views/consolidated/inv
 import { FANTASY_DATA_TABS } from "../src/components/diamond/views/consolidated/fantasy-data-view";
 import { MAPPINGS_TABS } from "../src/components/diamond/views/consolidated/mappings-view";
 
-/** The approved sidebar, exactly. */
 const EXPECTED_SIDEBAR: Array<[string, Array<[string, string]>]> = [
   ["Dashboard", [["dashboard", "Overview"]]],
   ["Analysis", [["analysis-sales", "Sales & Trends"], ["analysis-customers-orders", "Customers & Orders"], ["analysis-inventory-position", "Inventory"]]],
   ["Data", [["fantasy-data", "Fantasy Data"], ["data-quality-issues", "Import Issues"]]],
-  // Workbook Import only: the Workbench, Approval Queue and Rough Availability are retired.
   ["Planning", [["planning-workbook-import", "Workbook Import"]]],
-  // Planning-only scope: no Execution, Manufacturing or Quality Assurance group.
   ["Administration", [["admin-users-access", "Users & Access"], ["admin-mappings", "Mappings"], ["admin-audit-log", "Audit Log"]]],
 ];
 
@@ -83,14 +60,12 @@ async function main() {
   console.log("🔍 NAVIGATION STRUCTURE, ALIAS AND AUTHORIZATION TEST SUITE");
   console.log("===============================================================================\n");
 
-  // =========================================================================
   console.log("--- TEST 1: Exact sidebar structure and order ---");
   const actual = NAV.map((g) => [g.label, g.items.map((i) => [i.id, i.label])]);
   assert(JSON.stringify(actual) === JSON.stringify(EXPECTED_SIDEBAR), `Sidebar is exactly the approved structure (got ${JSON.stringify(actual)})`);
   const printed = NAV.map((g) => `${g.label}\n${g.items.map((i) => `  ${i.label}`).join("\n")}`).join("\n\n");
   assert(printed.split("\n").length === 5 + 10 + 4, "Five groups and ten pages are listed");
 
-  // =========================================================================
   console.log("\n--- TEST 2: No duplicate destinations ---");
   const sidebarIds = NAV.flatMap((g) => g.items.map((i) => i.id));
   assert(new Set(sidebarIds).size === sidebarIds.length, "Every sidebar entry opens a different page");
@@ -99,7 +74,6 @@ async function main() {
   const sidebarLabels = NAV.flatMap((g) => g.items.map((i) => i.label));
   assert(new Set(sidebarLabels).size === sidebarLabels.length, "No two sidebar entries share a label");
 
-  // =========================================================================
   console.log("\n--- TEST 3: Advisory and unconfirmed pages are absent from navigation ---");
   const ABSENT_ITEMS = [
     "Executive Analysis", "Stockout Risk", "Excess Stock", "Stock Aging", "Aging Dashboard", "Reorder Signals", "Transfer Analyzer",
@@ -125,7 +99,6 @@ async function main() {
     assert(!new RegExp(`"?${id}"?:\s*\w+View`).test(registry), `'${id}' is no longer a registered page`);
     assert(resolveViewAlias(id).view === "out-of-scope", `An old #${id} link opens the Not available state`);
   }
-  // The generic settings page is retired, and so is the plan approval policy it last held.
   assert(resolveViewAlias("admin-system-settings" as ViewId).view === "out-of-scope", "An old #admin-system-settings link opens the Not available state");
   assert(resolveViewAlias("admin-feature-flags" as ViewId).view === "out-of-scope", "An old #admin-feature-flags link opens the Not available state");
   for (const id of ["requirements-matrix", "requirements-priority-queue", "orders-exceptions", "replenishment-allocation", "requirements-orders", "requirements-replenishment", "requirements-backorders", "requirements-special", "requirements-forecast-signals", "requirements-allocation", "analysis-orders"]) {
@@ -137,7 +110,6 @@ async function main() {
   for (const route of ["planning/cases", "planning/cases/[id]", "planning/cases/[id]/replan", "planning/compare/[caseId]", "planning/pieces", "planning/workbench", "planning/reservations", "planning/approvals", "planning/rough", "admin/approval-policy", "fantasy/rough", "requirements", "requirements/[id]", "requirements/[id]/priority", "analysis/orders"]) {
     assert(!existsSync(path.join(process.cwd(), "src/app/api", route, "route.ts")), `Retired legacy planning API /api/${route} is removed`);
   }
-  // Retired APIs are gone; APIs shared with retained planning pages stay.
   for (const route of ["analysis/reorder-signals", "analysis/transfer-candidates", "forecast", "reports", "analysis/yield-prediction", "analysis/anomalies", "analysis/wip", "audit/recent", "notifications/broadcast", "traceability/[query]", "fantasy/departments", "fantasy/locations", "admin/feature-flags", "fantasy/projection", "fantasy/projection/[runId]/abort", "fantasy/projection/[runId]/reconciliation"]) {
     assert(!existsSync(path.join(process.cwd(), "src/app/api", route, "route.ts")), `Retired API /api/${route} is removed`);
   }
@@ -145,10 +117,8 @@ async function main() {
     assert(existsSync(path.join(process.cwd(), "src/app/api", route, "route.ts")), `Shared API /api/${route} is kept`);
   }
 
-  // =========================================================================
   console.log("\n--- TEST 4: Every page is registered and has a permission decision ---");
   const registryIds = [...registry.matchAll(/^\s+"?([a-z0-9-]+)"?:\s+\w+View,/gm)].map((m) => m[1]);
-  // Exactly the sidebar pages and the four direct views opened from dashboard tiles.
   const EXPECTED_REGISTRY = [...EXPECTED_SIDEBAR.flatMap(([, items]) => items.map(([id]) => id)), "analysis-customers", "analysis-country", "analysis-polished", "analysis-memo"].sort();
   assert(JSON.stringify([...registryIds].sort()) === JSON.stringify(EXPECTED_REGISTRY), `View registry is exactly the sidebar pages and four direct views (${registryIds.length} views)`);
   for (const id of sidebarIds) {
@@ -166,7 +136,6 @@ async function main() {
   }
   assert(isViewAuthorized(testPermissionsFor("SUPER_ADMIN"), "dashboard"), "A mapped page is still reachable, so the checks above are not vacuous");
 
-  // =========================================================================
   console.log("\n--- TEST 5: Command palette mirrors the sidebar ---");
   const palettePages = PALETTE_ITEMS.filter((i) => !i.tab).map((i) => i.id);
   assert(JSON.stringify([...palettePages].sort()) === JSON.stringify([...sidebarIds].sort()), "The palette offers exactly the sidebar's pages");
@@ -181,14 +150,12 @@ async function main() {
     assert(!!tab, `Palette tab entry '${item.label}' targets an existing tab`);
     assert(item.label === `${navLabel} → ${tab!.label}` || item.label.startsWith(`${navLabel} → `), `Palette tab entry '${item.label}' names its host '${navLabel}'`);
   }
-  // Permission filtering matches the page and the tab.
   assert(!isPaletteItemAllowed({ id: "fantasy-data", tab: "history" }, ["fantasy.read"]), "A tab entry is withheld when only another tab of the host is open to the user");
   assert(isPaletteItemAllowed({ id: "fantasy-data", tab: "history" }, ["overall.read"]), "A tab entry is offered for the tab the user may open");
   assert(!isPaletteItemAllowed({ id: "admin-audit-log" }, ["analysis.read"]), "A page entry is withheld without its permission");
   const paletteSource = read("src/components/diamond/command-palette.tsx");
   assert(!/Locked|advisory/.test(paletteSource), "The palette no longer lists locked or advisory entries");
 
-  // =========================================================================
   console.log("\n--- TEST 6: Former page ids resolve in one hop, keeping context ---");
   const EXPECTED_ALIASES: Array<[string, string | null, string, string | null]> = [
     ["analysis-executive", null, "dashboard", "analysis"],
@@ -232,7 +199,6 @@ async function main() {
     const targets = [alias, ...Object.values(alias.tabs ?? {})];
     for (const t of targets) {
       assert(!aliasIds.includes(t.view), `Alias '${from}' points at a page, not another alias (no chains or loops)`);
-      // "out-of-scope" is the Not available state for former manufacturing pages; it shows no data.
       assert(registryIds.includes(t.view) || t.view === "out-of-scope", `Alias '${from}' lands on a registered page ('${t.view}')`);
       if (t.tab && HOSTS[t.view]) assert(HOSTS[t.view].tabs.some((x) => x.id === t.tab), `Alias '${from}' opens an existing tab ('${t.view}?tab=${t.tab}')`);
     }
@@ -251,21 +217,17 @@ async function main() {
   historyCalls.length = 0;
   initNavFromHash();
   assert(historyCalls.length === 0, "A canonical URL is not rewritten again");
-  // Copying the new URL reopens the same tab.
   fakeWindow.location.hash = "#analysis-inventory-position?tab=excess";
   useNavStore.setState({ view: "dashboard", tab: null, trace: null });
   initNavFromHash();
   assert(useNavStore.getState().view === "analysis-inventory-position" && useNavStore.getState().tab === "excess", "#analysis-inventory-position?tab=excess reopens Inventory → Excess Stock");
-  // A bookmarked Workbench link lands on Not available, never on a workbench.
   fakeWindow.location.hash = "#planning-workbench?tab=comparison";
   initNavFromHash();
   assert(useNavStore.getState().view === "out-of-scope", "#planning-workbench?tab=comparison opens the Not available state");
-  // Removed pages with no successor fail closed rather than landing on another page's content.
   const pva = parseNavHash("#plan-vs-actual");
   assert(pva?.view === "out-of-scope" && !isViewAuthorized(testPermissionsFor("SUPER_ADMIN"), pva.view), "#plan-vs-actual opens the Not available state, never demonstration data");
   assert(!registryIds.includes("out-of-scope") && /view === "out-of-scope" \? <OutOfScopeView/.test(registry), "The Not available state is rendered outside the data-page registry");
 
-  // =========================================================================
   console.log("\n--- TEST 7: Consolidated hosts: entry, first permitted tab, no unpermitted tab ---");
   for (const [hostId, host] of Object.entries(HOSTS)) {
     for (const role of TEST_ROLES) {
@@ -285,10 +247,8 @@ async function main() {
       }
     }
   }
-  // Custom access profiles, not just the fixtures.
   const onlyHistory = ["overall.read"];
   assert(isViewAuthorized(onlyHistory, "fantasy-data") && resolveActiveTab(FANTASY_DATA_TABS, "current", "current", onlyHistory) === "history", "A historical-data-only user opens Fantasy Data on Historical Data");
-  // A leftover rough.read grant opens nothing: the permission is retired.
   assert(!isViewAuthorized(["rough.read"], "fantasy-data"), "rough.read alone no longer opens Fantasy Data");
   const onlyPolished = ["fantasy.read"];
   assert(isViewAuthorized(onlyPolished, "fantasy-data") && resolveActiveTab(FANTASY_DATA_TABS, null, "current", onlyPolished) === "current", "A polished-stock reader opens Fantasy Data on Current Data");
@@ -300,7 +260,6 @@ async function main() {
     assert(TEST_ROLES.every((role) => !(testPermissionsFor(role) as string[]).includes(code)), `No role holds ${code}`);
   }
 
-  // =========================================================================
   console.log("\n--- TEST 8: Tabs are history entries ---");
   historyCalls.length = 0;
   useNavStore.getState().setView("analysis-inventory-position");
@@ -317,14 +276,12 @@ async function main() {
   useNavStore.getState().setTab("excess");
   assert(historyCalls.filter((c) => c.kind === "push").length === pushes, "Re-selecting the active tab adds no history entry");
 
-  // =========================================================================
   console.log("\n--- TEST 9: Sales & Trends ---");
   assert(SALES_ANALYSIS_TABS.map((t) => t.id).join(",") === "analysis,trends", "Sales & Trends keeps two tabs: analysis, trends");
   assert(SALES_ANALYSIS_TABS.every((t) => t.permission === "sales.read"), "Both tabs are gated on sales.read");
   assert(resolveActiveTab(SALES_ANALYSIS_TABS, "abc", SALES_ANALYSIS_DEFAULT_TAB) === "analysis", "Invalid ?tab=abc falls back to Sales Analysis");
   assert(navHash("analysis-sales", "trends") === "#analysis-sales?tab=trends", "navHash builds #analysis-sales?tab=trends");
 
-  // =========================================================================
   console.log("\n--- TEST 10: Category drill-down into Inventory → Stockout Risk ---");
   const nav = () => useNavStore.getState();
   const OVAL = "GIA|OVAL|1.00-1.09";
@@ -340,7 +297,6 @@ async function main() {
   const malformed = parseNavHash(`#analysis-stockout?category=${"x".repeat(250)}`);
   assert(malformed?.trace?.malformed === true && malformed.trace.category === null, "An over-length category is flagged malformed, never used");
 
-  // =========================================================================
   console.log("\n--- TEST 11: Users & Access, Mappings and permission vocabulary ---");
   assert(JSON.stringify(USERS_ACCESS_TABS.map((t) => [t.id, t.label])) === JSON.stringify([["users", "Users"], ["permissions", "Permissions"]]), "Users & Access has exactly two tabs: Users and Permissions");
   assert(JSON.stringify(viewPermissions("admin-users-access")) === JSON.stringify(["user.read", "access_request.review", "role.read"]), "Users & Access admits account readers, access-request reviewers and role readers");

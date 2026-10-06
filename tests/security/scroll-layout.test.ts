@@ -1,9 +1,3 @@
-// Scroll architecture, as rendered: <main> is the only vertical page scroller inside a
-// viewport-high frame, the tab host flows inside it, a Section never clips or scrolls unless
-// it is bounded, and a table's scrolling is chosen by its `scroll` mode — never by how many
-// rows are loaded. Real components; the browser behaviour itself is exercised by
-// scripts/test-scrolling.ts under wheel, touch and keyboard input.
-
 import { createElement, type ComponentType } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeAll, describe, expect, test } from "./harness";
@@ -40,7 +34,6 @@ describe("one vertical page scroller", () => {
       const main = classOf(openTag(page.html, 'data-scroll-owner="page"'));
       expect([frame.includes("overflow-hidden"), /min-h-screen/.test(frame)]).toEqual([true, false]);
       expect(["overflow-y-auto", "overflow-x-hidden", "min-h-0", "min-w-0", "flex-1"].every((c) => main.split(" ").includes(c))).toBe(true);
-      // The top bar precedes <main> and is not inside it; the sidebar has its own scroller.
       expect(page.html.indexOf("<header") < page.html.indexOf('data-scroll-owner="page"')).toBe(true);
       expect(classOf(openTag(page.html, 'aria-label="Main navigation"')).includes("overflow-y-auto")).toBe(true);
     } finally {

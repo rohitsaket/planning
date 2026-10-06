@@ -41,7 +41,6 @@ interface CustomerRow {
 
 interface CustomersResponse {
   rows: CustomerRow[];
-  /** Totals across every matching customer, independent of the current page. */
   summary: {
     customers: number;
     pieces: number;
@@ -96,7 +95,6 @@ function formatDate(iso: string | null): string {
 }
 
 function formatMonthLabel(month: string): string {
-  // "2025-01" -> "Jan '25"
   const [y, m] = month.split("-");
   const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   const mi = Math.max(0, Math.min(11, parseInt(m, 10) - 1));
@@ -158,7 +156,6 @@ function CustomerDetailDialog({
 
   if (!customer) return null;
 
-  // Sparkline = last 7 monthly pieces
   const piecesSparkline = (timeline?.monthly ?? [])
     .slice(-7)
     .map((m) => m.pieces);
@@ -190,7 +187,6 @@ function CustomerDetailDialog({
         </DialogHeader>
 
         <div className="flex flex-col gap-3">
-          {/* 1. Header identity row */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[11px] rounded-md border border-border bg-muted/20 p-3">
             <div className="flex items-center gap-1.5">
               <MapPin className="h-3 w-3 text-muted-foreground" />
@@ -214,7 +210,6 @@ function CustomerDetailDialog({
             </div>
           </div>
 
-          {/* 2. KPI grid (5 cards) */}
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2">
             <KpiCard
               label="Total Pieces"
@@ -257,7 +252,6 @@ function CustomerDetailDialog({
             />
           </div>
 
-          {/* 3. Buying trends chart */}
           <div className="rounded-md border border-border bg-card p-3">
             <div className="flex items-center justify-between gap-2 mb-2">
               <div>
@@ -316,7 +310,6 @@ function CustomerDetailDialog({
             )}
           </div>
 
-          {/* 4. Customer preferences (2-col grid) */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
             <PreferencesBlock title="Top Shapes" items={prefs?.shapes ?? []} />
             <PreferencesBlock title="Top Weight Bands" items={prefs?.weightBands ?? []} />
@@ -340,7 +333,6 @@ function CustomerDetailDialog({
             </div>
           </div>
 
-          {/* 5. Priority reason InfoBanner */}
           <InfoBanner variant={customer.businessPriority === "PLATINUM" ? "success" : customer.businessPriority === "GOLD" ? "warning" : "info"}>
             <div className="flex items-center gap-2">
               <Award className="h-3 w-3 flex-shrink-0" />
@@ -351,7 +343,6 @@ function CustomerDetailDialog({
             </div>
           </InfoBanner>
 
-          {/* 6. Memo exposure callout */}
           {customer.memoExposure > 0 && (
             <div className="rounded-md border border-amber-300/60 bg-amber-50/70 dark:bg-amber-950/30 dark:border-amber-900/60 p-3">
               <div className="flex items-start gap-2">
@@ -381,8 +372,6 @@ export function CustomersView() {
   const [pageSize, setPageSize] = useState(50);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
-  // Filtering, ranking and paging all happen on the server; this page holds one page
-  // of customers and the totals below describe the whole filtered set.
   const globalFilter = useGlobalFilter();
   const url = useMemo(() => {
     const params = new URLSearchParams();
@@ -396,7 +385,6 @@ export function CustomersView() {
   }, [globalFilter.country, globalFilter.branch, globalFilter.lab, search, page]);
   const { data, isLoading } = useApi<CustomersResponse>(url);
 
-  // A changed filter or search is a different result set: restart at page one.
   const filterKey = `${globalFilter.country ?? ""}|${globalFilter.branch ?? ""}|${globalFilter.lab ?? ""}|${search}`;
   const [lastFilterKey, setLastFilterKey] = useState(filterKey);
   if (filterKey !== lastFilterKey) {
@@ -438,15 +426,12 @@ export function CustomersView() {
       cell: (r) => <span className="tabular-nums text-muted-foreground">{formatDate(r.lastPurchase)}</span> },
   ];
 
-  // Totals come from the server and cover every matching customer, not just this page.
   const totalCustomers = data?.summary.customers ?? 0;
   const totalPieces = data?.summary.pieces ?? 0;
   const totalValue = data?.summary.totalValue ?? 0;
   const totalCaratsAll = data?.summary.carats ?? 0;
   const totalMemo = data?.summary.memoExposure ?? 0;
 
-  // Real-data sparklines: derive 7 points from the top 7 customers (by totalValue).
-  // Each KPI's sparkline uses the corresponding field of those top customers.
   const top7Customers = useMemo(() => {
     return [...filteredRows]
       .sort((a, b) => b.totalValue - a.totalValue)
@@ -454,28 +439,28 @@ export function CustomersView() {
   }, [filteredRows]);
 
   const customersCountSpark = useMemo(() => {
-    if (top7Customers.length === 0) return undefined; // no data yet — draw no sparkline
+    if (top7Customers.length === 0) return undefined;
     const slice = top7Customers.map((r) => r.pieces);
     while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 0);
     return slice;
   }, [top7Customers]);
 
   const totalValueSpark = useMemo(() => {
-    if (top7Customers.length === 0) return undefined; // no data yet — draw no sparkline
+    if (top7Customers.length === 0) return undefined;
     const slice = top7Customers.map((r) => r.totalValue);
     while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 0);
     return slice;
   }, [top7Customers]);
 
   const totalCaratsSpark = useMemo(() => {
-    if (top7Customers.length === 0) return undefined; // no data yet — draw no sparkline
+    if (top7Customers.length === 0) return undefined;
     const slice = top7Customers.map((r) => r.carats);
     while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 0);
     return slice;
   }, [top7Customers]);
 
   const memoExposureSpark = useMemo(() => {
-    if (top7Customers.length === 0) return undefined; // no data yet — draw no sparkline
+    if (top7Customers.length === 0) return undefined;
     const slice = top7Customers.map((r) => r.memoExposure);
     while (slice.length < 7) slice.push(slice.length ? slice[slice.length - 1] : 0);
     return slice;
@@ -502,7 +487,6 @@ export function CustomersView() {
         }
       />
 
-      {/* KPI grid — real-data sparklines derived from the top 7 customers (by value) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2">
         <KpiCard
           label="Total Customers"

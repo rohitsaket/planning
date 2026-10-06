@@ -5,8 +5,6 @@ import { LIMITS } from "@/lib/api/rate-limit";
 import { ApiError } from "@/lib/api/errors";
 import { runLiveDataSync } from "@/lib/fantasy/live-sync";
 
-// Manual "Sync Now": same service the scheduler uses. fantasy.sync permission, same-origin check
-// and write rate limit come from withApi. The response never carries credentials or tokens.
 export const POST = withApi({ permission: "fantasy.sync.run", rateLimit: LIMITS.batch }, async (_req, _ctx, { principal, audit }) => {
   const r = await runLiveDataSync({ trigger: "manual", actor: principal.username, actorUserId: principal.userId, chainCanonical: "background" });
   if (r.status === "LOCKED") throw new ApiError(409, "SYNC_RUNNING", "Synchronization is already running.");

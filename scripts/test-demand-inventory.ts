@@ -1,26 +1,3 @@
-/**
- * DEMAND & INVENTORY — BEHAVIOURAL, RBAC AND PAGINATION TEST SUITE
- *
- * Runs against the isolated security-test database only (planning_sectest) and
- * refuses to start anywhere else.
- *
- * What this suite proves:
- *   A. WIP classification: the WIP page and the demand engine classify the same
- *      records identically; every stage outcome; missing/inactive BR-WIP-001;
- *      ambiguous attributes; no double counting with polished output or plans.
- *   B. Country positions computed per exact category and never netted; transfer
- *      candidates limited by both sides, advisory, with a real count.
- *   C. Valuation unavailable without an approved model; metadata when configured.
- *   D. Genuine server pagination: first/middle/last page, filtered paging, no
- *      duplicates or gaps, large volume, honest totals.
- *   E. API authorization across the real authenticated route boundary, including
- *      demand-trace lot-level non-disclosure and client-supplied identity being
- *      ignored.
- *   F. Export authorization policy: no table inherits demand.export by default.
- *
- * Usage: npm run test:demand-inventory
- */
-
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { db } from "../src/lib/db";
@@ -34,8 +11,6 @@ import { classifyCurrentWip, loadWipPolicy, normalizeWipStage } from "../src/lib
 import { loadValuationPolicy } from "../src/lib/analytics/valuation";
 import { CONFIRMED_WEIGHT_BANDS } from "../src/lib/domain/diamond-rules";
 
-// Route handlers — exercised through withApi, so authentication, permission checks,
-// rate limiting, validation and error mapping all run exactly as in production.
 import { GET as traceGET } from "../src/app/api/analysis/demand-trace/route";
 import { GET as countriesGET } from "../src/app/api/analysis/countries/route";
 import { GET as polishedGET } from "../src/app/api/analysis/polished/route";
@@ -47,11 +22,7 @@ import { GET as memoGET } from "../src/app/api/analysis/memo/route";
 import { GET as historyGET } from "../src/app/api/demand/history/route";
 import { POST as demandRunPOST } from "../src/app/api/demand/run/route";
 
-// ---------------------------------------------------------------------------
-// Safety: this suite truncates tables, so it must never see a real database.
-// ---------------------------------------------------------------------------
 const url = process.env.DATABASE_URL ?? "";
-// Loopback host, an approved isolated test database, no production or staging marker.
 if (!proveDisposableDatabase(url).proven) {
   console.error(`REFUSING TO RUN: DATABASE_URL must point at the isolated ${SECTEST_DB} database.`);
   console.error("Use: npm run test:demand-inventory");
@@ -80,9 +51,6 @@ function section(title: string) {
 const DAY = 24 * 60 * 60 * 1000;
 const daysAgo = (n: number) => new Date(Date.now() - n * DAY);
 
-// ---------------------------------------------------------------------------
-// Fixture construction
-// ---------------------------------------------------------------------------
 const TABLES = [
   "DemandMetricTraceItem",
   "DemandMetric",
@@ -278,7 +246,6 @@ async function setWipRule(o: { status: string; stages?: string[] }) {
   });
 }
 
-// ---------------------------------------------------------------------------
 async function main() {
   console.log("===============================================================================");
   console.log("DEMAND & INVENTORY — WIP, COUNTRY, VALUATION, PAGINATION & API RBAC TEST SUITE");
@@ -287,19 +254,14 @@ async function main() {
   await resetAll();
   const fx = await seedMasterData();
 
-  // =========================================================================
   section("A1. WIP stage normalization is deterministic and not substring-based");
-  // =========================================================================
   assert(normalizeWipStage("WIP_POLISHING") === "POLISHING", "WIP_POLISHING normalizes to POLISHING");
   assert(normalizeWipStage("wip polishing") === "POLISHING", "'wip polishing' normalizes to POLISHING");
   assert(normalizeWipStage("Polishing") === "POLISHING", "'Polishing' normalizes to POLISHING");
   assert(normalizeWipStage("PRE_POLISHING") === "PRE_POLISHING", "PRE_POLISHING stays a distinct stage (no substring match)");
   assert(normalizeWipStage(null) === "UNKNOWN", "null stage normalizes to UNKNOWN");
 
-  // =========================================================================
   section("A2. Missing BR-WIP-001 produces an explicit NOT_CONFIGURED state");
-  // =========================================================================
-  // 6 sales in 90 days -> monthly avg 2 -> target 4; no stock -> shortage 4.
   for (let i = 0; i < 6; i++) await makeSale({ weight: 1.05, customerId: fx.customerId, days: 10 + i });
   await makeWip({ lotId: "WIP-POL-1", stage: "WIP_POLISHING", weight: 1.05 });
   await makeWip({ lotId: "WIP-POL-2", stage: "WIP_POLISHING", weight: 1.05 });
@@ -323,9 +285,7 @@ async function main() {
   const storedRun = await db.demandRun.findUniqueOrThrow({ where: { id: run.runId } });
   assert(storedRun.wipPolicyStatus === "NOT_CONFIGURED", "Run row records the WIP policy status it applied");
 
-  // =========================================================================
   section("A3. A CONFIRMED rule with no eligible stages is still NOT_CONFIGURED");
-  // =========================================================================
   await setWipRule({ status: "CONFIRMED", stages: [] });
   policy = await loadWipPolicy(db);
   assert(policy.status === "NOT_CONFIGURED" && policy.reason === "NO_ELIGIBLE_STAGES", "CONFIRMED rule with an empty stage list stays NOT_CONFIGURED");
@@ -334,17 +294,14 @@ async function main() {
   policy = await loadWipPolicy(db);
   assert(policy.status === "NOT_CONFIGURED" && policy.reason === "RULE_NOT_CONFIRMED", "An OPEN rule does not activate WIP coverage");
 
-  // =========================================================================
   section("A4. Confirmed policy: every stage outcome is classified correctly");
-  // =========================================================================
   await setWipRule({ status: "CONFIRMED", stages: ["POLISHING", "GRADING"] });
-  await makeWip({ lotId: "WIP-PLAN-1", stage: "WIP_PLANNING", weight: 1.05 });          // ineligible stage
-  await makeWip({ lotId: "WIP-AMB-1", stage: "WIP_POLISHING", weight: 1.05, shape: "MYSTERY" }); // ambiguous shape
-  await makeWip({ lotId: "WIP-DONE-1", stage: "WIP_COMPLETED", weight: 1.05 });          // completed
-  await makeWip({ lotId: "WIP-MIRROR-1", stage: "WIP_POLISHING", weight: 1.05 });        // already polished
+  await makeWip({ lotId: "WIP-PLAN-1", stage: "WIP_PLANNING", weight: 1.05 });
+  await makeWip({ lotId: "WIP-AMB-1", stage: "WIP_POLISHING", weight: 1.05, shape: "MYSTERY" });
+  await makeWip({ lotId: "WIP-DONE-1", stage: "WIP_COMPLETED", weight: 1.05 });
+  await makeWip({ lotId: "WIP-MIRROR-1", stage: "WIP_POLISHING", weight: 1.05 });
   await makePolished({ lotId: "WIP-MIRROR-1", weight: 1.05, bandId: fx.bandRound.id, planningClass: "PHYSICAL" });
 
-  // One genuine piece of finished stock: canonical record plus its operational mirror.
   await db.lotMasterRecord.create({
     data: {
       lotId: "STOCK-1",
@@ -390,9 +347,7 @@ async function main() {
     "Completed and already-polished pieces are reported separately and excluded from coverage",
   );
 
-  // =========================================================================
   section("A5. Demand engine and WIP page reconcile from the same classifier");
-  // =========================================================================
   run = await runDemandCalculation({ actor: "test" });
   cat = run.categories.find((c) => c.category === `GIA|ROUND|${fx.bandRound.label}`);
   assert(cat?.wipCoverage === 2, `Engine applies 2 eligible WIP pieces, got ${cat?.wipCoverage}`);
@@ -411,9 +366,7 @@ async function main() {
     `Ambiguous WIP is quarantined, not placed in a business category (got ${quarantined?.planningCategory})`,
   );
 
-  // =========================================================================
   section("A6. Legacy approved plans never reduce demand; planned coverage is unavailable");
-  // =========================================================================
   const baseline = await runDemandCalculation({ actor: "test" });
   const baseCat = baseline.categories.find((c) => c.category === `GIA|ROUND|${fx.bandRound.label}`);
   const rough = await db.roughStone.create({
@@ -430,7 +383,6 @@ async function main() {
     data: { pieceCode: "PC-T1-1", planOptionId: popt.id, sequence: 1, expectedShape: "ROUND", expectedWeight: 1.05, certificationIntent: "GIA" },
   });
   await db.planOptionPiece.create({
-    // Already became WIP lot WIP-POL-1: its coverage is counted as WIP, not twice.
     data: { pieceCode: "PC-T1-2", planOptionId: popt.id, sequence: 2, expectedShape: "ROUND", expectedWeight: 1.05, certificationIntent: "GIA", fantasyChildId: "WIP-POL-1" },
   });
 
@@ -447,19 +399,7 @@ async function main() {
   assert(facts(cat) === facts(baseCat), "A legacy piece linked to polished output changes nothing either");
   await db.planOptionPiece.update({ where: { pieceCode: "PC-T1-1" }, data: { actualPolishedLotId: null } });
 
-  // =========================================================================
   section("B. Location pages report facts and never a geographic shortage");
-  // =========================================================================
-  // The demand target is calculated once per planning category for the whole business:
-  // `DemandMetric` has no country and no branch column. So neither of these pages may
-  // report a shortage, an excess or a transfer candidate per location. They used to,
-  // from the seeded `Requirement` and `PolishedStone` tables, which is why they
-  // contradicted each other.
-  //
-  // This data exists purely to prove the pages do not use it: requirements in two
-  // countries and polished mirror stock in one. Under the previous implementation it
-  // produced a shortage of 7 for IN, an excess of 5, and a cross-country transfer
-  // candidate. Every one of those figures must now be absent.
   await db.requirement.create({
     data: { requirementCode: "REQ-IN-1", type: "STOCK_REPLENISHMENT", groupCode: "G", companyCode: "C", country: "IN", branch: "Surat", labNormalized: "GIA", shape: "ROUND", weightBandId: fx.bandRound.id, requiredQty: 2 },
   });
@@ -491,7 +431,6 @@ async function main() {
   ]) {
     assert(!countryPayload.includes(invented), `Country API exposes no ${invented}`);
   }
-  // And the seeded tables that used to drive those figures are not read at all.
   assert(
     Array.isArray(res.json.sales?.byCountry) && Array.isArray(res.json.inventory?.byLocation),
     "Country API returns confirmed sales and current inventory as two separate distributions",
@@ -500,14 +439,11 @@ async function main() {
     res.json.inventory.byLocation.every((r: { lotCount: number }) => typeof r.lotCount === "number"),
     "Inventory distribution rows carry a real lot count",
   );
-  // The contradiction is gone: both pages now give the same answer about location demand.
   assert(
     res.json.geographicDemandMessage.includes("not currently calculated by country or branch"),
     "Country API and Transfer Analyzer state the same reason",
   );
-  // =========================================================================
   section("C. Valuation is unavailable until an approved model exists");
-  // =========================================================================
   let valuation = await loadValuationPolicy(db);
   assert(valuation.status === "NOT_CONFIGURED" && valuation.reason === "RULE_MISSING", "Valuation is NOT_CONFIGURED without BR-VALUATION-001");
 
@@ -553,10 +489,7 @@ async function main() {
   assert(valuation.status === "NOT_CONFIGURED" && valuation.reason === "RULE_NOT_CONFIRMED", "An unconfirmed model stops producing values");
   await db.businessRule.update({ where: { ruleId: "BR-VALUATION-001" }, data: { status: "CONFIRMED" } });
 
-  // =========================================================================
   section("D. Genuine server pagination");
-  // =========================================================================
-  // 120 customers, each with memo exposure, across two countries.
   for (let i = 0; i < 120; i++) {
     const country = i % 2 === 0 ? "IN" : "HK";
     const c = await db.customer.create({
@@ -631,8 +564,6 @@ async function main() {
 
   const agingRes = await call(agingGET, { path: "/api/analysis/aging?page=1&pageSize=5", cookie: admin.cookie });
   assert(agingRes.status === 200 && typeof agingRes.json.paging.total === "number", "Aging API returns a paginated lot list with a real total");
-  // No age, and no age bands. The aging anchor is not confirmed, so the page reports
-  // current stock and says so rather than computing a number from an observation date.
   assert(agingRes.json.availability === "ANCHOR_NOT_CONFIRMED", "Aging reports that the aging date is not confirmed");
   assert(agingRes.json.buckets === undefined, "Aging invents no age bands");
   assert(
@@ -652,22 +583,17 @@ async function main() {
   assert(timelineRes.status === 200 && timelineRes.json.monthly.length === 12, "Customer timeline returns 12 aggregated months");
   assert(typeof timelineRes.json.total === "number", "Customer timeline transactions are paginated with a total");
 
-  // The seeded-order API is retired with the Requirements section; order workflows are out of scope.
   assert(!existsSync(path.join(process.cwd(), "src", "app", "api", "analysis", "orders", "route.ts")), "The retired orders API is gone");
 
   const dashRes = await call(agingDashGET, { path: "/api/analysis/aging-dashboard", cookie: admin.cookie });
   assert(dashRes.status === 200 && typeof dashRes.json.currentLots === "number", "Aging dashboard summarizes current stock");
-  // The dashboard shares the lot page's service, so the two cannot disagree about
-  // whether aging is available.
   assert(
     dashRes.json.availability === agingRes.json.availability,
     "Aging dashboard and Stock Aging report the same availability",
   );
   assert(Array.isArray(dashRes.json.byBucket), "Aging dashboard groups by inventory bucket");
 
-  // =========================================================================
   section("E. API authorization across the real authenticated route boundary");
-  // =========================================================================
   resetRateLimits();
   const viewer = await makeUser("rbac-viewer", "VIEWER");
   const analyst = await makeUser("rbac-analyst", "DATA_ANALYST");
@@ -675,26 +601,22 @@ async function main() {
   const superAdmin = await makeUser("rbac-super", "SUPER_ADMIN");
   const salesMgr = await makeUser("rbac-sales", "SALES_MANAGER");
 
-  // Unauthenticated
   assert((await call(demandRunPOST, { method: "POST", path: "/api/demand/run", body: {} })).status === 401, "POST /api/demand/run rejects an anonymous caller");
   assert((await call(traceGET, { path: "/api/analysis/demand-trace" })).status === 401, "GET /api/analysis/demand-trace rejects an anonymous caller");
   assert((await call(customersGET, { path: "/api/analysis/customers" })).status === 401, "GET /api/analysis/customers rejects an anonymous caller");
   assert((await call(memoGET, { path: "/api/analysis/memo" })).status === 401, "GET /api/analysis/memo rejects an anonymous caller");
 
-  // Authenticated without permission
   assert((await call(demandRunPOST, { method: "POST", path: "/api/demand/run", cookie: viewer.cookie, body: {} })).status === 403, "VIEWER cannot run the demand calculation");
   assert((await call(demandRunPOST, { method: "POST", path: "/api/demand/run", cookie: analyst.cookie, body: {} })).status === 403, "DATA_ANALYST cannot run the demand calculation");
   assert((await call(customersGET, { path: "/api/analysis/customers", cookie: planner.cookie })).status === 403, "PLANNER cannot read customer data");
   assert((await call(memoGET, { path: "/api/analysis/memo", cookie: planner.cookie })).status === 403, "PLANNER cannot read memo data");
   assert((await call(memoGET, { path: "/api/analysis/memo", cookie: salesMgr.cookie })).status === 200, "SALES_MANAGER may read memo aggregates (sales.read)");
 
-  // Authenticated with permission
   assert((await call(customersGET, { path: "/api/analysis/customers", cookie: analyst.cookie })).status === 200, "DATA_ANALYST may read customer data");
   resetRateLimits();
   const runRes = await call(demandRunPOST, { method: "POST", path: "/api/demand/run", cookie: superAdmin.cookie, body: {} });
   assert(runRes.status === 200, `SUPER_ADMIN may run the demand calculation (got ${runRes.status})`);
 
-  // Expired / revoked sessions
   const expiring = await makeUser("rbac-expired", "ADMIN");
   await db.session.update({ where: { id: expiring.session.id }, data: { expiresAt: daysAgo(1) } });
   assert((await call(customersGET, { path: "/api/analysis/customers", cookie: expiring.cookie })).status === 401, "An expired session is rejected");
@@ -705,16 +627,12 @@ async function main() {
   await db.user.update({ where: { id: disabled.user.id }, data: { status: "DISABLED" } });
   assert((await call(customersGET, { path: "/api/analysis/customers", cookie: disabled.cookie })).status === 401, "A disabled user's session is rejected");
 
-
-  // =========================================================================
   section("F. Demand trace lot-level disclosure requires demand.trace");
-  // =========================================================================
   resetRateLimits();
-  const traceViewer = await makeUser("trace-viewer", "SALES_VIEWER"); // analysis.read, no demand.trace
-  const traceAnalyst = analyst; // analysis.read + demand.trace
+  const traceViewer = await makeUser("trace-viewer", "SALES_VIEWER");
+  const traceAnalyst = analyst;
 
-  // Requirement 29: a signed-in caller without analysis.read is denied at the route boundary.
-  const noAnalysis = await makeUser("trace-no-analysis", "AUDITOR"); // no analysis.read
+  const noAnalysis = await makeUser("trace-no-analysis", "AUDITOR");
   const deniedTrace = await call(traceGET, { path: "/api/analysis/demand-trace", cookie: noAnalysis.cookie });
   assert(deniedTrace.status === 403, `A caller without analysis.read cannot open demand results (got ${deniedTrace.status})`);
   const deniedWithCategory = await call(traceGET, {
@@ -723,21 +641,17 @@ async function main() {
   });
   assert(deniedWithCategory.status === 403, "Query parameters do not bypass the analysis.read gate");
 
-  // A category key that really exists in this run, taken from the API itself so the test
-  // uses the canonical key rather than one rebuilt from labels.
   const baseTrace = await call(traceGET, { path: "/api/analysis/demand-trace", cookie: traceAnalyst.cookie });
   assert(baseTrace.status === 200 && baseTrace.json.categories.length > 0, "The demand result API serves categories for the latest run");
   const realCategory: string = baseTrace.json.categories[0].category;
   const encodedCategory = encodeURIComponent(realCategory);
 
-  // --- Aggregate access without demand.trace (requirement 30) ---
   const noTrace = await call(traceGET, { path: "/api/analysis/demand-trace", cookie: traceViewer.cookie });
   assert(noTrace.status === 200, "A caller with analysis.read may read aggregate demand results");
   assert(noTrace.json.canViewSupportingRecords === false, "The response states that record-level access is restricted");
   assert(noTrace.json.summary.totalShortage >= 0 && noTrace.json.categories.length > 0, "Aggregate figures are still returned");
   assert(noTrace.json.supportingRecords === null, "No supporting records are returned without demand.trace");
 
-  // Requirement 32: asking for a category by query parameter must not widen access.
   const noTraceWithCategory = await call(traceGET, {
     path: `/api/analysis/demand-trace?category=${encodedCategory}&recordType=CONFIRMED_SALE`,
     cookie: traceViewer.cookie,
@@ -758,7 +672,6 @@ async function main() {
     "No stored trace JSON, model name or rule identifier reaches a restricted caller",
   );
 
-  // --- Record-level access with demand.trace (requirement 31) ---
   const withTrace = await call(traceGET, {
     path: `/api/analysis/demand-trace?category=${encodedCategory}&recordType=CONFIRMED_SALE&page=1&pageSize=10`,
     cookie: traceAnalyst.cookie,
@@ -776,7 +689,6 @@ async function main() {
     "Only the requested record type is returned",
   );
 
-  // --- Exact category filtering (requirements 23-25, 27) ---
   assert(
     withTrace.json.selectedCategory?.category === realCategory,
     "An exact category key returns the matching selection",
@@ -819,7 +731,6 @@ async function main() {
     assert(injected.json.supportingRecords === null, "An injection-shaped category returns no records");
   }
 
-  // --- Error responses stay safe (requirement 28) ---
   const overLong = await call(traceGET, {
     path: `/api/analysis/demand-trace?category=${"x".repeat(250)}`,
     cookie: traceAnalyst.cookie,
@@ -837,7 +748,6 @@ async function main() {
     "A rejected page parameter exposes no internal detail",
   );
 
-  // --- Run scoping (requirement 26) ---
   const olderRunId: string = baseTrace.json.runId;
   const newerRun = await runDemandCalculation({ actor: "test" });
   assert(newerRun.runId !== olderRunId, "A second demand calculation produced a newer run");
@@ -868,9 +778,7 @@ async function main() {
     "An unknown runId never falls back to another run's figures",
   );
 
-  // =========================================================================
   section("G. Export authorization policy");
-  // =========================================================================
   const viewsDir = path.join(process.cwd(), "src", "components", "diamond", "views");
   const viewFiles: string[] = [];
   const walk = (dir: string) => {
@@ -906,9 +814,7 @@ async function main() {
     `demand.export is only used by the WIP view (found: ${demandExportViews.join(", ")})`,
   );
 
-  // =========================================================================
   section("H. Honest product states");
-  // =========================================================================
   await db.demandMetricTraceItem.deleteMany({});
   await db.demandMetric.deleteMany({});
   await db.demandRun.deleteMany({});

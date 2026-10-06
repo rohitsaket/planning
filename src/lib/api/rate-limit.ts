@@ -1,5 +1,3 @@
-// Fixed-window in-memory limiter. Adequate for the single-process deployment this
-// app uses; move to a shared store if the app is ever run as multiple instances.
 const buckets = new Map<string, { count: number; resetAt: number }>();
 
 export interface RateLimit {
@@ -26,8 +24,8 @@ export function resetRateLimits() {
 }
 
 export const LIMITS = {
-  login: { limit: 10, windowMs: 5 * 60_000 }, // per username
-  loginPerClient: { limit: 100, windowMs: 5 * 60_000 }, // per client IP (one shared bucket when the IP is unknown)
+  login: { limit: 10, windowMs: 5 * 60_000 },
+  loginPerClient: { limit: 100, windowMs: 5 * 60_000 },
   upload: { limit: 10, windowMs: 60_000 },
   expensive: { limit: 30, windowMs: 60_000 },
   batch: { limit: 3, windowMs: 60_000 },

@@ -1,19 +1,3 @@
-// ============================================================================
-// TEST DEMO FIXTURE — fabricated demonstration records, for isolated test databases only.
-// Creates weight bands, lab/shape mappings, groups/companies/countries, branches,
-// Fantasy departments/locations/status mappings, customers, sales records, polished
-// stones, memos, a demand run, business rules, audit entries, data-quality issues, sync
-// runs and notifications. None of it is real: it exists so suites have deterministic data.
-// No rough stones, planning cases, options, pieces, reservations, requirements, customer
-// orders or plan and requirement notifications.
-//
-// It clears everything it fills, together with canonical Fantasy records, in one
-// transaction. So it proves the target is an isolated test database (loopback host,
-// planning_sectest or planning_review, no production or staging marker) before a client is
-// even constructed, and refuses anything else — including the development database.
-//
-// Usage: npm run db:test:reset
-// ============================================================================
 import { PrismaClient } from "@prisma/client";
 import {
   CONFIRMED_WEIGHT_BANDS,
@@ -28,11 +12,9 @@ if (typeof (process as any).loadEnvFile === "function") {
   try { (process as any).loadEnvFile(); } catch {}
 }
 
-// Refuses before any connection exists when the target is not an isolated test database.
 assertDisposableDatabase(process.env.DATABASE_URL, "Test demo fixture load");
 const client = new PrismaClient();
 
-// Deterministic pseudo-random for reproducibility
 function mulberry32(seed: number) {
   return function () {
     seed |= 0;
@@ -89,11 +71,8 @@ function dayOffset(daysAgo: number): Date {
 }
 
 async function main() {
-  // One transaction: the fixture replaces the whole dataset or nothing. `prisma` names the
-  // transaction client, so every write below belongs to it.
   await client.$transaction(async (prisma) => {
   console.log("Clearing the isolated test database...");
-  // Dependency-safe order; canonical records last, history before its lots.
   const tables = [
     "IntegrationSyncRun", "Notification", "DataQualityIssue", "AuditLog",
     "FeatureFlag", "BusinessRule", "ModelVersion", "ForecastPrediction",
@@ -111,9 +90,6 @@ async function main() {
     await (prisma as any)[t.charAt(0).toLowerCase() + t.slice(1)].deleteMany();
   }
 
-  // =========================================================================
-  // WEIGHT BANDS
-  // =========================================================================
   console.log("Seeding weight bands...");
   for (const wb of CONFIRMED_WEIGHT_BANDS) {
     await prisma.weightBand.create({
@@ -128,23 +104,16 @@ async function main() {
     });
   }
 
-  // =========================================================================
-  // LAB MAPPINGS
-  // =========================================================================
   console.log("Seeding lab mappings...");
   for (const lm of CONFIRMED_LAB_MAPPINGS) {
     await prisma.labMapping.create({
       data: { rawLab: lm.raw || "<BLANK>", normalizedLab: lm.normalized, active: true },
     });
   }
-  // Add IGI as Unknown → keep raw, but seed mapping to "Other"
   await prisma.labMapping.create({
     data: { rawLab: "IGI", normalizedLab: "Other", active: true },
   });
 
-  // =========================================================================
-  // SHAPE MAPPINGS
-  // =========================================================================
   console.log("Seeding shape mappings...");
   for (const sm of CONFIRMED_SHAPE_MAPPINGS) {
     await prisma.shapeMapping.create({
@@ -152,9 +121,6 @@ async function main() {
     });
   }
 
-  // =========================================================================
-  // ORGANIZATION HIERARCHY
-  // =========================================================================
   console.log("Seeding organization hierarchy...");
   const group = await prisma.group.create({
     data: { code: "GRP-01", name: "Fantasy Diamond Holdings" },
@@ -171,7 +137,6 @@ async function main() {
     });
   }
 
-  // Countries
   const countryByCode: Record<string, string> = {};
   for (const c of COUNTRIES) {
     const companyCode = c.code === "HK" ? "FHK" : c.code === "CA" ? "FCA" : c.code === "IN" ? "FIN" : "FNY";
@@ -183,7 +148,6 @@ async function main() {
     countryByCode[c.code] = country.id;
   }
 
-  // Branches & Offices
   const branchByCode: Record<string, string> = {};
   for (const [countryCode, branchNames] of Object.entries(BRANCHES_BY_COUNTRY)) {
     const countryId = countryByCode[countryCode];
@@ -200,9 +164,6 @@ async function main() {
     }
   }
 
-  // =========================================================================
-  // FANTASY DEPARTMENTS, LOCATIONS, STATUS MAPPINGS
-  // =========================================================================
   console.log("Seeding Fantasy departments/locations/status mappings...");
   const deptDefs = [
     { fid: "FDEPT-ASSY", name: "Assortment", country: "IN", branch: "Surat", type: "Assortment" },
@@ -253,9 +214,6 @@ async function main() {
     });
   }
 
-  // =========================================================================
-  // CUSTOMERS
-  // =========================================================================
   console.log("Seeding customers...");
   const EXTENDED_CUSTOMER_NAMES = [
     "Brilliant Heritage NY", "Pacific Diamond Traders", "EuroGem Geneva", "Mumbai Sparkle Co",
@@ -293,16 +251,11 @@ async function main() {
     customerIds.push(c.id);
   }
 
-  // =========================================================================
-  // SALES RECORDS — invoice stones within 90-day window + historical trends
-  // =========================================================================
   console.log("Seeding hundreds of sales records across 24-month horizon...");
   let salesLotCounter = 1;
   const salesRecords: { category: string; customerId: string; country: string; branch: string; docDate: Date; weight: number; saleTotal: number }[] = [];
   
-  // Generate 1,200 sales records spanning the past 2 years (with heavy concentration in 90-day rolling window)
   for (let i = 0; i < 1200; i++) {
-    // 60% within 90-day window as confirmed Invoices, 40% historical (91 to 720 days ago)
     const withinWindow = rand() < 0.60;
     const daysAgo = withinWindow ? randInt(0, 89) : randInt(91, 720);
     const status = withinWindow ? "Invoice" : pick(["Invoice", "Invoice", "Invoice", "Memo", "Stock"]);
@@ -361,9 +314,6 @@ async function main() {
     }
   }
 
-  // =========================================================================
-  // POLISHED STONES (Fantasy authoritative polished stock)
-  // =========================================================================
   console.log("Seeding hundreds of polished inventory stones across all aging tiers...");
   let polishedLotCounter = 1;
   for (let i = 0; i < 650; i++) {
@@ -381,8 +331,6 @@ async function main() {
     const fantasyStatus = pick(["AVAILABLE", "AVAILABLE", "PLANNING_AVAILABLE", "PLANNING_AVAILABLE", "RESERVED", "HOLD", "TRANSFER", "MEMO_OUT", "QC_HOLD"]);
     const statusMap = await prisma.fantasyStatusMapping.findUnique({ where: { fantasyStatus } });
 
-    // Distribute aging realistically across all 6 tiers:
-    // 0-30d (30%), 31-60d (25%), 61-90d (15%), 91-180d (15%), 181-365d (10%), 365+d (5%)
     let ageTierDays = 0;
     const tierRoll = rand();
     if (tierRoll < 0.30) ageTierDays = randInt(0, 30);
@@ -416,9 +364,6 @@ async function main() {
     });
   }
 
-  // =========================================================================
-  // MEMO RECORDS (Hundreds of memo lots with full age distribution)
-  // =========================================================================
   console.log("Seeding hundreds of memo records...");
   let memoLotCounter = 1;
   for (let i = 0; i < 180; i++) {
@@ -448,9 +393,6 @@ async function main() {
     });
   }
 
-  // =========================================================================
-  // DEMAND RUN + METRICS (latest run)
-  // =========================================================================
   console.log("Seeding demand run + metrics...");
   const demandRun = await prisma.demandRun.create({
     data: {
@@ -508,9 +450,6 @@ async function main() {
     data: { totalShortage, totalExcess },
   });
 
-  // =========================================================================
-  // FORECASTS
-  // =========================================================================
   console.log("Seeding forecasts across all categories...");
   const modelVer = await prisma.modelVersion.create({
     data: {
@@ -566,9 +505,6 @@ async function main() {
     data: { horizon30d: h30, horizon60d: h60, horizon90d: h90 },
   });
 
-  // =========================================================================
-  // BUSINESS RULES & FEATURE FLAGS
-  // =========================================================================
   console.log("Seeding business rules + feature flags...");
   const rules = [
     { ruleId: "BR-DEMAND-001", domain: "DEMAND", name: "90-day rolling invoice window", version: "1.0", status: "CONFIRMED", config: { windowDays: 90, lotStatus: "Invoice", todayIncluded: true }, notes: "Confirmed production rule." },
@@ -604,11 +540,7 @@ async function main() {
       },
     });
   }
-  // No approval policy row: without one, plan approval requires a separate approver.
 
-  // =========================================================================
-  // AUDIT LOGS & DATA QUALITY ISSUES
-  // =========================================================================
   console.log("Seeding audit logs & data quality issues...");
   const auditActions = [
     { actor: "system", action: "DEMAND_RUN", entity: "DemandRun", reason: "Scheduled 90-day rolling recalculation" },
@@ -659,9 +591,6 @@ async function main() {
     });
   }
 
-  // =========================================================================
-  // INTEGRATION SYNC RUNS & NOTIFICATIONS
-  // =========================================================================
   console.log("Seeding integration sync runs & notifications...");
   const syncEntities = ["Department", "Location", "Rough", "Polished", "Movement", "Sales"];
   for (let i = 0; i < 25; i++) {

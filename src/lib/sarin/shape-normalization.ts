@@ -1,14 +1,3 @@
-/**
- * Resolves a raw Sarin shape against one captured shape-mapping snapshot.
- *
- * The lookup key is the raw shape trimmed and upper-cased — the confirmed policy
- * ("compares trimmed Shape text without case sensitivity", design v1.7 §15.10). Nothing
- * else is normalized: no substring matching, no collapsing of inner spaces, no fallback
- * shape. Exactly one rule must apply; anything else is a finding for review.
- *
- * Server-only.
- */
-
 import { Prisma } from "@prisma/client";
 import { SARIN_ECOSYSTEM_SHAPES } from "@/lib/sarin/domain";
 
@@ -41,7 +30,6 @@ export function isEcosystemShape(shape: string): boolean {
   return VOCABULARY.has(shape);
 }
 
-/** Rules of one set, indexed by key once so each row is resolved without a scan. */
 export function indexRules(rules: readonly MappingRule[]): Map<string, MappingRule[]> {
   const byKey = new Map<string, MappingRule[]>();
   for (const r of rules) {
@@ -67,8 +55,6 @@ export function resolveShape(index: Map<string, MappingRule[]>, shapeRaw: string
   let applied: MappingRule;
   let result: "MAPPED" | "CONDITIONALLY_MAPPED";
   if (exact.length > 0) {
-    // The database refuses an unconditional rule beside any other rule for the same key,
-    // so this is defensive: an approved set is never trusted to be unambiguous.
     if (exact.length > 1 || conditional.length > 0) return { result: "AMBIGUOUS", key, issue: "MAPPING_MULTIPLE_RULES" };
     applied = exact[0];
     result = "MAPPED";

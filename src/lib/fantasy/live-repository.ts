@@ -1,9 +1,3 @@
-/**
- * FantasyLiveLot repository: the only module that writes the Live Data table. Batch upserts by
- * sourceRecordKey (insert new, update changed, touch unchanged), stale marking (never deletion),
- * and the read side used by the Live Data API (server-side pagination, search, filters, sort).
- */
-
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { LIVE_LOT_FIELDS, LIVE_LOT_SORTABLE, type LiveLotFieldKey } from "./live-fields";
@@ -33,7 +27,6 @@ function toData(m: MappedLiveLot, syncRunId: string, seenAt: Date) {
   };
 }
 
-/** One transaction per chunk: a multi-thousand-row snapshot never holds one giant transaction. */
 export async function upsertLiveLots(mapped: MappedLiveLot[], syncRunId: string, seenAt: Date, batchSize = 500): Promise<UpsertStats> {
   const stats: UpsertStats = { inserted: 0, updated: 0, unchanged: 0 };
   for (let i = 0; i < mapped.length; i += batchSize) {
@@ -69,13 +62,11 @@ export async function countActiveLiveLots(): Promise<number> {
   return db.fantasyLiveLot.count({ where: { sourceActive: true } });
 }
 
-/** Marks rows not seen in this snapshot as stale. Rows are never deleted. */
 export async function markStaleNotSeenSince(seenAt: Date): Promise<number> {
   const r = await db.fantasyLiveLot.updateMany({ where: { sourceActive: true, lastSeenAt: { lt: seenAt } }, data: { sourceActive: false, staleSince: seenAt } });
   return r.count;
 }
 
-/** Raw payloads of active rows — the canonical (planning) sync reads these instead of calling Fantasy twice. */
 export async function loadActivePayloads(): Promise<Record<string, unknown>[]> {
   const rows = await db.fantasyLiveLot.findMany({ where: { sourceActive: true }, select: { sourcePayload: true } });
   return rows.map((r) => r.sourcePayload as Record<string, unknown>);
@@ -128,7 +119,6 @@ export async function listLiveLots(q: LiveLotQuery) {
   return { rows, totalRecords, totalPages: Math.max(1, Math.ceil(totalRecords / q.pageSize)) };
 }
 
-/** Distinct values for the filter controls (active rows only, capped). */
 export async function liveLotFacets() {
   const pick = async (field: "lotStatusDb" | "processName" | "shape" | "labName" | "companyId" | "departmentAccountName") => {
     const rows = await db.fantasyLiveLot.findMany({ where: { sourceActive: true, [field]: { not: null } }, distinct: [field], select: { [field]: true }, orderBy: { [field]: "asc" }, take: 200 });

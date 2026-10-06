@@ -4,8 +4,6 @@ import { notFound } from "@/lib/api/errors";
 import { SARIN_SHAPE_MAPPING_RESULTS } from "@/lib/sarin/domain";
 import { listRowInterpretations, SARIN_INTERPRETATION_PAGE } from "@/lib/sarin/validation-queries";
 
-// One page of how each source row's shape was resolved, in file order, for operational
-// review. Defaults to the latest completed attempt. Scoped in the query (404 outside it).
 export const GET = withApi<{ batchId: string }>({ permission: "sarin.import.read" }, async (_req, { params }, api) => {
   const batchId = idSchema.parse((await params).batchId);
   const url = api.url;

@@ -1,12 +1,3 @@
-// Sarin validation: stone identity, consecutive blocks, Rough Weight, shape resolution
-// against the effective mapping catalog, catalog changes, claims and rollback.
-//
-// Uploads, validations, mapping management and reads go through the real route handlers
-// against the isolated planning_sectest database. The claim/run/fail steps are also
-// called directly where a test must act as a second worker (a stale or crashed one). The
-// mid-attempt failure is injected by a database trigger, so the service has no test-only
-// branch. All data is synthetic.
-
 import { beforeAll, beforeEach, describe, expect, test } from "./harness";
 import { call, db, ensureLabRegistry, makeUser, resetDb } from "./helpers";
 import { resetRateLimits } from "@/lib/api/rate-limit";
@@ -36,16 +27,13 @@ const STANDARD_RULES: CatalogRule[] = [
   { rawShape: "EMERALD 5STEP", normalizedShape: "Emerald", conditionKind: "RATIO_RANGE", ratioMin: "1.400", ratioMax: null },
 ];
 
-// ---- synthetic records ---------------------------------------------------------------------
 let nonce = 0;
 const kapan = () => `9${String(++nonce).padStart(3, "0")}V`;
 type Rec = Partial<Record<"name" | "rough" | "shape" | "est" | "ratio", string>>;
 const rec = (o: Rec & { name: string }) => [o.name, o.rough ?? "5.413", o.shape ?? "ROUND", o.est ?? "1.664", "IF", "D", "61.6", o.ratio ?? "1", "7.62", "7.62", "4.69"].join(",");
 const file = (lines: string[]) => lines.join("\n") + "\n";
-/** One complete stone: Blue needs 17 plan records and White 32 before it can validate cleanly. */
 const stone = (o: Rec & { name: string }, count = 17) => Array.from({ length: count }, () => rec(o));
 
-// ---- requests -------------------------------------------------------------------------------
 async function upload(cookie: string, content: string, fields: Record<string, string> = {}) {
   resetRateLimits();
   const fd = new FormData();
@@ -72,7 +60,6 @@ const get = (handler: any, cookie: string, path: string, params: Record<string, 
   resetRateLimits();
   return call(handler, { cookie, path, params });
 };
-/** Saves one mapping through the Mappings page's route. */
 const save = (cookie: string, body: Record<string, unknown>) => {
   resetRateLimits();
   return call(saveMapping, { method: "POST", cookie, body: { applyTo: "ALL_RATIOS", ...body }, path: "/api/planning/sarin/shape-mappings" });
@@ -111,7 +98,6 @@ beforeAll(async () => {
   root = await makeUser("val.root", "SUPER_ADMIN");
   mapperA = await makeUser("val.mapper.a", "PLANNER");
   mapperB = await makeUser("val.mapper.b", "PLANNER");
-  // An explicitly built mapping-manager role, created and assigned through the real admin routes.
   const code = `SARIN_MAPPER_${Date.now().toString(36).toUpperCase()}`;
   resetRateLimits();
   const role = await call(rolesPost, { method: "POST", cookie: root.cookie, body: { op: "createRole", code, name: "Sarin Mapping Manager", permissions: ["sarin.mapping.read", "sarin.mapping.manage"] } });
@@ -122,19 +108,16 @@ beforeAll(async () => {
     if (r.status !== 200) throw new Error(`role assign failed ${r.status}`);
   }
 });
-// Every test starts from the standard catalog; a test that changes it does so through the API.
 beforeEach(async () => {
   resetRateLimits();
   standardSetId = await applyCatalog(mapperA.cookie, STANDARD_RULES);
 });
 
-/** Asserts that exactly one entry of `list` deep-equals `entry`, reporting the list if not. */
 function expectListed(list: unknown[], entry: unknown) {
   const hits = list.filter((x) => JSON.stringify(x) === JSON.stringify(entry)).length;
   if (hits !== 1) throw new Error(`expected exactly one ${JSON.stringify(entry)} in ${JSON.stringify(list)} (found ${hits})`);
 }
 
-// =========================================================================================
 describe("sarin validation: authorization and scope", () => {
   test("anonymous → 401; roles without sarin.import.validate → 403; nothing is claimed", async () => {
     const batchId = await uploadBatch(planner.cookie, file(stone({ name: `${kapan()}-001 DC` })));
@@ -176,7 +159,6 @@ describe("sarin validation: authorization and scope", () => {
   });
 });
 
-// =========================================================================================
 describe("sarin validation: Stone Name identity", () => {
   test("the parser keeps components exactly and names the specific problem", () => {
     expect(parseSarinStoneName("691C-117 DC", "BLUE")).toEqual({ ok: true, kapan: "691C", packet: "117", signer: "DC" });
@@ -208,8 +190,8 @@ describe("sarin validation: Stone Name identity", () => {
     ]);
     expect([blocks[0].kapan, blocks[0].packet, blocks[0].signer]).toEqual([k, "117", "DC"]);
     expect([blocks[1].packet, blocks[1].signer]).toEqual(["001", "dc"]);
-    expect(blocks[8].stoneName).toBe(` ${k}-123 DC`); // original kept exactly
-    expect([blocks[2].kapan, blocks[2].packet, blocks[2].signer]).toEqual([null, null, null]); // nothing guessed
+    expect(blocks[8].stoneName).toBe(` ${k}-123 DC`);
+    expect([blocks[2].kapan, blocks[2].packet, blocks[2].signer]).toEqual([null, null, null]);
     const issues = (await issuesOf(planner.cookie, batchId)).rows.filter((i: any) => i.code.startsWith("STONE_NAME"));
     expect(issues.map((i: any) => [i.block.sequence, i.code, i.blocking, i.reviewStatus])).toEqual([
       [3, "STONE_NAME_SIGNER_MISSING", true, "OPEN"],
@@ -220,7 +202,6 @@ describe("sarin validation: Stone Name identity", () => {
       [8, "STONE_NAME_INVALID", true, "OPEN"],
       [9, "STONE_NAME_SURROUNDING_WHITESPACE", true, "OPEN"],
     ]);
-    // Findings carry a title and explanation, never the rule behind them.
     expect(typeof issues[0].title).toBe("string");
     expect(/\\|\^|\$\/|regex|SELECT|\[A-Z/.test(JSON.stringify(issues))).toBe(false);
   });
@@ -231,7 +212,6 @@ describe("sarin validation: Stone Name identity", () => {
     await validate(planner.cookie, pink, {});
     const pb = (await blocksOf(planner.cookie, pink)).rows;
     expect(pb.map((b: any) => [b.parseStatus, b.kapan, b.packet, b.signer])).toEqual([["PARSED", pk, "111", "M"], ["QUARANTINED", null, null, null]]);
-    // Identity findings only; these one-record stones also fail the Pink 45-record structure.
     expect((await issuesOf(planner.cookie, pink)).rows.map((i: any) => i.code).filter((c: string) => c.startsWith("STONE_NAME"))).toEqual(["STONE_NAME_TYPE_MISMATCH"]);
 
     const wk = kapan();
@@ -242,7 +222,6 @@ describe("sarin validation: Stone Name identity", () => {
   });
 });
 
-// =========================================================================================
 describe("sarin validation: consecutive blocks and Rough Weight", () => {
   test("blocks follow file order; a rejected record ends a block; a later repeat is its own block and a finding", async () => {
     const k = kapan();
@@ -250,7 +229,7 @@ describe("sarin validation: consecutive blocks and Rough Weight", () => {
     const lines = [
       rec({ name: A }), rec({ name: A }),
       rec({ name: B }),
-      [B, "5.413", "ROUND", "1.664", "IF", "D", "61.6", "1", "7.62", "7.62"].join(","), // 10 fields
+      [B, "5.413", "ROUND", "1.664", "IF", "D", "61.6", "1", "7.62", "7.62"].join(","),
       rec({ name: B }),
       rec({ name: A }),
       rec({ name: C, rough: "5.413" }), rec({ name: C, rough: "5.414" }),
@@ -265,8 +244,8 @@ describe("sarin validation: consecutive blocks and Rough Weight", () => {
       [2, B, 3, 3, 1, "5.413"],
       [3, B, 5, 5, 1, "5.413"],
       [4, A, 6, 6, 1, "5.413"],
-      [5, C, 7, 8, 2, null], // inconsistent: no weight is chosen
-      [6, D, 9, 10, 2, null], // an invalid first weight is never skipped past
+      [5, C, 7, 8, 2, null],
+      [6, D, 9, 10, 2, null],
     ]);
     const issues = (await issuesOf(planner.cookie, batchId)).rows;
     const view = issues.map((i: any) => [i.code, i.block?.sequence ?? null, i.sourceRowNumber, i.details]);
@@ -276,16 +255,13 @@ describe("sarin validation: consecutive blocks and Rough Weight", () => {
     expectListed(view, ["ROUGH_WEIGHT_INVALID", 6, 9, { reason: "ROUGH_WEIGHT_INVALID" }]);
     expectListed(view, ["STONE_NAME_REPEATED_NON_CONSECUTIVE", 3, null, { firstBlockSequence: 2 }]);
     expectListed(view, ["STONE_NAME_REPEATED_NON_CONSECUTIVE", 4, null, { firstBlockSequence: 1 }]);
-    // The rejected record is kept and referenced, never silently dropped.
     expect(await db.sarinSourceRow.count({ where: { batchId } })).toBe(10);
-    // Stable order: the list follows the order findings were raised (contiguous ordinals).
     const stored = await db.sarinValidationIssue.findMany({ where: { batchId, validationAttempt: 1 }, orderBy: { ordinal: "asc" }, select: { id: true, ordinal: true } });
     expect(issues.map((i: any) => i.id)).toEqual(stored.map((i) => i.id));
     expect(stored.map((i) => i.ordinal)).toEqual(stored.map((_, n) => n + 1));
   });
 });
 
-// =========================================================================================
 describe("sarin validation: shape resolution", () => {
   test("exact and conditional rules resolve exactly one shape; everything else is a finding", async () => {
     const k = kapan();
@@ -307,7 +283,7 @@ describe("sarin validation: shape resolution", () => {
     await validate(planner.cookie, batchId, {});
     const interp = (await interpretationsOf(planner.cookie, batchId)).rows;
     expect(interp.map((r: any) => [r.sourceRowNumber, r.mappingResult, r.normalizedShape])).toEqual(shapes.map(([, result, shape], i) => [i + 1, result, shape]));
-    expect(interp[1].rawShape).toBe(" round "); // the raw shape is kept exactly
+    expect(interp[1].rawShape).toBe(" round ");
     expect(interp.every((r: any) => r.mappingSet.id === standardSetId)).toBe(true);
     const issues = (await issuesOf(planner.cookie, batchId)).rows.filter((i: any) => i.code.startsWith("SHAPE") || i.code.startsWith("MAPPING"));
     expect(issues.map((i: any) => [i.sourceRowNumber, i.code])).toEqual(shapes.flatMap(([, , , code], i) => (code ? [[i + 1, code]] : [])));
@@ -335,7 +311,6 @@ describe("sarin validation: shape resolution", () => {
   });
 });
 
-// =========================================================================================
 describe("sarin validation: saving mappings", () => {
   test("a saved mapping is checked and effective at once as a new snapshot; the replaced snapshot is frozen history", async () => {
     const before = standardSetId;
@@ -350,7 +325,6 @@ describe("sarin validation: saving mappings", () => {
       [{ sarinShape: "OVAL", fantasyShape: "Oval", sql: "DROP" }, 400],
     ];
     for (const [body, status] of refusals) expect([body, (await save(mapperA.cookie, body)).status]).toEqual([body, status]);
-    // Nothing refused changed the effective catalog.
     expect(await effectiveSnapshotId()).toBe(before);
 
     const added = await save(mapperA.cookie, { sarinShape: "OVAL", fantasyShape: "Oval" });
@@ -373,7 +347,6 @@ describe("sarin validation: saving mappings", () => {
     expect([changed.status, changed.json.changed]).toEqual([200, true]);
     const now = (await get(readCatalog, mapperA.cookie, "/api/x", {})).json.mappings.filter((m: any) => m.sarinShape === "ROUND");
     expect(now.map((m: any) => [m.fantasyShape, m.updatedBy])).toEqual([["Old European Brilliant", "val.mapper.b"]]);
-    // The earlier snapshot still maps ROUND to Round.
     expect((await db.sarinShapeMappingRule.findFirstOrThrow({ where: { mappingSetId: standardSetId, rawShapeKey: "ROUND" } })).normalizedShape).toBe("Round");
   });
 
@@ -395,7 +368,6 @@ describe("sarin validation: saving mappings", () => {
     expect((await save(mapperA.cookie, { sarinShape: "CUSHION MOD", fantasyShape: "Cushion Modified" })).status).toBe(200);
     const detail = await get(importDetail, planner.cookie, "/api/x", { batchId });
     const lineage = detail.json.validation.lastCompletedAttempt.mappingSet;
-    // Still valid lineage: a replaced snapshot is not a withdrawn mapping.
     expect([lineage.id, lineage.status, detail.json.validation.revalidationRequired]).toEqual([standardSetId, "SUPERSEDED", false]);
     expect((await interpretationsOf(planner.cookie, batchId)).rows[0].mappingSet.id).toBe(standardSetId);
   });
@@ -405,7 +377,6 @@ describe("sarin validation: saving mappings", () => {
     const batchId = await uploadBatch(planner.cookie, file(stone({ name: n, shape: "LeoPear11" })));
     const claim = await claimSarinValidation(serviceActor(), batchId);
     if (claim.kind !== "CLAIMED") throw new Error("expected a claim");
-    // Someone remaps the shape while the attempt is running.
     const pear = (await get(readCatalog, mapperA.cookie, "/api/x", {})).json.mappings.find((m: any) => m.sarinShape === "LeoPear11");
     expect((await save(mapperB.cookie, { ruleId: pear.id, sarinShape: "LeoPear11", fantasyShape: "Heart" })).status).toBe(200);
     await runSarinValidationAttempt(serviceActor(), claim.claim);
@@ -416,7 +387,6 @@ describe("sarin validation: saving mappings", () => {
   });
 
   test("with an empty catalog every shape is written unmapped, each with a non-blocking warning", async () => {
-    // An empty catalog is configured: no shape has a mapping.
     await applyCatalog(mapperA.cookie, []);
     const batchId = await uploadBatch(planner.cookie, file(stone({ name: `${kapan()}-001 DC` })));
     const v = await validate(planner.cookie, batchId, {});
@@ -426,7 +396,6 @@ describe("sarin validation: saving mappings", () => {
   });
 });
 
-// =========================================================================================
 describe("sarin validation: claims, retries and rollback", () => {
   test("two overlapping validation requests start exactly one attempt", async () => {
     const k = kapan();
@@ -450,7 +419,6 @@ describe("sarin validation: claims, retries and rollback", () => {
     const busy = await validate(planner.cookie, batchId, {});
     expect([busy.status, busy.json.error.code]).toEqual([409, "VALIDATION_IN_PROGRESS"]);
 
-    // The first worker crashes: its lease runs out.
     await db.sarinImportBatch.update({ where: { id: batchId }, data: { leaseExpiresAt: new Date(Date.now() - 60_000) } });
     const reclaimed = await validate(planner.cookie, batchId, {});
     expect([reclaimed.status, reclaimed.json.batch.status, reclaimed.json.validation.attemptCount]).toEqual([200, "VALIDATED", 2]);
@@ -458,7 +426,6 @@ describe("sarin validation: claims, retries and rollback", () => {
     expect(attempts.map((a) => [a.attemptNumber, a.status, a.failureCode])).toEqual([[1, "ABANDONED", "VALIDATION_LEASE_EXPIRED"], [2, "COMPLETED", null]]);
     expect(await db.auditLog.count({ where: { action: "SARIN_VALIDATION_ABANDONED", entityId: batchId } })).toBe(1);
 
-    // The stale worker wakes up: it can neither finalize nor release the newer claim.
     await expect(runSarinValidationAttempt(serviceActor(), first.claim)).rejects.toThrow(/no longer current/);
     expect(await failSarinValidationAttempt(serviceActor(), first.claim, "STALE_WORKER")).toBe(false);
     const after = await db.sarinImportBatch.findUniqueOrThrow({ where: { id: batchId } });
@@ -480,18 +447,15 @@ describe("sarin validation: claims, retries and rollback", () => {
     expect([again.status, again.json.reused]).toEqual([200, true]);
     expect(await snapshot()).toEqual(before);
 
-    // A range covering Ratio 1.200 makes a new snapshot; checking the file again uses it.
     await applyCatalog(mapperA.cookie, [...STANDARD_RULES, { rawShape: "EMERALD 5STEP", normalizedShape: "Emerald", conditionKind: "RATIO_RANGE", ratioMin: "1.100", ratioMax: "1.300" }]);
     const next = await validate(planner.cookie, batchId, {});
     expect([next.json.reused, next.json.batch.status, next.json.validation.lastCompletedAttempt.number]).toEqual([false, "VALIDATED", 2]);
-    // Prior evidence stays: attempt 1's interpretations remain; its findings are superseded, not deleted.
     expect(await db.sarinRowInterpretation.count({ where: { batchId, validationAttempt: 1 } })).toBe(34);
-    // Attempt 1's findings for that row: the Ratio outside every range and the plan it leaves shapeless.
     expect((await db.sarinValidationIssue.findMany({ where: { batchId, validationAttempt: 1 }, orderBy: { ordinal: "asc" } })).map((i) => [i.code, i.status])).toEqual([
       ["MAPPING_NO_CONDITIONAL_RULE", "SUPERSEDED"],
       ["NORMALIZED_SHAPE_MISSING", "SUPERSEDED"],
     ]);
-    expect(await db.sarinStoneBlock.count({ where: { batchId } })).toBe(2); // blocks reused, not duplicated
+    expect(await db.sarinStoneBlock.count({ where: { batchId } })).toBe(2);
     const firstAttempt = await interpretationsOf(planner.cookie, batchId, "?attempt=1");
     expect([firstAttempt.total, firstAttempt.rows.every((r: any) => r.mappingSet.id === standardSetId)]).toEqual([34, true]);
   });
@@ -500,7 +464,7 @@ describe("sarin validation: claims, retries and rollback", () => {
     const k = kapan();
     const lines = Array.from({ length: 68 }, (_, i) => rec({ name: `${k}-${String(Math.floor(i / 17)).padStart(3, "0")} DC`, ...(i === 0 ? { shape: "EMERALD 5STEP", ratio: "1.200" } : { shape: "ROUND" }) }));
     const batchId = await uploadBatch(planner.cookie, file(lines));
-    await validate(planner.cookie, batchId, {}); // attempt 1: NEEDS_REVIEW (Ratio 1.200 is outside every EMERALD 5STEP range)
+    await validate(planner.cookie, batchId, {});
     await applyCatalog(mapperA.cookie, [...STANDARD_RULES, { rawShape: "OVAL", normalizedShape: "Oval" }]);
     await db.$executeRawUnsafe(`
       CREATE OR REPLACE FUNCTION test_inject_interpretation_failure() RETURNS trigger AS $$
@@ -528,24 +492,20 @@ describe("sarin validation: claims, retries and rollback", () => {
     expect(attempts.map((a) => [a.attemptNumber, a.status, a.result])).toEqual([[1, "COMPLETED", "NEEDS_REVIEW"], [2, "FAILED", null]]);
     expect(await db.sarinRowInterpretation.count({ where: { batchId, validationAttempt: 2 } })).toBe(0);
     expect(await db.sarinValidationIssue.count({ where: { batchId, validationAttempt: 2 } })).toBe(0);
-    // Attempt 1 is untouched: its interpretations and still-open findings remain the current result.
     expect(await db.sarinRowInterpretation.count({ where: { batchId, validationAttempt: 1 } })).toBe(68);
-    expect(await db.sarinValidationIssue.count({ where: { batchId, validationAttempt: 1, status: "OPEN" } })).toBe(2); // MAPPING_NO_CONDITIONAL_RULE + NORMALIZED_SHAPE_MISSING
+    expect(await db.sarinValidationIssue.count({ where: { batchId, validationAttempt: 1, status: "OPEN" } })).toBe(2);
     const detail = await get(importDetail, planner.cookie, "/api/x", { batchId });
     expect([detail.json.validation.latestAttempt.status, detail.json.validation.lastCompletedAttempt.number]).toEqual(["FAILED", 1]);
     expect(await db.auditLog.count({ where: { action: "SARIN_VALIDATION_FAILED", entityId: batchId } })).toBe(1);
 
-    // A first attempt that fails after writing blocks leaves no blocks behind either.
     expect(fresh!.status).toBe(500);
     expect(await db.sarinStoneBlock.count({ where: { batchId: freshId } })).toBe(0);
 
     const retry = await validate(planner.cookie, batchId, {});
-    // The retry completes; the out-of-range row keeps the batch in review.
     expect([retry.status, retry.json.batch.status, retry.json.validation.lastCompletedAttempt.number]).toEqual([200, "NEEDS_REVIEW", 3]);
   });
 });
 
-// =========================================================================================
 describe("sarin validation: UTC time stamps", () => {
   test("times stamped by the database are UTC, like every Prisma-written time", async () => {
     const batchId = await uploadBatch(planner.cookie, file([rec({ name: `${kapan()}-001 DC` })]));
@@ -556,13 +516,11 @@ describe("sarin validation: UTC time stamps", () => {
     const set = await db.sarinShapeMappingSet.findUniqueOrThrow({ where: { id: standardSetId } });
     expect([near(batch.statusChangedAt), near(batch.createdAt), near(attempt.finishedAt), near(attempt.startedAt)]).toEqual([true, true, true, true]);
     expect(set.effectiveAt !== null && set.effectiveAt.getTime() <= Date.now() + 60_000).toBe(true);
-    // The seeded baseline is corrected to UTC: it can never appear to be created in the future.
     const baseline = await db.sarinShapeMappingSet.findUniqueOrThrow({ where: { sourceSystem_version: { sourceSystem: "SARIN", version: 1 } } });
     expect(baseline.createdAt.getTime() <= Date.now() + 60_000).toBe(true);
   });
 });
 
-// =========================================================================================
 describe("sarin validation: registries and bounded reads", () => {
   test("uploads need a registered lab; a scope code alone is not enough", async () => {
     const scoped = await makeUser("val.scoped.labx", "PLANNER");
@@ -584,7 +542,6 @@ describe("sarin validation: registries and bounded reads", () => {
   test("blocks, findings and interpretations are paginated, ordered, filtered and bounded", async () => {
     const k = kapan();
     const batchId = await uploadBatch(planner.cookie, file(Array.from({ length: 120 }, (_, i) => rec({ name: `${k}-${String(i).padStart(3, "0")} DC`, shape: i % 2 ? "HEXAGON" : "ROUND" }))));
-    // HEXAGON has no mapping: each such row carries one pass-through warning.
     await validate(planner.cookie, batchId, {});
     const p1 = await blocksOf(planner.cookie, batchId, "?pageSize=50&page=1");
     const p3 = await blocksOf(planner.cookie, batchId, "?pageSize=50&page=3");
@@ -598,11 +555,8 @@ describe("sarin validation: registries and bounded reads", () => {
     for (const q of ["?pageSize=501", "?parseStatus=BOGUS"]) expect((await get(listBlocks, planner.cookie, `/api/x${q}`, { batchId })).status).toBe(400);
     for (const q of ["?pageSize=501", "?severity=BOGUS", "?status=BOGUS", "?code=DROP_TABLE", "?attempt=0"]) expect((await get(listIssues, planner.cookie, `/api/x${q}`, { batchId })).status).toBe(400);
     expect((await get(listInterpretations, planner.cookie, "/api/x?mappingResult=BOGUS", { batchId })).status).toBe(400);
-    // The batch detail stays a bounded summary.
     const detail = (await get(importDetail, planner.cookie, "/api/x", { batchId })).json;
     expect(detail.validation.lastCompletedAttempt.blocks).toEqual({ total: 120, parsed: 120, quarantined: 0 });
-    // 60 unmapped-shape warnings (one per record, no second finding), plus 120 one-record
-    // stones shorter than the Blue main-plan limit.
     expect(detail.validation.lastCompletedAttempt.issues.total).toBe(180);
     expect(JSON.stringify(detail).length).toBeLessThan(4000);
   });

@@ -20,19 +20,8 @@ import {
 import { CANONICAL_LIFECYCLES, HOLD_STATES, INVENTORY_CLASSES } from "@/lib/fantasy/classification";
 import { CANONICAL_QUANTITY_PROVENANCES, resolveCanonicalQuantity } from "@/lib/fantasy/quantity-weight";
 
-/**
- * Centralized inventory buckets.
- *
- * Two derivations exist — one in SQL, one in memory — because aggregation happens in the
- * database while row-level rendering happens in TypeScript. A second derivation is a
- * second place to be wrong, so the first suite drives both over the complete cross
- * product of classification inputs against the real database and asserts they never
- * disagree. The remaining suites pin the branch order and the current-stock rule.
- */
-
 const BATCH = "BUCKET-CENTRAL-TEST";
 
-/** Every classification input the canonical model can hold, including the null cases. */
 const CLASSIFICATION_STATES: Array<string | null> = [null, "CLASSIFIED", "BLOCKED", "NOT_CONFIGURED"];
 const CLASSES: Array<string | null> = [null, ...INVENTORY_CLASSES];
 const HOLDS: Array<string | null> = [null, ...HOLD_STATES];
@@ -72,9 +61,6 @@ describe("Inventory buckets — SQL and in-memory derivations agree", () => {
   beforeAll(async () => {
     await resetDb();
     await clearFixtures();
-    // `roughOrPolished` is non-nullable on the model, so the null form is represented by
-    // the string the adapter writes when the source does not say. The SQL and the TS
-    // branch on the same value either way.
     await db.lotMasterRecord.createMany({
       data: combos.map((c) => ({
         lotId: c.lotId,
@@ -143,8 +129,6 @@ describe("Inventory buckets — SQL and in-memory derivations agree", () => {
   });
 
   test("an unclassified record can never reach an available bucket", async () => {
-    // The restrictive branches are tested first, so nothing classified as physically
-    // available becomes available while its classification is missing or incomplete.
     const escaped = combos
       .filter((c) => c.classificationState !== "CLASSIFIED" || c.inventoryClass === null)
       .map((c) =>
@@ -188,9 +172,6 @@ describe("Inventory buckets — SQL and in-memory derivations agree", () => {
 
 describe("Inventory buckets — the raw vocabulary is never treated as a bucket", () => {
   test("no raw inventoryClass value is a valid bucket key", () => {
-    // This is the defect the centralization removes: `inventoryClass` holds
-    // PHYSICAL_AVAILABLE, RESERVED, MEMO, WIP, EXCLUDED, none of which is a bucket. Any
-    // module that casts one to `InventoryBucket` produces a filter that matches nothing.
     const accepted = INVENTORY_CLASSES.filter((c) => isInventoryBucket(c));
     expect(accepted).toEqual([]);
   });
@@ -213,7 +194,6 @@ describe("Inventory buckets — current-stock eligibility", () => {
   beforeAll(async () => {
     await db.lotHistoryRecord.deleteMany({ where: { syncBatchId: LIFECYCLE_BATCH } });
     await db.lotMasterRecord.deleteMany({ where: { lastSyncBatchId: LIFECYCLE_BATCH } });
-    // One record per lifecycle, plus the null case, all flagged current by the feed.
     const lifecycles: Array<string | null> = [null, ...CANONICAL_LIFECYCLES];
     await db.lotMasterRecord.createMany({
       data: lifecycles.map((lifecycle, i) => ({
@@ -255,8 +235,6 @@ describe("Inventory buckets — current-stock eligibility", () => {
   });
 
   test("a null lifecycle stays visible rather than being silently dropped", async () => {
-    // `NOT IN` returns NULL for a NULL left-hand side, so an implementation that relied on
-    // SQL `<>` semantics would drop exactly the records that most need review.
     const rows = await db.$queryRaw<Array<{ lifecycle: string | null }>>`
       SELECT "m"."canonicalLifecycle" AS lifecycle
       FROM "LotMasterRecord" "m"
@@ -306,7 +284,6 @@ describe("Inventory buckets — current-stock eligibility", () => {
   });
 
   test("UNKNOWN is not treated as a departure", () => {
-    // Unknown is a reason to review a record, not evidence that the goods have left.
     expect((NON_INVENTORY_LIFECYCLES as readonly string[]).includes("UNKNOWN")).toBe(false);
     expect(isCurrentStock({ isCurrent: true, canonicalLifecycle: "UNKNOWN" })).toBe(true);
   });
@@ -315,11 +292,6 @@ describe("Inventory buckets — current-stock eligibility", () => {
 describe("Inventory buckets — the confirmed-quantity rule is the same in SQL and in memory", () => {
   const QTY_BATCH = `${BATCH}-QTY`;
 
-  /**
-   * Every shape a stored quantity can take: recorded provenance of each kind, no recorded
-   * provenance at all, an unrecognized provenance string, and the values that must not be
-   * counted — zero, fractional and negative — against both a fixture and a live source.
-   */
   const QUANTITY_CASES: Array<{ provenance: string | null; quantity: number; sourceType: string; simulated: boolean }> = [];
   {
     const provenances: Array<string | null> = [null, "NOT_A_REAL_CODE", ...CANONICAL_QUANTITY_PROVENANCES];
@@ -402,8 +374,6 @@ describe("Inventory buckets — the confirmed-quantity rule is the same in SQL a
   });
 
   test("zero, fractional and oversized-but-whole quantities are handled as the rule says", async () => {
-    // Zero has no confirmed meaning, a fraction is not a piece count, and a large whole
-    // number is simply a large piece count — the rule has no magic ceiling.
     const rows = await db.$queryRaw<Array<{ q: string; pieces: number | null }>>`
       SELECT "m"."quantity"::text AS q, ${confirmedQuantitySql("m")}::float8 AS pieces
       FROM "LotMasterRecord" "m"
@@ -422,8 +392,6 @@ describe("Inventory buckets — the confirmed-quantity rule is the same in SQL a
       WHERE "m"."lastSyncBatchId" = ${QTY_BATCH}
         AND ${confirmedQuantitySql("m")} IS NULL
         AND NOT ${needsReviewSql("m")}`;
-    // Every record here is classified, so an uncountable quantity is the only reason to
-    // flag one — and no such record may escape the flag.
     expect(Number(flagged[0]?.n ?? 0)).toBe(0);
   });
 
@@ -468,7 +436,6 @@ describe("Inventory buckets — the definition is not duplicated", () => {
           const rel = full.split(path.sep).join("/");
           if (rel.endsWith("src/lib/analysis/inventory-buckets.ts")) continue;
           const text = fs.readFileSync(full, "utf8");
-          // The bucket names appearing next to a SQL CASE is the copy this checks for.
           if (/CASE[\s\S]{0,400}'REVIEW_REQUIRED'/.test(text)) offenders.push(rel);
         }
       }
@@ -524,6 +491,5 @@ describe("Inventory buckets — the module stays server-side", () => {
   });
 });
 
-// Keeps the imported type referenced so a rename of the exported type fails the build.
 const _bucketType: InventoryBucket = "PHYSICAL_AVAILABLE_POLISHED";
 void _bucketType;

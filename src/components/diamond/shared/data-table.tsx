@@ -48,17 +48,11 @@ export interface Column<T> {
   cell: (row: T) => ReactNode;
   sortable?: boolean;
   sortValue?: (row: T) => number | string;
-  // Plain value written to CSV. Defaults to the primitive cell output, then row[key], then sortValue.
   exportValue?: (row: T) => string | number | boolean | null | undefined;
-  // Custom string value for per-column filter matching. Defaults to exportValue, then row[key], then sortValue.
   filterValue?: (row: T) => string | number | boolean | null | undefined;
   width?: string;
   sticky?: "left" | "right";
   align?: "left" | "right" | "center";
-  /**
-   * Let long text wrap onto several lines. Off by default: cells stay on one line at the
-   * compact row height, truncate with an ellipsis, and show the full value as a tooltip.
-   */
   wrap?: boolean;
 }
 
@@ -92,10 +86,6 @@ export function getColumnValueString<T>(col: Column<T>, row: T): string {
   return String(raw);
 }
 
-/**
- * The full text of a truncated cell, for its tooltip: the plain value the cell shows, never
- * an export representation (which may be structured) and never a placeholder.
- */
 function cellTooltip<T>(col: Column<T>, row: T): string | undefined {
   const raw = (row as Record<string, unknown>)[col.key];
   const value = typeof raw === "string" || typeof raw === "number" ? String(raw) : col.filterValue ? col.filterValue(row) : undefined;
@@ -111,14 +101,6 @@ export interface DataTableProps<T> {
   rows: T[];
   loading?: boolean;
   emptyMessage?: string;
-  /**
-   * Who scrolls the rows vertically. Never decided by how many rows happen to be loaded.
-   * - "flow" (default): the table is as tall as its rows and the enclosing scroller (the page,
-   *   a dialog or a sheet) scrolls them; the table itself scrolls only horizontally.
-   * - "bounded": the rows scroll inside a viewport-aware height under a sticky header, for a
-   *   long unpaginated list that sits beside other panels. The region is focusable for
-   *   keyboard scrolling, and reaching either end hands the gesture back to the page.
-   */
   scroll?: "flow" | "bounded";
   onRowClick?: (row: T) => void;
   rowClassName?: (row: T) => string;
@@ -131,33 +113,17 @@ export interface DataTableProps<T> {
   excelExportFilename?: string;
   pdfExportable?: boolean;
   pdfExportFilename?: string;
-  /**
-   * Required whenever any export is enabled: the permission that authorizes exporting
-   * THIS dataset. There is no default — a generic table must not inherit a
-   * domain-specific policy such as demand.export.
-   */
   exportPermission?: Permission;
-  /**
-   * Set when the table shows one server page of a larger dataset. The client-side
-   * export then only claims the rows the user already has, and the button says so.
-   */
   exportScope?: "all-loaded-rows" | "current-page";
   searchable?: boolean;
   searchPlaceholder?: string;
   searchFn?: (row: T, q: string) => boolean;
   pageSize?: number;
   pagination?: boolean;
-  /**
-   * Enable interactive column filtering (show/hide), column reordering, resizing, and per-column value filters.
-   * Defaults to true.
-   */
   enableColumnFilter?: boolean;
   enableColumnReorder?: boolean;
   enableColumnResize?: boolean;
   enableColumnValueFilter?: boolean;
-  /**
-   * Optional storage ID to persist custom column order/visibility in localStorage.
-   */
   tableId?: string;
 }
 
@@ -197,8 +163,6 @@ export function DataTable<T>({
   const user = useAuthStore((s) => s.user);
   const exportRequested = exportable || excelExportable || pdfExportable;
 
-  // Fail loudly in development when a table offers an export without an export policy,
-  // instead of silently applying someone else's permission.
   if (
     exportRequested &&
     !exportPermission &&
@@ -212,12 +176,6 @@ export function DataTable<T>({
     );
   }
 
-  // This control serialises rows the browser already received from a list endpoint that
-  // authorized them under its own read permission. It is a convenience download, not a
-  // server-authorized export: a user who can see the table can obtain the same bytes
-  // from the API directly. Sensitive and full-dataset exports must go through a server
-  // endpoint with its own export permission (see /api/fantasy/overall/export) — those
-  // are not built on this control.
   const userCanExport =
     Boolean(exportPermission) &&
     Boolean(user?.permissions.includes(exportPermission as Permission));
@@ -230,16 +188,12 @@ export function DataTable<T>({
   const rootRef = useRef<HTMLDivElement>(null);
   const bounded = scroll === "bounded";
 
-  // Column layout: the user's column order, hidden columns and widths start from the layout
-  // saved for this tableId. The order shown is derived from the user's order and the current
-  // column definitions, so a column added or removed by the caller needs no syncing.
   const [savedLayout] = useState(() => readTableLayout(tableId));
   const [layoutFor, setLayoutFor] = useState(tableId);
   const [userOrder, setUserOrder] = useState<string[]>(savedLayout.orderedKeys);
   const [hiddenKeys, setHiddenKeys] = useState<Set<string>>(() => new Set(savedLayout.hiddenKeys));
   const [colWidths, setColWidths] = useState<Record<string, number>>(savedLayout.colWidths);
   if (layoutFor !== tableId) {
-    // The same table slot now shows another table: switch to that table's saved layout.
     const next = readTableLayout(tableId);
     setLayoutFor(tableId);
     setUserOrder(next.orderedKeys);
@@ -249,26 +203,21 @@ export function DataTable<T>({
   const columnKeys = useMemo(() => initialColumns.map((c) => c.key), [initialColumns]);
   const orderedKeys = useMemo(() => reconcileColumnOrder(userOrder, columnKeys), [userOrder, columnKeys]);
 
-  // Column search inside customize columns popover
   const [columnSearch, setColumnSearch] = useState("");
 
-  // Per-column value filters state: maps colKey -> Set of allowed values
   const [columnFilters, setColumnFilters] = useState<
     Record<string, Set<string>>
   >({});
 
-  // Drag-and-drop state for column header reordering
   const [draggedColKey, setDraggedColKey] = useState<string | null>(null);
   const [dragOverColKey, setDragOverColKey] = useState<string | null>(null);
 
-  // Resizing state
   const resizingRef = useRef<{
     key: string;
     startX: number;
     startWidth: number;
   } | null>(null);
 
-  // Save to localStorage when layout changes
   const persistLayout = useCallback(
     (keys: string[], hidden: Set<string>, widths: Record<string, number>) => {
       if (!tableId || typeof window === "undefined") return;
@@ -288,7 +237,6 @@ export function DataTable<T>({
     [tableId]
   );
 
-  // Map of column definition by key
   const columnMap = useMemo(() => {
     const map = new Map<string, Column<T>>();
     for (const col of initialColumns) {
@@ -297,7 +245,6 @@ export function DataTable<T>({
     return map;
   }, [initialColumns]);
 
-  // Ordered list of all columns
   const allOrderedColumns = useMemo(() => {
     const list: Column<T>[] = [];
     for (const key of orderedKeys) {
@@ -312,12 +259,10 @@ export function DataTable<T>({
     return list;
   }, [orderedKeys, columnMap, initialColumns]);
 
-  // Visible columns (reordered and filtered)
   const visibleColumns = useMemo(() => {
     return allOrderedColumns.filter((col) => !hiddenKeys.has(col.key));
   }, [allOrderedColumns, hiddenKeys]);
 
-  // Height of the row viewport while rows are shown
   const lastHeightRef = useRef(0);
   useLayoutEffect(() => {
     const el = scrollRef.current;
@@ -331,13 +276,10 @@ export function DataTable<T>({
     }
   });
 
-  // A new sort, search, page or dataset starts a bounded row viewport at its top.
   useEffect(() => {
     if (bounded) scrollRef.current?.scrollTo({ top: 0 });
   }, [bounded, sortKey, sortDir, query, page, rows, columnFilters]);
 
-  // A flowing table paged from its bottom bar would leave the reader at the end of the new
-  // page: bring the table's top back into view when it has scrolled out above.
   const shownPage = useRef(page);
   useEffect(() => {
     if (shownPage.current === page) return;
@@ -347,13 +289,11 @@ export function DataTable<T>({
     if (!bounded && root && root.getBoundingClientRect().top < scrollerTop) root.scrollIntoView({ block: "start" });
   }, [bounded, page]);
 
-  // Filter processed rows by global search AND by active per-column filters
   let processed = rows;
   if (searchable && searchFn && query) {
     processed = processed.filter((r) => searchFn(r, query));
   }
 
-  // Apply per-column value filters
   const activeColumnFilterKeys = useMemo(() => {
     return Object.keys(columnFilters).filter((k) => {
       const set = columnFilters[k];
@@ -377,7 +317,6 @@ export function DataTable<T>({
     });
   }
 
-  // Sorting
   if (sortKey) {
     const col = columnMap.get(sortKey);
     if (col?.sortValue) {
@@ -408,7 +347,6 @@ export function DataTable<T>({
     }
   };
 
-  // Reorder column helper
   const moveColumn = (
     key: string,
     direction: "left" | "right" | "up" | "down"
@@ -437,7 +375,6 @@ export function DataTable<T>({
     persistLayout(updated, hiddenKeys, colWidths);
   };
 
-  // Visibility toggle helper
   const toggleColumnVisibility = (key: string) => {
     setHiddenKeys((prev) => {
       const next = new Set(prev);
@@ -479,7 +416,6 @@ export function DataTable<T>({
     setPage(1);
   };
 
-  // Column resizing handlers
   const handleResizeStart = (e: React.MouseEvent, colKey: string) => {
     e.preventDefault();
     e.stopPropagation();
@@ -551,7 +487,6 @@ export function DataTable<T>({
     );
   }, [allOrderedColumns, columnSearch]);
 
-  // Compute distinct values and counts for all columns
   const columnValueCounts = useMemo(() => {
     const map: Record<string, { value: string; count: number }[]> = {};
     for (const col of initialColumns) {
@@ -563,7 +498,6 @@ export function DataTable<T>({
       const sorted = Array.from(counts.entries())
         .map(([value, count]) => ({ value, count }))
         .sort((a, b) => {
-          // Sort by numeric value if both are numbers, otherwise alphabetically
           const numA = Number(a.value);
           const numB = Number(b.value);
           if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
@@ -604,7 +538,6 @@ export function DataTable<T>({
         </div>
       )}
 
-      {/* Clear All Column Filters Button */}
       {activeColumnFilterKeys.length > 0 && (
         <Button
           variant="outline"
@@ -618,7 +551,6 @@ export function DataTable<T>({
         </Button>
       )}
 
-      {/* Column Customizer / Filter Popover */}
       {enableColumnFilter && (
         <Popover>
           <PopoverTrigger asChild>
@@ -791,20 +723,14 @@ export function DataTable<T>({
       data-table-root
       data-table-scroll={scroll}
       className={cn(
-        // `isolate` keeps the sticky header's and sticky columns' z-index inside the table, so
-        // they never paint over the page's own sticky headers.
         "isolate flex flex-col bg-card",
-        // Inside a Section the panel already draws the border; a second card is not repeated.
         !inSection && "overflow-clip rounded-lg border border-border/80",
       )}
     >
-      {/* If inside a Section with a header and table has no title, portal toolbar controls to Section header */}
       {shouldPortalToSectionHeader && headerSlot && createPortal(toolbarControls, headerSlot)}
 
-      {/* Standalone Table Header: Title on Left, Search/Columns/Exports/Count on Right */}
       {!shouldPortalToSectionHeader && hasToolbarItems && (
         <div className="flex flex-shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border bg-muted/30 px-card py-1.5">
-          {/* Left: Title & Subtle description */}
           <div className="flex items-center gap-2 min-w-0">
             {title && (
               <h2 className="truncate text-[13px] font-semibold text-foreground">
@@ -818,23 +744,17 @@ export function DataTable<T>({
             )}
           </div>
 
-          {/* Right: Search + Active Filter Badges + Columns Popover + Toolbar + Exports + Row Count */}
           {toolbarControls}
         </div>
       )}
 
-      {/* Table Scroll Area */}
       <div
         ref={scrollRef}
         data-table-viewport
-        // Horizontal overflow is always the table's own; vertical is the page's unless the
-        // table is bounded. `overflow-y-hidden` on a flowing table clips nothing (it is as tall
-        // as its rows) and lets a vertical wheel or swipe over it scroll the page.
         className={cn(
           "w-full max-w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
           bounded ? "overflow-auto" : "overflow-x-auto overflow-y-hidden",
         )}
-        // Only an independently scrolling region is a focusable, named landmark.
         {...(bounded ? { tabIndex: 0, role: "region", "aria-label": title ? `${title} rows` : "Table rows" } : {})}
         style={bounded ? { maxHeight: BOUNDED_REGION_MAX_HEIGHT } : undefined}
       >
@@ -940,8 +860,6 @@ export function DataTable<T>({
                         {c.header}
                       </span>
 
-                      {/* Sort Indicator Arrow */}
-                      {/* Decorative: the header's aria-sort carries the sort state. */}
                       {c.sortable && (
                         <span aria-hidden="true" className="text-[9px] shrink-0 select-none">
                           {sortKey === c.key ? (
@@ -952,7 +870,6 @@ export function DataTable<T>({
                         </span>
                       )}
 
-                      {/* Per-Column Value Filter Popover — visible when active or on header hover */}
                       {enableColumnValueFilter && (
                         <div className={cn(
                           "transition-opacity shrink-0",
@@ -985,7 +902,6 @@ export function DataTable<T>({
                       )}
                     </div>
 
-                    {/* Column Resizer Handle */}
                     {enableColumnResize && (
                       <div
                         onMouseDown={(e) => handleResizeStart(e, c.key)}
@@ -1032,7 +948,6 @@ export function DataTable<T>({
                   className={cn(
                     "h-row border-b border-border/40 transition-colors duration-150 last:border-b-0",
                     onRowClick && "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-                    // zebra striping
                     idx % 2 === 1 && !onRowClick && "bg-muted/15",
                     onRowClick
                       ? "cursor-pointer hover:bg-[#FEEBD8] dark:hover:bg-white/[0.06] hover:text-foreground"
@@ -1106,9 +1021,6 @@ export function DataTable<T>({
   );
 }
 
-/**
- * Dedicated Popover Component for filtering distinct values of a specific column.
- */
 function ColumnValueFilterPopover<T>({
   column,
   allUniqueValues,
@@ -1125,14 +1037,11 @@ function ColumnValueFilterPopover<T>({
   const [open, setOpen] = useState(false);
   const [searchValue, setSearchValue] = useState("");
 
-  // The applied filter, or every value when no filter is applied.
   const appliedSelection = () =>
     activeSelectedValues && activeSelectedValues.size > 0
       ? new Set(activeSelectedValues)
       : new Set(allUniqueValues.map((v) => v.value));
 
-  // Selection being edited. It starts from the applied filter each time the popover opens,
-  // so a change made elsewhere (Reset, Clear filters) is what the next edit starts from.
   const [stagedSelection, setStagedSelection] = useState<Set<string>>(appliedSelection);
   const handleOpenChange = (next: boolean) => {
     if (next) setStagedSelection(appliedSelection());
@@ -1204,7 +1113,6 @@ function ColumnValueFilterPopover<T>({
         className="w-64 p-2.5 space-y-2.5 bg-popover shadow-xl border border-border"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header with Title and Close Button */}
         <div className="flex items-center justify-between border-b border-border/80 pb-1.5">
           <div className="flex items-center gap-1.5 min-w-0">
             <Filter className="h-3.5 w-3.5 text-primary flex-shrink-0" />
@@ -1221,7 +1129,6 @@ function ColumnValueFilterPopover<T>({
           </button>
         </div>
 
-        {/* Search Values */}
         <div className="relative">
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
           <Input
@@ -1232,7 +1139,6 @@ function ColumnValueFilterPopover<T>({
           />
         </div>
 
-        {/* Quick Select/Deselect Bar */}
         <div className="flex items-center justify-between text-[10px] text-muted-foreground px-0.5">
           <div className="flex items-center gap-2">
             <button
@@ -1256,7 +1162,6 @@ function ColumnValueFilterPopover<T>({
           </span>
         </div>
 
-        {/* Value Checkbox List */}
         <div className="max-h-48 overflow-y-auto space-y-0.5 pr-0.5 border rounded border-border/60 p-1 bg-muted/10">
           {filteredValues.length === 0 ? (
             <div className="text-[11px] text-center text-muted-foreground py-3">
@@ -1290,7 +1195,6 @@ function ColumnValueFilterPopover<T>({
           )}
         </div>
 
-        {/* Footer Actions */}
         <div className="flex items-center justify-between pt-1 border-t border-border/80">
           <Button
             type="button"

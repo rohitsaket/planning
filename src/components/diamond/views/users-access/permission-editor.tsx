@@ -8,13 +8,6 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import type { PermissionMeta } from "./shared";
 
-/**
- * Permissions grouped by business area, each shown as a plain-language capability.
- *
- * There is deliberately no "select everything": the broadest bulk action is choosing the
- * non-sensitive View permissions of one area. Sensitive permissions (approvals, exports,
- * overrides, unlocks, administration) are always chosen one by one and confirmed on save.
- */
 export function PermissionEditor({
   areas,
   catalog,
@@ -28,7 +21,6 @@ export function PermissionEditor({
   selected: ReadonlySet<string>;
   onChange: (next: Set<string>) => void;
   readOnly: boolean;
-  /** The saved permissions, to mark what an unsaved change adds or removes. */
   baseline: ReadonlySet<string>;
 }) {
   const [query, setQuery] = useState("");

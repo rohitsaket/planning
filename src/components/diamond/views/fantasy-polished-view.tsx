@@ -117,7 +117,6 @@ export function FantasyPolishedView() {
   return (
     <div data-page-body className="flex flex-col gap-section px-page-x py-page-y">
 
-      {/* KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2 flex-shrink-0">
         <KpiCard label="Total Polished Lots" value={data?.total ?? 0} unit="lots" intent="success" hint="After filters applied" />
         <KpiCard label="Total Weight" value={totalWeight.toFixed(2)} unit="ct" intent="default" hint="Sum of selected rows" />
@@ -125,7 +124,6 @@ export function FantasyPolishedView() {
         <KpiCard label="With Certificate #" value={certCount} unit="lots" intent="default" hint="Lots with a certificate number" />
       </div>
 
-      {/* Filters */}
       <div className="flex items-center gap-3 flex-wrap flex-shrink-0">
         <FilterSelect label="Plan Class" value={planningClass} onChange={setPlanningClass} options={PLANNING_CLASS_OPTIONS} placeholder="All classes" width="140px" />
         <FilterSelect

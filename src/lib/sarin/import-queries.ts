@@ -1,12 +1,3 @@
-/**
- * Import history reads. Every query applies the caller's lab scope inside the
- * database WHERE clause, so an out-of-scope batch is simply not found (404) and every
- * count and total is already narrowed. Every read is bounded and paginated; neither the
- * file bytes nor a batch's full row collection is ever embedded in a response.
- *
- * Server-only.
- */
-
 import { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { scopeWhere, type EffectiveScope } from "@/lib/auth/access-scope";
@@ -29,9 +20,7 @@ export interface SarinRowCounts {
 
 export interface SarinImportSummary {
   readonly id: string;
-  /** The batch lifecycle status. A new upload is UPLOADED: stored, not validated. */
   readonly status: string;
-  /** How many validation attempts have started. 0 means validation has not run. */
   readonly validationAttempts: number;
   readonly packetType: string;
   readonly planningDate: string;
@@ -42,18 +31,10 @@ export interface SarinImportSummary {
   readonly createdAt: string;
   readonly statusChangedAt: string;
   readonly archivedAt: string | null;
-  /** Who uploaded it, by display name; null when that account no longer exists. */
   readonly uploadedBy: string | null;
-  /**
-   * Stones found by validation. Null until a validation has run: blocks are derived by
-   * validation, never by the upload, so nothing is claimed before then.
-   */
   readonly stones: { readonly detected: number; readonly identityResolved: number; readonly identityUnresolved: number } | null;
-  /** Its last completed validation ran older rules, or a mapping version no longer approved: validate again before output. */
   readonly revalidationRequired: boolean;
-  /** The output version derived from its current validation, if one has been generated. */
   readonly currentOutputId: string | null;
-  /** Output rows of that version showing a raw, unmapped Sarin shape (design v1.7 §15.10); 0 when none or no output. */
   readonly currentOutputUnmappedRows: number;
 }
 
@@ -79,7 +60,6 @@ const SUMMARY_SELECT = {
 
 type SummaryRow = Prisma.SarinImportBatchGetPayload<{ select: typeof SUMMARY_SELECT }>;
 
-/** Row outcome counts for a set of batches, in one grouped query. */
 async function countsFor(batchIds: string[]): Promise<Map<string, SarinRowCounts>> {
   const groups = batchIds.length
     ? await db.sarinSourceRow.groupBy({ by: ["batchId", "outcome"], where: { batchId: { in: batchIds } }, _count: { _all: true } })
@@ -95,7 +75,6 @@ async function countsFor(batchIds: string[]): Promise<Map<string, SarinRowCounts
   return new Map([...out].map(([id, c]) => [id, { records: c.accepted + c.quarantined + c.rejectedStructure, ...c }]));
 }
 
-/** Display names of the given accounts, in one query. Actor ids are stored as plain text. */
 export async function displayNamesOf(userIds: string[]): Promise<Map<string, string>> {
   const unique = [...new Set(userIds)];
   if (unique.length === 0) return new Map();
@@ -103,10 +82,6 @@ export async function displayNamesOf(userIds: string[]): Promise<Map<string, str
   return new Map(users.map((u) => [u.id, u.displayName]));
 }
 
-/**
- * Batches whose last completed validation ran older validation rules, or used a mapping
- * that was withdrawn: either way they must be processed again for output.
- */
 async function outdatedValidation(batchIds: string[]): Promise<Set<string>> {
   if (batchIds.length === 0) return new Set();
   const latest = await db.sarinValidationAttempt.findMany({
@@ -118,10 +93,6 @@ async function outdatedValidation(batchIds: string[]): Promise<Set<string>> {
   return new Set(latest.filter((a) => a.validationProfileVersion !== SARIN_VALIDATION_PROFILE_VERSION || !SARIN_MAPPING_LINEAGE_STATUSES.includes(a.shapeMappingSet.status)).map((a) => a.batchId));
 }
 
-/**
- * The current output version of each batch: its one GENERATED version derived from the
- * batch's current validation attempt (the same rule the output reads use), in one query.
- */
 async function currentOutputs(batches: Array<{ id: string; validationAttempt: number }>): Promise<Map<string, { id: string; unmappedRows: number }>> {
   if (batches.length === 0) return new Map();
   const attemptOf = new Map(batches.map((b) => [b.id, b.validationAttempt]));
@@ -130,7 +101,6 @@ async function currentOutputs(batches: Array<{ id: string; validationAttempt: nu
     select: { id: true, batchId: true, validationAttempt: { select: { attemptNumber: true } } },
   });
   const current = versions.filter((v) => v.validationAttempt.attemptNumber === attemptOf.get(v.batchId));
-  // One grouped count over the partial pass-through index, for every listed batch at once.
   const unmapped = current.length
     ? await db.sarinPlanPiece.groupBy({ by: ["outputVersionId"], where: { outputVersionId: { in: current.map((v) => v.id) }, shapeResolution: "RAW_PASSTHROUGH" }, _count: { _all: true } })
     : [];
@@ -160,14 +130,12 @@ function toSummary(b: SummaryRow, counts: SarinRowCounts, names: Map<string, str
   };
 }
 
-/** A batch by id within the caller's scope; null when absent or outside it. */
 export async function getSarinImport(scope: EffectiveScope, batchId: string): Promise<SarinImportSummary | null> {
   const b = await db.sarinImportBatch.findFirst({ where: { id: batchId, ...scopeOf(scope) }, select: SUMMARY_SELECT });
   if (!b) return null;
   return toSummary(b, (await countsFor([b.id])).get(b.id)!, await displayNamesOf([b.uploadedByUserId]), await outdatedValidation([b.id]), await currentOutputs([b]));
 }
 
-/** A batch by id with no scope applied. Only for reading back what the caller just wrote. */
 export async function getSarinImportById(batchId: string): Promise<SarinImportSummary | null> {
   const b = await db.sarinImportBatch.findUnique({ where: { id: batchId }, select: SUMMARY_SELECT });
   if (!b) return null;
@@ -187,11 +155,9 @@ export interface Page {
 }
 
 export async function listSarinImports(scope: EffectiveScope, filters: SarinImportFilters, page: Page) {
-  // The scope is merged last and ANDed: a filter can only narrow it, never widen it.
   const where: Prisma.SarinImportBatchWhereInput = {
     AND: [
       {
-        // A deleted (archived) import leaves the default list; it is listed only when asked for by status.
         status: filters.status ? filters.status : { not: "ARCHIVED" },
         ...(filters.packetType ? { packetType: filters.packetType } : {}),
         ...(filters.lab ? { labScope: filters.lab } : {}),
@@ -226,7 +192,6 @@ export interface SarinSourceRowView {
   readonly outcome: string;
   readonly fieldCount: number;
   readonly rejectionCodes: string[];
-  /** The fields exactly as read, or null when the record's quoting could not be read. */
   readonly fields: string[] | null;
   readonly values: {
     readonly stoneName: string | null;
@@ -245,7 +210,6 @@ export interface SarinSourceRowView {
 
 const dec = (d: Prisma.Decimal | null) => (d === null ? null : d.toFixed(3));
 
-/** One page of a batch's source rows in file order; null when the batch is out of scope. */
 export async function listSarinImportRows(scope: EffectiveScope, batchId: string, outcome: SarinSourceRowOutcome | null, page: Page) {
   const batch = await db.sarinImportBatch.findFirst({ where: { id: batchId, ...scopeOf(scope) }, select: { id: true } });
   if (!batch) return null;

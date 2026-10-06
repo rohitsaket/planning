@@ -12,16 +12,6 @@ import {
   issueTypeOfRule,
 } from "@/lib/data-quality/issue-types";
 
-/**
- * Recorded data-quality issues, as synchronization and the demand calculation persisted
- * them. Read-only. Filtering, search, counts and paging all run in the database, so every
- * figure covers the whole filtered set rather than one page of it.
- *
- * Only business fields leave the server: the issue type (never the internal rule code),
- * where it came from, the affected record, the message and its review state. Batch and
- * checkpoint identifiers, raw and normalised source values and internal issue keys stay
- * here.
- */
 export const GET = withApi({ permission: "data_quality.read" }, async (req: Request) => {
   const url = new URL(req.url);
   const p = paging(url);
@@ -50,7 +40,6 @@ export const GET = withApi({ permission: "data_quality.read" }, async (req: Requ
       orderBy: [{ detectedAt: "desc" }, { id: "asc" }],
       select: { id: true, source: true, entity: true, recordId: true, rule: true, message: true, severity: true, status: true, detectedAt: true, resolution: true, resolvedAt: true },
     }),
-    // Counts per severity for the other active filters, so the cards and the table agree.
     db.dataQualityIssue.groupBy({ by: ["severity"], where: base, _count: { _all: true } }),
     db.dataQualityIssue.count(),
   ]);
@@ -73,8 +62,6 @@ export const GET = withApi({ permission: "data_quality.read" }, async (req: Requ
     })),
     paging: { page: pg.page, pageSize: pg.pageSize, total, hasMore: pg.hasMore },
     severityCounts,
-    // Whether anything has ever been recorded, so an empty filter result is not mistaken
-    // for a clean bill of health.
     recordedTotal,
     types: ISSUE_TYPE_KEYS,
   });

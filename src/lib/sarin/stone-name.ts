@@ -1,17 +1,3 @@
-/**
- * Sarin Stone Name identity, by the batch's declared packet type (never inferred):
- *
- *   BLUE, WHITE   Kapan-Packet Signer    e.g. 691C-117 DC, 2501-001 HA
- *   PINK          Kapan-Packet_Signer    e.g. 678-111_M
- *
- * Each component is one or more ASCII letters or digits, so the delimiters are exactly an
- * ASCII hyphen and one ASCII space (or underscore). Packet is an identifier: "001" stays
- * "001". Signer case is kept. Nothing is trimmed, repaired or guessed — a name that does
- * not match exactly is reported with the most specific reason that applies.
- *
- * Server-only.
- */
-
 import type { SarinPacketType } from "@/lib/sarin/domain";
 
 if (typeof window !== "undefined") {
@@ -44,11 +30,9 @@ export function parseSarinStoneName(name: string, packetType: SarinPacketType): 
   const m = PATTERN[own].exec(name);
   if (m) return { ok: true, kapan: m[1], packet: m[2], signer: m[3] };
 
-  // A complete name of the other form is reported as such, never converted.
   const other = own === "SPACE" ? "UNDERSCORE" : "SPACE";
   if (PATTERN[other].test(name)) return { ok: false, code: "STONE_NAME_TYPE_MISMATCH" };
 
-  // Name the missing component when the delimiters are where they should be.
   const hyphen = name.indexOf("-");
   if (hyphen === -1) return { ok: false, code: "STONE_NAME_INVALID" };
   const kapan = name.slice(0, hyphen);
